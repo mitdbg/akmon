@@ -1,0 +1,999 @@
+name: release
+
+# Publishes one release of AKMON from a candidate the private development
+# repository prepared (decisions akmonrel A, akmongate A2, chart akmon).
+#
+# Dispatched by hand only, never by a push or a tag: the release-app token
+# below pushes main and a tag, and a push made with an App token does start
+# workflows, so a push trigger here would start a second release.
+#
+# Only a dispatch from main runs: the guard job fails any other ref, and the
+# `release` environment's deployment-branch policy must name main only.
+#
+# Order is the point:
+#   1. candidate (environment `release`, required reviewer): fetch the exact
+#      hand-over commit the dispatch names from the development repository's
+#      refs/akmon-candidates/<tag> (decision candidatehandoff A); refuse
+#      unless the ref is at that SHA, the commit has no parent, its tree is
+#      exactly candidate/ with the four files and candidate.bundle, the
+#      bundle's sha256 is the one the commit records and it verifies against
+#      main, release.json names the candidate commit the bundle holds, and the
+#      okg commit it names is on the development repository's dev; check the
+#      candidate is one commit on top of main with the tree, version and
+#      contract it claims; check that no release reference exists yet.
+#   2. chart (no secret, read-only token): put the candidate's tree beside
+#      the checkout and prepare, lint and package its chart as data.
+#   3. release-source (environment `release` again, so the reviewer approves
+#      the push itself): runs only main's script and inline git. It checks the
+#      candidate again and pushes main (a fast-forward) and the tag in one
+#      atomic push, with Git hooks off.
+#   4. wheel, images, PostgreSQL: built from this repository's own tree,
+#      pushed by digest only, and proved (both platforms, natively).
+#   5. publish: give the proven digests their release tags, push the chart,
+#      attach the wheel and contract to a draft GitHub release whose body is
+#      the hand-written notes, pull all three manifests anonymously, and only
+#      then make the release public. A first release's packages may start
+#      private: the anonymous pull then fails, the release stays a draft, and
+#      the message says to make the packages public and re-run the failed
+#      jobs.
+#
+# Trusted code: every release-script step runs the copy from the commit this
+# workflow was dispatched from (github.sha, or main before the push), never
+# the candidate's. The candidate's own code runs only where it must, holding
+# no token: building the wheel (its setup.py; publish then checks the wheel
+# again, including that every file in it is a byte-for-byte copy of the
+# release tree), building the images (inside BuildKit) and proving them
+# (inside the image). publish checks the new release's tree out beside its
+# own checkout, as data, and runs none of it. In the jobs whose checkout is
+# the release, every other Python step runs isolated (`python -I`) from
+# ${RUNNER_TEMP}, so nothing in the checkout is imported.
+#
+# Two approvals per release: the reviewer approves `candidate` (fetch and
+# check) and then `release-source` (the push), because both jobs hold an App
+# key and so both run in the `release` environment. To drop the second
+# approval, put the AKMON_RELEASE_APP_* secrets in a second environment with no
+# reviewer, limited to main, and point release-source at it; the push then
+# follows the first approval and the secretless chart job without a pause.
+#
+# Every later job takes the candidate this run kept, and publish takes the
+# wheel, by artifact id, and refuses either unless its files still hash to the
+# digest the uploading job recorded: the chart job runs candidate code, which
+# could otherwise replace an artifact of this run by name.
+#
+# Secrets, all in the `release` environment, so no job sees them before the
+# reviewer approves:
+#   AKMON_FETCH_APP_ID / AKMON_FETCH_APP_KEY      a GitHub App on the private
+#       development repository: Contents read (the candidate ref, and the
+#       compare API that places the okg commit on dev).
+#   AKMON_RELEASE_APP_ID / AKMON_RELEASE_APP_KEY  a GitHub App on mitdbg/akmon:
+#       Contents and Workflows write (main and the v* tag; it is on both
+#       rulesets' bypass lists).
+# The two are different Apps; the first job refuses one App in both roles.
+# Each token is minted just before the step that uses it, scoped to one
+# repository and one permission set, in a job that runs no candidate code.
+#
+# This workflow's own artifacts are kept seven days, so failed jobs can be
+# re-run for a week. The development repository's candidate ref stays until
+# someone deletes it.
+#
+# What Contents read can prove, and what it cannot (decision candprov B): the
+# hand-over is fetched by the exact SHA the dispatch names and must be what
+# the ref holds, and every file is checked against the candidate commit its
+# bundle holds. This workflow does not verify which okg run made the
+# candidate: anyone who can push to the development repository is trusted
+# and could write a self-consistent candidate from a commit on dev. Jason
+# checks the SHA he dispatches against the one the okg prepare run printed in
+# its summary, and approves this run as the required reviewer.
+#
+# A run that fails after the images are pushed by digest leaves those
+# manifests, and the candidate-vX.Y.Z index tags, in the packages. No release
+# name points at them; a rerun reuses or replaces them, and they can be
+# deleted by hand from the package settings.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, v0.MINOR.PATCH (for example v0.2.0)
+        required: true
+        type: string
+      okg_candidate:
+        description: The sidecar commit SHA the private repository's prepare run printed
+        required: true
+        type: string
+
+permissions: {}
+
+# docker/build-push-action uploads a build record unless this is false.
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+
+concurrency:
+  group: akmon-release
+  cancel-in-progress: false
+
+jobs:
+  # Only a dispatch from main may release. The environment's deployment-branch
+  # policy says so too; this job makes a dispatch from any other ref fail
+  # visibly, before any job sees a secret.
+  guard:
+    name: refuse a dispatch from any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Refuse unless dispatched from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != refs/heads/main ]; then
+            echo "::error::release runs only from refs/heads/main, not ${REF}"
+            exit 1
+          fi
+
+  candidate:
+    name: fetch and check the candidate
+    needs: guard
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      tag: ${{ inputs.tag }}
+      commit: ${{ steps.verify.outputs.commit }}
+      kept-artifact: ${{ steps.keep.outputs.artifact-id }}
+      kept-digest: ${{ steps.kept.outputs.digest }}
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      # main's copy of this repository: the script below is the reviewed one,
+      # not the candidate's.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Refuse one App in both roles
+        env:
+          FETCH_APP_ID: ${{ secrets.AKMON_FETCH_APP_ID }}
+          RELEASE_APP_ID: ${{ secrets.AKMON_RELEASE_APP_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$FETCH_APP_ID" && test -n "$RELEASE_APP_ID"
+          if [ "$FETCH_APP_ID" = "$RELEASE_APP_ID" ]; then
+            echo "AKMON_FETCH_APP_ID and AKMON_RELEASE_APP_ID name the same App; use two Apps" >&2
+            exit 1
+          fi
+      - name: Mint the read-only token for the candidate
+        id: fetch-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.AKMON_FETCH_APP_ID }}
+          private-key: ${{ secrets.AKMON_FETCH_APP_KEY }}
+          owner: mitdbg
+          repositories: okg
+          permission-contents: read
+      # Exactly the sidecar SHA the dispatch names, from the candidate ref; the
+      # token reaches git through the environment only.
+      - name: Fetch the candidate
+        id: fetch
+        env:
+          GITHUB_TOKEN: ${{ steps.fetch-token.outputs.token }}
+          OKG_CANDIDATE: ${{ inputs.okg_candidate }}
+        run: >-
+          python scripts/akmon_release.py fetch-candidate --repository mitdbg/okg --tag "$TAG"
+          --sha "$OKG_CANDIDATE" --dir "${RUNNER_TEMP}/candidate"
+      - name: Check the candidate against main
+        id: verify
+        run: python scripts/akmon_release.py verify-candidate --tag "$TAG" --dir "${RUNNER_TEMP}/candidate"
+      - name: Refuse any release reference that already exists
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/akmon_release.py absent "ghcr.io/mitdbg/akmon:${TAG}"
+          python scripts/akmon_release.py absent "ghcr.io/mitdbg/akmon-postgres:${TAG}"
+          python scripts/akmon_release.py absent "ghcr.io/mitdbg/charts/akmon:${TAG#v}"
+      # Later jobs take the kept candidate by this artifact id and refuse it
+      # unless it still holds exactly these files and bytes: the chart job
+      # runs candidate code that could otherwise replace an artifact of this
+      # run by name.
+      - name: Digest the candidate kept for the later jobs
+        id: kept
+        run: |
+          set -euo pipefail
+          kept="${RUNNER_TEMP}/kept"
+          mkdir "$kept"
+          cp "${RUNNER_TEMP}/candidate/notes.md" "${RUNNER_TEMP}/candidate/release-body.md" \
+            "${RUNNER_TEMP}/candidate/release.json" "${RUNNER_TEMP}/candidate/okg-contract-${TAG}.json" \
+            "${RUNNER_TEMP}/candidate/akmon-${TAG}.bundle" "$kept/"
+          python scripts/akmon_release.py tree-digest "$kept"
+      - name: Keep the candidate for the later jobs
+        id: keep
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-candidate
+          path: ${{ runner.temp }}/kept/
+          if-no-files-found: error
+          retention-days: 7
+
+  # The candidate's chart is prepared, linted and packaged here as data: the
+  # dispatch commit's release script reads it from a separate worktree, and
+  # the job holds no secret and only a read-only token.
+  chart:
+    name: prepare and lint the candidate's chart
+    needs: candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      content: ${{ steps.chart.outputs.content }}
+    env:
+      TAG: ${{ needs.candidate.outputs.tag }}
+      COMMIT: ${{ needs.candidate.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.kept-artifact }}
+          path: ${{ runner.temp }}/candidate
+      - name: Confirm the kept candidate is unchanged
+        env:
+          EXPECTED: ${{ needs.candidate.outputs.kept-digest }}
+        run: python scripts/akmon_release.py same-tree "${RUNNER_TEMP}/candidate" --expected "$EXPECTED"
+      - name: Put the candidate's tree beside this checkout
+        run: |
+          set -euo pipefail
+          git fetch --no-tags "${RUNNER_TEMP}/candidate/akmon-${TAG}.bundle" "+refs/heads/release:refs/candidate/${TAG}"
+          git -c core.hooksPath=/dev/null worktree add --detach "${RUNNER_TEMP}/candidate-tree" "$COMMIT"
+          test "$(git -C "${RUNNER_TEMP}/candidate-tree" rev-parse HEAD)" = "$COMMIT"
+      - name: Install the release script dependency
+        run: python -I -m pip install "pyyaml==6.0.3"
+      - name: Install the checksum-pinned Helm
+        env:
+          HELM_VERSION: v3.19.0
+          HELM_SHA256: a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/helm.tar.gz"
+          curl --fail --location --retry 3 \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" --output "$archive"
+          echo "${HELM_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "${RUNNER_TEMP}/linux-amd64" >> "$GITHUB_PATH"
+      - name: Prepare, lint and package the released chart
+        id: chart
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/chart"
+          python scripts/akmon_release.py chart --tag "$TAG" \
+            --source "${RUNNER_TEMP}/candidate-tree/ops/kubernetes/okg" --out "$out"
+          # Lint with every value the chart refuses to leave empty, so lint
+          # checks the templates rather than the install-time inputs. The
+          # storage classes are placeholders: the chart has no default class.
+          helm lint --strict "${out}/akmon" \
+            --set okg.deployment=lint --set secrets.existingSecret=lint \
+            --set postgresql.storage.storageClassName=lint \
+            --set runtime.storage.storageClassName=lint
+          helm package "${out}/akmon" --destination "${RUNNER_TEMP}/package"
+          test -f "${RUNNER_TEMP}/package/akmon-${TAG#v}.tgz"
+
+  # Trusted code only: main's script and inline git. It checks the candidate
+  # again (main may have moved since the first job) and its last step pushes
+  # main (a fast-forward; the candidate's parent is main) and the tag, both or
+  # neither.
+  release-source:
+    name: push the candidate and its tag
+    needs: [candidate, chart]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ inputs.tag }}
+      commit: ${{ steps.verify.outputs.commit }}
+      tree: ${{ steps.verify.outputs.tree }}
+      version: ${{ steps.verify.outputs.version }}
+      kept-artifact: ${{ needs.candidate.outputs.kept-artifact }}
+      kept-digest: ${{ needs.candidate.outputs.kept-digest }}
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.kept-artifact }}
+          path: ${{ runner.temp }}/candidate
+      - name: Confirm the kept candidate is unchanged
+        env:
+          EXPECTED: ${{ needs.candidate.outputs.kept-digest }}
+        run: python scripts/akmon_release.py same-tree "${RUNNER_TEMP}/candidate" --expected "$EXPECTED"
+      - name: Check the candidate against main again
+        id: verify
+        env:
+          CHECKED: ${{ needs.candidate.outputs.commit }}
+        run: |
+          set -euo pipefail
+          python scripts/akmon_release.py verify-candidate --tag "$TAG" --dir "${RUNNER_TEMP}/candidate"
+          test "$(sed -n 's/^commit=//p' "$GITHUB_OUTPUT" | tail -n 1)" = "$CHECKED"
+      - name: Mint the push token
+        id: release-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.AKMON_RELEASE_APP_ID }}
+          private-key: ${{ secrets.AKMON_RELEASE_APP_KEY }}
+          owner: mitdbg
+          repositories: akmon
+          permission-contents: write
+          permission-workflows: write
+      - name: Push main and the tag
+        env:
+          COMMIT: ${{ steps.verify.outputs.commit }}
+          PUSH_TOKEN: ${{ steps.release-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git tag "$TAG" "$COMMIT"
+          git -c core.hooksPath=/dev/null push --atomic \
+            "https://x-access-token:${PUSH_TOKEN}@github.com/mitdbg/akmon.git" \
+            "${COMMIT}:refs/heads/main" "refs/tags/${TAG}:refs/tags/${TAG}"
+
+  build-wheel:
+    name: build and check the wheel
+    needs: release-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      contracts: ${{ steps.stage.outputs.contracts }}
+      wheel-artifact: ${{ steps.upload.outputs.artifact-id }}
+      wheel-digest: ${{ steps.wheel.outputs.digest }}
+    env:
+      TAG: ${{ needs.release-source.outputs.tag }}
+      VERSION: ${{ needs.release-source.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-source.outputs.commit }}
+          persist-credentials: false
+      # This workflow's own release script, from the commit it was dispatched
+      # from, kept outside the checkout: the candidate's copy never runs here.
+      - name: Fetch the dispatch commit's release script
+        env:
+          TRUSTED: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$TRUSTED"
+          mkdir -p "${RUNNER_TEMP}/trusted"
+          git show "${TRUSTED}:scripts/akmon_release.py" > "${RUNNER_TEMP}/trusted/akmon_release.py"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      # -I and a working directory outside the checkout: `python -m` would
+      # otherwise import a pip/ or pip.py the candidate placed in the checkout.
+      - name: Install the release tools
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pip install "pyyaml==6.0.3" "uv==0.7.11"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.release-source.outputs.kept-artifact }}
+          path: ${{ runner.temp }}/candidate
+      - name: Confirm the kept candidate is unchanged
+        working-directory: ${{ runner.temp }}
+        env:
+          EXPECTED: ${{ needs.release-source.outputs.kept-digest }}
+        run: python -I "${RUNNER_TEMP}/trusted/akmon_release.py" same-tree "${RUNNER_TEMP}/candidate" --expected "$EXPECTED"
+      - name: Stage the earlier releases' contracts
+        id: stage
+        working-directory: ${{ runner.temp }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          history="$(python -I "${RUNNER_TEMP}/trusted/akmon_release.py" history --tag "$TAG" | sed -n 's/^history=//p')"
+          python -I "${RUNNER_TEMP}/trusted/akmon_release.py" stage-contracts --history "$history" \
+            --dir "${GITHUB_WORKSPACE}/build/release-contracts"
+      # The candidate's code runs from here on (its setup.py builds the wheel),
+      # so no later step of this job holds a token. publish checks the wheel
+      # again with the dispatch commit's script.
+      - name: Build the wheel and its contract
+        env:
+          CONTRACTS: ${{ steps.stage.outputs.contracts }}
+        run: |
+          set -euo pipefail
+          uv build --wheel --out-dir "${RUNNER_TEMP}/dist"
+          wheel="$(ls "${RUNNER_TEMP}"/dist/okg-*.whl)"
+          python -I "${RUNNER_TEMP}/trusted/akmon_release.py" check-wheel "$wheel" --version "$VERSION" --contracts "$CONTRACTS"
+          uv run --isolated --no-project --with "$wheel" python - "${RUNNER_TEMP}/dist/okg-contract-${TAG}.json" <<'PY'
+          import sys
+          from okg.substrate.release_contract import build_contract, render_contract
+          open(sys.argv[1], "w", encoding="utf-8").write(render_contract(build_contract()))
+          PY
+          python -I "${RUNNER_TEMP}/trusted/akmon_release.py" same-contract \
+            "${RUNNER_TEMP}/dist/okg-contract-${TAG}.json" "${RUNNER_TEMP}/candidate/okg-contract-${TAG}.json"
+      - name: Digest the wheel and contract for publish
+        id: wheel
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/wheel-out"
+          mkdir "$out"
+          cp "${RUNNER_TEMP}"/dist/okg-*.whl "${RUNNER_TEMP}/dist/okg-contract-${TAG}.json" "$out/"
+          python -I "${RUNNER_TEMP}/trusted/akmon_release.py" tree-digest "$out"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-wheel
+          path: ${{ runner.temp }}/wheel-out/
+          if-no-files-found: error
+          retention-days: 7
+
+  build-runtime-amd64:
+    name: build and prove the runtime image (linux/amd64)
+    needs: release-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.result.outputs.digest }}
+    env:
+      TAG: ${{ needs.release-source.outputs.tag }}
+      REVISION: ${{ needs.release-source.outputs.commit }}
+      TREE: ${{ needs.release-source.outputs.tree }}
+      PLATFORM: linux/amd64
+      IMAGE: ghcr.io/mitdbg/akmon
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-source.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      # -I and a working directory outside the checkout: `python -m` would
+      # otherwise import a pip/ or pip.py the candidate placed in the checkout.
+      - name: Install the release script dependency
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pip install "pyyaml==6.0.3"
+      - name: Confirm this checkout is the released commit and clean
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVISION"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$TREE"
+          test -z "$(git status --porcelain --untracked-files=all)"
+      # This workflow's own release script, from the commit it was dispatched
+      # from, kept outside the checkout: the candidate's copy never runs here.
+      - name: Fetch the dispatch commit's release script
+        env:
+          TRUSTED: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$TRUSTED"
+          mkdir -p "${RUNNER_TEMP}/trusted"
+          git show "${TRUSTED}:scripts/akmon_release.py" > "${RUNNER_TEMP}/trusted/akmon_release.py"
+      # build/ is ignored by git and not by .dockerignore, so the build
+      # context carries these and setup.py bundles them into the wheel.
+      - name: Stage the earlier releases' contracts
+        id: stage
+        working-directory: ${{ runner.temp }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          history="$(python -I "${RUNNER_TEMP}/trusted/akmon_release.py" history --tag "$TAG" | sed -n 's/^history=//p')"
+          python -I "${RUNNER_TEMP}/trusted/akmon_release.py" stage-contracts --history "$history" \
+            --dir "${GITHUB_WORKSPACE}/build/release-contracts"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          outputs: type=image,name=ghcr.io/mitdbg/akmon,push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          build-args: |
+            VCS_REF=${{ env.REVISION }}
+            OKG_VERSION=${{ env.TAG }}
+            OKG_BUILD_SOURCE_TREE=${{ env.TREE }}
+            OKG_BUILD_SOURCE_DIRTY=false
+      # Natively on this platform's runner: the image is the clean wheel of
+      # this commit and tree, carrying exactly the staged contracts.
+      - name: Prove the pushed image is the release build
+        id: result
+        working-directory: ${{ runner.temp }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          CONTRACTS: ${{ steps.stage.outputs.contracts }}
+        run: |
+          set -euo pipefail
+          ref="${IMAGE}@${DIGEST}"
+          docker pull "$ref"
+          test "$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$REVISION"
+          test "$(docker image inspect "$ref" --format '{{ .Config.User }}')" = "10001:10001"
+          test "$(docker image inspect "$ref" --format '{{ .Os }}/{{ .Architecture }}')" = "$PLATFORM"
+          docker run --rm --workdir / --entrypoint /bin/sh "$ref" -ec \
+            'test "$(id -u)" = 10001; test "$OKG_CODE_REVISION" = "$1"' -- "$REVISION"
+          docker run --rm --workdir / --entrypoint python "$ref" \
+            /opt/okg/scripts/akmon_release.py verify-installed \
+            --revision "$REVISION" --tree "$TREE" --contracts "$CONTRACTS"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+  build-runtime-arm64:
+    name: build and prove the runtime image (linux/arm64)
+    needs: release-source
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.result.outputs.digest }}
+    env:
+      TAG: ${{ needs.release-source.outputs.tag }}
+      REVISION: ${{ needs.release-source.outputs.commit }}
+      TREE: ${{ needs.release-source.outputs.tree }}
+      PLATFORM: linux/arm64
+      IMAGE: ghcr.io/mitdbg/akmon
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-source.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      # -I and a working directory outside the checkout: `python -m` would
+      # otherwise import a pip/ or pip.py the candidate placed in the checkout.
+      - name: Install the release script dependency
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pip install "pyyaml==6.0.3"
+      - name: Confirm this checkout is the released commit and clean
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVISION"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$TREE"
+          test -z "$(git status --porcelain --untracked-files=all)"
+      # This workflow's own release script, from the commit it was dispatched
+      # from, kept outside the checkout: the candidate's copy never runs here.
+      - name: Fetch the dispatch commit's release script
+        env:
+          TRUSTED: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$TRUSTED"
+          mkdir -p "${RUNNER_TEMP}/trusted"
+          git show "${TRUSTED}:scripts/akmon_release.py" > "${RUNNER_TEMP}/trusted/akmon_release.py"
+      # build/ is ignored by git and not by .dockerignore, so the build
+      # context carries these and setup.py bundles them into the wheel.
+      - name: Stage the earlier releases' contracts
+        id: stage
+        working-directory: ${{ runner.temp }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          history="$(python -I "${RUNNER_TEMP}/trusted/akmon_release.py" history --tag "$TAG" | sed -n 's/^history=//p')"
+          python -I "${RUNNER_TEMP}/trusted/akmon_release.py" stage-contracts --history "$history" \
+            --dir "${GITHUB_WORKSPACE}/build/release-contracts"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          outputs: type=image,name=ghcr.io/mitdbg/akmon,push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          build-args: |
+            VCS_REF=${{ env.REVISION }}
+            OKG_VERSION=${{ env.TAG }}
+            OKG_BUILD_SOURCE_TREE=${{ env.TREE }}
+            OKG_BUILD_SOURCE_DIRTY=false
+      # Natively on this platform's runner: the image is the clean wheel of
+      # this commit and tree, carrying exactly the staged contracts.
+      - name: Prove the pushed image is the release build
+        id: result
+        working-directory: ${{ runner.temp }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          CONTRACTS: ${{ steps.stage.outputs.contracts }}
+        run: |
+          set -euo pipefail
+          ref="${IMAGE}@${DIGEST}"
+          docker pull "$ref"
+          test "$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$REVISION"
+          test "$(docker image inspect "$ref" --format '{{ .Config.User }}')" = "10001:10001"
+          test "$(docker image inspect "$ref" --format '{{ .Os }}/{{ .Architecture }}')" = "$PLATFORM"
+          docker run --rm --workdir / --entrypoint /bin/sh "$ref" -ec \
+            'test "$(id -u)" = 10001; test "$OKG_CODE_REVISION" = "$1"' -- "$REVISION"
+          docker run --rm --workdir / --entrypoint python "$ref" \
+            /opt/okg/scripts/akmon_release.py verify-installed \
+            --revision "$REVISION" --tree "$TREE" --contracts "$CONTRACTS"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+  build-postgres-amd64:
+    name: build and prove the PostgreSQL image (linux/amd64)
+    needs: release-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.result.outputs.digest }}
+    env:
+      REVISION: ${{ needs.release-source.outputs.commit }}
+      PLATFORM: linux/amd64
+      IMAGE: ghcr.io/mitdbg/akmon-postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-source.outputs.commit }}
+          persist-credentials: false
+      - name: Confirm this checkout is the released commit
+        run: test "$(git rev-parse HEAD)" = "$REVISION"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./ops/pg
+          file: ./ops/pg/Dockerfile
+          platforms: linux/amd64
+          outputs: type=image,name=ghcr.io/mitdbg/akmon-postgres,push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          build-args: |
+            VCS_REF=${{ env.REVISION }}
+      - name: Prove the platform image's revision label
+        id: result
+        working-directory: ${{ runner.temp }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          ref="${IMAGE}@${DIGEST}"
+          docker pull "$ref"
+          test "$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$REVISION"
+          test "$(docker image inspect "$ref" --format '{{ .Os }}/{{ .Architecture }}')" = "$PLATFORM"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+  build-postgres-arm64:
+    name: build and prove the PostgreSQL image (linux/arm64)
+    needs: release-source
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.result.outputs.digest }}
+    env:
+      REVISION: ${{ needs.release-source.outputs.commit }}
+      PLATFORM: linux/arm64
+      IMAGE: ghcr.io/mitdbg/akmon-postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-source.outputs.commit }}
+          persist-credentials: false
+      - name: Confirm this checkout is the released commit
+        run: test "$(git rev-parse HEAD)" = "$REVISION"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./ops/pg
+          file: ./ops/pg/Dockerfile
+          platforms: linux/arm64
+          outputs: type=image,name=ghcr.io/mitdbg/akmon-postgres,push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          build-args: |
+            VCS_REF=${{ env.REVISION }}
+      - name: Prove the platform image's revision label
+        id: result
+        working-directory: ${{ runner.temp }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          ref="${IMAGE}@${DIGEST}"
+          docker pull "$ref"
+          test "$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$REVISION"
+          test "$(docker image inspect "$ref" --format '{{ .Os }}/{{ .Architecture }}')" = "$PLATFORM"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+  # Joins each image's two proven platform manifests into one index under a
+  # candidate tag, which is not a release name, and checks it.
+  assemble:
+    name: assemble and prove the image indexes
+    needs: [release-source, build-runtime-amd64, build-runtime-arm64, build-postgres-amd64, build-postgres-arm64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      runtime: ${{ steps.assemble.outputs.runtime }}
+      postgres: ${{ steps.assemble.outputs.postgres }}
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Assemble and prove both indexes
+        id: assemble
+        env:
+          TAG: ${{ needs.release-source.outputs.tag }}
+          REVISION: ${{ needs.release-source.outputs.commit }}
+          RUNTIME_AMD64: ${{ needs.build-runtime-amd64.outputs.digest }}
+          RUNTIME_ARM64: ${{ needs.build-runtime-arm64.outputs.digest }}
+          POSTGRES_AMD64: ${{ needs.build-postgres-amd64.outputs.digest }}
+          POSTGRES_ARM64: ${{ needs.build-postgres-arm64.outputs.digest }}
+        run: |
+          set -euo pipefail
+          assemble() {
+            local key="$1" image="$2" amd64="$3" arm64="$4"
+            local candidate="${image}:candidate-${TAG}"
+            docker buildx imagetools create --tag "$candidate" "${image}@${amd64}" "${image}@${arm64}"
+            local digest manifest platforms
+            digest="$(docker buildx imagetools inspect "$candidate" --format '{{json .Manifest}}' | jq -r .digest)"
+            manifest="$(docker buildx imagetools inspect "${image}@${digest}" --format '{{json .Manifest}}')"
+            platforms="$(jq -c '[.manifests[] | select(.platform.os == "linux")
+              | (.platform.os + "/" + .platform.architecture)] | sort' <<< "$manifest")"
+            test "$platforms" = '["linux/amd64","linux/arm64"]'
+            for architecture in amd64 arm64; do
+              platform_digest="$(jq -er --arg architecture "$architecture" '.manifests[]
+                | select(.platform.os == "linux" and .platform.architecture == $architecture)
+                | .digest' <<< "$manifest")"
+              config="$(docker buildx imagetools inspect "${image}@${platform_digest}" --format '{{json .Image}}')"
+              jq -e --arg revision "$REVISION" \
+                '.config.Labels["org.opencontainers.image.revision"] == $revision' <<< "$config" >/dev/null
+            done
+            echo "${key}=${digest}" >> "$GITHUB_OUTPUT"
+          }
+          assemble runtime ghcr.io/mitdbg/akmon "$RUNTIME_AMD64" "$RUNTIME_ARM64"
+          assemble postgres ghcr.io/mitdbg/akmon-postgres "$POSTGRES_AMD64" "$POSTGRES_ARM64"
+
+  # The first step that gives an image or the chart a release name, after
+  # every proof. Each tag is the exact proven manifest, byte for byte; a
+  # reference that already holds that digest (a rerun) is accepted. The chart
+  # goes after both images it names; the GitHub release goes last.
+  publish:
+    name: tag the proven images, push the chart, publish the release
+    needs: [release-source, chart, build-wheel, assemble]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+    env:
+      TAG: ${{ needs.release-source.outputs.tag }}
+    steps:
+      # Every script here is the dispatch commit's. The new release's tree is
+      # checked out beside it as data (its chart), and none of its code runs
+      # in this job, which holds the contents and packages write token.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-source.outputs.commit }}
+          path: release-tree
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install the release script dependency
+        run: python -I -m pip install "pyyaml==6.0.3"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.release-source.outputs.kept-artifact }}
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.build-wheel.outputs.wheel-artifact }}
+          path: ${{ runner.temp }}/dist
+      - name: Confirm the candidate and the wheel are unchanged
+        env:
+          CANDIDATE_DIGEST: ${{ needs.release-source.outputs.kept-digest }}
+          WHEEL_DIGEST: ${{ needs.build-wheel.outputs.wheel-digest }}
+        run: |
+          set -euo pipefail
+          python scripts/akmon_release.py same-tree "${RUNNER_TEMP}/candidate" --expected "$CANDIDATE_DIGEST"
+          python scripts/akmon_release.py same-tree "${RUNNER_TEMP}/dist" --expected "$WHEEL_DIGEST"
+      # build-wheel ran the candidate's setup.py: check its wheel and contract
+      # again here, with this script and freshly staged earlier contracts, and
+      # check that every file in the wheel is a byte-for-byte copy of the
+      # release tree (or the staged contracts, its build record and its one
+      # standard .dist-info), under a plain, unique name. Requires-Dist is
+      # not compared with pyproject.toml.
+      - name: Check the wheel again
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release-source.outputs.version }}
+          REVISION: ${{ needs.release-source.outputs.commit }}
+          TREE_ID: ${{ needs.release-source.outputs.tree }}
+        run: |
+          set -euo pipefail
+          history="$(python scripts/akmon_release.py history --tag "$TAG" | sed -n 's/^history=//p')"
+          contracts="$(python scripts/akmon_release.py stage-contracts --history "$history" \
+            --dir "${RUNNER_TEMP}/contracts" | sed -n 's/^contracts=//p')"
+          python scripts/akmon_release.py check-wheel "$(ls "${RUNNER_TEMP}"/dist/okg-*.whl)" \
+            --version "$VERSION" --contracts "$contracts"
+          python scripts/akmon_release.py same-contract \
+            "${RUNNER_TEMP}/dist/okg-contract-${TAG}.json" "${RUNNER_TEMP}/candidate/okg-contract-${TAG}.json"
+          python scripts/akmon_release.py wheel-source "$(ls "${RUNNER_TEMP}"/dist/okg-*.whl)" \
+            --tree release-tree --revision "$REVISION" --tree-id "$TREE_ID" --version "$VERSION" \
+            --contracts "$contracts"
+      - name: Install the checksum-pinned Helm
+        env:
+          HELM_VERSION: v3.19.0
+          HELM_SHA256: a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/helm.tar.gz"
+          curl --fail --location --retry 3 \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" --output "$archive"
+          echo "${HELM_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "${RUNNER_TEMP}/linux-amd64" >> "$GITHUB_PATH"
+      - name: Prepare the chart the chart job linted, and confirm it is the same
+        env:
+          EXPECTED: ${{ needs.chart.outputs.content }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/chart"
+          content="$(python scripts/akmon_release.py chart --tag "$TAG" \
+            --source release-tree/ops/kubernetes/okg --out "$out" | sed -n 's/^content=//p')"
+          test -n "$EXPECTED"
+          test "$content" = "$EXPECTED"
+          helm package "${out}/akmon" --destination "${RUNNER_TEMP}/package"
+          test -f "${RUNNER_TEMP}/package/akmon-${TAG#v}.tgz"
+      # A chart version that already exists stands only when it holds the
+      # same files as the chart prepared above: an earlier attempt of this run
+      # pushed it. Anything else refuses, before any image is tagged.
+      - name: Decide whether the chart is already published
+        id: chart-state
+        env:
+          ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          state="$(python scripts/akmon_release.py reference-state "ghcr.io/mitdbg/charts/akmon:${TAG#v}")"
+          if [ "$state" = absent ]; then
+            echo "push=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s' "$GITHUB_TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+          helm pull oci://ghcr.io/mitdbg/charts/akmon --version "${TAG#v}" --destination "${RUNNER_TEMP}/existing"
+          helm registry logout ghcr.io
+          python scripts/akmon_release.py same-chart \
+            "${RUNNER_TEMP}/existing/akmon-${TAG#v}.tgz" "${RUNNER_TEMP}/package/akmon-${TAG#v}.tgz"
+          echo "push=false" >> "$GITHUB_OUTPUT"
+          echo "digest=${state}" >> "$GITHUB_OUTPUT"
+      - name: Tag the proven runtime image
+        id: runtime
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DIGEST: ${{ needs.assemble.outputs.runtime }}
+        run: python scripts/akmon_release.py tag "ghcr.io/mitdbg/akmon@${DIGEST}" "ghcr.io/mitdbg/akmon:${TAG}"
+      - name: Tag the proven PostgreSQL index
+        id: postgres
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DIGEST: ${{ needs.assemble.outputs.postgres }}
+        run: python scripts/akmon_release.py tag "ghcr.io/mitdbg/akmon-postgres@${DIGEST}" "ghcr.io/mitdbg/akmon-postgres:${TAG}"
+      - name: Push the chart to ghcr.io
+        id: push
+        env:
+          ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PUSH: ${{ steps.chart-state.outputs.push }}
+          EXISTING: ${{ steps.chart-state.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [ "$PUSH" = false ]; then
+            test -n "$EXISTING"
+            echo "digest=${EXISTING}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$PUSH" = true
+          printf '%s' "$GITHUB_TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+          output="$(helm push "${RUNNER_TEMP}/package/akmon-${TAG#v}.tgz" oci://ghcr.io/mitdbg/charts 2>&1)"
+          printf '%s\n' "$output"
+          digest="$(printf '%s\n' "$output" | sed -n 's/^Digest: \(sha256:[0-9a-f]\{64\}\)$/\1/p')"
+          test -n "$digest"
+          helm registry logout ghcr.io
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+      # A draft first: it is not public. A rerun attaches whatever an earlier
+      # attempt did not, then checks every asset's bytes by digest.
+      - name: Draft the GitHub release with every asset
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RUNTIME_DIGEST: ${{ steps.runtime.outputs.digest }}
+          POSTGRES_DIGEST: ${{ steps.postgres.outputs.digest }}
+          CHART_DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null | grep -qx false; then
+            echo "the release ${TAG} is already published"
+            exit 0
+          fi
+          candidate="${RUNNER_TEMP}/candidate"
+          body="${RUNNER_TEMP}/release-body.md"
+          cp "${candidate}/release-body.md" "$body"
+          python scripts/akmon_release.py notes --tag "$TAG" --body "$body" \
+            --runtime-digest "$RUNTIME_DIGEST" --postgres-digest "$POSTGRES_DIGEST" --chart-digest "$CHART_DIGEST"
+          assets=("${RUNNER_TEMP}"/dist/okg-*.whl "${candidate}/okg-contract-${TAG}.json" "${candidate}/release.json")
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --verify-tag --title "AKMON ${TAG}" --notes-file "$body" "${assets[@]}"
+          else
+            # A rerun: replace each asset an earlier attempt left missing,
+            # unfinished, or holding other bytes (compared by its sha256
+            # digest; an asset with no digest refuses).
+            python scripts/akmon_release.py assets --tag "$TAG" "${assets[@]}" > "${RUNNER_TEMP}/redo"
+            mapfile -t redo < "${RUNNER_TEMP}/redo"
+            if [ "${#redo[@]}" -gt 0 ]; then
+              gh release upload "$TAG" --clobber "${redo[@]}"
+            fi
+          fi
+          python scripts/akmon_release.py assets --tag "$TAG" --check "${assets[@]}"
+      # Package visibility is a package setting no workflow token can change,
+      # and a first release's packages may start private. Until all three
+      # manifests answer an anonymous pull, the release stays a draft; the
+      # refusal names each private package. Make them public, then re-run the
+      # failed jobs: every step above accepts its own earlier result.
+      - name: Pull each manifest anonymously
+        run: python scripts/akmon_release.py public --tag "$TAG"
+      - name: Make the GitHub release public
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$TAG" --draft=false --verify-tag
