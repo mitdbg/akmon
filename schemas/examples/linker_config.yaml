@@ -1,0 +1,22 @@
+includes:
+  - okg.linker_routes.service
+  - okg.linker_routes.repo
+
+routes:
+  service:
+    edge_type: mentions
+    dst_template: "{resolved}"
+    confidence: 0.9
+
+  repo:
+    edge_type: in_repo
+    dst_template: "{resolved}"
+
+  # Example of per-src-subtype routing:
+  file:
+    Ticket:
+      edge_type: mentions
+      dst_template: "{resolved}"
+    _default:
+      edge_type: references
+      dst_template: "{resolved}"

@@ -1,0 +1,42 @@
+# Cost-weighted preset with a MANDATORY violation (synth-cost-weighted-gold).
+#
+# The both-directions qualification witness. Driven through the corrections lane,
+# which publishes the SAME corpus twice: generation A without corrections and
+# generation B with them. Every fact is rendered exactly twice
+# (renderings_per_fact min == max == 2) and exactly one rendering is corrupted, so
+# every planted corruption reaches the engine as a 1-vs-1 conflict that
+# corroboration cannot break — it settles CONTESTED, never canonically. With
+# value_perturbation declared MANDATORY that makes generation A unqualified by
+# construction, and the corrections plan (a retract and an override, which is
+# exactly the two corruptions this corpus plants) removes both from scope at
+# generation B, which qualifies. Neither direction is arranged by scoring: both
+# are read off real published generations.
+#
+# Prices are deliberately all distinct and non-zero so the spent-action ledger is
+# not silently satisfiable by a zero column, and the error cost is far from 1 so a
+# weighted total cannot be confused with a count.
+preset_name: cost_mandatory
+seed: "cost-mandatory-1"
+world_path: world_smoke
+redundancy:
+  renderings_per_fact_min: 2
+  renderings_per_fact_max: 2
+corruption:
+  classes:
+    value_perturbation: {count: 2, magnitude: 0.2, visibility_corrupted: 1}
+benign_variation:
+  unit_rescale_rate: 0.0
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+cost:
+  default_error_cost: 25.0
+  mandatory_classes: [value_perturbation]
+  action_prices:
+    parse: 0.02
+    extract_document: 0.15
+    check: 0.5
+    correction: 20.0
+    publish: 5.0
+materialize_pdf: false

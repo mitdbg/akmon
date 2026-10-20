@@ -1,0 +1,502 @@
+id: https://palimpzest.mit.edu/okg/modules/git_graph
+name: git_graph
+title: "Git Graph \u2014 files, commits, branches, tags, authors"
+description: Working-tree source files and commit-history graph for any git repository.
+  Eight subtypes (SourceFile, GitCommit, GitFileDiff, GitBranch, GitTag,
+  GitAuthor, BranchDisposition, BranchArchiveSummary) and intra-module edge
+  narrowings.
+  Cross-module edges into SourceFile and GitCommit are emitted by
+  other modules' adapters.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  gitg: https://palimpzest.mit.edu/okg/modules/git_graph/
+default_range: string
+imports:
+- linkml:types
+classes:
+  SourceFile:
+    description: A tracked file in a git repository's working tree. Identity is `file:<repo>:<repo-relative-path>`.
+    class_uri: gitg:SourceFile
+    attributes:
+      path:
+        required: true
+        description: Repo-relative file path.
+      repo:
+        required: true
+        description: Canonical short name of the repo (used in node ID).
+      git_blob_sha:
+        required: true
+        description: Git's SHA-1 hash of the blob; authoritative content identity.
+        annotations:
+          # Conditionally required: only a file present in the current
+          # worktree has a blob. History-only stubs for deleted paths
+          # (current_in_worktree=false, emitted by GitHistorySource so
+          # cross-module edges have a SourceFile endpoint) legitimately
+          # carry no blob — there is no object to hash. See
+          # `_git_graph_history_emit._emit_file_node`.
+          okg_required_when: current_in_worktree
+      size_bytes:
+        required: true
+        range: integer
+        description: Size of the blob in bytes (from `git ls-tree -l`).
+        annotations:
+          # Conditionally required — see git_blob_sha. No blob ⇒ no size.
+          okg_required_when: current_in_worktree
+      language:
+        description: Language inferred from the file extension; null for unknown.
+      is_text:
+        required: true
+        range: boolean
+        description: True if git considers the blob text (not binary).
+        annotations:
+          # Conditionally required — see git_blob_sha. No blob ⇒ git's
+          # text/binary classification is undefined.
+          okg_required_when: current_in_worktree
+      last_modified_at:
+        range: datetime
+        description: Committer timestamp of the newest non-merge commit that added
+          or changed this path (a merge only when no other commit did).
+      last_modified_commit_sha:
+        description: SHA of the newest non-merge commit that added or changed this
+          path (a merge only when no other commit did). A merge that brought the change
+          to the mainline is an `affects` edge with `via_merge` true.
+      created_commit_sha:
+        description: SHA of the oldest non-merge commit that added this path (or the
+          root commit holding it; a merge only when no other commit added it).
+          Renames are not followed, so a moved file was created by the move.
+      deleted_at:
+        range: datetime
+        description: Set only on a history record for a path the repository's head
+          tree no longer holds (`current_in_worktree` false). Committer timestamp of
+          the commit named by `deleted_commit_sha`.
+      deleted_commit_sha:
+        description: SHA of the commit that deleted this path from the head's history
+          -- the newest non-merge commit that changed the path, when that change is its
+          delete and no newer merge added the path back; else the newest merge that
+          deleted it; else the newest non-merge delete. Renames are not followed, so a
+          moved file's old path was deleted by the move. Absent for a path the head
+          still holds (a submodule included) or that only ever lived on another branch.
+      is_dirty:
+        range: boolean
+        description: True if the file has uncommitted modifications at crawl time.
+      working_tree_mtime:
+        range: datetime
+        description: Filesystem mtime observed in the working tree at crawl time.
+      working_tree_mtime_epoch:
+        range: float
+        description: Raw filesystem mtime seconds since epoch, used for freshness comparisons.
+      text:
+        description: >-
+          Searchable text for this node. Populated by the projector's
+          searchable_text auto-stamp from `path`, in both its raw and
+          component-word forms. Per `index-document-source-file-search`
+          (issue 900) — before that change SourceFile declared no
+          searchable fields, so `attrs.text` was never stamped and every
+          SourceFile row was excluded from the BM25 partial index, whose
+          predicate is `attrs ? 'text'`.
+      citation_label:
+        description: Source-supplied citation label — `<repo>/<path>`. Per
+          `source-supplied-search-citations`.
+      citation_url:
+        description: Source-supplied citation URL — browser view of the file
+          at the immutable HEAD commit read during the crawl, on an
+          explicitly supported host. Absent for dirty files,
+          unknown remotes, or unsupported hosts; never guessed. Per
+          `source-supplied-search-citations`.
+      created_at:
+        range: datetime
+        description: Author timestamp of the commit named by `created_commit_sha`
+          (`last_modified_at` is a committer timestamp, so a skewed author clock
+          can put it after `last_modified_at`).
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      # `index-document-source-file-search` (issue #900): a repo path is a
+      # single lexeme under the BM25 index's `english` config, so `path` is
+      # declared as a path field too — the stamper appends its component
+      # words so `okg search 'projector'` reaches
+      # `src/okg/substrate/projection/projector.py`.
+      # `language` is deliberately NOT declared: it would put the literal
+      # token `python` on every Python file in the repo, which carries no
+      # discriminative weight and only crowds a rank-capped result page.
+      okg_searchable_text_fields: path
+      okg_searchable_text_path_fields: path
+      # Handle fields (PACT read-model-s1-catalog-fields): a file has no
+      # title beyond its path, so none is declared.
+      okg_path_from: path
+      okg_last_modified_at_from: last_modified_at
+  GitCommit:
+    description: A commit event in a git repository. Identity is `commit:<repo>:<full-sha>`.
+      Modeled as `process` because a commit is fundamentally an event with a timestamp,
+      an author, and effects on files.
+    class_uri: gitg:GitCommit
+    attributes:
+      commit_sha:
+        required: true
+        description: Full 40-char commit SHA.
+      commit_sha_prefixes:
+        description: >-
+          Space-separated 7- to 12-character prefixes of `commit_sha`,
+          so lexical search matches the short SHAs people write (the BM25
+          index matches whole lexemes, never prefixes).
+      repo:
+        required: true
+        description: Canonical short name of the repo.
+      message_subject:
+        required: true
+        description: First line of the commit message.
+      authored_at:
+        required: true
+        range: datetime
+        description: Author timestamp (when the change was originally written).
+      committed_at:
+        required: true
+        range: datetime
+        description: Committer timestamp (when the change was committed to this repo).
+      parent_count:
+        required: true
+        range: integer
+        description: "Number of parent commits (0 for root, 1 for normal, \u22652\
+          \ for merges)."
+      is_merge:
+        required: true
+        range: boolean
+        description: True iff parent_count >= 2.
+      author:
+        description: >-
+          Id of the `git_author` node that authored this commit
+          (`author:<lowercased email>`), the same node the `assigned_to`
+          edge starts from. Absent when the commit records no author
+          e-mail. Personal data: it embeds the e-mail address. Like
+          `GitAuthor.email` it carries no `pii_class`; classifying this
+          module is a separate decision.
+      author_name:
+        description: >-
+          Author name (%an) as this commit records it. One person often
+          appears under several spellings; the `git_author` node keeps
+          only one per e-mail. Absent when the commit records no author
+          name. Personal data, unclassified like `GitAuthor.display_name`.
+      message_body:
+        description: Commit message body (everything after the subject line).
+      diff_omitted_file_count:
+        range: integer
+        description: With the history source's opt-in `store_diffs`, the number
+          of changed files of this commit that got no `git_file_diff` node
+          because the commit's diff budget was spent, a side of the change was
+          larger than 1 MiB (binary or not), or a blob was missing from the
+          local object store (0 when none). Absent when diffs are off, for merge commits
+          and for commits before `diffs_since`.
+      text:
+        description: Searchable text for this node (typically subject + body).
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: process
+      okg_searchable_text_fields: message_subject,message_body,commit_sha,commit_sha_prefixes
+      # A commit's per-file diffs (opt-in `store_diffs`) are its passages:
+      # passage-ranked reads and per-parent diversity group them under it.
+      okg_passage_rollup:
+        edge_type: contains
+        child_subtype: GitFileDiff
+      okg_title_from: message_subject
+      okg_alias_fields: commit_sha
+      okg_created_at_from: authored_at
+      okg_last_modified_at_from: committed_at
+      transient: 'false'
+  GitFileDiff:
+    description: One changed text file's unified diff in one commit, emitted only
+      when the git history source's `store_diffs` is on. Identity is
+      `diff:<repo>:<full-sha>:<repo-relative-path>`. The patch is redacted and
+      capped; it holds the old value on `-` lines and the new one on `+` lines.
+    class_uri: gitg:GitFileDiff
+    attributes:
+      repo:
+        required: true
+        description: Canonical short name of the repo.
+      commit_sha:
+        required: true
+        description: Full SHA of the commit that made this change.
+      path:
+        required: true
+        description: Repo-relative path of the changed file (the deleted path for
+          a deletion, the new path for a rename).
+      change_type:
+        required: true
+        description: One of added, modified, deleted, renamed.
+      renamed_from_path:
+        description: The old path of a detected rename.
+      message_subject:
+        description: First line of the commit message, so a diff found by search
+          says why the change was made.
+      committed_at:
+        range: datetime
+        description: Committer timestamp of the commit.
+      patch:
+        required: true
+        description: Unified diff against the first parent (the empty tree for a
+          root commit), redacted, then capped at the source's
+          `diff_max_file_bytes` with a visible truncation marker.
+      patch_bytes:
+        required: true
+        range: integer
+        description: Size of the redacted patch in UTF-8 bytes before the cap.
+      patch_truncated:
+        required: true
+        range: boolean
+        description: True when `patch` was cut at the cap.
+      text:
+        description: Searchable text for this node (stamped from patch and path).
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity (the commit time).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp.
+    annotations:
+      archetype: artifact
+      okg_searchable_text_fields: patch,path
+      okg_searchable_text_path_fields: path
+      okg_title_from: message_subject
+      okg_path_from: path
+      okg_created_at_from: committed_at
+      okg_last_modified_at_from: committed_at
+      transient: 'false'
+  GitBranch:
+    description: A named branch ref pointing at a commit. Identity is `branch:<repo>:<name>`
+      for local branches; `branch:<repo>:<remote>/<name>` for remotes when remote
+      ingest is enabled.
+    class_uri: gitg:GitBranch
+    attributes:
+      name:
+        required: true
+        description: Branch name (e.g., "main").
+      repo:
+        required: true
+        description: Canonical short name of the repo.
+      head_commit_sha:
+        required: true
+        description: SHA of the commit this branch currently points at.
+      is_remote:
+        range: boolean
+        description: True iff this is a remote-tracking branch.
+      remote_name:
+        description: Remote name (e.g., "origin"); only set when is_remote=true.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  BranchDisposition:
+    description: A non-destructive disposition record for a research branch that is unmerged to its base.
+    class_uri: gitg:BranchDisposition
+    attributes:
+      disposition_id:
+        required: true
+        description: Stable disposition identity.
+      repo:
+        required: true
+        description: Canonical short name of the repo.
+      branch_name:
+        required: true
+        description: Branch name being dispositioned.
+      base_branch:
+        required: true
+        description: Base branch used to decide whether the branch is unmerged.
+      state:
+        required: true
+        description: One of undispositioned, merge, archive_with_summary, or kill.
+      terminal:
+        required: true
+        range: boolean
+        description: True when the branch has a terminal disposition.
+      reason:
+        description: Operator-recorded reason for a terminal disposition.
+      summary_id:
+        description: Archive summary node id when state is archive_with_summary.
+      origin_session_id:
+        description: Session that created or justified the disposition, when known.
+      owner:
+        description: Human or agent owner inferred from the branch/register.
+      pact_id:
+        description: PACT associated with the branch, when inferable.
+      age_days:
+        range: integer
+        description: Age of the branch head in days at board evaluation time.
+      edit_mass:
+        range: integer
+        description: Added-plus-deleted line count against the base branch.
+      warning:
+        description: Named warning surfaced by the disposition board.
+      decided_at:
+        range: datetime
+        description: Timestamp for terminal disposition decisions.
+      checked_at:
+        range: datetime
+        description: Timestamp when the disposition row was evaluated.
+      text:
+        description: Searchable disposition text.
+    annotations:
+      archetype: artifact
+      okg_searchable_text_fields: branch_name,state,reason,text
+      transient: 'false'
+  BranchArchiveSummary:
+    description: Required summary artifact recorded before a branch is archived.
+    class_uri: gitg:BranchArchiveSummary
+    attributes:
+      summary_id:
+        required: true
+        description: Stable archive summary identity.
+      repo:
+        required: true
+        description: Canonical short name of the repo.
+      branch_name:
+        required: true
+        description: Branch name the summary archives.
+      title:
+        required: true
+        description: Short summary title.
+      summary:
+        required: true
+        description: Human-readable archive summary.
+      findings:
+        multivalued: true
+        description: Findings preserved from the archived branch.
+      origin_session_id:
+        description: Session associated with the archived branch, when known.
+      disposition_id:
+        required: true
+        description: Disposition record that required this summary.
+      archived_at:
+        range: datetime
+        description: Timestamp when the branch was archived.
+      text:
+        description: Searchable summary text.
+    annotations:
+      archetype: artifact
+      okg_searchable_text_fields: branch_name,title,summary,text
+      transient: 'false'
+  GitTag:
+    description: A named tag ref pointing at a commit. Identity is `tag:<repo>:<name>`.
+    class_uri: gitg:GitTag
+    attributes:
+      name:
+        required: true
+        description: Tag name (e.g., "v1.0").
+      repo:
+        required: true
+        description: Canonical short name of the repo.
+      target_commit_sha:
+        required: true
+        description: SHA of the commit (or annotated-tag-target commit) this tag points
+          at.
+      is_annotated:
+        range: boolean
+        description: True iff this is an annotated tag (has its own object with message).
+      tag_message:
+        description: Annotated-tag message; only set when is_annotated=true.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  GitAuthor:
+    description: An author/committer identity. Deduplicated across commits and across
+      repos by email. Identity is `author:<email>`.
+    class_uri: gitg:GitAuthor
+    attributes:
+      email:
+        required: true
+        description: Email address; the canonical identifier.
+      display_name:
+        description: Most recently observed name (%an) for this email.
+    annotations:
+      archetype: actor
+      transient: 'false'
+  EdgeNarrowings:
+    description: Intra-module edge narrowings for the git_graph module.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      author_assigned_to_commit:
+        description: An author authored a commit.
+        annotations:
+          edge_archetype: assigned_to
+          src_subtypes: GitAuthor
+          dst_subtypes: GitCommit
+      commit_derives_from_parent:
+        description: A child commit derives from its parent commit (commit DAG).
+        annotations:
+          edge_archetype: derives_from
+          src_subtypes: GitCommit
+          dst_subtypes: GitCommit
+      commit_affects_file:
+        description: A commit added, modified, deleted, or renamed a source file.
+          The change_type and renamed_from_path live as attributes on the edge instance;
+          `via_merge` true marks a merge commit's edge (the change was authored in a
+          commit on the merged branch, which has its own edge).
+        annotations:
+          edge_archetype: affects
+          src_subtypes: GitCommit
+          dst_subtypes: SourceFile
+      commit_contains_file_diff:
+        description: A commit contains the per-file diffs the history source
+          stored for it (opt-in `store_diffs`).
+        annotations:
+          edge_archetype: contains
+          src_subtypes: GitCommit
+          dst_subtypes: GitFileDiff
+      file_diff_references_file:
+        description: A per-file diff references the source file it changed.
+        annotations:
+          edge_archetype: references
+          src_subtypes: GitFileDiff
+          dst_subtypes: SourceFile
+      branch_references_commit:
+        description: A branch ref points at its current head commit.
+        annotations:
+          edge_archetype: references
+          src_subtypes: GitBranch
+          dst_subtypes: GitCommit
+      branch_disposition_references_archive_summary:
+        description: An archive disposition points at the required summary artifact.
+        annotations:
+          edge_archetype: references
+          src_subtypes: BranchDisposition
+          dst_subtypes: BranchArchiveSummary
+      tag_references_commit:
+        description: A tag ref points at its target commit.
+        annotations:
+          edge_archetype: references
+          src_subtypes: GitTag
+          dst_subtypes: GitCommit
+      file_member_of_branch:
+        description: A source file lives on a branch (HEAD tree of the branch).
+          Without this edge, source_file nodes are structurally floating —
+          present in the graph but unattached to either the branch or the
+          commit that introduced them.
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: SourceFile
+          dst_subtypes: GitBranch

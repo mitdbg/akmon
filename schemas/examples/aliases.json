@@ -1,0 +1,10 @@
+{
+  "pay-svc": "service:payments-service",
+
+  "payments": {
+    "canonical": "service:payments-service",
+    "scope": "Service"
+  },
+
+  "acme/payments": "repo:acme/payments-service"
+}

@@ -1,0 +1,17 @@
+name: example-records
+description: Public SDK reader author example; disposable local graph.
+postgres:
+  dsn: ${OKG_EXAMPLE_DSN}
+schema_dir: schemas
+source_registry: source_registry.yaml
+modules: []
+enrichers: []
+runtime:
+  enabled: false
+nomos:
+  rollout:
+    status: deferred
+    owner:
+      name: example-author
+      contact: example@example.invalid
+    review_by: "2027-01-01"

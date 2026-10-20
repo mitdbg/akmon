@@ -1,0 +1,52 @@
+# Engram-runs ↔ scholarly cross-link rules.
+#
+# Per `add-engram-run-artifact-sources` (Layer 3A): two
+# narrowings between engram_runs subtypes and scholarly Papers.
+#
+#   - `agent_summary_cites_paper`. When an AgentSummary's
+#     `summary_text` mentions a paper by `cite_key_ref`, the
+#     standard `cites` archetype binds the AgentSummary to the
+#     Paper. The source records the cite key in the summary's
+#     `cite_key_ref` attr (when the operator's parser surfaces
+#     one); the rule resolves against scholarly's Paper
+#     `cite_key_ref` index, falling back to dormant when
+#     scholarly isn't loaded.
+#
+#   - `empirical_claim_builds_on_paper`. EmpiricalClaim nodes
+#     decomposed from a structured summary often build on a
+#     published mechanism — the JSON entry may reference a paper
+#     key. The same `cite_key_ref` resolution applies; the
+#     `builds_on` edge archetype is engram_runs's name for the
+#     "this empirical observation extends prior published work"
+#     relationship.
+#
+# Both rules silently skip when scholarly isn't loaded — the
+# resolver's `extends: scholarly` block fires only when scholarly
+# is also in the deployment's `modules:` list. When scholarly is
+# absent, the sources detect the absence via
+# `_scholarly_loaded(...)` and record the suppressed-edge count
+# in per-run stats for diagnostic visibility (per spec
+# `Conditional Cross-Module Emission`).
+
+rules:
+  - id: agent_summary_cites_paper
+    src:
+      subtype: agent_summary
+      field: cite_key_ref
+    dst:
+      subtype: paper
+      field: cite_key_ref
+    matcher: exact
+    edge: cites
+    bidirectional: false
+
+  - id: empirical_claim_builds_on_paper
+    src:
+      subtype: empirical_claim
+      field: cite_key_ref
+    dst:
+      subtype: paper
+      field: cite_key_ref
+    matcher: exact
+    edge: builds_on
+    bidirectional: false

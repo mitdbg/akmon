@@ -1,0 +1,59 @@
+# Cross-link rules: bookkeeping → reasoning.
+#
+# Per umbrella `expand-memex-to-personal-okg` (Pattern B —
+# reasoning citation): bookkeeping subtypes cite into the
+# reasoning core. Three rules:
+#
+#   - A Project investigates one or more Hypotheses.
+#   - A ProjectGoal is guided by one or more Principles.
+#   - A Hypothesis predicts one or more ProjectRisks (direction:
+#     Hypothesis is source, ProjectRisk is target).
+#
+# Each rule's edge archetype is introduced by this proposal per
+# umbrella D7: `investigates`, `guided_by`, `predicts`. See
+# `openspec/changes/add-substrate-bookkeeping-module/design.md`
+# §"Vocabulary additions".
+#
+# Matcher choice: `exact` against alias fields. Project carries
+# a list-valued `investigates_hypothesis_aliases` attribute (or
+# similar) whose entries are `hyp:<slug>` strings; the alias
+# resolution layer pulls the Hypothesis node. Source adapter
+# populates the field from operator-curated YAML; until source
+# data is wired, the matcher produces zero edges (the narrowing
+# still lands in the catalog).
+#
+# Rules are unidirectional by default; the inverse direction
+# can be derived via traversal.
+rules:
+  - id: project_investigates_hypothesis
+    src:
+      subtype: project
+      field: investigates_hypothesis
+    dst:
+      subtype: hypothesis
+      field: hypothesis_id
+    matcher: exact
+    edge: investigates
+    bidirectional: false
+
+  - id: project_goal_guided_by_principle
+    src:
+      subtype: project_goal
+      field: guided_by_principle
+    dst:
+      subtype: principle
+      field: principle_id
+    matcher: exact
+    edge: guided_by
+    bidirectional: false
+
+  - id: hypothesis_predicts_project_risk
+    src:
+      subtype: hypothesis
+      field: predicts_project_risk
+    dst:
+      subtype: project_risk
+      field: project_risk_id
+    matcher: exact
+    edge: predicts
+    bidirectional: false

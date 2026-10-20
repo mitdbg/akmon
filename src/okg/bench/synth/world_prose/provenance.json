@@ -1,0 +1,14 @@
+{
+ "generator": "synthea",
+ "generator_jar_sha256": "410bc0c41810a5ad194ac654e87ac535ba93a79f4504a8e1bac544c167bfdb8e",
+ "generator_release_tag": "master-branch-latest (rolling; jar sha256 is the pin)",
+ "seed": 749202620,
+ "clinician_seed": 749202620,
+ "reference_date": "2026-07-01",
+ "population": 42,
+ "args": "-s 749202620 -cs 749202620 -r 20260701 -p 40 --exporter.fhir.export=true --exporter.hospital.fhir.export=false --exporter.practitioner.fhir.export=false --exporter.years_of_history=8 Massachusetts",
+ "fresh_seed_attestation": "generated locally from the recorded fresh seed on 2026-07-20; this is a fresh seed never used in any published corpus; not a public sample dataset. This draw (seed 749202620) is kept; two other fresh draws were discarded for repo-weight only (not content) and their seeds are recorded as unused: 749207200 -> 31.89 MB pruned (one 14.3 MB patient bundle), 20260720 -> 35.93 MB pruned. Every draw is auditable.",
+ "pruning_transform": "kept resourceTypes AllergyIntolerance,Condition,MedicationRequest,Observation,Patient,Practitioner; dropped narrative 'text' fields; minified with sorted keys",
+ "raw_export_digest": "460205a24b1a683bbe9482cde8b4288906267a6aaf77ff6af074e33e63a7a7bd",
+ "pruned_export_digest": "43bad84449b0345b57d0ba1792dd1cfedc55da5e5de24e30a26a8646770f04fa"
+}

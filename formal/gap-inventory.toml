@@ -1,0 +1,101 @@
+schema = "okg.formal.gap-inventory.v1"
+
+[[gaps]]
+id = "nomos.iam-scope-too-abstract"
+area = "nomos"
+priority = "P1"
+classification = "boundary_precondition"
+title = "Nomos IAM scope abstraction is broader than deployment-specific identity-provider and subject-binding semantics"
+owner_surface = "formal/nomos/README.md; formal/nomos/Nomos.tla; src/okg/substrate/nomos/"
+recommended_verification = "Document and prove the IAM scope boundary with deployment-specific subject-binding tests, or refine the Nomos model to represent provider and scope distinctions before claiming enforcement coverage."
+source = "formal design-contract review"
+
+[[gaps]]
+id = "source_sync.record-set-diff-descendants"
+area = "source-sync"
+priority = "P2"
+classification = "missing_formal_coverage"
+title = "SourceDeltaContract abstracts the descendant/edge-expansion record-set diff (the known incremental-source regression) to a flat set difference capped at cardinality 1"
+owner_surface = "formal/source_sync/SourceDeltaContract.tla; src/okg/substrate/ingest/runner.py"
+recommended_verification = "Model the record-set diff as descendant + edge expansion and prove RetractionsAreComplete over it, or keep it a documented runtime_test_boundary and gate it with the ingest runner tests; do not claim the flat-set model proves retraction completeness."
+source = "formal corpus audit 2026-06-20"
+
+[[gaps]]
+id = "chronos.mixed-generation-observation"
+area = "chronos"
+priority = "P2"
+classification = "missing_formal_coverage"
+title = "ChronosReadPin collapses node and edge read generations into one scalar, so NoMixedGenerationObservation cannot fail on the real mixed-generation JOIN hazard"
+owner_surface = "formal/chronos/ChronosReadPin.tla; src/okg/substrate/mcp/run_sql.py"
+recommended_verification = "Model separate node and edge read generations and prove NoMixedGenerationObservation against a two-checkout JOIN, or document the boundary and gate it with the run_sql dispatcher tests."
+source = "formal corpus audit 2026-06-20"
+
+[[gaps]]
+id = "chronos.sdk-latest-fallback-unmodeled"
+area = "chronos"
+priority = "P3"
+classification = "boundary_precondition"
+title = "The public SDK latest-generation default-read fallback is out of ChronosReadPin's scope; a session-pin refinement test cannot claim SDK default-read safety"
+owner_surface = "formal/chronos/ChronosReadPin.tla; src/okg/substrate/mcp/run_sql.py"
+recommended_verification = "Model the public SDK default-read path (latest-generation fallback) as a distinct read surface, or keep it a documented runtime boundary gated by the run_sql dispatcher and SDK default-read tests; session-pin refinement must not stand in for it."
+source = "strengthen-formal-models wave 8 (2026-07-03), from the chronos README precondition citation"
+
+[[gaps]]
+id = "chronos.branch-isolation-unmodeled"
+area = "chronos"
+priority = "P3"
+classification = "missing_formal_coverage"
+title = "Per-worktree Chronos branch isolation is out of ChronosReadPin's scope; the model proves session-pin read authority within one branch, not cross-branch fork isolation"
+owner_surface = "formal/chronos/ChronosReadPin.tla; src/okg/substrate/graph_store.py"
+recommended_verification = "Model branch/fork read isolation as a separate surface, or keep it a documented runtime boundary gated by the per-worktree fork tests; the single-branch pin contract does not cover it."
+source = "strengthen-formal-models wave 8 (2026-07-03), from the chronos README out-of-scope citation"
+
+[[gaps]]
+id = "transform.catalog-version-skew-unmodeled"
+area = "transform"
+priority = "P2"
+classification = "boundary_precondition"
+title = "WriterGateNarrowingEquivalence treats writer-MAX vs gate-supplied catalog version as the precondition SameCatalogVersion; the real publisher-pins-stale-version hazard is never exercised. (The distinct reflexive-closure-completeness seam is now modeled and gate-fixed in wave 8; this gap is only the catalog-VERSION-derivation skew.)"
+owner_surface = "formal/transform/WriterGateNarrowingEquivalence.tla; src/okg/substrate/catalog/narrowings.py; src/okg/substrate/consistency/transform_gate.py"
+recommended_verification = "Model the version-derivation seam (writer MAX(applied) vs publisher-supplied) as toggleable variables and prove the surfaces disagree under skew, or document the precondition and gate it with a refinement test in tests/substrate/test_narrowing_equivalence.py. Closure completeness (the raw-rows arm) is already modeled/witnessed and gate-fixed; do not conflate it with the version seam."
+source = "formal corpus audit 2026-06-20"
+
+[[gaps]]
+id = "formal.smoke-full-coverage-delta"
+area = "formal-verification"
+priority = "P2"
+classification = "boundary_precondition"
+title = "Several smoke profiles drop headline invariants (nomos smoke = source-lineage only; attribute smoke drops the composites; admission smoke uses singleton universes)"
+owner_surface = "scripts/run_formal_suite.py; formal/nomos/README.md; formal/attributes/README.md"
+recommended_verification = "The formal gating lane runs both smoke and full where available and run_formal_suite --list flags smoke_is_full_model; the tracked work is to make each smoke profile non-vacuous for the invariants it names, gated by the formal suite."
+source = "formal corpus audit 2026-06-20"
+
+[[gaps]]
+id = "source_sync.flush-crash-window-unmodeled"
+area = "source-sync"
+priority = "P3"
+classification = "missing_formal_coverage"
+title = "SourceDeltaContract models the flush as two atomic phases, but production commits per chunk: a crash after the retraction chunk commits and before the insert chunk leaves an aliased-surviving record durably retracted until resume re-emits it"
+owner_surface = "formal/source_sync/SourceDeltaContract.tla; src/okg/substrate/ingest/runner.py"
+recommended_verification = "Model per-chunk commit points (retraction chunk committed, insert chunk pending, crash, resume) and check that a publish in the window either excludes the half-flushed run or the resume re-emission converges; or pin the window with a crash-resume runtime test around _flush_chunk."
+source = "strengthen-formal-models wave 5 adversarial review (2026-07-02)"
+
+[[gaps]]
+id = "source_sync.change-probe-unmodeled"
+area = "source-sync"
+priority = "P2"
+classification = "missing_formal_coverage"
+title = "No model represents the change probe that decides WHAT changed; a probe reporting everything (work amplification) or nothing (silent staleness) satisfies every source-sync invariant"
+owner_surface = "formal/source_sync/README.md; src/okg/substrate/ingest/runner.py"
+recommended_verification = "Model the probe contract from issue #323 (content-hash change detection, churn-immune) as the input relation for DeltaFrontier/SourceDeltaContract, or keep it a documented runtime boundary gated by per-adapter probe tests; the 365ms-to-106s mtime regression is the reference incident."
+source = "strengthen-formal-models wave 5 (2026-07-02), from the 2026-07-01 formal corpus audit"
+
+[[gaps]]
+id = "producer_authority.trust-lattice-soundness-unmodeled"
+area = "producer-authority"
+priority = "P1"
+classification = "missing_formal_coverage"
+title = "No model represents the trust-label lattice; derived-output soundness (a derived row's label is bounded by the meet of its inputs, transitively to root sources) is enforced in Python only, and the one-hop reading it is easy to mistake for the property once admitted a node-only producer that conferred a label it never earned"
+owner_surface = "formal/admission/Admission.tla; src/okg/substrate/producer_authority.py; src/okg/substrate/graph_store_internal/writes.py"
+recommended_verification = "Model the label lattice (label set, partial order, meet) and prove derived-output soundness over a depth-n derivation chain, or keep it a documented runtime boundary gated by the two-hop chain test (tests/substrate/test_derived_producer_authority.py::test_two_hop_chain_cannot_launder_an_untrusted_root). A single-hop property is NOT sufficient: the laundering path this entry records requires two hops to express. A model must also make explicit the residual runtime assumption that `derived_from` is self-asserted by the producer and checked by no taint tracking, so selective omission of untrusted inputs stays unmodelled and unprevented."
+source = "bind-derived-provenance program (issue #781), formalize-trust-lattice-soundness"

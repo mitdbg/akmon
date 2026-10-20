@@ -1,0 +1,538 @@
+id: https://palimpzest.mit.edu/okg/modules/reasoning
+name: reasoning
+title: "Reasoning — the gravitational core of a personal OKG"
+description: >-
+  Durable epistemic content: hypotheses being tested, observations
+  being recorded, principles guiding decisions, evidence linking
+  observations to claims, refutations challenging claims, questions
+  framing inquiries, connections bridging hypotheses, insights
+  synthesizing across connections. The 8 subtypes form a closed
+  reasoning ring; their value comes from how they reference each
+  other. Distinct from agent_memory (session-scoped, transient):
+  reasoning is operator-scoped, durable, year-spanning. Sources:
+  the substrate openspec source adapter (extended) reads
+  openspec/{hypotheses,observations,insights}/; the fallback
+  epistemic_md_source reads ~/.memex/epistemic/{kind}/<slug>.md.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  reasoning: https://palimpzest.mit.edu/okg/modules/reasoning/
+default_range: string
+imports:
+- linkml:types
+classes:
+
+  # reasoning-abstract-types decision (resolves the Claim half of
+  # extend-reasoning-with-abstract-types): the canonical Claim type lives in
+  # the `extraction` module (extraction.Claim, with extraction.GenericClaim as
+  # the concrete default) — NOT here. The reasoning ring is closed at 8
+  # subtypes and its claim-archetype nodes are Hypothesis / Principle /
+  # Refutation, so reasoning has no `Claim` class; do not re-introduce one.
+  # Domain claim refinements (e.g. engram_runs.EmpiricalClaim) refine
+  # extraction.Claim. (The Evidence half of the proposal DID land here:
+  # Evidence is the abstract parent with GenericEvidence as the concrete
+  # default — see those classes below.)
+
+  Hypothesis:
+    description: >-
+      A claim under test. Carries a status enum that determines
+      which ring edges semantically apply. open_problem is the
+      "hard, unresolved, deserves real thought" subcase (folded
+      into Hypothesis rather than a separate OpenProblem subtype).
+    class_uri: reasoning:Hypothesis
+    attributes:
+      hypothesis_id:
+        required: true
+        description: Slug-shaped alias key, e.g. `transformers-are-sequence-models`.
+      statement:
+        required: true
+        description: Single-line claim statement; searchable.
+      status:
+        required: true
+        description: Enum {open, open_problem, supported, refuted, superseded, retired}.
+      source_subtype:
+        required: true
+        description: Provenance enum {openspec_hypothesis, epistemic_md, agent_derived}.
+      source_path:
+        required: true
+        description: Source file path, repo- or root-relative.
+      frontmatter_schema_version:
+        required: true
+        range: integer
+        description: Frontmatter schema version (current = 1); source rejects unknown values loudly.
+      created_at:
+        range: datetime
+        required: true
+      last_modified_at:
+        range: datetime
+        required: true
+      confidence:
+        range: float
+      domain:
+      related_projects:
+        description: Comma-joined list of bookkeeping Project slugs (edges emitted by bookkeeping module's cross-link rules).
+      extracted_from_paper_ref:
+        description: >-
+          Optional Paper node id (resolved via alias). Set by
+          `hypothesis_extractor` (per
+          `extend-substrate-extraction-with-claim-evidence-extractors`)
+          when this Hypothesis was pulled from a paper's Introduction /
+          Discussion section. NULL for operator-authored content.
+          Schema-additive — no `frontmatter_schema_version` bump.
+      author_ref:
+        description: >-
+          Optional Author node id (paper author; NOT the operator).
+          Populated alongside `extracted_from_paper_ref`. NULL for
+          operator-authored content.
+      text:
+    annotations:
+      archetype: claim
+      transient: 'false'
+      okg_alias_fields: hypothesis_id
+      okg_searchable_text_fields: statement,status,domain,text
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  Observation:
+    description: >-
+      An empirical record — something happened, was measured, or
+      was extracted from a curated text. Source_kind enum lets
+      read-side queries filter by provenance (paper, experiment,
+      agent_session, curated, derived_from_candidate).
+    class_uri: reasoning:Observation
+    attributes:
+      observation_id:
+        required: true
+      statement:
+        required: true
+        description: What was observed; searchable.
+      source_kind:
+        required: true
+        description: Enum {paper, experiment, agent_session, curated, derived_from_candidate}.
+      source_ref:
+        required: true
+        description: DOI, experiment slug, agent session id, candidate id, etc.
+      source_subtype:
+        required: true
+        description: Provenance enum {openspec_observation, epistemic_md, agent_derived}.
+      source_path:
+        required: true
+      frontmatter_schema_version:
+        required: true
+        range: integer
+      created_at:
+        range: datetime
+        required: true
+      last_modified_at:
+        range: datetime
+        required: true
+      measured_value:
+      observed_at:
+        range: datetime
+        description: When the world-event happened, distinct from created_at.
+      confidence:
+        range: float
+      derives_from_candidate:
+        description: Optional candidate id when promoted from an EpistemicObservationEnricher emission.
+      extracted_from_paper_ref:
+        description: >-
+          Optional Paper node id (resolved via alias). Set when this
+          Observation was extracted from a paper rather than
+          operator-recorded. Schema-additive (per
+          `extend-substrate-extraction-with-claim-evidence-extractors`
+          D4). NULL for operator-authored content.
+      author_ref:
+        description: >-
+          Optional Author node id (paper author; NOT the operator).
+          Populated alongside `extracted_from_paper_ref`. NULL for
+          operator-authored content.
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: observation_id
+      okg_searchable_text_fields: statement,source_kind,measured_value,text
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  Principle:
+    description: >-
+      A normative claim about how to act ("favor explicit over
+      implicit"). Distinguished by `stance` from descriptive
+      observations. Sourced from foundational works, laureate
+      lectures, methodology cards, or operator authorship.
+    class_uri: reasoning:Principle
+    attributes:
+      principle_id:
+        required: true
+      statement:
+        required: true
+      stance:
+        required: true
+        description: Enum {prescriptive, proscriptive, descriptive}. Drives which ring edges fully type-check (e.g. MethodCard applies Principle requires prescriptive).
+      source_subtype:
+        required: true
+        description: Provenance enum {openspec_hypothesis_principles_applied, openspec_observation_instantiates_principles, epistemic_md, memex_corpus, agent_derived}.
+      source_path:
+        required: true
+      frontmatter_schema_version:
+        required: true
+        range: integer
+      created_at:
+        range: datetime
+        required: true
+      last_modified_at:
+        range: datetime
+        required: true
+      domain:
+      attribution:
+        description: Free text (e.g. "Polya 1945, How to Solve It").
+      text:
+    annotations:
+      archetype: claim
+      transient: 'false'
+      okg_alias_fields: principle_id
+      okg_searchable_text_fields: statement,stance,domain,attribution,text
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  Evidence:
+    description: >-
+      A link object packaging an observation as supporting (or
+      contradicting) evidence for a hypothesis. Three required
+      refs (hypothesis, observation, polarity) because Evidence
+      without them is not evidence of anything.
+
+      Per `extend-reasoning-with-abstract-types`
+      (2026-05-19): `Evidence` is the abstract parent for
+      domain-specific evidence refinements
+      (`scholarly.PaperCitationEvidence`,
+      `engram_runs.ExperimentResult`, etc., each declared
+      via LinkML `is_a: Evidence`). Concrete default
+      `GenericEvidence` (below) carries today's emissions so
+      existing deployments keep working without migration.
+      Downstream queries SHOULD join `okg.subtype_ancestors`
+      filtering `ancestor_name = 'evidence'` rather than
+      filtering on raw `subtype = 'evidence'` so refinements
+      surface automatically.
+    class_uri: reasoning:Evidence
+    attributes:
+      evidence_id:
+        required: true
+      hypothesis_ref:
+        required: true
+        description: Alias of the hypothesis this evidence links to.
+      observation_ref:
+        required: true
+        description: Alias of the observation backing this evidence.
+      support_polarity:
+        required: true
+        description: Enum {supports, contradicts}.
+      source_subtype:
+        required: true
+      source_path:
+        required: true
+      frontmatter_schema_version:
+        required: true
+        range: integer
+      created_at:
+        range: datetime
+        required: true
+      last_modified_at:
+        range: datetime
+        required: true
+      weight:
+        range: float
+      rationale:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: evidence_id
+      okg_searchable_text_fields: support_polarity,rationale,text
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  GenericEvidence:
+    is_a: Evidence
+    description: >-
+      Concrete default refinement of `Evidence`. Carries the
+      same attribute shape as the abstract parent; emitted by
+      the substrate's default `evidence_extractor` when no
+      domain-specific Evidence refinement applies. Per
+      `extend-reasoning-with-abstract-types`: deployments
+      that don't load a refining domain module (e.g.,
+      scholarly's PaperCitationEvidence,
+      engram_runs.ExperimentResult) see all Evidence emissions
+      land here so the refinement closure stays consistent —
+      every concrete Evidence node has a non-abstract subtype.
+    class_uri: reasoning:GenericEvidence
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: evidence_id
+      okg_searchable_text_fields: support_polarity,rationale,text
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  Refutation:
+    description: >-
+      An author-owned counter-claim against a hypothesis, with
+      rationale (load-bearing) and optional evidence refs.
+    class_uri: reasoning:Refutation
+    attributes:
+      refutation_id:
+        required: true
+      target_hypothesis_ref:
+        required: true
+      rationale:
+        required: true
+        description: The intellectual content of the refutation; load-bearing.
+      source_subtype:
+        required: true
+      source_path:
+        required: true
+      frontmatter_schema_version:
+        required: true
+        range: integer
+      created_at:
+        range: datetime
+        required: true
+      last_modified_at:
+        range: datetime
+        required: true
+      evidence_refs:
+        description: Comma-joined list of Evidence aliases.
+      status:
+        description: Enum {open, accepted, withdrawn, superseded}.
+      text:
+    annotations:
+      archetype: claim
+      transient: 'false'
+      okg_alias_fields: refutation_id
+      okg_searchable_text_fields: rationale,status,text
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  Question:
+    description: >-
+      An open inquiry without a testable claim attached yet.
+      Distinct from Hypothesis: Question is "what should I
+      investigate"; Hypothesis is "here's a claim worth testing".
+    class_uri: reasoning:Question
+    attributes:
+      question_id:
+        required: true
+      statement:
+        required: true
+      status:
+        required: true
+        description: Enum {open, answered, abandoned}.
+      source_subtype:
+        required: true
+      source_path:
+        required: true
+      frontmatter_schema_version:
+        required: true
+        range: integer
+      created_at:
+        range: datetime
+        required: true
+      last_modified_at:
+        range: datetime
+        required: true
+      domain:
+      related_hypothesis_refs:
+        description: Comma-joined list of Hypothesis aliases.
+      text:
+    annotations:
+      archetype: claim
+      transient: 'false'
+      okg_alias_fields: question_id
+      okg_searchable_text_fields: statement,status,domain,text
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  Connection:
+    description: >-
+      A bridge between two hypotheses (analogy, cross-domain
+      evidence, methodological similarity, contradictory). The
+      relationship_kind enum determines which Insight syntheses
+      apply.
+    class_uri: reasoning:Connection
+    attributes:
+      connection_id:
+        required: true
+      source_hypothesis_ref:
+        required: true
+      target_hypothesis_ref:
+        required: true
+      relationship_kind:
+        required: true
+        description: Enum {analogy, cross_domain, methodological, contradictory}.
+      source_subtype:
+        required: true
+      source_path:
+        required: true
+      frontmatter_schema_version:
+        required: true
+        range: integer
+      created_at:
+        range: datetime
+        required: true
+      last_modified_at:
+        range: datetime
+        required: true
+      rationale:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: connection_id
+      okg_searchable_text_fields: relationship_kind,rationale,text
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  Insight:
+    description: >-
+      A synthesized conclusion across one or more connections.
+      synthesizes_connection_refs is load-bearing (>= 1 required);
+      an Insight without a Connection should be authored as a
+      Hypothesis instead.
+    class_uri: reasoning:Insight
+    attributes:
+      insight_id:
+        required: true
+      statement:
+        required: true
+      synthesizes_connection_refs:
+        required: true
+        description: Comma-joined list of Connection aliases (>= 1 required).
+      source_subtype:
+        required: true
+      source_path:
+        required: true
+      frontmatter_schema_version:
+        required: true
+        range: integer
+      created_at:
+        range: datetime
+        required: true
+      last_modified_at:
+        range: datetime
+        required: true
+      cites_observation_refs:
+        description: Comma-joined list of Observation aliases (drives Insight cites Observation edges).
+      confidence:
+        range: float
+      domain:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: insight_id
+      okg_searchable_text_fields: statement,domain,text
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  EdgeNarrowings:
+    description: >-
+      Reasoning module narrowings — the closed reasoning ring (Pattern C
+      in umbrella expand-memex-to-personal-okg) plus the cross-shared
+      Hypothesis supported_by AcceptanceCriterion (Pattern B target, owned
+      here because reasoning owns the dst side).
+      Directionality follows agent_memory convention: for `supported_by` /
+      `contradicted_by`, src is the supported/contradicted party (the
+      Hypothesis), dst is the supporter/contradictor.
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        supported_by: references
+        contradicted_by: references
+        cites: references
+        predicts: references
+        instantiates: references
+        derives_from: references
+        supersedes: references
+        references: references
+    attributes:
+      hypothesis_supported_by_observation:
+        annotations:
+          edge_archetype: supported_by
+          src_subtypes: Hypothesis
+          dst_subtypes: Observation
+      hypothesis_supported_by_evidence:
+        annotations:
+          edge_archetype: supported_by
+          src_subtypes: Hypothesis
+          dst_subtypes: Evidence
+      hypothesis_supported_by_acceptance_criterion:
+        annotations:
+          edge_archetype: supported_by
+          src_subtypes: Hypothesis
+          dst_subtypes: AcceptanceCriterion
+      hypothesis_contradicted_by_observation:
+        annotations:
+          edge_archetype: contradicted_by
+          src_subtypes: Hypothesis
+          dst_subtypes: Observation
+      hypothesis_contradicted_by_refutation:
+        annotations:
+          edge_archetype: contradicted_by
+          src_subtypes: Hypothesis
+          dst_subtypes: Refutation
+      hypothesis_derives_from_principle:
+        annotations:
+          edge_archetype: derives_from
+          src_subtypes: Hypothesis
+          dst_subtypes: Principle
+      hypothesis_cites_principle:
+        annotations:
+          edge_archetype: cites
+          src_subtypes: Hypothesis
+          dst_subtypes: Principle
+      principle_predicts_hypothesis:
+        annotations:
+          edge_archetype: predicts
+          src_subtypes: Principle
+          dst_subtypes: Hypothesis
+      observation_instantiates_principle:
+        annotations:
+          edge_archetype: instantiates
+          src_subtypes: Observation
+          dst_subtypes: Principle
+      hypothesis_supersedes_hypothesis:
+        annotations:
+          edge_archetype: supersedes
+          src_subtypes: Hypothesis
+          dst_subtypes: Hypothesis
+      question_references_hypothesis:
+        annotations:
+          edge_archetype: references
+          src_subtypes: Question
+          dst_subtypes: Hypothesis
+      connection_references_hypothesis:
+        annotations:
+          edge_archetype: references
+          src_subtypes: Connection
+          dst_subtypes: Hypothesis
+      insight_references_connection:
+        annotations:
+          edge_archetype: references
+          src_subtypes: Insight
+          dst_subtypes: Connection
+      insight_cites_observation:
+        annotations:
+          edge_archetype: cites
+          src_subtypes: Insight
+          dst_subtypes: Observation
+      # Cross-module narrowing (Pattern A: evidence emission from
+      # agent_memory into reasoning). No shipped enricher emits it since
+      # EpistemicObservationEnricher was deleted (PACT
+      # delete-test-only-src-batch5); it stays valid for any emitter.
+      # Requires the agent_memory module to be loaded.
+      agent_observation_references_observation:
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentObservation
+          dst_subtypes: Observation

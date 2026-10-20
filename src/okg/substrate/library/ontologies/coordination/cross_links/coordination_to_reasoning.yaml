@@ -1,0 +1,73 @@
+# Cross-link rules: coordination → reasoning.
+#
+# Per `lift-coordination-to-substrate-library` (Wave A of the
+# `expand-memex-to-personal-okg` umbrella). Coordination is one
+# of three evidence sources feeding the reasoning core:
+# - Pattern A (evidence emission):
+#     WorkspaceObservation derives_to Observation
+# - Pattern B (reasoning citation):
+#     WorkOrder addresses Question
+#     Review references Refutation
+#
+# The narrowings these rules require — (WorkspaceObservation,
+# derives_to, Observation), (WorkOrder, addresses, Question),
+# (Review, references, Refutation) — are NOT declared by
+# `lift-coordination-to-substrate-library`. They're owned by
+# the first deployment composing both coordination and
+# reasoning modules (Wave B
+# `memex-compose-personal-okg-deployment`). Before that bridge
+# ships, these rules load cleanly and emit zero edges (no
+# target subtypes resolvable).
+rules:
+  # Source `field` is singular because the substrate
+  # `_validate_rule` enforces it for matcher=derive_from_path
+  # (rules.py line ~224). The `_match_derive_from_path` runtime
+  # additionally falls back to `derive_from_path.attr` if
+  # `src.field` is None, so setting `field: text` here aligns the
+  # YAML with both layers. Multi-field path discovery is not in
+  # the runtime today; see finding
+  # 2026-05-18-coordination-rules-need-field-not-fields.md.
+  - id: workspace_observation_derives_to_observation
+    src:
+      subtype: workspace_observation
+      field: text
+    dst:
+      subtype: observation
+      field: observation_id
+      derive_from_path:
+        attr: text
+        regex: '\bobs:([a-zA-Z0-9_-]+)\b'
+        capture_field: observation_id
+    matcher: derive_from_path
+    edge: derives_to
+    bidirectional: true
+
+  - id: work_order_addresses_question
+    src:
+      subtype: work_order
+      field: text
+    dst:
+      subtype: question
+      field: question_id
+      derive_from_path:
+        attr: text
+        regex: '\bq:([a-zA-Z0-9_-]+)\b'
+        capture_field: question_id
+    matcher: derive_from_path
+    edge: addresses
+    bidirectional: true
+
+  - id: review_references_refutation
+    src:
+      subtype: review
+      field: text
+    dst:
+      subtype: refutation
+      field: refutation_id
+      derive_from_path:
+        attr: text
+        regex: '\brefute:([a-zA-Z0-9_-]+)\b'
+        capture_field: refutation_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true

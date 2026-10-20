@@ -1,0 +1,315 @@
+version: 1
+atomic_bundle:
+  site_dir: .scratch/docs-bundle
+  product_mount: /
+publications:
+  product:
+    source_dir: docs
+    config: mkdocs.yml
+    build_dir: .scratch/docs-site
+    machine_index: okg-llms.txt
+    page_limit: 66
+    pages:
+    - README.md
+    - develop/architecture/consistency.md
+    - develop/architecture/overview.md
+    - develop/architecture/pipeline.md
+    - develop/architecture/policy.md
+    - develop/architecture/privacy.md
+    - develop/architecture/responsibility-map.md
+    - develop/architecture/runtime.md
+    - develop/extensions/consistency-api.md
+    - develop/extensions/distributions.md
+    - develop/extensions/ontologies.md
+    - develop/index.md
+    - develop/sdk/index.md
+    - develop/ui/operator-console.md
+    - develop/ui/operator-contract.md
+    - operate/deployments/database.md
+    - operate/deployments/external.md
+    - operate/deployments/kubernetes.md
+    - operate/deployments/opensearch-reference.md
+    - operate/deployments/runtime.md
+    - operate/chat.md
+    - operate/configure.md
+    - operate/index.md
+    - operate/install-packaged.md
+    - operate/install.md
+    - operate/lifecycle.md
+    - operate/live-relations.md
+    - operate/operator-ui.md
+    - operate/plan.md
+    - reference/capabilities.md
+    - reference/cli.md
+    - reference/database-schema.md
+    - reference/glossary.md
+    - reference/live-http-bindings.md
+    - reference/mcp.md
+    - reference/mcp-results.md
+    - reference/observability.md
+    - reference/sdk-api.md
+    - reference/security.md
+    - reference/source-manifest.md
+    - start/concepts.md
+    - start/data-lifecycle.md
+    - start/evaluate-from-source.md
+    - start/quickstart.md
+    - use/agents/index.md
+    - use/profiles/academic-researcher.md
+    - use/profiles/index.md
+    - use/search/index.md
+    - use/sources/github.md
+    - use/sources/index.md
+    - use/sources/local-folder.md
+    - use/sources/manifest.md
+    - runbooks/index.md
+    - runbooks/deployments/authority.md
+    - runbooks/deployments/deployment-bootstrap.md
+    - runbooks/security/nomos-iam.md
+    - runbooks/security/nomos.md
+    - runbooks/troubleshooting/first-run.md
+    - runbooks/troubleshooting/generation-blocked.md
+    - runbooks/troubleshooting/ontology-rollback.md
+    - runbooks/troubleshooting/publisher-lock.md
+    - runbooks/troubleshooting/runtime-queue.md
+    - runbooks/troubleshooting/source-poisoning.md
+    - runbooks/troubleshooting/source-sync.md
+    - runbooks/troubleshooting/storage.md
+    - runbooks/workspace-graph/setup.md
+    assets:
+    - path: reference/error_codes.yaml
+      owner_page: reference/cli.md
+    - path: reference/alerts.yaml
+      owner_page: reference/observability.md
+    - path: operate/deployments/assets/okg-runtime-worker.service
+      owner_page: operate/deployments/runtime.md
+    - path: operate/deployments/assets/org.okg.runtime-worker.plist
+      owner_page: operate/deployments/runtime.md
+    - path: operate/deployments/assets/runtime-worker.env.example
+      owner_page: operate/deployments/runtime.md
+gated_pages: []
+retired_roots:
+- docs/develop/ci
+- docs/develop/pact
+- docs/operate/walkthrough
+- docs/runbooks/release
+- docs/runbooks/quality/audits
+- docs/architecture
+- docs/audits
+- docs/deployments
+- docs/development
+- docs/get-started
+- docs/interfaces
+- docs/operations
+- docs/operators
+- docs/profiles
+- docs/operate/security
+- docs/operate/troubleshooting
+- docs/search
+- docs/sources
+- handbook
+- mkdocs.product.yml
+- mkdocs.handbook.yml
+- handbook-llms.txt
+redirects:
+  architecture/althea.md: develop/architecture/overview.md
+  architecture/anonymization.md: develop/architecture/privacy.md
+  architecture/consistency-model.md: develop/architecture/consistency.md
+  architecture/cross-deployment.md: develop/architecture/overview.md
+  architecture/logistike-execution.md: develop/architecture/runtime.md
+  architecture/nomos-control-plane.md: develop/architecture/policy.md
+  architecture/okg-data-model.md: start/concepts.md
+  architecture/overview.md: develop/architecture/overview.md
+  architecture/pipeline.md: develop/architecture/pipeline.md
+  deployments/adopt-existing-deployment-bootstrap.md: runbooks/deployments/deployment-bootstrap.md
+  deployments/chronos-history-retention.md: runbooks/troubleshooting/storage.md
+  deployments/deployment_validation.md: operate/install.md
+  deployments/deployment-guide.md: runbooks/workspace-graph/setup.md
+  deployments/deployment-product-contracts.md: develop/extensions/ontologies.md
+  deployments/external-deployments.md: operate/deployments/external.md
+  deployments/README.md: operate/index.md
+  deployments/runtime.md: operate/deployments/runtime.md
+  deployments/sdk/api.md: reference/sdk-api.md
+  deployments/sdk/README.md: develop/sdk/index.md
+  development/README.md: develop/index.md
+  get-started/quickstart.md: start/quickstart.md
+  get-started/README.md: start/concepts.md
+  interfaces/cli-surface.md: reference/cli.md
+  interfaces/components.md: develop/architecture/overview.md
+  interfaces/mcp-retrieval.md: reference/mcp.md
+  interfaces/mcp-tool-surface.md: reference/mcp.md
+  interfaces/mcp-views.md: reference/mcp.md
+  interfaces/types.md: reference/cli.md
+  operations/install.md: operate/install.md
+  operations/lifecycle.md: operate/lifecycle.md
+  operations/monitor.md: operate/index.md
+  operations/plan-deployment.md: operate/plan.md
+  operations/README.md: operate/index.md
+  operations/recover.md: runbooks/index.md
+  operate/deployments/history-retention.md: runbooks/troubleshooting/storage.md
+  operate/recover.md: runbooks/index.md
+  operators/operator-ui.md: operate/operator-ui.md
+  profiles/academic-pi-install.md: use/profiles/academic-researcher.md
+  profiles/academic-pi-quickstart.md: use/profiles/academic-researcher.md
+  profiles/academic-pi.md: use/profiles/academic-researcher.md
+  profiles/systems-research.md: use/profiles/index.md
+  reference/built-in-capabilities.md: reference/capabilities.md
+  reference/consistency-claim-model-api.md: develop/extensions/consistency-api.md
+  reference/operator-ui-single-app-contract.md: develop/ui/operator-contract.md
+  reference/profiles-and-ontologies.md: develop/extensions/ontologies.md
+  reference/workspace-graph.md: runbooks/workspace-graph/setup.md
+  runbooks/admission-runtime-approver.md: runbooks/deployments/authority.md
+  runbooks/agent-continuation-protocol.md: develop/index.md
+  runbooks/agent-coordination.md: develop/index.md
+  runbooks/agent-okg-usage.md: develop/index.md
+  runbooks/agent-operator-interface.md: develop/index.md
+  runbooks/agent-reporting-contract.md: develop/index.md
+  runbooks/agent-subagent-rollups.md: develop/index.md
+  runbooks/agent-ui-workflow.md: develop/index.md
+  runbooks/canonical-dev-okg.md: runbooks/workspace-graph/setup.md
+  runbooks/catalog-ownership.md: runbooks/deployments/authority.md
+  runbooks/chronos-history-compaction.md: runbooks/troubleshooting/storage.md
+  runbooks/chronos-native-graph.md: runbooks/troubleshooting/storage.md
+  runbooks/code-quality-ci.md: develop/index.md
+  runbooks/colleague-rollout-sharing.md: operate/deployments/external.md
+  runbooks/database-management.md: operate/deployments/database.md
+  runbooks/dbos-runtime.md: operate/deployments/runtime.md
+  runbooks/deployment-portfolio-lifecycle-contract.md: operate/lifecycle.md
+  runbooks/docs-site-hosting.md: runbooks/index.md
+  runbooks/first-run-triage.md: runbooks/troubleshooting/first-run.md
+  runbooks/generation-blocked.md: runbooks/troubleshooting/generation-blocked.md
+  runbooks/host-storage-reclaim.md: runbooks/troubleshooting/storage.md
+  runbooks/injection-benchmark-ring0.md: develop/index.md
+  runbooks/kubernetes-deploy.md: operate/deployments/kubernetes.md
+  runbooks/mutation-testing.md: develop/index.md
+  runbooks/nomos-institutional-iam.md: runbooks/security/nomos-iam.md
+  runbooks/nomos.md: runbooks/security/nomos.md
+  runbooks/okg-bench-ab.md: develop/index.md
+  runbooks/okg-ci-deploy.md: runbooks/index.md
+  runbooks/okg-workspace-promotion.md: runbooks/index.md
+  runbooks/okg-workspace-setup.md: runbooks/workspace-graph/setup.md
+  runbooks/ontology-migration-rollback.md: runbooks/troubleshooting/ontology-rollback.md
+  runbooks/openstack-operations.md: runbooks/index.md
+  runbooks/pact-artifact-version-policy.md: develop/index.md
+  runbooks/plain-language-reporting.md: develop/index.md
+  runbooks/producer-authority.md: runbooks/deployments/authority.md
+  runbooks/publisher-lock-held.md: runbooks/troubleshooting/publisher-lock.md
+  runbooks/qa-gate.md: develop/index.md
+  runbooks/queue-depth-climbing.md: runbooks/troubleshooting/runtime-queue.md
+  runbooks/queue-dlq-remediation.md: runbooks/troubleshooting/runtime-queue.md
+  runbooks/README.md: runbooks/index.md
+  runbooks/repo-health-audit.md: develop/index.md
+  runbooks/report-deployment-bug.md: runbooks/index.md
+  runbooks/source-poisoning.md: runbooks/troubleshooting/source-poisoning.md
+  runbooks/source-sync-not-firing.md: runbooks/troubleshooting/source-sync.md
+  runbooks/source-test-matrix.md: develop/index.md
+  runbooks/synthetic-corpus-benchmark.md: develop/index.md
+  runbooks/workspace-graph-coordination.md: develop/index.md
+  runbooks/worktree-access-tiers.md: develop/index.md
+  handbook/index.md: runbooks/index.md
+  handbook/evaluate-from-source.md: start/evaluate-from-source.md
+  handbook/deployment-bootstrap.md: runbooks/deployments/deployment-bootstrap.md
+  handbook/agent-workflow/continuation.md: develop/index.md
+  handbook/agent-workflow/coordination.md: develop/index.md
+  handbook/agent-workflow/okg-usage.md: develop/index.md
+  handbook/agent-workflow/pact-versioning.md: develop/index.md
+  handbook/agent-workflow/plain-language.md: develop/index.md
+  handbook/agent-workflow/reporting.md: develop/index.md
+  handbook/agent-workflow/subagent-rollups.md: develop/index.md
+  handbook/agent-workflow/ui.md: develop/index.md
+  handbook/agent-workflow/worktrees.md: develop/index.md
+  handbook/workspace-graph/canonical.md: runbooks/workspace-graph/setup.md
+  handbook/workspace-graph/setup.md: runbooks/workspace-graph/setup.md
+  handbook/quality/ci-and-qa.md: develop/index.md
+  handbook/quality/mutation-testing.md: develop/index.md
+  handbook/quality/repository-health.md: develop/index.md
+  handbook/quality/source-test-matrix.md: develop/index.md
+  handbook/quality/benchmarks/injection-ring0.md: develop/index.md
+  handbook/quality/benchmarks/okg-bench-ab.md: develop/index.md
+  handbook/quality/benchmarks/synthetic-corpus.md: develop/index.md
+  handbook/release/docs-site-hosting.md: runbooks/index.md
+  handbook/release/okg-ci-deploy.md: runbooks/index.md
+  handbook/release/workspace-promotion.md: runbooks/index.md
+  operate/deployments/admission.md: runbooks/deployments/authority.md
+  operate/deployments/catalog-ownership.md: runbooks/deployments/authority.md
+  operate/deployments/dsg-lab.md: runbooks/index.md
+  operate/deployments/producer-authority.md: runbooks/deployments/authority.md
+  operate/deployments/rollout-sharing.md: operate/deployments/external.md
+  operate/security/nomos.md: runbooks/security/nomos.md
+  operate/security/nomos-iam.md: runbooks/security/nomos-iam.md
+  operate/troubleshooting/chronos-storage.md: runbooks/troubleshooting/storage.md
+  operate/troubleshooting/first-run.md: runbooks/troubleshooting/first-run.md
+  operate/troubleshooting/generation-blocked.md: runbooks/troubleshooting/generation-blocked.md
+  operate/troubleshooting/history-compaction.md: runbooks/troubleshooting/storage.md
+  operate/troubleshooting/missing-record.md: runbooks/troubleshooting/first-run.md
+  operate/troubleshooting/ontology-rollback.md: runbooks/troubleshooting/ontology-rollback.md
+  operate/troubleshooting/publisher-lock.md: runbooks/troubleshooting/publisher-lock.md
+  operate/troubleshooting/queue-depth.md: runbooks/troubleshooting/runtime-queue.md
+  operate/troubleshooting/queue-dlq.md: runbooks/troubleshooting/runtime-queue.md
+  operate/troubleshooting/report-a-deployment-bug.md: runbooks/index.md
+  operate/troubleshooting/source-poisoning.md: runbooks/troubleshooting/source-poisoning.md
+  operate/troubleshooting/source-sync.md: runbooks/troubleshooting/source-sync.md
+  operate/troubleshooting/storage.md: runbooks/troubleshooting/storage.md
+  develop/architecture/distributed-deployments.md: develop/architecture/overview.md
+  develop/architecture/optimizer.md: develop/architecture/overview.md
+  develop/extensions/deployment-contracts.md: develop/extensions/ontologies.md
+  develop/extensions/source-adapters.md: develop/index.md
+  operate/deployments/index.md: operate/index.md
+  operate/deployments/validate.md: operate/install.md
+  operate/monitor.md: operate/index.md
+  operate/profiles/academic-pi-install.md: use/profiles/academic-researcher.md
+  reference/README.md: README.md
+  reference/types.md: reference/cli.md
+  start/security-and-data-boundary.md: start/concepts.md
+  use/profiles/systems-research.md: use/profiles/index.md
+  runbooks/agents/continuation.md: develop/index.md
+  runbooks/agents/pact-versioning.md: develop/index.md
+  runbooks/agents/plain-language.md: develop/index.md
+  runbooks/agents/subagent-rollups.md: develop/index.md
+  use/profiles/academic-pi.md: use/profiles/academic-researcher.md
+  runbooks/deployments/admission.md: runbooks/deployments/authority.md
+  runbooks/deployments/catalog-ownership.md: runbooks/deployments/authority.md
+  runbooks/deployments/producer-authority.md: runbooks/deployments/authority.md
+  runbooks/deployments/rollout-sharing.md: operate/deployments/external.md
+  runbooks/quality/benchmarks/injection-ring0.md: develop/index.md
+  runbooks/quality/benchmarks/synthetic-corpus.md: develop/index.md
+  runbooks/quality/mutation-testing.md: develop/index.md
+  runbooks/quality/repository-health.md: develop/index.md
+  runbooks/troubleshooting/chronos-storage.md: runbooks/troubleshooting/storage.md
+  runbooks/troubleshooting/history-compaction.md: runbooks/troubleshooting/storage.md
+  runbooks/troubleshooting/missing-record.md: runbooks/troubleshooting/first-run.md
+  runbooks/troubleshooting/queue-depth.md: runbooks/troubleshooting/runtime-queue.md
+  runbooks/troubleshooting/queue-dlq.md: runbooks/troubleshooting/runtime-queue.md
+  runbooks/troubleshooting/report-a-deployment-bug.md: runbooks/index.md
+  search/provenance.md: use/search/index.md
+  search/query.md: use/search/index.md
+  search/README.md: use/search/index.md
+  search/relationships.md: use/search/index.md
+  sources/connect.md: use/sources/index.md
+  sources/import.md: use/sources/index.md
+  sources/publish.md: use/sources/index.md
+  sources/README.md: use/sources/index.md
+  sources/relationships.md: use/sources/index.md
+  sources/review.md: use/sources/index.md
+  sources/troubleshoot-missing-data.md: runbooks/troubleshooting/first-run.md
+  develop/architecture/agent-surface.md: develop/architecture/overview.md
+  develop/ci/capacity.md: develop/index.md
+  develop/ci/fleet-phase4-measurements.md: develop/index.md
+  develop/ci/fleet-phase5-sidecar-trial.md: develop/index.md
+  develop/ci/fleet-phase7-boot-to-ready.md: develop/index.md
+  develop/ci/test-value-study.md: develop/index.md
+  develop/pact/v5-study.md: develop/index.md
+  develop/ui/redesign-requirements-v2.md: develop/ui/operator-contract.md
+  operate/walkthrough.md: operate/index.md
+  runbooks/deployments/dsg-lab.md: runbooks/index.md
+  runbooks/release/docs-site-hosting.md: runbooks/index.md
+  runbooks/release/okg-ci-deploy.md: runbooks/index.md
+  runbooks/release/workspace-promotion.md: runbooks/index.md
+  runbooks/workspace-graph/canonical.md: runbooks/workspace-graph/setup.md
+  runbooks/agents/coordination.md: develop/index.md
+  runbooks/agents/host-provisioning.md: develop/index.md
+  runbooks/agents/issues.md: develop/index.md
+  runbooks/agents/okg-usage.md: develop/index.md
+  runbooks/agents/reporting.md: develop/index.md
+  runbooks/agents/ui.md: develop/index.md
+  runbooks/agents/worktrees.md: develop/index.md

@@ -1,0 +1,21 @@
+# Default file readers, written by `okg deployment bootstrap` and by
+# `okg deployment add-source` for a local-folder source: parsers and chunkers
+# for Markdown, text, JSON and YAML. No entity extraction, no captioning.
+# Edit this file in the deployment directory to change how files are read.
+parser:
+  - format: markdown
+    class: okg.substrate.library.extraction.parse.markdown.MarkdownParser
+  - format: text
+    class: okg.substrate.library.extraction.parse.text.TextParser
+  - format: json
+    class: okg.substrate.library.extraction.parse.json_struct.JsonParser
+  - format: yaml
+    class: okg.substrate.library.extraction.parse.yaml_struct.YamlParser
+chunker:
+  - format: markdown
+    class: okg.substrate.library.extraction.chunk.markdown_heading.MarkdownHeadingChunker
+    config: {min_tokens: 100, max_tokens: 1500}
+  - format: default
+    class: okg.substrate.library.extraction.chunk.window.WindowChunker
+    config: {max_chars: 1500, overlap: 200}
+ner: []

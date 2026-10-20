@@ -1,0 +1,82 @@
+id: https://palimpzest.mit.edu/okg/modules/incident
+name: incident
+title: "Incident — operational incidents, postmortems, alerts"
+description: |-
+  Operational incidents with severity + timeline, their
+  postmortems, and the monitor alerts that flagged them.
+  Promoted from the legacy `okg.ontology.incident` fragment
+  (per `unify-ontology-systems`, 2026-04-26).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  inc: https://palimpzest.mit.edu/okg/modules/incident/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Incident:
+    description: An operational incident with severity + timeline.
+    class_uri: inc:Incident
+    attributes:
+      incident_id:
+        required: true
+      title:
+      severity:
+      opened_at:
+        range: datetime
+      closed_at:
+        range: datetime
+    annotations:
+      archetype: process
+      transient: 'false'
+  Postmortem:
+    description: A write-up describing causes, impact, action items.
+    class_uri: inc:Postmortem
+    attributes:
+      postmortem_id:
+        required: true
+      title:
+      body:
+    annotations:
+      archetype: artifact
+      okg_searchable_text_fields: title,body
+      transient: 'false'
+  Alert:
+    description: A monitor-generated signal, potentially leading to an incident.
+    class_uri: inc:Alert
+    attributes:
+      alert_id:
+        required: true
+      monitor:
+      fired_at:
+        range: datetime
+    annotations:
+      archetype: observation
+      transient: 'false'
+  EdgeNarrowings:
+    description: Intra-module narrowings for incident.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      incident_has_postmortem:
+        annotations:
+          edge_archetype: has_postmortem
+          src_subtypes: Incident
+          dst_subtypes: Postmortem
+      incident_triggered_by_alert:
+        annotations:
+          edge_archetype: triggered_by
+          src_subtypes: Incident
+          dst_subtypes: Alert
+      incident_affects_service:
+        description: Cross-module to service. Resolves when service is co-loaded.
+        annotations:
+          edge_archetype: affects
+          src_subtypes: Incident
+          dst_subtypes: Service
+      postmortem_references_ticket:
+        description: Cross-module to ticket. Resolves when ticket is co-loaded.
+        annotations:
+          edge_archetype: references
+          src_subtypes: Postmortem
+          dst_subtypes: Ticket

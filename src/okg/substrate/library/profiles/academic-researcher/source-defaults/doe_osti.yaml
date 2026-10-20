@@ -1,0 +1,20 @@
+# doe_osti — public DOE OSTI API.
+
+doe_osti:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.academic_researcher.doe_osti
+  class: DoeOstiSource
+  ownership_id: ${deployment_name}.doe_osti
+  source_class: mutable_api
+  record_identity_kind: remote_id
+  record_identity_fields: [osti_id]
+  source_revision_kind: version_token
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    pi_name: ${pi_name}
+    # Per dogfood F-6: ORCID is preferred (precise; no name-
+    # collision risk). When `pi_name` is absent (the install
+    # path's default), DoeOstiSource queries `orcid:<id>` against
+    # OSTI's search API directly.
+    orcid: ${orcid}

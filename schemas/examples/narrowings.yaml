@@ -1,0 +1,10 @@
+includes:
+  - okg.narrowings.service
+  - okg.narrowings.incident
+  - okg.narrowings.document
+  - okg.narrowings.repo
+
+narrowings:
+  - { parent: Issue, edge: mentions, child: Service }
+  - { parent: Doc,   edge: mentions, child: Service }
+  - { parent: Issue, edge: in_repo,  child: Repo    }

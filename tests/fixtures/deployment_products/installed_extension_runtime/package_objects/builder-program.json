@@ -1,0 +1,1 @@
+{"installer_algorithm_version":"wheel-record-unpack/v2","operations":["verify-wheel-record","reject-active-or-editable-members","install-declared-members","verify-and-seal-tree"],"schema_version":"okg.extension_runtime.builder_program/v1","tree_normalization_profile":"nfc-posix-0444-0555/v1","wheel_install_scheme":"abi-site-packages/v1"}

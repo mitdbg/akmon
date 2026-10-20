@@ -1,0 +1,324 @@
+id: https://palimpzest.mit.edu/okg/modules/bookkeeping
+name: bookkeeping
+title: "Bookkeeping — operator-scoped project management"
+description: |-
+  Project + Project{Goal,Milestone,Deliverable,Risk,Stakeholder} at
+  per-Project scope. The reasoning-consumer side of the personal-OKG
+  force-multiplier architecture (umbrella
+  `expand-memex-to-personal-okg`): bookkeeping subtypes cite into the
+  reasoning core via Pattern B (`Project investigates Hypothesis`,
+  `ProjectGoal guided_by Principle`, `Hypothesis predicts ProjectRisk`)
+  and roll up the substrate `openspec` module's per-proposal
+  Goal / Risk / Stakeholder via cross-shared rules.
+
+  **Naming note.** The substrate's catalog composer uses a flat
+  subtype namespace (a Goal subtype is one subtype regardless of
+  module origin). The umbrella's prose used `openspec.Goal` vs
+  `bookkeeping.Goal` to distinguish per-proposal from per-project
+  scope; the actual substrate subtypes are `openspec.Goal` (which
+  composes as `goal`) and `bookkeeping.ProjectGoal` (which composes
+  as `project_goal`). The two scopes stay distinct via this naming
+  convention. Same pattern for ProjectRisk and ProjectStakeholder.
+  ProjectMilestone and ProjectDeliverable are also prefixed for
+  consistency (no collision today, but future-proof against
+  another module introducing the bare names).
+
+  Lifecycle: stable. Additive-only changes post-ship per umbrella D10.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  bk: https://palimpzest.mit.edu/okg/modules/bookkeeping/
+
+default_range: string
+
+imports:
+- linkml:types
+
+classes:
+  Project:
+    description: |-
+      A multi-step initiative with stated purpose and deliverables.
+      Top-level container; primary aggregation for the bookkeeping
+      layer. Cross-shared with substrate `openspec` module:
+      OpenSpecChange member_of Project via `project:` frontmatter.
+    class_uri: bk:Project
+    attributes:
+      project_id:
+        required: true
+        description: Identifier; conventional form `proj:<slug>`.
+      slug:
+        required: true
+        description: Kebab-case stable id; used as the alias and in
+          `project:` frontmatter on OpenSpec proposals.
+      title:
+        required: true
+        description: Short human title.
+      purpose:
+        description: Short prose statement of what the project is for.
+      status:
+        required: true
+        description: |-
+          Enum-flavored text. Recommended values:
+          `active | paused | done | abandoned`.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer.
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: project_id,slug,title
+      okg_searchable_text_fields: title,purpose
+
+  ProjectGoal:
+    description: |-
+      What a Project pursues. Per-Project scope; distinct from the
+      `openspec.Goal` subtype (per-proposal). Pattern B target via
+      `ProjectGoal guided_by Principle`. Cross-shared target via
+      `openspec.Goal contributes_to ProjectGoal`.
+    class_uri: bk:ProjectGoal
+    attributes:
+      project_goal_id:
+        required: true
+        description: Identifier; conventional form `goal:<slug>`.
+      project_id:
+        required: true
+        description: Backref to owning Project.
+      text:
+        required: true
+        description: The goal statement.
+      status:
+        description: |-
+          Enum-flavored text. Recommended values: `open | met | dropped`.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer.
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: project_goal_id,text
+      okg_searchable_text_fields: text
+
+  ProjectMilestone:
+    description: |-
+      A dated checkpoint within a Project. Distinct from
+      ProjectDeliverable (Milestone is a moment; Deliverable is an
+      output). A Milestone may produce zero-or-more Deliverables via
+      the intra-module narrowing
+      `ProjectMilestone produces ProjectDeliverable`.
+    class_uri: bk:ProjectMilestone
+    attributes:
+      project_milestone_id:
+        required: true
+        description: Identifier; conventional form `mile:<slug>`.
+      project_id:
+        required: true
+        description: Backref to owning Project.
+      title:
+        required: true
+        description: Short human title.
+      target_date:
+        range: date
+        description: Optional target date for the checkpoint.
+      status:
+        required: true
+        description: |-
+          Enum-flavored text. Recommended values:
+          `open | met | missed | dropped`.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer.
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: project_milestone_id,title
+      okg_searchable_text_fields: title
+
+  ProjectDeliverable:
+    description: |-
+      A producible output (paper, code, decision, dataset) bound to a
+      Project (and optionally a ProjectMilestone). Aggregation point
+      for `OpenSpecChange` deliverables once the change archives.
+    class_uri: bk:ProjectDeliverable
+    attributes:
+      project_deliverable_id:
+        required: true
+        description: Identifier; conventional form `deliv:<slug>`.
+      project_id:
+        required: true
+        description: Backref to owning Project.
+      project_milestone_id:
+        description: Optional backref to the ProjectMilestone gating
+          this Deliverable.
+      title:
+        required: true
+        description: Short human title.
+      kind:
+        description: |-
+          Free-form classification. Suggested values:
+          `paper | code | report | decision | dataset | other`.
+      status:
+        required: true
+        description: |-
+          Enum-flavored text. Recommended values:
+          `planned | in_progress | shipped | abandoned`.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer.
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: project_deliverable_id,title
+      okg_searchable_text_fields: title
+
+  ProjectRisk:
+    description: |-
+      A flagged threat to a Project or its Goals. Per-Project scope;
+      distinct from `openspec.Risk` (per-proposal). Distinct from
+      `reasoning.Hypothesis` — a ProjectRisk is operator-flagged, not
+      a testable claim. Pattern B target via
+      `Hypothesis predicts ProjectRisk`. Cross-shared target via
+      `openspec.Risk contributes_to ProjectRisk`.
+    class_uri: bk:ProjectRisk
+    attributes:
+      project_risk_id:
+        required: true
+        description: Identifier; conventional form `risk:<slug>`.
+      project_id:
+        required: true
+        description: Backref to owning Project.
+      title:
+        required: true
+        description: Short human title.
+      severity:
+        description: |-
+          Enum-flavored text. Recommended values:
+          `low | medium | high | critical`.
+      mitigation:
+        description: Mitigation prose.
+      status:
+        required: true
+        description: |-
+          Enum-flavored text. Recommended values:
+          `open | mitigated | realized | closed`.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer.
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: project_risk_id,title
+      okg_searchable_text_fields: title,mitigation
+
+  ProjectStakeholder:
+    description: |-
+      A role/person with interest in a Project. Per-Project scope;
+      distinct from `openspec.Stakeholder` (per-proposal). Optionally
+      linked to a substrate `person.Person` via the
+      `ProjectStakeholder identifies Person` narrowing (active when
+      the `person` module is composed). Cross-shared with
+      `openspec.Stakeholder identifies_as ProjectStakeholder`
+      collapsing proposal-level Stakeholder mentions to the project-
+      level one.
+
+      Modeled as `artifact` (textual mention) rather than `actor`
+      because Stakeholders are typically role labels ("reviewers",
+      "deployment owners"); identity to a specific Person is the
+      optional `identifies` edge.
+    class_uri: bk:ProjectStakeholder
+    attributes:
+      project_stakeholder_id:
+        required: true
+        description: Identifier; conventional form `stake:<slug>`.
+      project_id:
+        required: true
+        description: Backref to owning Project.
+      role:
+        required: true
+        description: Stakeholder role text.
+      person_id:
+        description: Optional link to a substrate `person.Person` alias
+          when the role is filled by a specific individual.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer.
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: project_stakeholder_id,role
+      okg_searchable_text_fields: role
+
+  EdgeNarrowings:
+    description: |-
+      Intra-module narrowings for bookkeeping. Cross-module
+      narrowings (Pattern B to reasoning, cross-shared to openspec,
+      Stakeholder-to-Person) live in cross-link rule files under
+      `library/ontologies/bookkeeping/cross_links/` and are wired
+      via `module.yaml`'s `extends:` blocks. They are silently
+      dormant when their referenced modules are not composed (the
+      composer skips rules whose subtypes are absent from the
+      catalog). This split keeps the schema itself loadable in
+      isolation.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      project_contains_milestone:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Project
+          dst_subtypes: ProjectMilestone
+      project_contains_goal:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Project
+          dst_subtypes: ProjectGoal
+      project_contains_deliverable:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Project
+          dst_subtypes: ProjectDeliverable
+      project_contains_risk:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Project
+          dst_subtypes: ProjectRisk
+      project_contains_stakeholder:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Project
+          dst_subtypes: ProjectStakeholder
+      milestone_produces_deliverable:
+        annotations:
+          edge_archetype: produces
+          src_subtypes: ProjectMilestone
+          dst_subtypes: ProjectDeliverable

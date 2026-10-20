@@ -1,0 +1,67 @@
+# Cross-link rules: agent_memory -> ci.
+rules:
+  - id: agent_records_reference_ci_artifacts
+    src:
+      subtype:
+        - agent_claim
+        - agent_observation
+        - agent_experiment
+        - verification_result
+        - agent_decision
+      field: artifact_refs
+    dst:
+      subtype:
+        - test_report
+        - coverage_report
+        - test_run
+        - test_case
+        - runtime_event
+        - stack_frame
+      field: node_id
+    matcher: exact
+    edge: references
+    bidirectional: false
+  - id: agent_claims_supported_by_ci_evidence
+    src:
+      subtype: agent_claim
+      field: evidence_refs
+    dst:
+      subtype:
+        - test_report
+        - coverage_report
+        - test_run
+        - test_case
+        - runtime_event
+      field: node_id
+    matcher: exact
+    edge: supported_by
+    bidirectional: false
+  - id: agent_claims_contradicted_by_ci_evidence
+    src:
+      subtype: agent_claim
+      field: contradicting_refs
+    dst:
+      subtype:
+        - test_report
+        - coverage_report
+        - test_run
+        - test_case
+        - runtime_event
+      field: node_id
+    matcher: exact
+    edge: contradicted_by
+    bidirectional: false
+  - id: agent_experiments_produce_ci_artifacts
+    src:
+      subtype: agent_experiment
+      field: produced_refs
+    dst:
+      subtype:
+        - test_report
+        - coverage_report
+        - test_run
+        - runtime_event
+      field: node_id
+    matcher: exact
+    edge: produces
+    bidirectional: false

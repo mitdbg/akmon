@@ -1,0 +1,104 @@
+id: https://palimpzest.mit.edu/okg/modules/dataset
+name: dataset
+title: "Dataset — data assets, tables, columns, schemas"
+description: |-
+  Data assets (files, tables, topics, bucket objects)
+  and their containment + reference structure. Promoted
+  from the legacy `okg.ontology.dataset` fragment (per
+  `unify-ontology-systems`, 2026-04-26).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  ds: https://palimpzest.mit.edu/okg/modules/dataset/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Dataset:
+    description: A named data asset (file, table, topic, bucket object).
+    class_uri: ds:Dataset
+    attributes:
+      dataset_id:
+        required: true
+      name:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Table:
+    description: A relational table in a database.
+    class_uri: ds:Table
+    attributes:
+      table_id:
+        required: true
+      name:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Column:
+    description: A column of a table.
+    class_uri: ds:Column
+    attributes:
+      column_id:
+        required: true
+      name:
+      data_type:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Schema:
+    description: A logical grouping of tables (a DB schema / dataset).
+    class_uri: ds:Schema
+    attributes:
+      schema_id:
+        required: true
+      name:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Value:
+    description: A categorical value observed in a low-cardinality column.
+    class_uri: ds:Value
+    attributes:
+      value_id:
+        required: true
+      name:
+      column:
+    annotations:
+      archetype: resource
+      transient: 'false'
+      okg_searchable_text_fields: name
+  EdgeNarrowings:
+    description: Intra-module narrowings for dataset.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      schema_contains_table:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Schema
+          dst_subtypes: Table
+      table_contains_column:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Table
+          dst_subtypes: Column
+      table_references_table:
+        annotations:
+          edge_archetype: references
+          src_subtypes: Table
+          dst_subtypes: Table
+      column_references_column:
+        annotations:
+          edge_archetype: references
+          src_subtypes: Column
+          dst_subtypes: Column
+      dataset_stored_in_schema:
+        annotations:
+          edge_archetype: stored_in
+          src_subtypes: Dataset
+          dst_subtypes: Schema
+      column_contains_value:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Column
+          dst_subtypes: Value

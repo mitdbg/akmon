@@ -1,0 +1,25 @@
+# Hard preset: low redundancy, subtle in-range corruption, majority-wrong
+# visibility, heavy benign variation.
+preset_name: hard
+seed: "hard-749-1"
+world_path: world_smoke
+redundancy:
+  renderings_per_fact_min: 1
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 4, magnitude: 0.05, visibility_corrupted: 1}
+    # majority-wrong rides care_provider: the only 3-genre fact kind, so a
+    # clean counterpart survives (observations cap at 2 genres - the pack
+    # ceiling; the renderer fails closed if this is ever violated).
+    cardinality_violation: {count: 1, visibility_corrupted: 2}
+    entity_swap: {count: 2, visibility_corrupted: 1}
+    digit_transposition: {count: 2}
+    label_value_mismatch: {count: 2}
+benign_variation:
+  unit_rescale_rate: 0.4
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+materialize_pdf: false

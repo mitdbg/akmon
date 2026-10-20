@@ -1,0 +1,132 @@
+name: lifecycle-exec
+description: Tracked fixture deployment for the deployment-lifecycle execution suite.
+  Committed (not scratch-staged) because the backup planner reads the deployment from
+  the pinned git object via `git archive`.
+postgres:
+  dsn: ${OKG_DSN}
+schema_dir: schemas
+source_registry: source_registry.yaml
+modules:
+- git_graph
+- openspec
+- extraction
+- agent_memory
+- reasoning
+# Readiness audits the deployment's Nomos posture, so the fixture declares a
+# real one: a posture block, a per-source-class policy default covering all
+# three sources, and enforce mode (readiness refuses anything weaker).
+nomos:
+  runtime_enforcement: enforce
+  deployment_posture:
+    deployment_class: org_operational_private
+    read_principals:
+    - human_operator
+    - okg_service
+    - mcp_client
+    write_principals:
+    - human_operator
+    - okg_service
+    - source_adapter
+    mcp_write_default: review
+    export_policy: internal_only
+    secret_handling: secret_ref_required
+    live_call_default: review
+    allowed_source_sensitivities:
+    - internal
+    - private
+    allowed_data_classifications:
+    - internal
+    - private
+    allowed_exportability:
+    - internal
+    - no_export
+    privacy_obligations:
+    - audit
+    - review
+    - secret_ref_required
+    readiness_profiles:
+    - org-private
+  source_policy_defaults:
+    by_source_class:
+      discovery_crawl:
+        store_raw: true
+        sensitivity: private
+        data_classification: private
+        credential_ref_policy: none
+        live_call_allowed: false
+        exportability: no_export
+        retention: source_defined
+        provenance: declared
+        privacy_obligations:
+        - audit
+        - no_export
+# `dev` resolves the target revision dynamically to HEAD, so this fixture needs
+# no static commit pin that would go stale on every commit. The cost is that the
+# backup planner's target-revision check additionally requires a clean worktree
+# (true of any CI checkout); the suite states that precondition explicitly and
+# fails loudly in CI rather than skipping.
+release:
+  channel: dev
+host_storage:
+  # This deployment owns a short-lived dedicated database that the E2E fixture
+  # force-drops after every run. Its small disposable capacity contract must not
+  # inherit production deployments' larger headroom floor.
+  warn_available_pct: 2
+  blocker_available_pct: 1
+deployment_up:
+  # The disposable lifecycle proof selects `records` as its smoke canary. Its
+  # provider effect is deliberately irreversible, so admission comes from this
+  # deployment-owned, exact adapter contract rather than a process-global test
+  # allow-list or a monkeypatched effect inventory.
+  smoke_adapter_contracts:
+    records:
+      module: okg.substrate.library.sources.bootstrap_fixture
+      class: BootstrapFixtureSource
+      source_class: discovery_crawl
+      allowed_params:
+      - fixture_path
+      publishable_revision_kinds:
+      - content_hash
+      publication_mode: published_generation
+      emits_on_demand: true
+      external_effects: true
+  backup:
+    # `risk_admitted` lets the policy DECIDE between a forced full restore and
+    # the routine no-dump path, rather than hardcoding one. It is also the only
+    # policy that parses the recovery-objective fields below, which
+    # `backup verify` needs before it will write a recovery receipt. This
+    # fixture's posture is not dogfood, so the decision lands on the forced arm.
+    verification_policy: risk_admitted
+    restore_peak_factor: 1.25
+    restore_volume:
+      kind: docker_data_root
+    # `okg deployment backup verify` states the recovery point, the configured
+    # objective, the age and the next required backup in its receipt, so it
+    # refuses to write one unless these are declared.
+    disaster_recovery_archive_max_age_seconds: 86400
+    disaster_recovery_restore_max_age_seconds: 604800
+    recovery_point_objective_seconds: 86400
+    budgets_seconds:
+      routine:
+        backup: 60
+        attribute_read_model: 30
+        total: 600
+      forced:
+        dump: 1012
+        backup: 4200
+        total: 7200
+# The planner treats the attribute read model as rebuildable only under the
+# interval arm with the empty-overlay fast path declared; without it the backup
+# admission refuses on attribute_read_model_rebuildable.
+native_views:
+  attribute_effective_view_empty_overlay_fast_path: true
+runtime:
+  # Required before `okg runtime worker` will start for this deployment.
+  enabled: true
+  # The DBOS admin server binds a fixed default port (3001). CI runs this lane
+  # on a shared persistent runner alongside other jobs and possibly a live
+  # worker, so leaving it on would make the worker arm fail on a port collision
+  # that has nothing to do with the deployment lifecycle.
+  run_admin_server: false
+  smoke_sources:
+  - pact

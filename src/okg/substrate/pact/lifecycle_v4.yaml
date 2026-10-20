@@ -1,0 +1,49 @@
+# PACT v4 lifecycle: the normative state machine.
+# Per `standardize-pact-review-interface` design.md section 1.
+# State is derived from the evidence ledger + recorded decisions, never authored.
+states:
+  draft:
+    meaning: manifest invalid or being edited
+    terminal: false
+  proposed:
+    meaning: "tier-2+ only: valid, awaiting go-ahead"
+    terminal: false
+  in_progress:
+    meaning: tasks not all terminal
+    terminal: false
+  awaiting_review:
+    meaning: all tasks terminal, evidence policies satisfied
+    terminal: false
+  retired:
+    meaning: approved at review; archived
+    terminal: true
+  superseded:
+    meaning: replaced by a named change; archived
+    terminal: true
+  rejected:
+    meaning: root cause rejected; archived
+    terminal: true
+verdicts:
+  human: [approve, revise, reject, supersede, defer]
+  agent_only: [escalate]
+  operator_only: [reopen]
+transitions:
+  - {from: draft, event: gate_post_edit_pass, guard: tier_0_or_1, to: in_progress}
+  - {from: draft, event: gate_post_edit_pass, guard: tier_2_plus, to: proposed}
+  - {from: proposed, event: approve, guard: in_mandate, to: in_progress}
+  - {from: proposed, event: revise, guard: null, to: draft}
+  - {from: proposed, event: reject, guard: null, to: rejected}
+  - {from: in_progress, event: tasks_terminal, guard: evidence_satisfied, to: awaiting_review}
+  - {from: awaiting_review, event: approve, guard: in_mandate_and_evidence_fresh, to: retired}
+  - {from: awaiting_review, event: revise, guard: null, to: in_progress}
+  - {from: awaiting_review, event: reject, guard: null, to: rejected}
+  - {from: awaiting_review, event: evidence_stale, guard: null, to: in_progress}
+  - {from: draft, event: supersede, guard: target_exists, to: superseded}
+  - {from: proposed, event: supersede, guard: target_exists, to: superseded}
+  - {from: in_progress, event: supersede, guard: target_exists, to: superseded}
+  - {from: awaiting_review, event: supersede, guard: target_exists, to: superseded}
+  - {from: retired, event: reopen, guard: operator_only, to: awaiting_review}
+# defer and escalate are recorded decisions that do not transition state:
+# defer affects queue rank only; escalate routes the pending decision to
+# another principal's queue.
+non_transition_verdicts: [defer, escalate]

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://palimpzest.mit.edu/okg/schemas/invariants.schema.json",
+  "title": "OKG invariants.yaml",
+  "description": "Correctness rules. Each invariant is either (a) a library reference or (b) a deployment-authored SQL body that returns violator rows.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["invariants"],
+  "properties": {
+    "invariants": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {"$ref": "#/$defs/library_ref"},
+          {"$ref": "#/$defs/custom"}
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "library_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["use"],
+      "properties": {
+        "use": {
+          "type": "string",
+          "pattern": "^okg\\.invariants\\.[a-z_][a-z0-9_]*$"
+        },
+        "severity": {"enum": ["error", "warn"]},
+        "scope":    {"enum": ["source", "cross"]},
+        "source":   {"type": "string"},
+        "with":     {"type": "object", "description": "Parameters passed to the parameterized library invariant."}
+      }
+    },
+    "custom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "severity", "scope", "sql"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "severity": {"enum": ["error", "warn"]},
+        "scope":    {"enum": ["source", "cross"]},
+        "source": {
+          "type": "string",
+          "description": "Required when scope=source; names the source this invariant is scoped to."
+        },
+        "sql": {
+          "type": "string",
+          "minLength": 1,
+          "description": "SQL body returning violator rows. Contract defined in docs/develop/architecture/pipeline.md#publication-result-types. Empty result set = pass; any rows = fail; rows form the sample in graph_generations.invariant_summary. Each row MUST have at minimum a node_id or edge_id column (the substrate treats this as the opaque key for deduplicating violators across runs). Evaluator runs the body inside a READ ONLY transaction and injects `LIMIT 100` if no LIMIT is present at the statement top level (LIMITs inside CTEs or subqueries do not count). Evaluator rejects bodies containing any write-statement token (INSERT, UPDATE, DELETE, TRUNCATE, MERGE, COPY, CREATE, DROP, ALTER, GRANT, REVOKE, CALL, DO, SELECT INTO) at parse time, and the READ ONLY transaction is the backstop."
+        }
+      },
+      "allOf": [
+        {
+          "if":   {"properties": {"scope": {"const": "source"}}, "required": ["scope"]},
+          "then": {"required": ["source"]}
+        }
+      ]
+    }
+  }
+}

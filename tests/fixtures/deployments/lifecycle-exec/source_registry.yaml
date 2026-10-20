@@ -1,0 +1,79 @@
+sources:
+  # The deploy-up smoke canary. The backup planner only admits a smoke source
+  # whose adapter is on its trusted allow-list with a closed parameter set
+  # (deployment_upgrade._TRUSTED_ROUTINE_SMOKE_ADAPTERS), so the canary runs the
+  # PACT adapter over the miniature tree in pactfixture/ -- deployment-owned,
+  # content-hash versioned, publishing generations, with no external effects.
+  pact:
+    module: okg.substrate.library.sources.pact
+    class: PACTSource
+    ownership_id: lifecycle-exec.pact
+    params:
+      pact_root: ${repo_root}/deployments/lifecycle-exec/pactfixture
+      repo: okg
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields:
+    - repo
+    - change_id
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    schedule:
+      reconcile_interval: 24h
+    admission_policy:
+      producer_id: lifecycle-exec.pact
+      producer_kind: source
+      trust_label: repo-local-trusted
+      admission_mode: fast_track
+      authority_scope:
+        source_family: lifecycle_exec_fixture
+        path_globs:
+        - "pactfixture/**/*"
+      allowed_record_kinds:
+      - node
+      - edge
+  records:
+    module: okg.substrate.library.sources.bootstrap_fixture
+    class: BootstrapFixtureSource
+    ownership_id: lifecycle-exec.records
+    params:
+      fixture_path: ${repo_root}/deployments/lifecycle-exec/fixtures/records.json
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields:
+    - source_id
+    - record_id
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    schedule:
+      reconcile_interval: 24h
+    admission_policy:
+      producer_id: lifecycle-exec.records
+      producer_kind: source
+      trust_label: repo-local-trusted
+      admission_mode: fast_track
+      authority_scope:
+        source_family: lifecycle_exec_fixture
+        path_globs:
+        - "fixtures/records.json"
+      allowed_record_kinds:
+      - node
+      - edge
+  docs:
+    module: okg.substrate.library.sources.bootstrap_fixture
+    class: BootstrapFixtureSource
+    ownership_id: lifecycle-exec.docs
+    params:
+      fixture_path: ${repo_root}/deployments/lifecycle-exec/fixtures/docs.json
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields:
+    - source_id
+    - record_id
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    schedule:
+      reconcile_interval: 24h

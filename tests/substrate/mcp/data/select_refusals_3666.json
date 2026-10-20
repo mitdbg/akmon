@@ -1,0 +1,1584 @@
+{
+ "rows": [
+  {
+   "arguments": {
+    "direction": "in",
+    "edge_type": "contains",
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 100,
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "provenance"
+    ]
+   },
+   "calls": 2,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "in",
+    "edge_type": "contains",
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 30,
+    "max_bytes": 8000,
+    "select": [
+     "node_id",
+     "edge_type",
+     "src",
+     "dst",
+     "attrs"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "in",
+    "filter": {
+     "field": "subtype",
+     "op": "eq",
+     "value": "doc_chunk"
+    },
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 5,
+    "order_by": "node_id",
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "provenance"
+    ]
+   },
+   "calls": 3,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "out",
+    "edge_type": "contains",
+    "filter": {
+     "field": "subtype",
+     "op": "eq",
+     "value": "doc_chunk"
+    },
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 1000,
+    "select": [
+     "node_id",
+     "attrs"
+    ]
+   },
+   "calls": 4,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "out",
+    "edge_type": "contains",
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 10,
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "provenance"
+    ]
+   },
+   "calls": 2,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "out",
+    "edge_type": "contains",
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 100,
+    "max_bytes": 10000,
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "provenance"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "out",
+    "edge_type": "contains",
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 20,
+    "max_bytes": 12000,
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "provenance"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "out",
+    "edge_type": "contains",
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 20,
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "provenance"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "out",
+    "edge_type": "contains",
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 30,
+    "max_bytes": 10000,
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "provenance"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "out",
+    "edge_type": "contains",
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 30,
+    "max_bytes": 6000,
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "provenance"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "out",
+    "edge_type": "contains",
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 30,
+    "max_bytes": 8000,
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "provenance"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "out",
+    "edge_type": "contains",
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 30,
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "provenance"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "direction": "out",
+    "edge_type": "contains",
+    "input": {
+     "node_id": "doc:000"
+    },
+    "limit": 5,
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "provenance"
+    ]
+   },
+   "calls": 2,
+   "refusal_code": "select_unknown_field",
+   "tool": "expand"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_bytes": 10000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "score"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_bytes": 12000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "score"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_bytes": 12000,
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_family",
+     "path"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_bytes": 6000,
+    "method": "grep",
+    "path_prefix": "docs/",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "handle",
+     "match_windows",
+     "location"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_bytes": 6000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "score"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_bytes": 6000,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "value",
+     "id_type",
+     "evidence_kind",
+     "span_start",
+     "span_end"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_bytes": 6000,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "value",
+     "id_type",
+     "evidence_kind"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_bytes": 6000,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "value",
+     "id_type",
+     "evidence_kind"
+    ]
+   },
+   "calls": 2,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_bytes": 8000,
+    "method": "grep",
+    "path_prefix": "docs/",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_record_id",
+     "location"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_chars": 1200,
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_family",
+     "path"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_chars": 1600,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "value",
+     "id_type"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_chars": 800,
+    "query": "zirconium",
+    "scope": {
+     "record": "doc:000"
+    },
+    "select": [
+     "node_id",
+     "excerpt",
+     "location",
+     "match_windows"
+    ]
+   },
+   "calls": 2,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "excerpt",
+     "location",
+     "handle"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "score"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_lineage"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "source_lineage_select_unsupported",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_record_id",
+     "location"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "value",
+     "id_type",
+     "evidence_kind",
+     "excerpt"
+    ]
+   },
+   "calls": 2,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "value",
+     "id_type",
+     "evidence_kind",
+     "span_start",
+     "span_end"
+    ]
+   },
+   "calls": 2,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "value",
+     "id_type",
+     "evidence_kind"
+    ]
+   },
+   "calls": 4,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 10000,
+    "max_chars": 700,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "location",
+     "source_lineage"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "doc"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "source_lineage_select_unsupported",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 10000,
+    "max_chars": 700,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "location"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "doc"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 12000,
+    "method": "lexical",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "attrs",
+     "citation"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 20000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "handle",
+     "excerpt",
+     "match_windows",
+     "score",
+     "match_kind"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "doc"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 35000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "parent",
+     "excerpt",
+     "handle",
+     "location",
+     "source_record_id",
+     "match_windows"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_chars": 1500,
+    "method": "lexical",
+    "select": [
+     "node_id",
+     "handle",
+     "attrs",
+     "excerpt"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "canonical_node_id",
+     "source_lineage",
+     "source_revision"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "source_lineage_select_unsupported",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "canonical_node_id"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 1000,
+    "max_bytes": 10000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs.status"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 2,
+    "max_bytes": 6000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "excerpt",
+     "location",
+     "source_record_id",
+     "text_hash"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 2,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "source_lineage"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "source_lineage_select_unsupported",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "max_bytes": 10000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "attrs",
+     "source_lineage"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "source_lineage_select_unsupported",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "max_bytes": 10000,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "value",
+     "id_type"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "max_bytes": 12000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "match_windows",
+     "score"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "max_bytes": 12000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "score"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "max_bytes": 12000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_family",
+     "location",
+     "score"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "max_bytes": 16000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "provenance",
+     "source_family",
+     "location",
+     "match_windows"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "max_bytes": 20000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "score",
+     "source_family",
+     "source_record_id",
+     "provenance"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "max_bytes": 8000,
+    "method": "attrs",
+    "profile": "all",
+    "select": [
+     "node_id",
+     "handle",
+     "excerpt"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "max_bytes": 9000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "parent",
+     "source_record_id",
+     "excerpt",
+     "handle",
+     "subtype",
+     "source_lineage",
+     "source_family"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "source_lineage_select_unsupported",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "max_chars": 2500,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "excerpt",
+     "handle",
+     "source_record_id",
+     "path"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "canonical_node_id"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "excerpt",
+     "handle",
+     "citation",
+     "source_lineage",
+     "source_revision",
+     "attrs"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "doc"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "source_lineage_select_unsupported",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "score",
+     "source_family",
+     "match_windows"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_family",
+     "location"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_family",
+     "source_lineage",
+     "provenance",
+     "attrs"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "source_lineage_select_unsupported",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_record_id",
+     "location",
+     "match_windows"
+    ]
+   },
+   "calls": 2,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "date.created",
+     "date.modified",
+     "date.resolved",
+     "score"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 3,
+    "max_bytes": 6000,
+    "method": "attrs",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "attrs",
+     "source_lineage"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "source_lineage_select_unsupported",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "max_bytes": 10000,
+    "method": "grep",
+    "path_prefix": "docs/",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "match_windows",
+     "path"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "max_bytes": 18000,
+    "method": "grep",
+    "path_prefix": "docs/",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_record_id",
+     "score"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "max_bytes": 18000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "provenance",
+     "location"
+    ]
+   },
+   "calls": 2,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "max_bytes": 28000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "score",
+     "location",
+     "source_family"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "max_bytes": 7000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "citation",
+     "excerpt",
+     "subtype"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "max_chars": 1000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "score"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "method": "grep",
+    "path_prefix": "docs/",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "path",
+     "match_windows"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "path",
+     "match_windows"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "path",
+     "matching_passages"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 5,
+    "max_bytes": 5000,
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "handle",
+     "excerpt",
+     "created"
+    ],
+    "where": {
+     "field": "attrs.summary",
+     "op": "eq",
+     "value": "Document 001"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 5,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "provenance",
+     "source_lineage"
+    ],
+    "where": {
+     "field": "id",
+     "op": "eq",
+     "value": "doc:000"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "source_lineage_select_unsupported",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 5,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "value",
+     "id_type"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 5,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "value",
+     "id_type",
+     "evidence_kind"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 50,
+    "max_bytes": 10000,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "value",
+     "id_type",
+     "evidence_kind",
+     "span_start",
+     "span_end"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 50,
+    "max_bytes": 12000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "location",
+     "attrs"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "doc"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 50,
+    "max_bytes": 12000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "location",
+     "match_windows",
+     "attrs"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 50,
+    "max_bytes": 12000,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "subtype",
+     "value",
+     "evidence_kind",
+     "span_start",
+     "span_end",
+     "provenance"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 50,
+    "max_bytes": 12000,
+    "method": "identifier_mentions",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "value",
+     "id_type",
+     "evidence_kind",
+     "evidence_kind_provenance",
+     "span_start",
+     "span_end",
+     "parent",
+     "subtype",
+     "attrs"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  },
+  {
+   "arguments": {
+    "limit": 50,
+    "max_bytes": 15000,
+    "method": "grep",
+    "query": "zirconium",
+    "select": [
+     "node_id",
+     "handle",
+     "excerpt",
+     "parent",
+     "location",
+     "match_windows"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "doc"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "select_unknown_field",
+   "tool": "search"
+  }
+ ],
+ "source": "refused read calls replayed for issue 3666; values replaced by neutral ones"
+}

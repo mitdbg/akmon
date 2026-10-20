@@ -1,0 +1,22 @@
+invariants:
+  - name: monotonic_observation_at
+    severity: warn
+    scope: cross
+    sql: |
+      -- Every fact's observed_at should be non-decreasing within
+      -- a (source, source_record_id) tuple. Decreasing time on
+      -- the same logical row signals clock skew or an
+      -- out-of-order replay; the graph is still valid (retractions
+      -- resolve this) but operators should know.
+      WITH ranked AS (
+        SELECT source, source_record_id, observed_at, fact_id,
+               LAG(observed_at) OVER (
+                 PARTITION BY source, source_record_id::text
+                 ORDER BY fact_id
+               ) AS prev_observed
+          FROM okg.node_facts
+      )
+      SELECT source, source_record_id, observed_at, prev_observed
+        FROM ranked
+       WHERE prev_observed IS NOT NULL
+         AND observed_at < prev_observed

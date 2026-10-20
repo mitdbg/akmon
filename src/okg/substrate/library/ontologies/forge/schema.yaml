@@ -1,0 +1,220 @@
+id: https://palimpzest.mit.edu/okg/modules/forge
+name: forge
+title: Forge Graph — issues, pull requests, repos sourced from GitHub/GitLab
+description: |-
+  Issues and pull requests sourced from forge platforms (GitHub,
+  GitLab, etc.) via their CLI tools (`gh`, `glab`). Three subtypes:
+  Repo, Issue, PullRequest. Cross-module narrowings to OpenSpec
+  changes resolve when the openspec module is co-loaded.
+
+  Per `wire-issues-feed-to-okg-workspace` (2026-04-26).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  forge: https://palimpzest.mit.edu/okg/modules/forge/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Repo:
+    description: |-
+      A forge-hosted repository. Same identity as git_graph's
+      `repo` (when both modules load against the same project).
+    class_uri: forge:Repo
+    attributes:
+      repo_id:
+        required: true
+        description: "Conventionally repo:<host>:<owner>/<name> (e.g. repo:github:anthropics/okg)."
+      forge:
+        required: true
+        description: "Forge identifier (github, gitlab, gitea, …)."
+      slug:
+        required: true
+        description: "<owner>/<name> form."
+      url:
+        description: Canonical web URL.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Issue:
+    description: |-
+      A forge issue (open or closed). Issue body + title +
+      assignee + labels are emitted as attributes.
+    class_uri: forge:Issue
+    attributes:
+      issue_id:
+        required: true
+        description: "Conventionally issue:<host>:<owner>/<name>:#<number>."
+      number:
+        required: true
+        range: integer
+      title:
+        required: true
+      state:
+        required: true
+        description: open | closed.
+      author_login:
+      body:
+      labels:
+        description: Comma-separated label names.
+      created_at:
+        range: datetime
+      updated_at:
+        range: datetime
+      closed_at:
+        range: datetime
+      url:
+    annotations:
+      okg_title_from: title
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: title,body
+      okg_alias_fields: url
+  PullRequest:
+    description: |-
+      A pull request (or merge request). Distinguished from Issue
+      by carrying head/base branch info plus merge state.
+    class_uri: forge:PullRequest
+    attributes:
+      pr_id:
+        required: true
+        description: "Conventionally pr:<host>:<owner>/<name>:#<number>."
+      number:
+        required: true
+        range: integer
+      title:
+        required: true
+      state:
+        required: true
+        description: open | closed | merged.
+      author_login:
+      body:
+      head_branch:
+      base_branch:
+      merged:
+        range: boolean
+      created_at:
+        range: datetime
+      updated_at:
+        range: datetime
+      merged_at:
+        range: datetime
+      url:
+    annotations:
+      okg_title_from: title
+      archetype: artifact
+      okg_searchable_text_fields: title,body
+      transient: 'false'
+      okg_alias_fields: url
+  ForgeComment:
+    description: |-
+      One comment in an issue or pull-request thread — the unit
+      that carries maintainer RATIONALE. Two kinds, distinguished
+      by `comment_kind`: `issue_comment` (the conversation on an
+      issue or PR) and `review_comment` (a line-anchored remark on
+      a PR diff, which additionally carries `path` and
+      `review_commit_sha`).
+
+      Per `okg-corpus-repo-history` (2026-07-28): the forge source
+      previously ingested issue and PR BODIES but not the thread,
+      leaving SWE-QA's answer unit — what a maintainer actually
+      said — absent from the graph.
+    class_uri: forge:ForgeComment
+    attributes:
+      comment_id:
+        required: true
+        description: "Conventionally comment:<host>:<owner>/<name>:<kind>:<remote_id>."
+      comment_kind:
+        required: true
+        description: issue_comment | review_comment.
+      parent_number:
+        required: true
+        range: integer
+        description: Issue / PR number this comment belongs to.
+      author_login:
+      body:
+      author_association:
+        description: "Reporter role on the thread (OWNER, MEMBER, CONTRIBUTOR, NONE …)."
+      path:
+        description: File path a review comment is anchored to (review_comment only).
+      review_commit_sha:
+        description: Commit sha a review comment is anchored to (review_comment only).
+      in_reply_to:
+        description: Remote id of the comment this one replies to, when the payload
+          carries it.
+      created_at:
+        range: datetime
+      updated_at:
+        range: datetime
+      url:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: body
+      okg_alias_fields: url
+  EdgeNarrowings:
+    description: Edge narrowings emitted by the forge module.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      repo_contains_issue:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Repo
+          dst_subtypes: Issue
+      repo_contains_pull_request:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Repo
+          dst_subtypes: PullRequest
+      issue_has_comment:
+        description: An issue thread's comments.
+        annotations:
+          edge_archetype: has_comment
+          src_subtypes: Issue
+          dst_subtypes: ForgeComment
+      pull_request_has_comment:
+        description: A pull request's conversation and review comments.
+        annotations:
+          edge_archetype: has_comment
+          src_subtypes: PullRequest
+          dst_subtypes: ForgeComment
+      forge_item_references_forge_item:
+        description: |-
+          A #N / "fixes #N" / full-URL reference from one forge item's
+          title or body to another in the SAME repository. Derived by
+          ForgeReferenceLinker; unresolvable numbers are dropped with a
+          count, never stubbed.
+        annotations:
+          edge_archetype: references
+          src_subtypes: Issue, PullRequest
+          dst_subtypes: Issue, PullRequest
+      pull_request_merged_as_commit:
+        description: |-
+          Cross-module to git_graph. The merge commit the forge payload
+          reports for a merged pull request. Source-carried (the payload's
+          merge sha), not derived. Resolves when git_graph is co-loaded.
+        annotations:
+          edge_archetype: merged_as
+          src_subtypes: PullRequest
+          dst_subtypes: GitCommit
+          optional_when_subtypes_missing: 'true'
+      git_commit_references_forge_item:
+        description: |-
+          Cross-module to git_graph. A commit message naming an issue or
+          pull request. Derived by ForgeReferenceLinker. Resolves when
+          git_graph is co-loaded.
+        annotations:
+          edge_archetype: references
+          src_subtypes: GitCommit
+          dst_subtypes: Issue, PullRequest
+          optional_when_subtypes_missing: 'true'
+      # Forge → openspec narrowings
+      # (issue/pull_request → open_spec_change) are auto-
+      # derived by the cross-link rule
+      # `forge_item_word_boundary_mentions_change_slug` in
+      # `library/ontologies/forge/cross_links/forge_to_openspec.yaml`
+      # wired via forge's `module.yaml` `extends.openspec` block
+      # (per `declarative-cross-source-linker`, 2026-04-26;
+      # path updated per `add-module-manifests-and-composition`,
+      # 2026-05-19).

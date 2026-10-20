@@ -1,0 +1,608 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://palimpzest.mit.edu/okg/schemas/source_registry.schema.json",
+  "title": "OKG source_registry.yaml",
+  "description": "Conditional source-registry admission. Unmarked documents retain the legacy schema; admission_contract strict_v1 selects the closed canonical contract.",
+  "type": "object",
+  "allOf": [
+    {
+      "if": {"required": ["admission_contract"]},
+      "then": {"$ref": "#/$defs/strict_document"},
+      "else": {"$ref": "#/$defs/legacy_document"}
+    }
+  ],
+  "$defs": {
+    "legacy_document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources"],
+      "description": "An unmarked registry. The loader refuses any other top-level key (source_registry_unknown_key). Keys starting with x- hold YAML anchors and are never read; promotion to strict_v1 refuses them.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "sources": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/source"}
+        },
+        "code_repos": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "base": {"type": "string"},
+            "repos": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["slug"],
+                "properties": {
+                  "slug": {"type": "string"},
+                  "dir": {"type": "string"},
+                  "url": {"type": "string"},
+                  "tracked_branch": {"type": "string"},
+                  "manage_checkout": {"type": "boolean"},
+                  "params": {"type": "object", "additionalProperties": {"type": "object"}}
+                }
+              }
+            },
+            "expand": {"type": "array", "items": {"type": "string"}},
+            "params": {"type": "object", "additionalProperties": {"type": "object"}}
+          }
+        }
+      }
+    },
+    "strict_document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["admission_contract", "sources"],
+      "properties": {
+        "admission_contract": {"const": "strict_v1"},
+        "sources": {
+          "type": "object",
+          "propertyNames": {"type": "string", "pattern": ".*\\S.*"},
+          "additionalProperties": {"$ref": "#/$defs/strict_source"}
+        },
+        "code_repos": {"$ref": "#/$defs/strict_code_repos"}
+      }
+    },
+    "strict_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ownership_id", "source_class"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {"source_class": {"const": "registry_only"}},
+            "required": ["source_class"]
+          },
+          "else": {"required": ["module", "class"]}
+        },
+        {"$ref": "#/$defs/strict_profile_constraint"}
+      ],
+      "properties": {
+        "module": {"type": "string", "pattern": ".*\\S.*"},
+        "class": {"type": "string", "pattern": ".*\\S.*"},
+        "ownership_id": {"type": "string", "pattern": ".*\\S.*"},
+        "source_class": {
+          "type": "string",
+          "enum": ["reference_catalog", "mutable_api", "discovery_crawl", "append_feed", "live_overlay", "registry_only"]
+        },
+        "record_identity_kind": {
+          "type": "string",
+          "enum": ["domain_key", "remote_id", "scoped_locator", "event_id", "bucket_key"]
+        },
+        "record_identity_fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": ".*\\S.*"}
+        },
+        "source_revision_kind": {
+          "type": "string",
+          "enum": ["release_tag", "updated_at", "content_hash", "version_token", "sequence_number", "restatement_version"]
+        },
+        "deletion_semantics": {
+          "type": "string",
+          "enum": ["explicit_delete", "missing_from_completed_scope", "append_only", "external_overlay"]
+        },
+        "publication_mode": {
+          "type": "string",
+          "enum": ["published_generation", "live_overlay", "registry_only"]
+        },
+        "record_authority_format": {
+          "type": "string",
+          "enum": ["legacy_v1", "indexed_v2"],
+          "default": "legacy_v1",
+          "description": "Explicit record authority storage format. indexed_v2 remains subject to runtime production-retention admission."
+        },
+        "params": {"type": "object"},
+        "credential_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": ".*\\S.*"}
+        },
+        "credential_aliases": {
+          "type": "object",
+          "propertyNames": {"pattern": ".*\\S.*"},
+          "additionalProperties": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "pattern": ".*\\S.*"}
+          }
+        },
+        "required_for_baseline": {"type": "boolean"},
+        "enabled_by_default": {"type": "boolean"},
+        "predecessor_source": {
+          "oneOf": [
+            {"type": "string", "pattern": ".*\\S.*"},
+            {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"type": "string", "pattern": ".*\\S.*"}
+            }
+          ]
+        },
+        "sync": {"$ref": "#/$defs/strict_sync"},
+        "admission_policy": {"$ref": "#/$defs/strict_admission_policy"},
+        "source_policy": {"$ref": "#/$defs/strict_source_policy"},
+        "description": {"type": "string", "pattern": ".*\\S.*"},
+        "configuration_hints": {"type": "object"},
+        "lab_boundary": {"type": "object"},
+        "mit_boundary": {"type": "object"},
+        "microbench": {"type": "object"}
+      }
+    },
+    "strict_code_repos": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "type": "string",
+          "pattern": "^(?:/|~(?:/|$)|\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}(?:/|$)).*"
+        },
+        "repos": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/strict_code_repo"}
+        },
+        "expand": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["git-files", "code-structure", "package-manifests", "interfaces", "code-data-flow", "semgrep-data-flow", "codeql-data-flow", "test-reports", "security-analysis", "profile-measurements", "codex-sessions", "doc-corpus", "notes-doc-corpus", "openspec", "git-history", "compute-env-local"]
+          }
+        },
+        "params": {
+          "type": "object",
+          "description": "Per-block param overrides applied to every repo, e.g. {doc-corpus: {include_globs: [...]}}. The loader also requires each block to be listed in expand.",
+          "propertyNames": {"enum": ["git-files", "code-structure", "package-manifests", "interfaces", "code-data-flow", "semgrep-data-flow", "codeql-data-flow", "test-reports", "security-analysis", "profile-measurements", "codex-sessions", "doc-corpus", "notes-doc-corpus", "openspec", "git-history", "compute-env-local"]},
+          "additionalProperties": {
+            "type": "object",
+            "propertyNames": {"not": {"enum": ["repo", "repo_root", "url", "manage_checkout", "tracked_branch"]}}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"repos": {"minItems": 1}}, "required": ["repos"]},
+          "then": {"required": ["base"]}
+        }
+      ]
+    },
+    "strict_code_repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug"],
+      "properties": {
+        "slug": {"type": "string", "pattern": ".*\\S.*"},
+        "dir": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!\\.$).*\\S.*"},
+        "url": {"type": "string", "pattern": ".*\\S.*"},
+        "tracked_branch": {"type": "string", "pattern": ".*\\S.*"},
+        "manage_checkout": {"type": "boolean"},
+        "params": {
+          "type": "object",
+          "description": "Per-block param overrides for this repo only, applied after code_repos.params, e.g. {git-files: {include_globs: [...]}}. The loader also requires each block to be listed in expand.",
+          "propertyNames": {"enum": ["git-files", "code-structure", "package-manifests", "interfaces", "code-data-flow", "semgrep-data-flow", "codeql-data-flow", "test-reports", "security-analysis", "profile-measurements", "codex-sessions", "doc-corpus", "notes-doc-corpus", "openspec", "git-history", "compute-env-local"]},
+          "additionalProperties": {
+            "type": "object",
+            "propertyNames": {"not": {"enum": ["repo", "repo_root", "url", "manage_checkout", "tracked_branch"]}}
+          }
+        }
+      }
+    },
+    "strict_admission_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trust_label"],
+      "properties": {
+        "producer_id": {"type": "string", "pattern": ".*\\S.*"},
+        "producer_kind": {"type": "string", "enum": ["source", "extractor", "enricher", "agent", "human", "workflow", "system", "lens"]},
+        "trust_label": {"type": "string", "pattern": ".*\\S.*"},
+        "admission_mode": {"type": "string", "enum": ["direct", "fast_track", "review", "quarantine"]},
+        "authority_scope": {"type": "object"},
+        "allowed_record_kinds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "enum": ["node", "edge"]}},
+        "output_signature": {"$ref": "#/$defs/strict_output_signature"},
+        "policy_clauses": {"type": "array", "items": {"$ref": "#/$defs/strict_policy_clause"}},
+        "output_scope_summary": {"oneOf": [{"type": "object"}, {"type": "string", "pattern": ".*\\S.*"}]},
+        "write_envelope": {"$ref": "#/$defs/strict_write_envelope"}
+      }
+    },
+    "strict_signature_node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subtype"],
+      "allOf": [
+        {
+          "if": {"required": ["attr_keys"]},
+          "then": {
+            "required": ["attrs_exact"],
+            "properties": {"attrs_exact": {"const": true}}
+          }
+        }
+      ],
+      "properties": {
+        "subtype": {"type": "string", "minLength": 1},
+        "id_prefix": {"type": "string"},
+        "attrs": {"type": "object"},
+        "attrs_exact": {"type": "boolean"},
+        "attr_keys": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "clause_id": {"type": "string"}
+      }
+    },
+    "strict_signature_edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["src_subtype", "edge_type", "dst_subtype"],
+      "allOf": [
+        {
+          "if": {"required": ["attr_keys"]},
+          "then": {
+            "required": ["attrs_exact"],
+            "properties": {"attrs_exact": {"const": true}}
+          }
+        }
+      ],
+      "properties": {
+        "src_subtype": {"type": "string", "minLength": 1},
+        "edge_type": {"type": "string", "minLength": 1},
+        "dst_subtype": {"type": "string", "minLength": 1},
+        "src_id_prefix": {"type": "string"},
+        "dst_id_prefix": {"type": "string"},
+        "attrs": {"type": "object"},
+        "attrs_exact": {"type": "boolean"},
+        "attr_keys": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "clause_id": {"type": "string"},
+        "src_subtype_optional": {"type": "boolean"},
+        "dst_subtype_optional": {"type": "boolean"}
+      }
+    },
+    "strict_output_signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {"type": "array", "items": {"$ref": "#/$defs/strict_signature_node"}},
+        "edges": {"type": "array", "items": {"$ref": "#/$defs/strict_signature_edge"}}
+      }
+    },
+    "strict_policy_clause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "record_kind"],
+      "properties": {
+        "id": {"type": "string", "pattern": ".*\\S.*"},
+        "effect": {"type": "string", "const": "allow"},
+        "record_kind": {"type": "string", "enum": ["node", "edge"]},
+        "subtype": {"type": "string", "pattern": ".*\\S.*"},
+        "triple": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "string", "minLength": 1}}
+      },
+      "allOf": [
+        {"if": {"properties": {"record_kind": {"const": "node"}}, "required": ["record_kind"]}, "then": {"required": ["subtype"]}},
+        {"if": {"properties": {"record_kind": {"const": "edge"}}, "required": ["record_kind"]}, "then": {"required": ["triple"]}}
+      ]
+    },
+    "strict_write_envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {"type": "array", "items": {"$ref": "#/$defs/strict_signature_node"}},
+        "edges": {"type": "array", "items": {"$ref": "#/$defs/strict_signature_edge"}},
+        "claim_keys": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "value_vocabularies": {"type": "object", "additionalProperties": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}},
+        "unbounded": {"type": "array", "uniqueItems": true, "items": {"type": "string", "enum": ["nodes", "edges", "claim_keys", "values"]}},
+        "nondeterministic": {"type": "boolean"}
+      }
+    },
+    "strict_source_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sensitivity", "data_classification", "credential_ref_policy", "live_call_allowed", "exportability", "retention", "provenance", "privacy_obligations"],
+      "properties": {
+        "sensitivity": {"type": "string", "enum": ["credentialed_external", "internal", "local_private", "phi_synthetic", "private", "public", "regulated_metadata", "restricted", "secret"]},
+        "data_classification": {"type": "string", "enum": ["confidential", "internal", "private", "public", "regulated_metadata", "restricted", "secret", "synthetic_phi"]},
+        "credential_ref_policy": {"type": "string", "enum": ["none", "optional", "required"]},
+        "live_call_allowed": {"type": "boolean"},
+        "exportability": {"type": "string", "enum": ["internal", "no_export", "public"]},
+        "retention": {"type": "string", "enum": ["normal", "no_persistence", "short", "source_defined"]},
+        "provenance": {"type": "string", "enum": ["declared", "local_filesystem", "operator_declared", "registry_metadata", "remote_api"]},
+        "privacy_obligations": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["audit", "break_glass_review", "declassification", "no_export", "quarantine", "redaction", "review", "secret_ref_required", "source_retention"]}},
+        "store_raw": {"type": "boolean"},
+        "pii_classes": {"type": "object", "minProperties": 1, "propertyNames": {"pattern": ".*\\S.*"}, "additionalProperties": {"type": "string", "enum": ["direct_identifier", "quasi_identifier", "sensitive_attribute", "free_text", "non_pii"]}}
+      }
+    },
+    "strict_string_or_list": {
+      "oneOf": [
+        {"type": "string", "pattern": ".*\\S.*"},
+        {"type": "array", "items": {"type": "string", "pattern": ".*\\S.*"}}
+      ]
+    },
+    "strict_nonempty_string_or_list": {
+      "oneOf": [
+        {"type": "string", "pattern": ".*\\S.*"},
+        {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": ".*\\S.*"}}
+      ]
+    },
+    "strict_run_mode": {"type": "string", "enum": ["append", "cursor", "reconcile", "release_new", "release_unchanged", "scope_complete", "scope_incomplete"]},
+    "strict_fanout": {"type": "string", "enum": ["none", "direct", "closure"]},
+    "strict_sync": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "watch": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["roots"],
+              "properties": {
+                "roots": {"$ref": "#/$defs/strict_nonempty_string_or_list"},
+                "include_globs": {"$ref": "#/$defs/strict_nonempty_string_or_list"},
+                "exclude_globs": {"$ref": "#/$defs/strict_string_or_list"}
+              }
+            }
+          ]
+        },
+        "triggers": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "string", "enum": ["fs_event", "git_ref_change", "webhook", "poll", "manual", "reconcile"]},
+            {"type": "array", "uniqueItems": true, "items": {"type": "string", "enum": ["fs_event", "git_ref_change", "webhook", "poll", "manual", "reconcile"]}}
+          ]
+        },
+        "default_event_mode": {"$ref": "#/$defs/strict_run_mode"},
+        "reconcile_mode": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/strict_run_mode"}]},
+        "deletes_require_reconcile": {"type": "boolean"},
+        "scoped_delete_mode": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/strict_run_mode"}]},
+        "scoped_delete_dependent_fanout": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/strict_fanout"}]},
+        "cheap_probe": {"type": ["string", "null"]},
+        "scope": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "accepts": {"oneOf": [{"type": "null"}, {"type": "string", "enum": ["path", "record_id", "revision_hint"]}, {"type": "array", "uniqueItems": true, "items": {"type": "string", "enum": ["path", "record_id", "revision_hint"]}}]},
+                "unsupported_fallback": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/strict_run_mode"}]}
+              }
+            }
+          ]
+        },
+        "dependents": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "object", "additionalProperties": false, "properties": {"on_event": {"$ref": "#/$defs/strict_fanout"}, "on_reconcile": {"$ref": "#/$defs/strict_fanout"}}}
+          ]
+        },
+        "compaction": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "object", "additionalProperties": false, "properties": {"window_seconds": {"type": "integer", "minimum": 0}, "max_events": {"type": "integer", "minimum": 1}, "max_scope_keys": {"type": "integer", "minimum": 1}}}
+          ]
+        },
+        "webhook": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "object", "additionalProperties": false, "properties": {"path": {"type": ["string", "null"]}, "secret_ref": {"type": ["string", "null"]}, "signature_header": {"type": "string", "pattern": ".*\\S.*"}}}
+          ]
+        },
+        "poll": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "object", "additionalProperties": false, "properties": {"probe": {"oneOf": [{"type": "null"}, {"type": "string", "enum": ["always_changed", "change_probe"]}]}, "interval_seconds": {"type": "integer", "minimum": 1}}}
+          ]
+        }
+      }
+    },
+    "strict_profile_constraint": {
+      "oneOf": [
+        {"properties": {"source_class": {"const": "reference_catalog"}, "record_identity_kind": {"const": "domain_key"}, "source_revision_kind": {"enum": ["release_tag", "updated_at", "content_hash"]}, "deletion_semantics": {"const": "missing_from_completed_scope"}, "publication_mode": {"const": "published_generation"}}, "required": ["source_class", "record_identity_kind", "record_identity_fields", "source_revision_kind", "deletion_semantics", "publication_mode"]},
+        {"properties": {"source_class": {"const": "mutable_api"}, "record_identity_kind": {"const": "remote_id"}, "source_revision_kind": {"enum": ["updated_at", "version_token"]}, "deletion_semantics": {"enum": ["explicit_delete", "missing_from_completed_scope"]}, "publication_mode": {"const": "published_generation"}}, "required": ["source_class", "record_identity_kind", "record_identity_fields", "source_revision_kind", "deletion_semantics", "publication_mode"]},
+        {"properties": {"source_class": {"const": "discovery_crawl"}, "record_identity_kind": {"const": "scoped_locator"}, "source_revision_kind": {"enum": ["content_hash", "version_token"]}, "deletion_semantics": {"const": "missing_from_completed_scope"}, "publication_mode": {"const": "published_generation"}}, "required": ["source_class", "record_identity_kind", "record_identity_fields", "source_revision_kind", "deletion_semantics", "publication_mode"]},
+        {"properties": {"source_class": {"const": "append_feed"}, "record_identity_kind": {"enum": ["event_id", "bucket_key"]}, "source_revision_kind": {"enum": ["sequence_number", "updated_at", "restatement_version"]}, "deletion_semantics": {"const": "append_only"}, "publication_mode": {"const": "published_generation"}}, "required": ["source_class", "record_identity_kind", "record_identity_fields", "source_revision_kind", "deletion_semantics", "publication_mode"]},
+        {"properties": {"source_class": {"const": "live_overlay"}, "deletion_semantics": {"const": "external_overlay"}, "publication_mode": {"const": "live_overlay"}}, "required": ["source_class", "deletion_semantics", "publication_mode"], "not": {"anyOf": [{"required": ["record_identity_kind"]}, {"required": ["record_identity_fields"]}, {"required": ["source_revision_kind"]}]}},
+        {"properties": {"source_class": {"const": "registry_only"}, "publication_mode": {"const": "registry_only"}}, "required": ["source_class"], "not": {"anyOf": [{"required": ["record_identity_kind"]}, {"required": ["record_identity_fields"]}, {"required": ["source_revision_kind"]}, {"required": ["deletion_semantics"]}]}}
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module", "class", "ownership_id",
+        "source_class", "publication_mode"
+      ],
+      "allOf": [
+        {"$ref": "#/$defs/profile_constraint"}
+      ],
+      "properties": {
+        "module": {"type": "string"},
+        "class":  {"type": "string"},
+        "ownership_id": {
+          "type": "string",
+          "description": "Durable source scope for facts and retractions."
+        },
+        "params": {
+          "type": "object",
+          "description": "Adapter-specific parameters; schema defined per adapter via `okg source describe`."
+        },
+        "source_class": {
+          "type": "string",
+          "enum": [
+            "reference_catalog",
+            "mutable_api",
+            "discovery_crawl",
+            "append_feed",
+            "live_overlay",
+            "registry_only"
+          ]
+        },
+        "record_identity_kind": {
+          "type": "string",
+          "enum": [
+            "domain_key",
+            "remote_id",
+            "scoped_locator",
+            "event_id",
+            "bucket_key"
+          ]
+        },
+        "record_identity_fields": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1,
+          "description": "Raw record fields composing the logical key. Order-significant."
+        },
+        "source_revision_kind": {
+          "type": "string",
+          "enum": [
+            "release_tag",
+            "updated_at",
+            "content_hash",
+            "version_token",
+            "sequence_number",
+            "restatement_version"
+          ]
+        },
+        "deletion_semantics": {
+          "type": "string",
+          "enum": [
+            "explicit_delete",
+            "missing_from_completed_scope",
+            "append_only",
+            "external_overlay"
+          ]
+        },
+        "publication_mode": {
+          "type": "string",
+          "enum": [
+            "published_generation",
+            "live_overlay",
+            "registry_only"
+          ]
+        },
+        "record_authority_format": {
+          "type": "string",
+          "enum": ["legacy_v1", "indexed_v2"],
+          "default": "legacy_v1",
+          "description": "Explicit record authority storage format. indexed_v2 remains subject to runtime production-retention admission."
+        },
+        "schedule": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "Retired; nothing reads it. `okg deployment bootstrap` drafted it before issue #2952. A legacy registry still loads with it and warns (RetiredSourceRegistryKeyWarning); promotion to strict_v1 removes it. A scheduled refresh is the source's `sync.poll` block.",
+          "properties": {
+            "fast_interval":      {"type": "string", "pattern": "^[0-9]+[smh]$"},
+            "reconcile_interval": {"type": "string", "pattern": "^[0-9]+[smhdw]$"},
+            "lateness_window":    {"type": "string", "pattern": "^[0-9]+[smh]$"}
+          }
+        }
+      }
+    },
+    "profile_constraint": {
+      "oneOf": [
+        {
+          "title": "reference_catalog profile",
+          "properties": {
+            "source_class":          {"const": "reference_catalog"},
+            "record_identity_kind":  {"const": "domain_key"},
+            "source_revision_kind":  {"enum": ["release_tag", "updated_at", "content_hash"]},
+            "deletion_semantics":    {"const": "missing_from_completed_scope"},
+            "publication_mode":      {"const": "published_generation"}
+          },
+          "required": ["record_identity_kind", "record_identity_fields", "source_revision_kind", "deletion_semantics"]
+        },
+        {
+          "title": "mutable_api profile",
+          "properties": {
+            "source_class":          {"const": "mutable_api"},
+            "record_identity_kind":  {"const": "remote_id"},
+            "source_revision_kind":  {"enum": ["updated_at", "version_token"]},
+            "deletion_semantics":    {"enum": ["explicit_delete", "missing_from_completed_scope"]},
+            "publication_mode":      {"const": "published_generation"}
+          },
+          "required": ["record_identity_kind", "record_identity_fields", "source_revision_kind", "deletion_semantics"]
+        },
+        {
+          "title": "discovery_crawl profile",
+          "properties": {
+            "source_class":          {"const": "discovery_crawl"},
+            "record_identity_kind":  {"const": "scoped_locator"},
+            "source_revision_kind":  {"enum": ["content_hash", "version_token"]},
+            "deletion_semantics":    {"const": "missing_from_completed_scope"},
+            "publication_mode":      {"const": "published_generation"}
+          },
+          "required": ["record_identity_kind", "record_identity_fields", "source_revision_kind", "deletion_semantics"]
+        },
+        {
+          "title": "append_feed profile",
+          "properties": {
+            "source_class":          {"const": "append_feed"},
+            "record_identity_kind":  {"enum": ["event_id", "bucket_key"]},
+            "source_revision_kind":  {"enum": ["sequence_number", "updated_at", "restatement_version"]},
+            "deletion_semantics":    {"const": "append_only"},
+            "publication_mode":      {"const": "published_generation"}
+          },
+          "required": ["record_identity_kind", "record_identity_fields", "source_revision_kind", "deletion_semantics"]
+        },
+        {
+          "title": "live_overlay profile",
+          "description": "Live overlay: not part of fact append or published generations. Identity/revision/deletion keys MUST NOT be declared because there is no fact-publication path to interpret them.",
+          "properties": {
+            "source_class":          {"const": "live_overlay"},
+            "deletion_semantics":    {"const": "external_overlay"},
+            "publication_mode":      {"const": "live_overlay"}
+          },
+          "not": {
+            "anyOf": [
+              {"required": ["record_identity_kind"]},
+              {"required": ["record_identity_fields"]},
+              {"required": ["source_revision_kind"]}
+            ]
+          }
+        },
+        {
+          "title": "registry_only profile",
+          "description": "Documentation-only placeholder for scope without a runnable factory. MUST NOT be scheduled for publication. Identity / revision / deletion keys and schedule block are all forbidden — a registry_only entry declares intent, not runtime behavior.",
+          "properties": {
+            "source_class":          {"const": "registry_only"},
+            "publication_mode":      {"const": "registry_only"}
+          },
+          "required": ["source_class"],
+          "not": {
+            "anyOf": [
+              {"required": ["record_identity_kind"]},
+              {"required": ["record_identity_fields"]},
+              {"required": ["source_revision_kind"]},
+              {"required": ["deletion_semantics"]},
+              {"required": ["schedule"]}
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

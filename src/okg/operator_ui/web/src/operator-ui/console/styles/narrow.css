@@ -1,0 +1,497 @@
+/* --- between 390 and 1440 ----------------------------------------------- */
+
+/* The reference's stated fallback, applied where it is actually needed: "when
+ * one of them does not [fit] the columns give way and the search settles into
+ * the middle of what is left". Between 761 and 1100 px the three groups do
+ * not fit on one line -- at 1024 the nav's last entry ran under the search
+ * box -- so the search takes a line of its own and the two groups keep
+ * theirs. Above 1100 the bar is the approved single row with the search on
+ * the bar's midpoint. Below 761 the phone rules above take over. */
+@media (min-width: 761px) and (max-width: 1100px) {
+  .okg-console-bar__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    /* Two rows now (the pickers fit beside the nav since they are sized to
+       their values), so the band needs its own top and bottom room: the
+       desktop row's 56 px min-height centred one row, not two. */
+    padding-block: 8px 10px;
+  }
+
+  .okg-console-bar__left { flex: 1 1 auto; min-width: 0; }
+
+  .okg-console-bar__search {
+    order: 3;
+    flex: 1 0 100%;
+    max-width: none;
+  }
+
+  /* A flex row has no columns to hold, so a hidden box takes no line. */
+  .okg-console-bar__search[data-hidden="true"] { display: none; }
+
+  /* The third grid child is the controls group, not a `__right`. */
+  .okg-console-bar__controls { order: 2; flex: 0 0 auto; min-width: 0; }
+
+  .okg-console-bar__summary { display: none; }
+}
+
+/* --- 390 -------------------------------------------------------------- */
+
+@media (max-width: 760px) {
+  /* Three rows: mark and links; the search box full width; then the version
+   * being read and one control that opens the three pickers. */
+  .okg-console-bar__row {
+    /* BACK TO FLEX here. The desktop rule is a three-column grid whose middle
+     * column is a fixed 400 px -- wider than a 390 px viewport -- so on a
+     * phone the row could not shrink and the bar ran off the screen, taking
+     * the right-hand controls with it. `flex-wrap` alone did nothing: it has
+     * no meaning on a grid container. */
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 12px;
+    padding: 10px 16px;
+  }
+
+  /* The nav may still WRAP at this width, as a last resort: a horizontally
+   * scrolling top bar hides whatever sits at its right edge. With five views
+   * it wrapped at 390 -- "Graph" alone on a second line, the bar 171 px tall
+   * (audit 2026-09-27) -- so the gap is 10 px and, below 440 px, the printed
+   * wordmark goes (see the rule at the end of this file): the five names then
+   * sit on one row with room to spare. */
+  .okg-console-bar__nav {
+    gap: 8px 10px;
+    margin-left: auto;
+    flex-wrap: wrap;
+    /* It has to be allowed to SHRINK before it can wrap: the desktop rule
+     * pins it to its content width, so on a phone the row simply ran past
+     * the viewport and the bar clipped whatever was at its right edge. */
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .okg-console-bar__search { order: 2; flex: 1 0 100%; max-width: none; }
+
+  .okg-console-bar__search[data-hidden="true"] { display: none; }
+
+  .okg-console-bar__summary {
+    order: 3;
+    display: flex;
+    flex: 1 0 100%;
+    justify-content: space-between;
+  }
+
+  .okg-console-bar__controls {
+    order: 4;
+    flex: 1 0 100%;
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-left: 0;
+    gap: 8px 10px;
+  }
+
+  .okg-console-bar__controls[data-open="true"] { display: flex; }
+
+  .okg-console-bar__control-label { font-size: 13px; }
+
+  .okg-console-bar__select { width: 150px; }
+
+  .okg-console-bar__select--version { width: 100%; }
+
+  .okg-console-bar__select--firing { width: 130px; }
+
+  .okg-console { padding: 0 16px 24px; }
+
+  /* The name on its own line, the chip under it: at 390 a 22 px name and a
+   * chip on one line pushed the chip off the end or squeezed the name. */
+  .okg-console__header-row { display: block; }
+
+  .okg-console__title { font-size: 22px; overflow-wrap: anywhere; }
+
+  /* The kind word keeps its distance. `display: block` above drops the
+   * header row's 12 px flex gap, and the producer page's name is an
+   * inline-flex h1 -- so "source" ran straight into "deployment_configs"
+   * with no space at all. The state chip below it gets its gap from
+   * `.okg-console__chip`; this is the same gap for the word beside the name.
+   */
+  .okg-console__header-row .okg-console__detail-kind { margin-left: 8px; }
+  .okg-console .okg-console__header-row .okg-console__open-source { margin: 0 16px 0 0; }
+
+  .okg-console__chip { margin-top: 8px; }
+
+  .okg-console__meta { font-size: 13px; }
+
+  .okg-console__status-note { font-size: 14px; }
+
+  /* Two by two. No sparkline and no delta: at 332 px they turned each cell
+   * into three competing things. */
+  .okg-console__figures {
+    display: grid;
+    /* minmax(0, 1fr), not 1fr: a grid track's default minimum is its
+     * content's min-content width, and the producer page's labels --
+     * "relationships in the selected version" -- are wider than half of
+     * 390px, so two tracks came to 434px and the page scrolled sideways. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .okg-console__figure-spark,
+  .okg-console__figure-delta { display: none; }
+
+  .okg-console__figure-value { font-size: 20px; }
+
+  .okg-console__figure-label { font-size: 13px; }
+
+  /* The label WRAPS here. Sizing the tracks to minmax(0, 1fr) above stopped
+   * the grid from widening to fit "relationships in the selected version",
+   * but `.okg-console__figure` sets `white-space: nowrap` -- so the label
+   * kept its one line and simply overflowed the 173 px track instead, and
+   * the producer page still scrolled 28 px sideways at 390. The two rules
+   * are one fix: bound the track, then let the text use the height it needs.
+   */
+  .okg-console__figure { white-space: normal; }
+
+  .okg-console__figure-label { overflow-wrap: anywhere; }
+
+  /* No tail columns. A 120 px status column beside a 200 px subject broke
+   * every producer name over three lines. Subject, then state and age on one
+   * line, then the cause. */
+  .okg-console__row {
+    grid-template-columns: auto 1fr;
+    gap: 4px 6px;
+    padding: 12px 0;
+  }
+
+  .okg-console__row-main { grid-area: 1 / 1 / 2 / 3; }
+
+  .okg-console__row-headline {
+    font-size: 15px;
+    font-weight: 500;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .okg-console__row-state { grid-area: 2 / 1 / 3 / 2; }
+
+  .okg-console__row-age {
+    grid-area: 2 / 2 / 3 / 3;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .okg-console__row-age::before { content: "\00b7\00a0"; }
+
+  /* No separator before an age that is not there: runtime checks and
+   * never-run producers print none. */
+  .okg-console__row-age:empty::before { content: none; }
+
+  .okg-console__row-when {
+    grid-area: 2 / 1 / 3 / 3;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .okg-console__row-sub {
+    grid-area: 3 / 1 / 4 / 3;
+    font-size: 13px;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .okg-console__row-expand { grid-area: 4 / 1 / 5 / 3; }
+
+  /* Fourteen 20 px squares and thirteen 4 px gaps is 332 px, the content
+   * width at 390. */
+
+  .okg-console__fact { font-size: 15px; }
+
+  .okg-console__more { font-size: 14px; }
+
+  .okg-console__count { font-size: 14px; }
+
+  .okg-console__section-title { font-size: 15px; }
+
+  .okg-console__types { font-size: 13px; }
+
+  .okg-console__types th:nth-child(2),
+  .okg-console__types td:nth-child(2) { width: 90px; }
+
+  .okg-console__types th:nth-child(3),
+  .okg-console__types td:nth-child(3) { width: 110px; }
+
+  /* One column: two three-column tables side by side at 358 px would be six
+   * columns of about 50 px. */
+  .okg-console__typegrid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  /* At 390 the Change COLUMN has nowhere to go, but the change itself must
+   * not vanish: with Version and Change both hidden every row read
+   * identically -- same age, same outcome word, nothing to tell two
+   * publishes apart. So the column is dropped and the phrase moves under the
+   * outcome as a second line, and the short version stays. */
+  .okg-console__utable [data-column="change"] { display: none; }
+
+  .okg-console__utable [data-column="when"] { width: 72px; }
+
+  .okg-console__utable [data-column="version"] { width: 104px; }
+
+  /* The "reading" marker on its own line. The short version id fills the
+   * 104 px column, and the tag -- `white-space: nowrap`, so it will not give
+   * ground -- was squeezed to 6 px of border: the one row the operator came
+   * to the page to find was the one row with nothing to tell it apart. A
+   * second line costs the row 18 px and shows the word. */
+  .okg-console__utable [data-column="version"] .okg-console__tag {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    margin-left: 0;
+    margin-top: 2px;
+  }
+
+  .okg-console__urow-change-narrow {
+    display: block;
+    font-size: 12px;
+    color: var(--okg-ink-3, #6b7280);
+    white-space: normal;
+  }
+
+  .okg-console__utable [data-column="outcome"] { white-space: normal; }
+
+  .okg-console__urow-outcome .okg-console__status,
+  .okg-console__urow-stopped { font-size: 14px; }
+
+  /* The attempt page's count tables at 390.
+   *
+   * `table-layout: fixed` with two 168 px columns left the name column 22 px
+   * of a 358 px content width: every row rendered one character and an
+   * ellipsis -- `d\2026`, `c\2026`, `l\2026` -- and the tables named nothing.
+   * The Against-the-parent column is cut here the way the attempts list cuts
+   * Change, and the delta moves under the count as a second line, so the
+   * name gets the room and the fact survives the cut.
+   *
+   * The name also WRAPS at this width. Cutting one column is not enough on
+   * its own: `lane-d-home-render.deployment_configs` is 38 characters and
+   * would still have ellipsed on one line. */
+  .okg-console__ctable [data-column="delta"] { display: none; }
+
+  /* 136 px holds "+4,768 (first version)" on one line at 390; 96 px cut it
+   * to "+4,768 (first versi" with no ellipsis (audit B5). */
+  .okg-console__ctable [data-column="count"] { width: 136px; }
+
+  .okg-console__ctable td[data-column="name"] {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  /* The row grows with its name and its second line; a fixed 36 px would
+   * clip the wrap it just allowed. */
+  .okg-console__ctable td { height: auto; min-height: 36px; }
+
+  /* It WRAPS: a longer delta ("the parent version was not read") or a
+   * zoomed page takes a second line instead of losing its end. */
+  .okg-console__crow-delta-narrow {
+    display: block;
+    font-size: 12px;
+    color: var(--okg-color-muted);
+    white-space: normal;
+  }
+
+  /* The count cell holds two lines now, so it sits with them. */
+  .okg-console__ctable td[data-column="count"] { vertical-align: top; }
+
+  .okg-console__filters { gap: 12px; }
+
+  .okg-console__stage {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 10px;
+  }
+
+  .okg-console__stage-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 10px;
+  }
+
+  .okg-console__stage-row .okg-console__stage-detail { grid-column: 1 / -1; }
+
+  .okg-console__stage-detail { grid-column: 1 / -1; }
+
+  .okg-console__detail-title { align-items: flex-start; }
+
+  .okg-console__verbatim { font-size: 12px; padding: 10px; }
+
+  /* Sources at 390: name, state, last run and the chevron. Next due, the two
+   * counts and the error are on the producer's own page, one tap away. */
+  /* At 390 the contribution columns go, and freshness with them: the two
+   * that tell one row from another are the name and the state, and those
+   * stay. Selected by data-column, never nth-child -- this view can cut a
+   * column, and an nth-child rule would then style the wrong one. */
+  .okg-console__ptable [data-col="records"],
+  .okg-console__ptable [data-col="relationships"],
+  .okg-console__ptable [data-col="freshness"] { display: none; }
+
+  /* Review N4: the footnote explaining RECORDS and RELATIONSHIPS goes with
+   * the columns. What is left is the read time, which is true at any width.
+   * "Copy as text" still carries the whole sentence -- it has no viewport.
+   *
+   * The clause takes the joined wording of the read time with it, and the
+   * standalone wording takes over. Hiding the clause alone left the page
+   * reading "as of 2026-09-22 05:36 UTC." -- a sentence beginning in the
+   * middle of itself. */
+  [data-testid="sources-footer"] [data-part="contribution"],
+  [data-testid="sources-footer"] [data-part="asof-joined"],
+  [data-testid="sources-footer"] [data-part="sep"] { display: none; }
+  [data-testid="sources-footer"] [data-part="sep"] ~ [data-part="asof"] {
+    display: inline;
+  }
+
+  .okg-console__ptable [data-col="name"] { width: auto; }
+  /* Room for "State not recorded" here too, for the same reason. */
+  .okg-console__ptable [data-col="state"] { width: 152px; }
+  .okg-console__ptable [data-col="lastrun"] { width: 80px; }
+
+  /* The name WRAPS at this width. The two fixed columns beside it leave it
+   * about 110 px, and a 14-character name ended "cmssw_rel\2026" (audit B16).
+   * The cell's 44 px height is a minimum in a table, so the row grows with a
+   * wrapped name by itself. */
+  .okg-console__ptable td[data-col="name"] .okg-console__prow-name {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+
+  .okg-console__prow-kind { display: none; }
+
+  .okg-console__tablebar { flex-wrap: wrap; }
+
+  .okg-console .okg-console__namefilter { width: 100%; }
+
+  .okg-console__chipgroup + .okg-console__chipgroup { margin-left: 0; }
+
+  /* By data-column: cutting the item counts must not restyle whatever
+   * column takes their place. The recorded time keeps its room -- it is what
+   * tells two runs of one producer apart -- and the age stays under it. */
+  /* The item counts go, and so does the phase: at 390 the four remaining
+   * columns did not fit and the row overflowed the page. What stays is what
+   * tells two runs of one producer apart -- the recorded time, to the second
+   * -- with the outcome and how long it took. The phase is on the same row
+   * at 1024 and above. */
+  .okg-console__rtable [data-col="itemsin"],
+  .okg-console__rtable [data-col="itemsout"],
+  .okg-console__rtable [data-col="phase"] { display: none; }
+
+  .okg-console__rtable [data-col="when"] { width: 168px; }
+  .okg-console__rtable [data-col="outcome"] { width: 96px; }
+  .okg-console__rtable [data-col="duration"] { width: 56px; }
+
+  .okg-console__detail-id { font-size: 18px; }
+
+  /* Explore at 390: the listing keeps label and type; source and id are on
+   * the record page. The related tables keep label and type. */
+  .okg-console__ltable [data-col="source"],
+  .okg-console__ltable [data-col="id"],
+  .okg-console__ltable [data-col="time"] { display: none; }
+
+  .okg-console__ltable [data-col="type"] { width: 110px; }
+  .okg-console__ltable [data-col="rel"] { width: 110px; }
+  .okg-console__ltable [data-col="producer"] { width: 150px; }
+
+  .okg-console__result { grid-template-columns: minmax(0, 1fr); }
+
+  .okg-console__result-id { display: none; }
+
+  .okg-console__result-label,
+  .okg-console__result-snippet { white-space: normal; }
+
+  .okg-console__ftable [data-col="name"] { width: 120px; }
+
+  .okg-console__facts { grid-template-columns: 1fr; gap: 2px 0; }
+
+  .okg-console__facts dd { margin-bottom: 10px; }
+
+  .okg-console .okg-console__tabstrip { gap: 0 16px; }
+
+  /* A record id is one unbreakable token and some are 50 characters:
+   * `doc:deployment_configs:examplecorpus/deployment.yaml` reaches 423 px
+   * in a 390 px viewport, which pushes its Copy control off the screen
+   * where no one can press it. The page itself does not scroll, so the
+   * tail is simply lost. Let an id wrap at narrow width; nothing else
+   * about the row changes. */
+  .okg-console__result-meta .okg-console__id,
+  .okg-console__result-meta .okg-console__copyable {
+    overflow-wrap: anywhere;
+  }
+
+  /* The same for an excerpt. A chunk's text is whatever the source held,
+   * and a YAML fragment with no spaces in 40 characters is one token. */
+  .okg-console__result-snippet { overflow-wrap: anywhere; }
+
+  /* The Raw tab's edge table. Its From and To columns are fixed at 240 px
+   * each, which with Relationship and the json button lays the table out
+   * at 656 px: the whole PAGE then scrolls sideways at 390. The two id
+   * columns give up their fixed widths here and wrap instead, selected by
+   * data-col so cutting a column takes its rule with it. */
+  .okg-console__edgetable { table-layout: fixed; width: 100%; }
+
+  .okg-console__edgetable [data-col="rel"] { width: auto; }
+
+  .okg-console__edgetable [data-col="src"],
+  .okg-console__edgetable [data-col="dst"] {
+    width: auto;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* Related's Relationship and Type cells hold one long token each --
+   * `documentation_page` is 18 characters of monospace -- and a <code> does
+   * not break, so at 390 it stuck 15 px past the viewport and the whole page
+   * scrolled sideways. The code is held to its cell and shortened; the cell
+   * carries the whole value in its title. */
+  .okg-console__reltable [data-col="rel"],
+  .okg-console__reltable [data-col="type"] { max-width: 120px; }
+
+  /* Two relationships WRAP here rather than ellipsising: 120 px cannot hold
+     "contains · member_of" on one line, and half a relationship name is
+     worse than two lines of it. */
+  .okg-console__reltable [data-col="rel"] code {
+    display: block;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .okg-console__reltable [data-col="type"] code {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* --- 390 and 320 ------------------------------------------------------ */
+
+/* Below 440 px the five view links and the wordmark do not fit on one line:
+ * at 390 "Graph" wrapped alone onto a second row (audit 2026-09-27), as
+ * "Explore" did at 320 when there were four (audit B17). Measured at 390:
+ * mark 22 px + wordmark 67 + five links 236 + gaps overran the 358 px row by
+ * 35 px. The mark stands alone here. The brand link keeps its name, "AKMON
+ * operator console", for a screen reader; only the printed word goes. The
+ * 359 px query is kept so the B17 rule stays where its test looks. */
+@media (max-width: 439px) {
+  .okg-console-bar__brand-label { display: none; }
+}
+
+@media (max-width: 359px) {
+  .okg-console-bar__brand-label { display: none; }
+}

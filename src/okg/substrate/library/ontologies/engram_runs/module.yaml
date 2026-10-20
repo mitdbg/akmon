@@ -1,0 +1,80 @@
+name: engram_runs
+version: 1.0.0
+description: |-
+  Engram (and Glia-compatible) run-artifact ingestion. Provides
+  seven subtypes (ResearchDigest, ExperimentResult,
+  CandidateSolution, FinalResult, AgentSummary, EmpiricalClaim,
+  FailedApproach), five discovery_crawl source adapters (one per
+  artifact kind), and three extends blocks against `reasoning`
+  (refinement-via-is_a, no rule file), `scholarly` (cites /
+  builds_on edges from summaries / claims to papers), and
+  `bookkeeping` (produced_by edges from a Project to the run's
+  digest / final result).
+provides:
+  subtypes_file: schema.yaml
+  edge_types:
+    - evaluates
+    - produced_during
+    - surfaces
+    - best_solution
+    - refuted_by
+    - cites
+    - builds_on
+    - produced_by
+  sources:
+    - class: okg.substrate.library.sources.engram_runs.EngramResearchDigestSource
+      profile: discovery_crawl
+    - class: okg.substrate.library.sources.engram_runs.EngramExperimentResultSource
+      profile: discovery_crawl
+    - class: okg.substrate.library.sources.engram_runs.EngramCandidateSolutionSource
+      profile: discovery_crawl
+    - class: okg.substrate.library.sources.engram_runs.EngramFinalResultSource
+      profile: discovery_crawl
+    - class: okg.substrate.library.sources.engram_runs.EngramAgentSummarySource
+      profile: discovery_crawl
+  intra_cross_link_rules:
+    - cross_links/engram_runs_intra.yaml
+extends:
+  reasoning:
+    description: |-
+      FailedApproach refines `reasoning.Hypothesis` and
+      ExperimentResult refines `reasoning.Evidence`. Declared via
+      LinkML `is_a:` in `schema.yaml`; the Layer 1A closure
+      populates `okg.subtype_ancestors` so closure-join queries
+      surface the refinements. No cross-link rule file is needed —
+      refinements ride the closure, not narrowing rules.
+    cross_link_rules: []
+  extraction:
+    description: |-
+      EmpiricalClaim refines `extraction.Claim` — the canonical
+      Claim home (per reasoning-abstract-types; the reasoning ring
+      is closed at 8 subtypes and has no Claim, so Claim lives in
+      the extraction module). Declared via LinkML `is_a: Claim` in
+      `schema.yaml`; the Layer 1A closure links EmpiricalClaim under
+      `claim` so `ancestor_name = 'claim'` queries surface it
+      alongside extractor-emitted GenericClaims. A refinement
+      dependency, not a narrowing rule.
+    cross_link_rules: []
+  scholarly:
+    description: |-
+      AgentSummary can cite a paper via the summary's
+      recommended-reading / citations block; the source records
+      the cite key in `cite_key_ref` and the rule resolves
+      against `scholarly.Paper.cite_key_ref`. EmpiricalClaim
+      `builds_on` a paper for the same reason. Both rules
+      silently skip when scholarly isn't loaded.
+    cross_link_rules:
+      - cross_links/engram_runs_x_scholarly.yaml
+  bookkeeping:
+    description: |-
+      Each Engram run materializes as a `bookkeeping.Project`
+      (the source mints `proj:engram:<run_id>` and populates the
+      Project's `produced_engram_digest_ref` +
+      `produced_engram_final_ref` attrs). The cross-link rules
+      emit `produced_by` edges from the Project to the digest
+      and final-result nodes. When `bookkeeping` isn't loaded,
+      the source-side `_bookkeeping_loaded(...)` check suppresses
+      the Project materialization entirely so we never emit
+      facts referencing undefined subtypes.
+    cross_link_rules:
+      - cross_links/engram_runs_x_bookkeeping.yaml

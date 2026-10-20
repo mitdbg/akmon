@@ -1,0 +1,8 @@
+# The corpus is ingested by the deterministic ClaimCorpusSource
+# (okg.bench.injection.claim_corpus_source.ClaimCorpusSource
+# over ./corpus). The ring-0 witness test drives the adapter through its
+# SourceAdapter run() contract directly (like the consistency-fixture wire
+# test seeds via apply_facts), so no registry-driven ingest entry is declared
+# here; registry-driven ingest arrives with the documented e2e example if it
+# needs one.
+sources: {}

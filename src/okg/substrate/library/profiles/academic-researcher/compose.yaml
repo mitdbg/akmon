@@ -1,0 +1,98 @@
+# Per-deployment Postgres for academic-researcher.
+#
+# Per `one-db-per-deployment` (2026-04-26): each deployment runs
+# against its own Postgres instance, not its own DB on a shared
+# instance. DBOS owns runtime schedules; the retired substrate pg_cron
+# paths are not installed. The DEPLOYMENT_NAME env var keys the
+# container name, DB name, and volume name.
+#
+# Reuses the substrate's prebuilt `okg-pg17:local` image (built
+# from `ops/pg/Dockerfile`, which adds `pg_textsearch` on top of
+# Timescale's HA image). If the image isn't built, run:
+#
+#   cd ops/pg && docker compose up -d --build
+#
+# once to materialize it. The academic-researcher profile assumes it's
+# present (per the cms / af_pubs / repo-cleanup convention).
+#
+# Manual invocation (matches what `okg install` does):
+#
+#   DEPLOYMENT_NAME=madden_pi POSTGRES_PORT=5435 \
+#     docker compose -f <this-file> -p okg-madden_pi up -d --wait
+#
+# Tear down:
+#
+#   DEPLOYMENT_NAME=madden_pi \
+#     docker compose -f <this-file> -p okg-madden_pi down -v
+
+services:
+  postgres:
+    image: okg-pg17:local
+    container_name: okg-${DEPLOYMENT_NAME}-postgres
+    # Init as PID 1, so an orphaned healthcheck cannot reset Postgres;
+    # see the note in ops/pg/docker-compose.yaml.
+    init: true
+    # Default Docker /dev/shm is 64MB — too small for Postgres
+    # parallel workers + exact vector scans + large hash
+    # joins. 2GB matches the ops/pg baseline and the per-deployment
+    # cms / af_pubs / repo-cleanup stacks.
+    shm_size: 2gb
+    environment:
+      # Password is per-deployment-randomized by `okg install`, which
+      # passes POSTGRES_PASSWORD in the compose env (see install.py).
+      # The `okg` default is kept ONLY for manual `docker compose up`
+      # / dev use; a real install never relies on it. Combined with
+      # the 127.0.0.1 port bind below, the DB is unreachable off-host.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-okg}
+      POSTGRES_DB: okg_${DEPLOYMENT_NAME}
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    # shared_preload_libraries MUST list pg_textsearch before it can
+    # be CREATE EXTENSION'd. timescaledb loads itself via its own
+    # preload. Substrate pg_cron schedules are retired.
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=timescaledb,pg_textsearch"
+      - "-c"
+      - "max_connections=100"
+      # TimescaleDB worker slots (issue #3143); see ops/pg/docker-compose.yaml.
+      - "-c"
+      - "max_worker_processes=32"
+      # Checkpoint and WAL sizing for graph ingest. The values live in
+      # src/okg/substrate/db/wal_settings.py; tests/substrate/db/
+      # test_wal_settings.py refuses drift between that module and this file.
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "checkpoint_timeout=15min"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_compression=zstd"
+    ports:
+      # Bind to loopback ONLY. A bare `PORT:5432` mapping publishes on
+      # 0.0.0.0 (every interface), which with the default password
+      # would let anyone on the PI's LAN/wifi/VPN read the entire
+      # private graph. The deployment is single-host by design; the
+      # agent and CLI reach Postgres over localhost.
+      - "127.0.0.1:${POSTGRES_PORT:-5435}:5432"
+    volumes:
+      - postgres-data:/home/postgres/pgdata/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "pg_isready -U postgres -d okg_${DEPLOYMENT_NAME}"
+      interval: 5s
+      timeout: 3s
+      retries: 40
+
+volumes:
+  # Volume key is static (compose rejects ${VAR} substitution in
+  # keys) but the per-deployment `name:` field IS variable-
+  # substituted, so multiple academic-researcher deployments on one machine
+  # get distinct named volumes that don't collide.
+  postgres-data:
+    name: okg-${DEPLOYMENT_NAME}_postgres-data

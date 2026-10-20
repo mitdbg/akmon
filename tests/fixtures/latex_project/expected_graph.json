@@ -1,0 +1,1976 @@
+{
+  "edges": [
+    {
+      "attrs": {},
+      "dst": "person:rae-repeat",
+      "edge_type": "authored_by",
+      "src": "paper:bibscoped:8656ecbe6526329fea1d278e77f8723a"
+    },
+    {
+      "attrs": {},
+      "dst": "person:ada-alpha",
+      "edge_type": "authored_by",
+      "src": "paper:bibscoped:89abaeb16619bf0c300fe52b941cff07"
+    },
+    {
+      "attrs": {},
+      "dst": "person:ann-one",
+      "edge_type": "authored_by",
+      "src": "paper:bibscoped:911c7721ab14a58a8b10452d1234ffef"
+    },
+    {
+      "attrs": {},
+      "dst": "person:ann-two",
+      "edge_type": "authored_by",
+      "src": "paper:bibscoped:c4b9fb9d65fc129a20e68c2de235fc25"
+    },
+    {
+      "attrs": {},
+      "dst": "person:bea-beta",
+      "edge_type": "authored_by",
+      "src": "paper:bibscoped:ee0c0550028dfc1adc9d27f4c42bfb86"
+    },
+    {
+      "attrs": {},
+      "dst": "paper:bibscoped:89abaeb16619bf0c300fe52b941cff07",
+      "edge_type": "cites",
+      "src": "citation:6df9427429c44bd70b033dae09acaf31"
+    },
+    {
+      "attrs": {},
+      "dst": "paper:bibscoped:8656ecbe6526329fea1d278e77f8723a",
+      "edge_type": "cites",
+      "src": "citation:bce634452bf2ec6a87041c5a7482b91e"
+    },
+    {
+      "attrs": {},
+      "dst": "paper:bibscoped:8656ecbe6526329fea1d278e77f8723a",
+      "edge_type": "cites",
+      "src": "citation:d792c1b1ca8a7847b1299042551d6d50"
+    },
+    {
+      "attrs": {},
+      "dst": "paper:bibscoped:ee0c0550028dfc1adc9d27f4c42bfb86",
+      "edge_type": "cites",
+      "src": "citation:e1bb70c49939a57ab553e953b56d9a52"
+    },
+    {
+      "attrs": {},
+      "dst": "paper:bibscoped:89abaeb16619bf0c300fe52b941cff07",
+      "edge_type": "cites",
+      "src": "citation:e1eea4ae63db34d7dca4ea520a2b3a94"
+    },
+    {
+      "attrs": {},
+      "dst": "paper:bibscoped:8656ecbe6526329fea1d278e77f8723a",
+      "edge_type": "cites",
+      "src": "citation:e306da371e2e192b7cfb15eebb9106ab"
+    },
+    {
+      "attrs": {},
+      "dst": "visual:f0636c7a6b1ea5c7",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:alpha/figures/grouped.pdf"
+    },
+    {
+      "attrs": {},
+      "dst": "visual:431ced6916a2a21a",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:alpha/figures/plot.png"
+    },
+    {
+      "attrs": {},
+      "dst": "chunk:158f647ba295dc7b",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:alpha/main.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "chunk:e3c5130fee68fe6b",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:alpha/main.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:6df9427429c44bd70b033dae09acaf31",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:alpha/main.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:e1eea4ae63db34d7dca4ea520a2b3a94",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:alpha/main.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "chunk:091fc5b5251a2885",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:alpha/refs/references.bib"
+    },
+    {
+      "attrs": {},
+      "dst": "visual:200e305acf4164a3",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/figures/plot.pdf"
+    },
+    {
+      "attrs": {},
+      "dst": "chunk:e8f835a82d7d4cc2",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/local.cls"
+    },
+    {
+      "attrs": {},
+      "dst": "chunk:40ae63363f20cea5",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/main.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:e306da371e2e192b7cfb15eebb9106ab",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/main.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "chunk:cf5b1f4307ae85b9",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/refs/ambiguous.bib"
+    },
+    {
+      "attrs": {},
+      "dst": "chunk:ad629bbb85d7feb7",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/refs/references.bib"
+    },
+    {
+      "attrs": {},
+      "dst": "chunk:df737e4a5397cc90",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/sections/body.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "chunk:e3bf5df1e362d30c",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/sections/body.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:5a076471fa00a81b6f845de29b755896",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/sections/body.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:769d89bff66f92a99c7f5a69b0199c7d",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/sections/body.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:bce634452bf2ec6a87041c5a7482b91e",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/sections/body.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:d792c1b1ca8a7847b1299042551d6d50",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/sections/body.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:e1bb70c49939a57ab553e953b56d9a52",
+      "edge_type": "contains",
+      "src": "doc:latex-fixture:beta/sections/body.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "section:5686f26fa2e4386eeb117dd929edf9d6",
+      "edge_type": "contains",
+      "src": "paper:latex:24058f2a5d669e02288f6287baee4edc"
+    },
+    {
+      "attrs": {},
+      "dst": "section:2f79333d6b625c99c6dbaf079fb4ce76",
+      "edge_type": "contains",
+      "src": "paper:latex:b723d94c90efef5054644f972ff8408a"
+    },
+    {
+      "attrs": {},
+      "dst": "section:7727c2f9871ca1fff1318dcdc70c15b1",
+      "edge_type": "contains",
+      "src": "paper:latex:b723d94c90efef5054644f972ff8408a"
+    },
+    {
+      "attrs": {
+        "char_end": 272,
+        "char_offset": 141,
+        "chunk_kind": "paragraph",
+        "document_ref": "doc:latex-fixture:beta/main.tex"
+      },
+      "dst": "chunk:40ae63363f20cea5",
+      "edge_type": "contains",
+      "src": "section:2f79333d6b625c99c6dbaf079fb4ce76"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:e306da371e2e192b7cfb15eebb9106ab",
+      "edge_type": "contains",
+      "src": "section:2f79333d6b625c99c6dbaf079fb4ce76"
+    },
+    {
+      "attrs": {
+        "char_end": 163,
+        "char_offset": 62,
+        "chunk_kind": "paragraph",
+        "document_ref": "doc:latex-fixture:beta/sections/body.tex"
+      },
+      "dst": "chunk:e3bf5df1e362d30c",
+      "edge_type": "contains",
+      "src": "section:3fa0a541ef08cb8bd51dcfb1eff86e52"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:5a076471fa00a81b6f845de29b755896",
+      "edge_type": "contains",
+      "src": "section:3fa0a541ef08cb8bd51dcfb1eff86e52"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:769d89bff66f92a99c7f5a69b0199c7d",
+      "edge_type": "contains",
+      "src": "section:3fa0a541ef08cb8bd51dcfb1eff86e52"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:bce634452bf2ec6a87041c5a7482b91e",
+      "edge_type": "contains",
+      "src": "section:3fa0a541ef08cb8bd51dcfb1eff86e52"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:d792c1b1ca8a7847b1299042551d6d50",
+      "edge_type": "contains",
+      "src": "section:3fa0a541ef08cb8bd51dcfb1eff86e52"
+    },
+    {
+      "attrs": {
+        "char_end": 148,
+        "char_offset": 94,
+        "chunk_kind": "paragraph",
+        "document_ref": "doc:latex-fixture:alpha/main.tex"
+      },
+      "dst": "chunk:e3c5130fee68fe6b",
+      "edge_type": "contains",
+      "src": "section:5686f26fa2e4386eeb117dd929edf9d6"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:6df9427429c44bd70b033dae09acaf31",
+      "edge_type": "contains",
+      "src": "section:5686f26fa2e4386eeb117dd929edf9d6"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:e1eea4ae63db34d7dca4ea520a2b3a94",
+      "edge_type": "contains",
+      "src": "section:5686f26fa2e4386eeb117dd929edf9d6"
+    },
+    {
+      "attrs": {},
+      "dst": "section:7774659c4117a3b4fa2a814bd36ff857",
+      "edge_type": "contains",
+      "src": "section:5686f26fa2e4386eeb117dd929edf9d6"
+    },
+    {
+      "attrs": {
+        "char_end": 40,
+        "char_offset": 15,
+        "chunk_kind": "paragraph",
+        "document_ref": "doc:latex-fixture:beta/sections/body.tex"
+      },
+      "dst": "chunk:df737e4a5397cc90",
+      "edge_type": "contains",
+      "src": "section:7727c2f9871ca1fff1318dcdc70c15b1"
+    },
+    {
+      "attrs": {},
+      "dst": "citation:e1bb70c49939a57ab553e953b56d9a52",
+      "edge_type": "contains",
+      "src": "section:7727c2f9871ca1fff1318dcdc70c15b1"
+    },
+    {
+      "attrs": {},
+      "dst": "section:3fa0a541ef08cb8bd51dcfb1eff86e52",
+      "edge_type": "contains",
+      "src": "section:7727c2f9871ca1fff1318dcdc70c15b1"
+    },
+    {
+      "attrs": {
+        "char_end": 281,
+        "char_offset": 176,
+        "chunk_kind": "paragraph",
+        "document_ref": "doc:latex-fixture:alpha/main.tex"
+      },
+      "dst": "chunk:158f647ba295dc7b",
+      "edge_type": "contains",
+      "src": "section:7774659c4117a3b4fa2a814bd36ff857"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:alpha/figures/grouped.pdf",
+      "edge_type": "derived_from",
+      "src": "doc:latex-fixture:alpha/figures/grouped.pdf"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:alpha/figures/plot.png",
+      "edge_type": "derived_from",
+      "src": "doc:latex-fixture:alpha/figures/plot.png"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:alpha/main.tex",
+      "edge_type": "derived_from",
+      "src": "doc:latex-fixture:alpha/main.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:alpha/refs/references.bib",
+      "edge_type": "derived_from",
+      "src": "doc:latex-fixture:alpha/refs/references.bib"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:beta/figures/plot.pdf",
+      "edge_type": "derived_from",
+      "src": "doc:latex-fixture:beta/figures/plot.pdf"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:beta/local.cls",
+      "edge_type": "derived_from",
+      "src": "doc:latex-fixture:beta/local.cls"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:beta/main.tex",
+      "edge_type": "derived_from",
+      "src": "doc:latex-fixture:beta/main.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:beta/refs/ambiguous.bib",
+      "edge_type": "derived_from",
+      "src": "doc:latex-fixture:beta/refs/ambiguous.bib"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:beta/refs/references.bib",
+      "edge_type": "derived_from",
+      "src": "doc:latex-fixture:beta/refs/references.bib"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:beta/sections/body.tex",
+      "edge_type": "derived_from",
+      "src": "doc:latex-fixture:beta/sections/body.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "doc:latex-fixture:alpha/main.tex",
+      "edge_type": "derived_from",
+      "src": "paper:latex:24058f2a5d669e02288f6287baee4edc"
+    },
+    {
+      "attrs": {},
+      "dst": "doc:latex-fixture:beta/main.tex",
+      "edge_type": "derived_from",
+      "src": "paper:latex:b723d94c90efef5054644f972ff8408a"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:beta/figures/plot.pdf",
+      "edge_type": "derived_from",
+      "src": "visual:200e305acf4164a3"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:alpha/figures/plot.png",
+      "edge_type": "derived_from",
+      "src": "visual:431ced6916a2a21a"
+    },
+    {
+      "attrs": {},
+      "dst": "file:latex-fixture:alpha/figures/grouped.pdf",
+      "edge_type": "derived_from",
+      "src": "visual:f0636c7a6b1ea5c7"
+    },
+    {
+      "attrs": {
+        "char_end": 69,
+        "char_length": 69,
+        "char_offset": 0,
+        "chunker_name": "WindowChunker",
+        "heading_path": ""
+      },
+      "dst": "doc:latex-fixture:alpha/refs/references.bib",
+      "edge_type": "member_of",
+      "src": "chunk:091fc5b5251a2885"
+    },
+    {
+      "attrs": {
+        "char_end": 281,
+        "char_length": 105,
+        "char_offset": 176,
+        "chunker_name": "LatexStructuralChunker",
+        "heading_path": "Alpha / Alpha details"
+      },
+      "dst": "doc:latex-fixture:alpha/main.tex",
+      "edge_type": "member_of",
+      "src": "chunk:158f647ba295dc7b"
+    },
+    {
+      "attrs": {
+        "char_end": 272,
+        "char_length": 131,
+        "char_offset": 141,
+        "chunker_name": "LatexStructuralChunker",
+        "heading_path": "Beta \\cite{repeat}"
+      },
+      "dst": "doc:latex-fixture:beta/main.tex",
+      "edge_type": "member_of",
+      "src": "chunk:40ae63363f20cea5"
+    },
+    {
+      "attrs": {
+        "char_end": 209,
+        "char_length": 209,
+        "char_offset": 0,
+        "chunker_name": "WindowChunker",
+        "heading_path": ""
+      },
+      "dst": "doc:latex-fixture:beta/refs/references.bib",
+      "edge_type": "member_of",
+      "src": "chunk:ad629bbb85d7feb7"
+    },
+    {
+      "attrs": {
+        "char_end": 71,
+        "char_length": 71,
+        "char_offset": 0,
+        "chunker_name": "WindowChunker",
+        "heading_path": ""
+      },
+      "dst": "doc:latex-fixture:beta/refs/ambiguous.bib",
+      "edge_type": "member_of",
+      "src": "chunk:cf5b1f4307ae85b9"
+    },
+    {
+      "attrs": {
+        "char_end": 40,
+        "char_length": 25,
+        "char_offset": 15,
+        "chunker_name": "LatexStructuralChunker",
+        "heading_path": "Body"
+      },
+      "dst": "doc:latex-fixture:beta/sections/body.tex",
+      "edge_type": "member_of",
+      "src": "chunk:df737e4a5397cc90"
+    },
+    {
+      "attrs": {
+        "char_end": 163,
+        "char_length": 101,
+        "char_offset": 62,
+        "chunker_name": "LatexStructuralChunker",
+        "heading_path": "Body / Details"
+      },
+      "dst": "doc:latex-fixture:beta/sections/body.tex",
+      "edge_type": "member_of",
+      "src": "chunk:e3bf5df1e362d30c"
+    },
+    {
+      "attrs": {
+        "char_end": 148,
+        "char_length": 54,
+        "char_offset": 94,
+        "chunker_name": "LatexStructuralChunker",
+        "heading_path": "Alpha"
+      },
+      "dst": "doc:latex-fixture:alpha/main.tex",
+      "edge_type": "member_of",
+      "src": "chunk:e3c5130fee68fe6b"
+    },
+    {
+      "attrs": {
+        "char_end": 19,
+        "char_length": 19,
+        "char_offset": 0,
+        "chunker_name": "LatexStructuralChunker",
+        "heading_path": ""
+      },
+      "dst": "doc:latex-fixture:beta/local.cls",
+      "edge_type": "member_of",
+      "src": "chunk:e8f835a82d7d4cc2"
+    },
+    {
+      "attrs": {},
+      "dst": "branch:latex-fixture:master",
+      "edge_type": "member_of",
+      "src": "file:latex-fixture:alpha/figures/grouped.pdf"
+    },
+    {
+      "attrs": {},
+      "dst": "branch:latex-fixture:master",
+      "edge_type": "member_of",
+      "src": "file:latex-fixture:alpha/figures/plot.png"
+    },
+    {
+      "attrs": {},
+      "dst": "branch:latex-fixture:master",
+      "edge_type": "member_of",
+      "src": "file:latex-fixture:alpha/main.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "branch:latex-fixture:master",
+      "edge_type": "member_of",
+      "src": "file:latex-fixture:alpha/refs/references.bib"
+    },
+    {
+      "attrs": {},
+      "dst": "branch:latex-fixture:master",
+      "edge_type": "member_of",
+      "src": "file:latex-fixture:beta/figures/plot.pdf"
+    },
+    {
+      "attrs": {},
+      "dst": "branch:latex-fixture:master",
+      "edge_type": "member_of",
+      "src": "file:latex-fixture:beta/local.cls"
+    },
+    {
+      "attrs": {},
+      "dst": "branch:latex-fixture:master",
+      "edge_type": "member_of",
+      "src": "file:latex-fixture:beta/main.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "branch:latex-fixture:master",
+      "edge_type": "member_of",
+      "src": "file:latex-fixture:beta/refs/ambiguous.bib"
+    },
+    {
+      "attrs": {},
+      "dst": "branch:latex-fixture:master",
+      "edge_type": "member_of",
+      "src": "file:latex-fixture:beta/refs/references.bib"
+    },
+    {
+      "attrs": {},
+      "dst": "branch:latex-fixture:master",
+      "edge_type": "member_of",
+      "src": "file:latex-fixture:beta/sections/body.tex"
+    },
+    {
+      "attrs": {},
+      "dst": "doc:latex-fixture:beta/figures/plot.pdf",
+      "edge_type": "member_of",
+      "src": "visual:200e305acf4164a3"
+    },
+    {
+      "attrs": {},
+      "dst": "doc:latex-fixture:alpha/figures/plot.png",
+      "edge_type": "member_of",
+      "src": "visual:431ced6916a2a21a"
+    },
+    {
+      "attrs": {},
+      "dst": "doc:latex-fixture:alpha/figures/grouped.pdf",
+      "edge_type": "member_of",
+      "src": "visual:f0636c7a6b1ea5c7"
+    },
+    {
+      "attrs": {
+        "char_end": 163,
+        "char_offset": 62,
+        "document_ref": "doc:latex-fixture:beta/sections/body.tex"
+      },
+      "dst": "chunk:e3bf5df1e362d30c",
+      "edge_type": "references",
+      "src": "citation:5a076471fa00a81b6f845de29b755896"
+    },
+    {
+      "attrs": {
+        "char_end": 148,
+        "char_offset": 94,
+        "document_ref": "doc:latex-fixture:alpha/main.tex"
+      },
+      "dst": "chunk:e3c5130fee68fe6b",
+      "edge_type": "references",
+      "src": "citation:6df9427429c44bd70b033dae09acaf31"
+    },
+    {
+      "attrs": {
+        "char_end": 163,
+        "char_offset": 62,
+        "document_ref": "doc:latex-fixture:beta/sections/body.tex"
+      },
+      "dst": "chunk:e3bf5df1e362d30c",
+      "edge_type": "references",
+      "src": "citation:769d89bff66f92a99c7f5a69b0199c7d"
+    },
+    {
+      "attrs": {
+        "char_end": 163,
+        "char_offset": 62,
+        "document_ref": "doc:latex-fixture:beta/sections/body.tex"
+      },
+      "dst": "chunk:e3bf5df1e362d30c",
+      "edge_type": "references",
+      "src": "citation:bce634452bf2ec6a87041c5a7482b91e"
+    },
+    {
+      "attrs": {
+        "char_end": 163,
+        "char_offset": 62,
+        "document_ref": "doc:latex-fixture:beta/sections/body.tex"
+      },
+      "dst": "chunk:e3bf5df1e362d30c",
+      "edge_type": "references",
+      "src": "citation:d792c1b1ca8a7847b1299042551d6d50"
+    },
+    {
+      "attrs": {
+        "char_end": 40,
+        "char_offset": 15,
+        "document_ref": "doc:latex-fixture:beta/sections/body.tex"
+      },
+      "dst": "chunk:df737e4a5397cc90",
+      "edge_type": "references",
+      "src": "citation:e1bb70c49939a57ab553e953b56d9a52"
+    },
+    {
+      "attrs": {
+        "char_end": 148,
+        "char_offset": 94,
+        "document_ref": "doc:latex-fixture:alpha/main.tex"
+      },
+      "dst": "chunk:e3c5130fee68fe6b",
+      "edge_type": "references",
+      "src": "citation:e1eea4ae63db34d7dca4ea520a2b3a94"
+    },
+    {
+      "attrs": {
+        "latex_commands": [
+          "addbibresource"
+        ],
+        "latex_occurrences": [
+          {
+            "command": "addbibresource",
+            "end": 60,
+            "literal": "refs/references.bib",
+            "resolved_path": "alpha/refs/references.bib",
+            "role": "bibliography",
+            "source_path": "alpha/main.tex",
+            "start": 39,
+            "status": "resolved"
+          }
+        ],
+        "latex_roles": [
+          "bibliography"
+        ]
+      },
+      "dst": "doc:latex-fixture:alpha/refs/references.bib",
+      "edge_type": "references",
+      "src": "paper:latex:24058f2a5d669e02288f6287baee4edc"
+    },
+    {
+      "attrs": {
+        "latex_commands": [
+          "includegraphics"
+        ],
+        "latex_occurrences": [
+          {
+            "command": "includegraphics",
+            "end": 223,
+            "literal": "figures/plot.png",
+            "resolved_path": "alpha/figures/plot.png",
+            "role": "figure",
+            "source_path": "alpha/main.tex",
+            "start": 189,
+            "status": "resolved"
+          }
+        ],
+        "latex_roles": [
+          "figure"
+        ]
+      },
+      "dst": "visual:431ced6916a2a21a",
+      "edge_type": "references",
+      "src": "paper:latex:24058f2a5d669e02288f6287baee4edc"
+    },
+    {
+      "attrs": {
+        "latex_commands": [
+          "includegraphics"
+        ],
+        "latex_occurrences": [
+          {
+            "command": "includegraphics",
+            "end": 281,
+            "literal": "{figures/grouped}.pdf",
+            "resolved_path": "alpha/figures/grouped.pdf",
+            "role": "figure",
+            "source_path": "alpha/main.tex",
+            "start": 224,
+            "status": "resolved"
+          }
+        ],
+        "latex_roles": [
+          "figure"
+        ]
+      },
+      "dst": "visual:f0636c7a6b1ea5c7",
+      "edge_type": "references",
+      "src": "paper:latex:24058f2a5d669e02288f6287baee4edc"
+    },
+    {
+      "attrs": {
+        "latex_commands": [
+          "documentclass"
+        ],
+        "latex_occurrences": [
+          {
+            "command": "documentclass",
+            "end": 21,
+            "literal": "local",
+            "resolved_path": "beta/local.cls",
+            "role": "class",
+            "source_path": "beta/main.tex",
+            "start": 14,
+            "status": "resolved"
+          }
+        ],
+        "latex_roles": [
+          "class"
+        ]
+      },
+      "dst": "doc:latex-fixture:beta/local.cls",
+      "edge_type": "references",
+      "src": "paper:latex:b723d94c90efef5054644f972ff8408a"
+    },
+    {
+      "attrs": {
+        "latex_commands": [
+          "addbibresource"
+        ],
+        "latex_occurrences": [
+          {
+            "command": "addbibresource",
+            "end": 94,
+            "literal": "refs/ambiguous.bib",
+            "resolved_path": "beta/refs/ambiguous.bib",
+            "role": "bibliography",
+            "source_path": "beta/main.tex",
+            "start": 74,
+            "status": "resolved"
+          }
+        ],
+        "latex_roles": [
+          "bibliography"
+        ]
+      },
+      "dst": "doc:latex-fixture:beta/refs/ambiguous.bib",
+      "edge_type": "references",
+      "src": "paper:latex:b723d94c90efef5054644f972ff8408a"
+    },
+    {
+      "attrs": {
+        "latex_commands": [
+          "addbibresource"
+        ],
+        "latex_occurrences": [
+          {
+            "command": "addbibresource",
+            "end": 58,
+            "literal": "refs/references.bib",
+            "resolved_path": "beta/refs/references.bib",
+            "role": "bibliography",
+            "source_path": "beta/main.tex",
+            "start": 37,
+            "status": "resolved"
+          }
+        ],
+        "latex_roles": [
+          "bibliography"
+        ]
+      },
+      "dst": "doc:latex-fixture:beta/refs/references.bib",
+      "edge_type": "references",
+      "src": "paper:latex:b723d94c90efef5054644f972ff8408a"
+    },
+    {
+      "attrs": {
+        "latex_commands": [
+          "input"
+        ],
+        "latex_occurrences": [
+          {
+            "command": "input",
+            "end": 181,
+            "literal": "sections/body",
+            "resolved_path": "beta/sections/body.tex",
+            "role": "input",
+            "source_path": "beta/main.tex",
+            "start": 166,
+            "status": "resolved"
+          },
+          {
+            "command": "input",
+            "end": 203,
+            "literal": "sections/body",
+            "resolved_path": "beta/sections/body.tex",
+            "role": "input",
+            "source_path": "beta/main.tex",
+            "start": 188,
+            "status": "resolved"
+          }
+        ],
+        "latex_roles": [
+          "input"
+        ]
+      },
+      "dst": "doc:latex-fixture:beta/sections/body.tex",
+      "edge_type": "references",
+      "src": "paper:latex:b723d94c90efef5054644f972ff8408a"
+    },
+    {
+      "attrs": {
+        "latex_commands": [
+          "includegraphics"
+        ],
+        "latex_occurrences": [
+          {
+            "command": "includegraphics",
+            "end": 272,
+            "literal": "figures/plot.pdf",
+            "resolved_path": "beta/figures/plot.pdf",
+            "role": "figure",
+            "source_path": "beta/main.tex",
+            "start": 238,
+            "status": "resolved"
+          }
+        ],
+        "latex_roles": [
+          "figure"
+        ]
+      },
+      "dst": "visual:200e305acf4164a3",
+      "edge_type": "references",
+      "src": "paper:latex:b723d94c90efef5054644f972ff8408a"
+    }
+  ],
+  "nodes": [
+    {
+      "attrs": {
+        "canonical_chunk_ref": "chunk:e3bf5df1e362d30c",
+        "chunk_membership_end": 163,
+        "chunk_membership_start": 62,
+        "citation_id": "citation:5a076471fa00a81b6f845de29b755896",
+        "citation_lookup_ref": {
+          "bibliography_paths": [],
+          "normalized_key": "missingKey",
+          "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a"
+        },
+        "citing_section_ref": "section:3fa0a541ef08cb8bd51dcfb1eff86e52",
+        "command": "cite",
+        "command_end": 146,
+        "command_start": 129,
+        "context_text": "Missing \\cite{missingKey}.",
+        "key_end": 145,
+        "key_ordinal": 0,
+        "key_start": 135,
+        "normalized_key": "missingKey",
+        "owning_document_ref": "doc:latex-fixture:beta/sections/body.tex",
+        "owning_section_ref": "section:3fa0a541ef08cb8bd51dcfb1eff86e52",
+        "project_dir": "beta",
+        "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a",
+        "raw_key": "missingKey",
+        "resolution_status": "unresolved",
+        "resolution_warning": "latex_citation_unresolved",
+        "root_path": "beta/main.tex",
+        "source_path": "beta/sections/body.tex"
+      },
+      "node_id": "citation:5a076471fa00a81b6f845de29b755896",
+      "subtype": "citation"
+    },
+    {
+      "attrs": {
+        "canonical_chunk_ref": "chunk:e3c5130fee68fe6b",
+        "chunk_membership_end": 148,
+        "chunk_membership_start": 94,
+        "citation_id": "citation:6df9427429c44bd70b033dae09acaf31",
+        "citation_lookup_ref": {
+          "bibliography_paths": [
+            "alpha/refs/references.bib"
+          ],
+          "normalized_key": "shared",
+          "project_id": "paper:latex:24058f2a5d669e02288f6287baee4edc"
+        },
+        "cited_paper_ref": "paper:bibscoped:89abaeb16619bf0c300fe52b941cff07",
+        "citing_section_ref": "section:5686f26fa2e4386eeb117dd929edf9d6",
+        "command": "cite",
+        "command_end": 147,
+        "command_start": 134,
+        "context_text": "Alpha second \\cite{shared}.",
+        "key_end": 146,
+        "key_ordinal": 0,
+        "key_start": 140,
+        "normalized_key": "shared",
+        "owning_document_ref": "doc:latex-fixture:alpha/main.tex",
+        "owning_section_ref": "section:5686f26fa2e4386eeb117dd929edf9d6",
+        "project_dir": "alpha",
+        "project_id": "paper:latex:24058f2a5d669e02288f6287baee4edc",
+        "raw_key": "shared",
+        "resolution_status": "resolved",
+        "root_path": "alpha/main.tex",
+        "source_path": "alpha/main.tex"
+      },
+      "node_id": "citation:6df9427429c44bd70b033dae09acaf31",
+      "subtype": "citation"
+    },
+    {
+      "attrs": {
+        "canonical_chunk_ref": "chunk:e3bf5df1e362d30c",
+        "chunk_membership_end": 163,
+        "chunk_membership_start": 62,
+        "citation_id": "citation:769d89bff66f92a99c7f5a69b0199c7d",
+        "citation_lookup_ref": {
+          "bibliography_paths": [
+            "beta/refs/ambiguous.bib",
+            "beta/refs/references.bib"
+          ],
+          "normalized_key": "ambiguous",
+          "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a"
+        },
+        "citing_section_ref": "section:3fa0a541ef08cb8bd51dcfb1eff86e52",
+        "command": "cite",
+        "command_end": 119,
+        "command_start": 103,
+        "context_text": "Ambiguous \\cite{ambiguous}.",
+        "key_end": 118,
+        "key_ordinal": 0,
+        "key_start": 109,
+        "normalized_key": "ambiguous",
+        "owning_document_ref": "doc:latex-fixture:beta/sections/body.tex",
+        "owning_section_ref": "section:3fa0a541ef08cb8bd51dcfb1eff86e52",
+        "project_dir": "beta",
+        "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a",
+        "raw_key": "ambiguous",
+        "resolution_status": "ambiguous",
+        "resolution_warning": "latex_citation_ambiguous",
+        "root_path": "beta/main.tex",
+        "source_path": "beta/sections/body.tex"
+      },
+      "node_id": "citation:769d89bff66f92a99c7f5a69b0199c7d",
+      "subtype": "citation"
+    },
+    {
+      "attrs": {
+        "canonical_chunk_ref": "chunk:e3bf5df1e362d30c",
+        "chunk_membership_end": 163,
+        "chunk_membership_start": 62,
+        "citation_id": "citation:bce634452bf2ec6a87041c5a7482b91e",
+        "citation_lookup_ref": {
+          "bibliography_paths": [
+            "beta/refs/references.bib"
+          ],
+          "normalized_key": "repeat",
+          "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a"
+        },
+        "cited_paper_ref": "paper:bibscoped:8656ecbe6526329fea1d278e77f8723a",
+        "citing_section_ref": "section:3fa0a541ef08cb8bd51dcfb1eff86e52",
+        "command": "cite",
+        "command_end": 91,
+        "command_start": 71,
+        "context_text": "Repeated \\cite{repeat,repeat}.",
+        "key_end": 90,
+        "key_ordinal": 1,
+        "key_start": 84,
+        "normalized_key": "repeat",
+        "owning_document_ref": "doc:latex-fixture:beta/sections/body.tex",
+        "owning_section_ref": "section:3fa0a541ef08cb8bd51dcfb1eff86e52",
+        "project_dir": "beta",
+        "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a",
+        "raw_key": "repeat",
+        "resolution_status": "resolved",
+        "root_path": "beta/main.tex",
+        "source_path": "beta/sections/body.tex"
+      },
+      "node_id": "citation:bce634452bf2ec6a87041c5a7482b91e",
+      "subtype": "citation"
+    },
+    {
+      "attrs": {
+        "canonical_chunk_ref": "chunk:e3bf5df1e362d30c",
+        "chunk_membership_end": 163,
+        "chunk_membership_start": 62,
+        "citation_id": "citation:d792c1b1ca8a7847b1299042551d6d50",
+        "citation_lookup_ref": {
+          "bibliography_paths": [
+            "beta/refs/references.bib"
+          ],
+          "normalized_key": "repeat",
+          "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a"
+        },
+        "cited_paper_ref": "paper:bibscoped:8656ecbe6526329fea1d278e77f8723a",
+        "citing_section_ref": "section:3fa0a541ef08cb8bd51dcfb1eff86e52",
+        "command": "cite",
+        "command_end": 91,
+        "command_start": 71,
+        "context_text": "Repeated \\cite{repeat,repeat}.",
+        "key_end": 83,
+        "key_ordinal": 0,
+        "key_start": 77,
+        "normalized_key": "repeat",
+        "owning_document_ref": "doc:latex-fixture:beta/sections/body.tex",
+        "owning_section_ref": "section:3fa0a541ef08cb8bd51dcfb1eff86e52",
+        "project_dir": "beta",
+        "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a",
+        "raw_key": "repeat",
+        "resolution_status": "resolved",
+        "root_path": "beta/main.tex",
+        "source_path": "beta/sections/body.tex"
+      },
+      "node_id": "citation:d792c1b1ca8a7847b1299042551d6d50",
+      "subtype": "citation"
+    },
+    {
+      "attrs": {
+        "canonical_chunk_ref": "chunk:df737e4a5397cc90",
+        "chunk_membership_end": 40,
+        "chunk_membership_start": 15,
+        "citation_id": "citation:e1bb70c49939a57ab553e953b56d9a52",
+        "citation_lookup_ref": {
+          "bibliography_paths": [
+            "beta/refs/references.bib"
+          ],
+          "normalized_key": "shared",
+          "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a"
+        },
+        "cited_paper_ref": "paper:bibscoped:ee0c0550028dfc1adc9d27f4c42bfb86",
+        "citing_section_ref": "section:7727c2f9871ca1fff1318dcdc70c15b1",
+        "command": "cite",
+        "command_end": 39,
+        "command_start": 26,
+        "context_text": "Body cites \\cite{shared}.",
+        "key_end": 38,
+        "key_ordinal": 0,
+        "key_start": 32,
+        "normalized_key": "shared",
+        "owning_document_ref": "doc:latex-fixture:beta/sections/body.tex",
+        "owning_section_ref": "section:7727c2f9871ca1fff1318dcdc70c15b1",
+        "project_dir": "beta",
+        "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a",
+        "raw_key": "shared",
+        "resolution_status": "resolved",
+        "root_path": "beta/main.tex",
+        "source_path": "beta/sections/body.tex"
+      },
+      "node_id": "citation:e1bb70c49939a57ab553e953b56d9a52",
+      "subtype": "citation"
+    },
+    {
+      "attrs": {
+        "canonical_chunk_ref": "chunk:e3c5130fee68fe6b",
+        "chunk_membership_end": 148,
+        "chunk_membership_start": 94,
+        "citation_id": "citation:e1eea4ae63db34d7dca4ea520a2b3a94",
+        "citation_lookup_ref": {
+          "bibliography_paths": [
+            "alpha/refs/references.bib"
+          ],
+          "normalized_key": "shared",
+          "project_id": "paper:latex:24058f2a5d669e02288f6287baee4edc"
+        },
+        "cited_paper_ref": "paper:bibscoped:89abaeb16619bf0c300fe52b941cff07",
+        "citing_section_ref": "section:5686f26fa2e4386eeb117dd929edf9d6",
+        "command": "cite",
+        "command_end": 119,
+        "command_start": 106,
+        "context_text": "Alpha first \\cite{shared}.",
+        "key_end": 118,
+        "key_ordinal": 0,
+        "key_start": 112,
+        "normalized_key": "shared",
+        "owning_document_ref": "doc:latex-fixture:alpha/main.tex",
+        "owning_section_ref": "section:5686f26fa2e4386eeb117dd929edf9d6",
+        "project_dir": "alpha",
+        "project_id": "paper:latex:24058f2a5d669e02288f6287baee4edc",
+        "raw_key": "shared",
+        "resolution_status": "resolved",
+        "root_path": "alpha/main.tex",
+        "source_path": "alpha/main.tex"
+      },
+      "node_id": "citation:e1eea4ae63db34d7dca4ea520a2b3a94",
+      "subtype": "citation"
+    },
+    {
+      "attrs": {
+        "citation_id": "citation:e306da371e2e192b7cfb15eebb9106ab",
+        "citation_lookup_ref": {
+          "bibliography_paths": [
+            "beta/refs/references.bib"
+          ],
+          "normalized_key": "repeat",
+          "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a"
+        },
+        "cited_paper_ref": "paper:bibscoped:8656ecbe6526329fea1d278e77f8723a",
+        "citing_section_ref": "section:2f79333d6b625c99c6dbaf079fb4ce76",
+        "command": "cite",
+        "command_end": 139,
+        "command_start": 126,
+        "context_text": "\\section{Beta \\cite{repeat}}",
+        "key_end": 138,
+        "key_ordinal": 0,
+        "key_start": 132,
+        "normalized_key": "repeat",
+        "owning_document_ref": "doc:latex-fixture:beta/main.tex",
+        "owning_section_ref": "section:2f79333d6b625c99c6dbaf079fb4ce76",
+        "project_dir": "beta",
+        "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a",
+        "raw_key": "repeat",
+        "resolution_status": "resolved",
+        "root_path": "beta/main.tex",
+        "source_path": "beta/main.tex"
+      },
+      "node_id": "citation:e306da371e2e192b7cfb15eebb9106ab",
+      "subtype": "citation"
+    },
+    {
+      "attrs": {
+        "byte_count": 32,
+        "citation_label": "latex-fixture/alpha/figures/grouped.pdf",
+        "content_sha256": "f0636c7a6b1ea5c7cb6e618f1902dec85c14bf9af58729f7116a5202d9812de4",
+        "doc_id": "doc:latex-fixture:alpha/figures/grouped.pdf",
+        "format": "pdf",
+        "parse_warnings": [],
+        "path": "alpha/figures/grouped.pdf",
+        "repo": "latex-fixture",
+        "title": "alpha/figures/grouped.pdf"
+      },
+      "node_id": "doc:latex-fixture:alpha/figures/grouped.pdf",
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "byte_count": 68,
+        "citation_label": "latex-fixture/alpha/figures/plot.png",
+        "content_sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+        "doc_id": "doc:latex-fixture:alpha/figures/plot.png",
+        "format": "image",
+        "parse_warnings": [],
+        "path": "alpha/figures/plot.png",
+        "repo": "latex-fixture",
+        "title": "alpha/figures/plot.png"
+      },
+      "node_id": "doc:latex-fixture:alpha/figures/plot.png",
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "byte_count": 297,
+        "citation_label": "latex-fixture/alpha/main.tex",
+        "content_sha256": "4e0016e58eeef9c2afcf6da1b6dbbda9280e8cd01df40439f690f1774935802d",
+        "doc_id": "doc:latex-fixture:alpha/main.tex",
+        "format": "latex",
+        "parse_warnings": [],
+        "path": "alpha/main.tex",
+        "repo": "latex-fixture",
+        "title": "alpha/main.tex"
+      },
+      "node_id": "doc:latex-fixture:alpha/main.tex",
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "byte_count": 69,
+        "citation_label": "latex-fixture/alpha/refs/references.bib",
+        "content_sha256": "091fc5b5251a2885d3857a7a723c31c150f8dbeda430092175a57021a90acc8f",
+        "doc_id": "doc:latex-fixture:alpha/refs/references.bib",
+        "format": "text",
+        "parse_warnings": [],
+        "path": "alpha/refs/references.bib",
+        "repo": "latex-fixture",
+        "title": "alpha/refs/references.bib"
+      },
+      "node_id": "doc:latex-fixture:alpha/refs/references.bib",
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "byte_count": 33,
+        "citation_label": "latex-fixture/beta/figures/plot.pdf",
+        "content_sha256": "200e305acf4164a3de54e5b3b9a0042990363d768c58c6c85c97a6ed3750c409",
+        "doc_id": "doc:latex-fixture:beta/figures/plot.pdf",
+        "format": "pdf",
+        "parse_warnings": [],
+        "path": "beta/figures/plot.pdf",
+        "repo": "latex-fixture",
+        "title": "beta/figures/plot.pdf"
+      },
+      "node_id": "doc:latex-fixture:beta/figures/plot.pdf",
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "byte_count": 19,
+        "citation_label": "latex-fixture/beta/local.cls",
+        "content_sha256": "e8f835a82d7d4cc27d1036b708d993f2365f89f3977dce16584c093a74013531",
+        "doc_id": "doc:latex-fixture:beta/local.cls",
+        "format": "latex",
+        "parse_warnings": [],
+        "path": "beta/local.cls",
+        "repo": "latex-fixture",
+        "title": "beta/local.cls"
+      },
+      "node_id": "doc:latex-fixture:beta/local.cls",
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "byte_count": 288,
+        "citation_label": "latex-fixture/beta/main.tex",
+        "content_sha256": "6d83925c4e9fed7d482f9b4b2d2a240ee25c0442a35ebf4816123037c738d11d",
+        "doc_id": "doc:latex-fixture:beta/main.tex",
+        "format": "latex",
+        "parse_warnings": [],
+        "path": "beta/main.tex",
+        "repo": "latex-fixture",
+        "title": "beta/main.tex"
+      },
+      "node_id": "doc:latex-fixture:beta/main.tex",
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "byte_count": 71,
+        "citation_label": "latex-fixture/beta/refs/ambiguous.bib",
+        "content_sha256": "cf5b1f4307ae85b98c491ef4691dac08a5def8f09604b651b9592dc8093ff970",
+        "doc_id": "doc:latex-fixture:beta/refs/ambiguous.bib",
+        "format": "text",
+        "parse_warnings": [],
+        "path": "beta/refs/ambiguous.bib",
+        "repo": "latex-fixture",
+        "title": "beta/refs/ambiguous.bib"
+      },
+      "node_id": "doc:latex-fixture:beta/refs/ambiguous.bib",
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "byte_count": 209,
+        "citation_label": "latex-fixture/beta/refs/references.bib",
+        "content_sha256": "ad629bbb85d7feb7fc8606e9514ed396c9c30c2799cb7e6b1d980c2ba58b2299",
+        "doc_id": "doc:latex-fixture:beta/refs/references.bib",
+        "format": "text",
+        "parse_warnings": [],
+        "path": "beta/refs/references.bib",
+        "repo": "latex-fixture",
+        "title": "beta/refs/references.bib"
+      },
+      "node_id": "doc:latex-fixture:beta/refs/references.bib",
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "byte_count": 164,
+        "citation_label": "latex-fixture/beta/sections/body.tex",
+        "content_sha256": "763283ee41e7717c5126961396818ee3e3bc167d77d5e397a3362339316b729c",
+        "doc_id": "doc:latex-fixture:beta/sections/body.tex",
+        "format": "latex",
+        "parse_warnings": [],
+        "path": "beta/sections/body.tex",
+        "repo": "latex-fixture",
+        "title": "beta/sections/body.tex"
+      },
+      "node_id": "doc:latex-fixture:beta/sections/body.tex",
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "char_end": 69,
+        "char_length": 69,
+        "char_offset": 0,
+        "chunk_id": "chunk:091fc5b5251a2885",
+        "chunk_kind": "paragraph",
+        "chunker_name": "WindowChunker",
+        "citation_label": "latex-fixture/alpha/refs/references.bib",
+        "content_sha256": "091fc5b5251a2885d3857a7a723c31c150f8dbeda430092175a57021a90acc8f",
+        "heading_path": "",
+        "text": "@article{shared,title={Alpha Shared},author={Ada Alpha},year={2024}}\n"
+      },
+      "node_id": "chunk:091fc5b5251a2885",
+      "subtype": "document_chunk"
+    },
+    {
+      "attrs": {
+        "char_end": 281,
+        "char_length": 105,
+        "char_offset": 176,
+        "chunk_id": "chunk:158f647ba295dc7b",
+        "chunk_kind": "paragraph",
+        "chunker_name": "LatexStructuralChunker",
+        "citation_label": "latex-fixture/alpha/main.tex",
+        "content_sha256": "158f647ba295dc7b55285c07e457c5870ac21fef4bf4b395a49dd7450a74adbb",
+        "heading_path": "Alpha / Alpha details",
+        "text": "Detail text.\n\\includegraphics{figures/plot.png}\n\\includegraphics[width=\\textwidth]{{figures/grouped}.pdf}"
+      },
+      "node_id": "chunk:158f647ba295dc7b",
+      "subtype": "document_chunk"
+    },
+    {
+      "attrs": {
+        "char_end": 272,
+        "char_length": 131,
+        "char_offset": 141,
+        "chunk_id": "chunk:40ae63363f20cea5",
+        "chunk_kind": "paragraph",
+        "chunker_name": "LatexStructuralChunker",
+        "citation_label": "latex-fixture/beta/main.tex",
+        "content_sha256": "40ae63363f20cea5e47e76b2af92fb73f105100be5381120723606463f19d2ab",
+        "heading_path": "Beta \\cite{repeat}",
+        "text": "Beta introduction.\n\\input{sections/body}\n\\input{sections/body}\n\\input{missing}\n\\input{../escape}\n\\includegraphics{figures/plot.pdf}"
+      },
+      "node_id": "chunk:40ae63363f20cea5",
+      "subtype": "document_chunk"
+    },
+    {
+      "attrs": {
+        "char_end": 209,
+        "char_length": 209,
+        "char_offset": 0,
+        "chunk_id": "chunk:ad629bbb85d7feb7",
+        "chunk_kind": "paragraph",
+        "chunker_name": "WindowChunker",
+        "citation_label": "latex-fixture/beta/refs/references.bib",
+        "content_sha256": "ad629bbb85d7feb7fc8606e9514ed396c9c30c2799cb7e6b1d980c2ba58b2299",
+        "heading_path": "",
+        "text": "@article{shared,title={Beta Shared},author={Bea Beta},year={2023}}\n@article{repeat,title={Repeated Work},author={Rae Repeat},year={2022}}\n@article{ambiguous,title={Ambiguous One},author={Ann One},year={2021}}\n"
+      },
+      "node_id": "chunk:ad629bbb85d7feb7",
+      "subtype": "document_chunk"
+    },
+    {
+      "attrs": {
+        "char_end": 71,
+        "char_length": 71,
+        "char_offset": 0,
+        "chunk_id": "chunk:cf5b1f4307ae85b9",
+        "chunk_kind": "paragraph",
+        "chunker_name": "WindowChunker",
+        "citation_label": "latex-fixture/beta/refs/ambiguous.bib",
+        "content_sha256": "cf5b1f4307ae85b98c491ef4691dac08a5def8f09604b651b9592dc8093ff970",
+        "heading_path": "",
+        "text": "@article{ambiguous,title={Ambiguous Two},author={Ann Two},year={2020}}\n"
+      },
+      "node_id": "chunk:cf5b1f4307ae85b9",
+      "subtype": "document_chunk"
+    },
+    {
+      "attrs": {
+        "char_end": 40,
+        "char_length": 25,
+        "char_offset": 15,
+        "chunk_id": "chunk:df737e4a5397cc90",
+        "chunk_kind": "paragraph",
+        "chunker_name": "LatexStructuralChunker",
+        "citation_label": "latex-fixture/beta/sections/body.tex",
+        "content_sha256": "df737e4a5397cc903b0ca434afe75ad89b3069bf0d96f8b2e675d9374a0b5d7e",
+        "heading_path": "Body",
+        "text": "Body cites \\cite{shared}."
+      },
+      "node_id": "chunk:df737e4a5397cc90",
+      "subtype": "document_chunk"
+    },
+    {
+      "attrs": {
+        "char_end": 163,
+        "char_length": 101,
+        "char_offset": 62,
+        "chunk_id": "chunk:e3bf5df1e362d30c",
+        "chunk_kind": "paragraph",
+        "chunker_name": "LatexStructuralChunker",
+        "citation_label": "latex-fixture/beta/sections/body.tex",
+        "content_sha256": "e3bf5df1e362d30c7395324a4ef049b5a2e7f3be541d23d67b5849d27fc33d21",
+        "heading_path": "Body / Details",
+        "text": "Repeated \\cite{repeat,repeat}. Ambiguous \\cite{ambiguous}. Missing \\cite{missingKey}.\n\\input{../main}"
+      },
+      "node_id": "chunk:e3bf5df1e362d30c",
+      "subtype": "document_chunk"
+    },
+    {
+      "attrs": {
+        "char_end": 148,
+        "char_length": 54,
+        "char_offset": 94,
+        "chunk_id": "chunk:e3c5130fee68fe6b",
+        "chunk_kind": "paragraph",
+        "chunker_name": "LatexStructuralChunker",
+        "citation_label": "latex-fixture/alpha/main.tex",
+        "content_sha256": "e3c5130fee68fe6be86aa2331ef42043dab57893bf96910f5bb172817a7603d5",
+        "heading_path": "Alpha",
+        "text": "Alpha first \\cite{shared}. Alpha second \\cite{shared}."
+      },
+      "node_id": "chunk:e3c5130fee68fe6b",
+      "subtype": "document_chunk"
+    },
+    {
+      "attrs": {
+        "char_end": 19,
+        "char_length": 19,
+        "char_offset": 0,
+        "chunk_id": "chunk:e8f835a82d7d4cc2",
+        "chunk_kind": "paragraph",
+        "chunker_name": "LatexStructuralChunker",
+        "citation_label": "latex-fixture/beta/local.cls",
+        "content_sha256": "e8f835a82d7d4cc27d1036b708d993f2365f89f3977dce16584c093a74013531",
+        "heading_path": "",
+        "text": "\\LoadClass{article}"
+      },
+      "node_id": "chunk:e8f835a82d7d4cc2",
+      "subtype": "document_chunk"
+    },
+    {
+      "attrs": {
+        "head_commit_sha": "8092b3ad3d08dff087edfbf5456d3b9f27431468",
+        "label": "master",
+        "name": "master",
+        "repo": "latex-fixture"
+      },
+      "node_id": "branch:latex-fixture:master",
+      "subtype": "git_branch"
+    },
+    {
+      "attrs": {
+        "bib_entry_type": "article",
+        "bib_key_refs": [
+          "paper:repeat"
+        ],
+        "bib_keys": [
+          "repeat"
+        ],
+        "bib_lookup_ref": {
+          "bib_path": "beta/refs/references.bib",
+          "normalized_key": "repeat",
+          "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a"
+        },
+        "kind": "foundational",
+        "paper_id": "paper:bibscoped:8656ecbe6526329fea1d278e77f8723a",
+        "tier": 1,
+        "title": "Repeated Work",
+        "year": "2022"
+      },
+      "node_id": "paper:bibscoped:8656ecbe6526329fea1d278e77f8723a",
+      "subtype": "paper"
+    },
+    {
+      "attrs": {
+        "bib_entry_type": "article",
+        "bib_key_refs": [
+          "paper:shared"
+        ],
+        "bib_keys": [
+          "shared"
+        ],
+        "bib_lookup_ref": {
+          "bib_path": "alpha/refs/references.bib",
+          "normalized_key": "shared",
+          "project_id": "paper:latex:24058f2a5d669e02288f6287baee4edc"
+        },
+        "kind": "foundational",
+        "paper_id": "paper:bibscoped:89abaeb16619bf0c300fe52b941cff07",
+        "tier": 1,
+        "title": "Alpha Shared",
+        "year": "2024"
+      },
+      "node_id": "paper:bibscoped:89abaeb16619bf0c300fe52b941cff07",
+      "subtype": "paper"
+    },
+    {
+      "attrs": {
+        "bib_entry_type": "article",
+        "bib_key_refs": [
+          "paper:ambiguous"
+        ],
+        "bib_keys": [
+          "ambiguous"
+        ],
+        "bib_lookup_ref": {
+          "bib_path": "beta/refs/references.bib",
+          "normalized_key": "ambiguous",
+          "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a"
+        },
+        "kind": "foundational",
+        "paper_id": "paper:bibscoped:911c7721ab14a58a8b10452d1234ffef",
+        "tier": 1,
+        "title": "Ambiguous One",
+        "year": "2021"
+      },
+      "node_id": "paper:bibscoped:911c7721ab14a58a8b10452d1234ffef",
+      "subtype": "paper"
+    },
+    {
+      "attrs": {
+        "bib_entry_type": "article",
+        "bib_key_refs": [
+          "paper:ambiguous"
+        ],
+        "bib_keys": [
+          "ambiguous"
+        ],
+        "bib_lookup_ref": {
+          "bib_path": "beta/refs/ambiguous.bib",
+          "normalized_key": "ambiguous",
+          "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a"
+        },
+        "kind": "foundational",
+        "paper_id": "paper:bibscoped:c4b9fb9d65fc129a20e68c2de235fc25",
+        "tier": 1,
+        "title": "Ambiguous Two",
+        "year": "2020"
+      },
+      "node_id": "paper:bibscoped:c4b9fb9d65fc129a20e68c2de235fc25",
+      "subtype": "paper"
+    },
+    {
+      "attrs": {
+        "bib_entry_type": "article",
+        "bib_key_refs": [
+          "paper:shared"
+        ],
+        "bib_keys": [
+          "shared"
+        ],
+        "bib_lookup_ref": {
+          "bib_path": "beta/refs/references.bib",
+          "normalized_key": "shared",
+          "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a"
+        },
+        "kind": "foundational",
+        "paper_id": "paper:bibscoped:ee0c0550028dfc1adc9d27f4c42bfb86",
+        "tier": 1,
+        "title": "Beta Shared",
+        "year": "2023"
+      },
+      "node_id": "paper:bibscoped:ee0c0550028dfc1adc9d27f4c42bfb86",
+      "subtype": "paper"
+    },
+    {
+      "attrs": {
+        "bibliography_selection": [],
+        "kind": "our-draft",
+        "manifest_digest": "40c7db38eb3720494fbc66b0d5ddbf160ea26634efb08baf34de3a8e118f17ae",
+        "paper_id": "paper:latex:24058f2a5d669e02288f6287baee4edc",
+        "project_dir": "alpha",
+        "project_id": "paper:latex:24058f2a5d669e02288f6287baee4edc",
+        "root_path": "alpha/main.tex",
+        "title": "main"
+      },
+      "node_id": "paper:latex:24058f2a5d669e02288f6287baee4edc",
+      "subtype": "paper"
+    },
+    {
+      "attrs": {
+        "bibliography_selection": [],
+        "kind": "our-draft",
+        "manifest_digest": "40c7db38eb3720494fbc66b0d5ddbf160ea26634efb08baf34de3a8e118f17ae",
+        "paper_id": "paper:latex:b723d94c90efef5054644f972ff8408a",
+        "project_dir": "beta",
+        "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a",
+        "root_path": "beta/main.tex",
+        "title": "main"
+      },
+      "node_id": "paper:latex:b723d94c90efef5054644f972ff8408a",
+      "subtype": "paper"
+    },
+    {
+      "attrs": {
+        "ordinal": 0,
+        "paper_ref": "paper:latex:b723d94c90efef5054644f972ff8408a",
+        "paper_section_id": "section:2f79333d6b625c99c6dbaf079fb4ce76",
+        "path": "\u00a71",
+        "source_end": 140,
+        "source_path": "beta/main.tex",
+        "source_start": 112,
+        "title": "Beta \\cite{repeat}"
+      },
+      "node_id": "section:2f79333d6b625c99c6dbaf079fb4ce76",
+      "subtype": "paper_section"
+    },
+    {
+      "attrs": {
+        "ordinal": 0,
+        "paper_ref": "paper:latex:b723d94c90efef5054644f972ff8408a",
+        "paper_section_id": "section:3fa0a541ef08cb8bd51dcfb1eff86e52",
+        "parent_section_ref": "section:7727c2f9871ca1fff1318dcdc70c15b1",
+        "path": "\u00a72.1",
+        "source_end": 61,
+        "source_path": "beta/sections/body.tex",
+        "source_start": 41,
+        "title": "Details"
+      },
+      "node_id": "section:3fa0a541ef08cb8bd51dcfb1eff86e52",
+      "subtype": "paper_section"
+    },
+    {
+      "attrs": {
+        "ordinal": 0,
+        "paper_ref": "paper:latex:24058f2a5d669e02288f6287baee4edc",
+        "paper_section_id": "section:5686f26fa2e4386eeb117dd929edf9d6",
+        "path": "\u00a71",
+        "source_end": 93,
+        "source_path": "alpha/main.tex",
+        "source_start": 78,
+        "title": "Alpha"
+      },
+      "node_id": "section:5686f26fa2e4386eeb117dd929edf9d6",
+      "subtype": "paper_section"
+    },
+    {
+      "attrs": {
+        "ordinal": 1,
+        "paper_ref": "paper:latex:b723d94c90efef5054644f972ff8408a",
+        "paper_section_id": "section:7727c2f9871ca1fff1318dcdc70c15b1",
+        "path": "\u00a72",
+        "source_end": 14,
+        "source_path": "beta/sections/body.tex",
+        "source_start": 0,
+        "title": "Body"
+      },
+      "node_id": "section:7727c2f9871ca1fff1318dcdc70c15b1",
+      "subtype": "paper_section"
+    },
+    {
+      "attrs": {
+        "ordinal": 0,
+        "paper_ref": "paper:latex:24058f2a5d669e02288f6287baee4edc",
+        "paper_section_id": "section:7774659c4117a3b4fa2a814bd36ff857",
+        "parent_section_ref": "section:5686f26fa2e4386eeb117dd929edf9d6",
+        "path": "\u00a71.1",
+        "source_end": 175,
+        "source_path": "alpha/main.tex",
+        "source_start": 149,
+        "title": "Alpha details"
+      },
+      "node_id": "section:7774659c4117a3b4fa2a814bd36ff857",
+      "subtype": "paper_section"
+    },
+    {
+      "attrs": {
+        "name": "Ada Alpha"
+      },
+      "node_id": "person:ada-alpha",
+      "subtype": "person"
+    },
+    {
+      "attrs": {
+        "name": "Ann One"
+      },
+      "node_id": "person:ann-one",
+      "subtype": "person"
+    },
+    {
+      "attrs": {
+        "name": "Ann Two"
+      },
+      "node_id": "person:ann-two",
+      "subtype": "person"
+    },
+    {
+      "attrs": {
+        "name": "Bea Beta"
+      },
+      "node_id": "person:bea-beta",
+      "subtype": "person"
+    },
+    {
+      "attrs": {
+        "name": "Rae Repeat"
+      },
+      "node_id": "person:rae-repeat",
+      "subtype": "person"
+    },
+    {
+      "attrs": {
+        "citation_label": "latex-fixture/alpha/figures/grouped.pdf",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "git_blob_sha": "c766cd4e7b8c2dba9bac05446d146ceb54a78001",
+        "is_dirty": false,
+        "is_text": false,
+        "label": "alpha/figures/grouped.pdf",
+        "language": null,
+        "last_modified_at": "2026-01-01T00:00:00+00:00",
+        "last_modified_commit_sha": "8092b3ad3d08dff087edfbf5456d3b9f27431468",
+        "path": "alpha/figures/grouped.pdf",
+        "repo": "latex-fixture",
+        "size_bytes": 32
+      },
+      "node_id": "file:latex-fixture:alpha/figures/grouped.pdf",
+      "subtype": "source_file"
+    },
+    {
+      "attrs": {
+        "citation_label": "latex-fixture/alpha/figures/plot.png",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "git_blob_sha": "26a8c68efad2a094e8fe6d850426b651d353c568",
+        "is_dirty": false,
+        "is_text": false,
+        "label": "alpha/figures/plot.png",
+        "language": null,
+        "last_modified_at": "2026-01-01T00:00:00+00:00",
+        "last_modified_commit_sha": "8092b3ad3d08dff087edfbf5456d3b9f27431468",
+        "path": "alpha/figures/plot.png",
+        "repo": "latex-fixture",
+        "size_bytes": 68
+      },
+      "node_id": "file:latex-fixture:alpha/figures/plot.png",
+      "subtype": "source_file"
+    },
+    {
+      "attrs": {
+        "citation_label": "latex-fixture/alpha/main.tex",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "git_blob_sha": "737beaae1cb6a5494c0c586a1fa9939fc358b8ea",
+        "is_dirty": false,
+        "is_text": true,
+        "label": "alpha/main.tex",
+        "language": "latex",
+        "last_modified_at": "2026-01-01T00:00:00+00:00",
+        "last_modified_commit_sha": "8092b3ad3d08dff087edfbf5456d3b9f27431468",
+        "path": "alpha/main.tex",
+        "repo": "latex-fixture",
+        "size_bytes": 297
+      },
+      "node_id": "file:latex-fixture:alpha/main.tex",
+      "subtype": "source_file"
+    },
+    {
+      "attrs": {
+        "citation_label": "latex-fixture/alpha/refs/references.bib",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "git_blob_sha": "c12836aadef922ed8d46e3202996d0a4441e2fac",
+        "is_dirty": false,
+        "is_text": true,
+        "label": "alpha/refs/references.bib",
+        "language": null,
+        "last_modified_at": "2026-01-01T00:00:00+00:00",
+        "last_modified_commit_sha": "8092b3ad3d08dff087edfbf5456d3b9f27431468",
+        "path": "alpha/refs/references.bib",
+        "repo": "latex-fixture",
+        "size_bytes": 69
+      },
+      "node_id": "file:latex-fixture:alpha/refs/references.bib",
+      "subtype": "source_file"
+    },
+    {
+      "attrs": {
+        "citation_label": "latex-fixture/beta/figures/plot.pdf",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "git_blob_sha": "d539c81352c2501d4dc8e8ab834fd4afd33d3710",
+        "is_dirty": false,
+        "is_text": false,
+        "label": "beta/figures/plot.pdf",
+        "language": null,
+        "last_modified_at": "2026-01-01T00:00:00+00:00",
+        "last_modified_commit_sha": "8092b3ad3d08dff087edfbf5456d3b9f27431468",
+        "path": "beta/figures/plot.pdf",
+        "repo": "latex-fixture",
+        "size_bytes": 33
+      },
+      "node_id": "file:latex-fixture:beta/figures/plot.pdf",
+      "subtype": "source_file"
+    },
+    {
+      "attrs": {
+        "citation_label": "latex-fixture/beta/local.cls",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "git_blob_sha": "d954d50aab9222c37a6cbcdcfa77c5d6f3a75b15",
+        "is_dirty": false,
+        "is_text": true,
+        "label": "beta/local.cls",
+        "language": null,
+        "last_modified_at": "2026-01-01T00:00:00+00:00",
+        "last_modified_commit_sha": "8092b3ad3d08dff087edfbf5456d3b9f27431468",
+        "path": "beta/local.cls",
+        "repo": "latex-fixture",
+        "size_bytes": 19
+      },
+      "node_id": "file:latex-fixture:beta/local.cls",
+      "subtype": "source_file"
+    },
+    {
+      "attrs": {
+        "citation_label": "latex-fixture/beta/main.tex",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "git_blob_sha": "f77ad68aa5e5d4da410fc60f233a08b5c3f1959d",
+        "is_dirty": false,
+        "is_text": true,
+        "label": "beta/main.tex",
+        "language": "latex",
+        "last_modified_at": "2026-01-01T00:00:00+00:00",
+        "last_modified_commit_sha": "8092b3ad3d08dff087edfbf5456d3b9f27431468",
+        "path": "beta/main.tex",
+        "repo": "latex-fixture",
+        "size_bytes": 288
+      },
+      "node_id": "file:latex-fixture:beta/main.tex",
+      "subtype": "source_file"
+    },
+    {
+      "attrs": {
+        "citation_label": "latex-fixture/beta/refs/ambiguous.bib",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "git_blob_sha": "553a036a0b152d753cad85173ab55341dde93393",
+        "is_dirty": false,
+        "is_text": true,
+        "label": "beta/refs/ambiguous.bib",
+        "language": null,
+        "last_modified_at": "2026-01-01T00:00:00+00:00",
+        "last_modified_commit_sha": "8092b3ad3d08dff087edfbf5456d3b9f27431468",
+        "path": "beta/refs/ambiguous.bib",
+        "repo": "latex-fixture",
+        "size_bytes": 71
+      },
+      "node_id": "file:latex-fixture:beta/refs/ambiguous.bib",
+      "subtype": "source_file"
+    },
+    {
+      "attrs": {
+        "citation_label": "latex-fixture/beta/refs/references.bib",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "git_blob_sha": "8cc243f2794009971a0fc3f457c83db9c8fa4b2d",
+        "is_dirty": false,
+        "is_text": true,
+        "label": "beta/refs/references.bib",
+        "language": null,
+        "last_modified_at": "2026-01-01T00:00:00+00:00",
+        "last_modified_commit_sha": "8092b3ad3d08dff087edfbf5456d3b9f27431468",
+        "path": "beta/refs/references.bib",
+        "repo": "latex-fixture",
+        "size_bytes": 209
+      },
+      "node_id": "file:latex-fixture:beta/refs/references.bib",
+      "subtype": "source_file"
+    },
+    {
+      "attrs": {
+        "citation_label": "latex-fixture/beta/sections/body.tex",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "git_blob_sha": "82ff5994aa0948eb632a9fee2b9c90f4498482d9",
+        "is_dirty": false,
+        "is_text": true,
+        "label": "beta/sections/body.tex",
+        "language": "latex",
+        "last_modified_at": "2026-01-01T00:00:00+00:00",
+        "last_modified_commit_sha": "8092b3ad3d08dff087edfbf5456d3b9f27431468",
+        "path": "beta/sections/body.tex",
+        "repo": "latex-fixture",
+        "size_bytes": 164
+      },
+      "node_id": "file:latex-fixture:beta/sections/body.tex",
+      "subtype": "source_file"
+    },
+    {
+      "attrs": {
+        "byte_count": 33,
+        "content_sha256": "200e305acf4164a3de54e5b3b9a0042990363d768c58c6c85c97a6ed3750c409",
+        "mime_type": "application/pdf",
+        "page_number": 1,
+        "parent_document_ref": "doc:latex-fixture:beta/figures/plot.pdf",
+        "path": "beta/figures/plot.pdf",
+        "render_dpi": 100,
+        "source_file_ref": "file:latex-fixture:beta/figures/plot.pdf",
+        "source_kind": "standalone_pdf",
+        "visual_id": "visual:200e305acf4164a3"
+      },
+      "node_id": "visual:200e305acf4164a3",
+      "subtype": "visual_artifact"
+    },
+    {
+      "attrs": {
+        "byte_count": 68,
+        "content_sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+        "height": 1,
+        "mime_type": "image/png",
+        "parent_document_ref": "doc:latex-fixture:alpha/figures/plot.png",
+        "path": "alpha/figures/plot.png",
+        "source_file_ref": "file:latex-fixture:alpha/figures/plot.png",
+        "source_kind": "standalone_image",
+        "visual_id": "visual:431ced6916a2a21a",
+        "width": 1
+      },
+      "node_id": "visual:431ced6916a2a21a",
+      "subtype": "visual_artifact"
+    },
+    {
+      "attrs": {
+        "byte_count": 32,
+        "content_sha256": "f0636c7a6b1ea5c7cb6e618f1902dec85c14bf9af58729f7116a5202d9812de4",
+        "mime_type": "application/pdf",
+        "page_number": 1,
+        "parent_document_ref": "doc:latex-fixture:alpha/figures/grouped.pdf",
+        "path": "alpha/figures/grouped.pdf",
+        "render_dpi": 100,
+        "source_file_ref": "file:latex-fixture:alpha/figures/grouped.pdf",
+        "source_kind": "standalone_pdf",
+        "visual_id": "visual:f0636c7a6b1ea5c7"
+      },
+      "node_id": "visual:f0636c7a6b1ea5c7",
+      "subtype": "visual_artifact"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "latex_citation_ambiguous",
+      "key_start": 109,
+      "normalized_key": "ambiguous",
+      "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a",
+      "source_path": "beta/sections/body.tex"
+    },
+    {
+      "code": "latex_citation_unresolved",
+      "key_start": 135,
+      "normalized_key": "missingKey",
+      "project_id": "paper:latex:b723d94c90efef5054644f972ff8408a",
+      "source_path": "beta/sections/body.tex"
+    },
+    {
+      "code": "latex_dependency_cycle",
+      "detail": "",
+      "literal": "../main",
+      "source_path": "beta/sections/body.tex",
+      "start": 154
+    },
+    {
+      "code": "latex_dependency_escape",
+      "detail": "",
+      "literal": "../escape",
+      "source_path": "beta/main.tex",
+      "start": 226
+    },
+    {
+      "code": "latex_dependency_missing",
+      "detail": "",
+      "literal": "missing",
+      "source_path": "beta/main.tex",
+      "start": 210
+    }
+  ]
+}

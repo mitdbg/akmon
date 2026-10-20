@@ -1,0 +1,148 @@
+# One source: the cluster's own metadata.
+#
+# `reference_catalog` is the right profile because a cluster's index set is
+# an authoritative, slowly-changing catalog read in full scope. That also
+# means absence from a completed scope retracts, which is why the adapter
+# raises on an unreadable cluster rather than returning an empty scope --
+# one network timeout must not delete the cluster from the graph.
+#
+# Services are DECLARED here, not discovered. OpenSearch has no idea which
+# process wrote to an index. A declared index the cluster does not have is
+# refused by name at ingest.
+sources:
+  opensearch-catalog:
+    module: okg.substrate.library.sources.opensearch_catalog
+    class: OpenSearchCatalogSource
+    ownership_id: opensearch-reference.opensearch-catalog
+    params:
+      namespace: osref
+      # The reference container's own loopback address. `up.sh` binds the
+      # container here; change both together if you move the port.
+      base_url: http://127.0.0.1:9209
+      # Out of scope, declared rather than guessed. The dot prefix the
+      # source excludes by default is a convention the cluster does not
+      # enforce: the query-insights plugin in the pinned 2.19.1 image
+      # creates `top_queries-<date>-<n>` with no leading dot, and
+      # `index.hidden` does not separate plugin indices from operator
+      # ones either (.opensearch-observability and .plugins-ml-config are
+      # both NOT hidden). What is dropped is reported on the cluster node
+      # as excluded_index_count, so the graph never just loses an index.
+      index_exclude_globs:
+        - "top_queries-*"
+      services:
+        - service_id: okg-api
+          name: OKG API
+          indices:
+            - app-logs-2026.09
+            - audit-trail-2026.09
+        - service_id: okg-ingest
+          name: OKG Ingest
+          indices:
+            - ingest-events-2026.09
+            - audit-trail-2026.09
+    # What this source COULD write, declared rather than observed. Three
+    # node subtypes and two edge triples, all of them id-prefixed by the
+    # namespace above, so nothing this adapter emits can be mistaken for
+    # another source's work.
+    admission_policy:
+      producer_id: opensearch-reference.opensearch-catalog
+      producer_kind: source
+      # The cluster's own metadata API is the authority for what indices
+      # exist and what shape they have, so its answers are trusted as
+      # structure. Nothing here is user-supplied prose and no document
+      # content is read: index and field NAMES are the only external
+      # strings, and the bounded summary carries nothing else.
+      trust_label: external-source-trusted
+      admission_mode: fast_track
+      authority_scope:
+        source_family: opensearch_reference_cluster
+      allowed_record_kinds:
+        - node
+        - edge
+      output_signature:
+        nodes:
+          - subtype: search_cluster
+            id_prefix: "osref:search_cluster:"
+            clause_id: opensearch_reference.catalog.search_cluster
+          - subtype: search_index
+            id_prefix: "osref:search_index:"
+            clause_id: opensearch_reference.catalog.search_index
+          - subtype: service
+            id_prefix: "osref:service:"
+            clause_id: opensearch_reference.catalog.service
+        edges:
+          - src_subtype: search_cluster
+            edge_type: contains
+            dst_subtype: search_index
+            src_id_prefix: "osref:search_cluster:"
+            dst_id_prefix: "osref:search_index:"
+            clause_id: opensearch_reference.catalog.cluster_contains_index
+          - src_subtype: service
+            edge_type: logs_to
+            dst_subtype: search_index
+            src_id_prefix: "osref:service:"
+            dst_id_prefix: "osref:search_index:"
+            clause_id: opensearch_reference.catalog.service_logs_to_index
+      policy_clauses:
+        - id: opensearch_reference.catalog.search_cluster
+          effect: allow
+          record_kind: node
+          subtype: search_cluster
+        - id: opensearch_reference.catalog.search_index
+          effect: allow
+          record_kind: node
+          subtype: search_index
+        - id: opensearch_reference.catalog.service
+          effect: allow
+          record_kind: node
+          subtype: service
+        - id: opensearch_reference.catalog.cluster_contains_index
+          effect: allow
+          record_kind: edge
+          triple: [search_cluster, contains, search_index]
+        - id: opensearch_reference.catalog.service_logs_to_index
+          effect: allow
+          record_kind: edge
+          triple: [service, logs_to, search_index]
+      output_scope_summary:
+        nodes:
+          - search_cluster
+          - search_index
+          - service
+        edges:
+          - search_cluster contains search_index
+          - service logs_to search_index
+        scope: "Index metadata of one local OpenSearch cluster; never its documents"
+    source_class: reference_catalog
+    record_identity_kind: domain_key
+    record_identity_fields: [namespace, cluster_uuid, index_uuid]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      triggers: [manual, reconcile, poll]
+      # release_new, not scope_complete. scope_complete is the
+      # discovery_crawl vocabulary; the runner maps
+      # (profile, mode) onto a retraction-safety policy and
+      # (reference_catalog, scope_complete) has none, so an ingest that
+      # needed to retract failed at exactly that decision. A real ingest
+      # against the container found it -- a run with nothing to retract
+      # had passed.
+      default_event_mode: release_new
+      reconcile_mode: release_new
+      deletes_require_reconcile: true
+      cheap_probe: content_hash
+      poll:
+        # The adapter's own change probe decides. The cheapest thing this
+        # source can ask the cluster IS the metadata read, so the probe
+        # costs the same six requests a run does; what it saves is the
+        # apply, extraction and publish work when nothing moved.
+        probe: change_probe
+        # A cluster's index set changes on the order of days. The volatile
+        # figures -- document counts, store size, health -- are refreshed
+        # by the same poll but do not mint a revision, so a frequent poll
+        # would cost requests without producing graph history.
+        interval_seconds: 3600
+      scope:
+        accepts: []
+        unsupported_fallback: scope_complete

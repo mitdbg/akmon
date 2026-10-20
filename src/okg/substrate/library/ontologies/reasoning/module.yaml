@@ -1,0 +1,22 @@
+name: reasoning
+version: 1.0.0
+description: 'Reasoning core: Hypothesis, Observation, Principle, Evidence,
+  Refutation, Question, Connection, Insight. Gravitational center of the personal-OKG
+  composition; every Pattern A source feeds evidence into it and every Pattern
+  B consumer cites it.'
+provides:
+  subtypes_file: schema.yaml
+extends:
+  scholarly:
+    description: Paper produces Observation (rule slot deferred; extracting
+      structured observations from a paper abstract requires NLP or operator
+      curation — design TBD in a follow-up proposal).
+    cross_link_rules:
+    - cross_links/reasoning_to_scholarly.yaml
+  concepts:
+    description: Observation evidence_for Concept (frontmatter tag); Hypothesis
+      predicts_about Concept (frontmatter tag). Resolves via exact match on
+      Concept.name.
+    cross_link_rules:
+    - cross_links/observation_evidence_for_concept.yaml
+    - cross_links/hypothesis_predicts_about_concept.yaml

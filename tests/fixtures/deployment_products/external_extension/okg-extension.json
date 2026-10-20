@@ -1,0 +1,157 @@
+{
+  "schema_version": "okg.extension_package/v1",
+  "package": {
+    "name": "okg-wave3-external-fixture",
+    "version": "1.0.0"
+  },
+  "environment": {
+    "python_abi": "cpython-312",
+    "sdk_version": "1",
+    "dependency_lock": "requirements.lock",
+    "dependency_digest": "sha256:b31d42a819236050906d37966fc0e9bc7a704251c6cd3b99d43d657ce1a3b429"
+  },
+  "provenance": {
+    "source": "fixture://wave3/external-extension",
+    "revision": "wave3-v1",
+    "builder": "okg-test-fixture"
+  },
+  "sbom": {
+    "path": "sbom.json",
+    "digest": "sha256:5e11a16ff943d057f707ac3a9af243052b0b70841788d07a4d76fcdd58359c2c"
+  },
+  "execution_tier": "out-of-process",
+  "entries": [
+    {
+      "id": "fixture.connector",
+      "kind": "connector",
+      "target": "fixture_connector:connector",
+      "capabilities": ["provider.source.read"],
+      "requirements": {
+        "quantities": [
+          {"dimension": "cpu", "amount": 100, "unit": "millicore", "owner": "fixture.connector"},
+          {"dimension": "memory", "amount": 33554432, "unit": "byte", "owner": "fixture.connector"},
+          {"dimension": "concurrency", "amount": 1, "unit": "slot", "owner": "fixture.connector"},
+          {"dimension": "workers", "amount": 1, "unit": "worker", "owner": "fixture.connector"},
+          {"dimension": "storage", "amount": 1024, "unit": "byte", "owner": "fixture.connector"},
+          {"dimension": "network", "amount": 2048, "unit": "byte", "owner": "fixture.connector"},
+          {"dimension": "filesystem", "amount": 0, "unit": "byte", "owner": "fixture.connector"},
+          {"dimension": "model_spend", "amount": 0, "unit": "micro_usd", "owner": "fixture.connector"},
+          {"dimension": "connections", "amount": 1, "unit": "connection", "owner": "fixture.connector"},
+          {"dimension": "credentials", "amount": 1, "unit": "credential", "owner": "fixture.connector"}
+        ],
+        "capabilities": [{"name": "provider.source.read", "owner": "fixture.connector"}],
+        "provider_effects": [{"effect": "observe", "owner": "fixture.connector"}]
+      }
+    },
+    {
+      "id": "fixture.enricher",
+      "kind": "enricher",
+      "target": "fixture_enricher:enricher",
+      "capabilities": ["graph.output.propose"],
+      "requirements": {
+        "quantities": [
+          {"dimension": "cpu", "amount": 50, "unit": "millicore", "owner": "fixture.enricher"},
+          {"dimension": "memory", "amount": 16777216, "unit": "byte", "owner": "fixture.enricher"},
+          {"dimension": "concurrency", "amount": 1, "unit": "slot", "owner": "fixture.enricher"},
+          {"dimension": "workers", "amount": 0, "unit": "worker", "owner": "fixture.enricher"},
+          {"dimension": "storage", "amount": 0, "unit": "byte", "owner": "fixture.enricher"},
+          {"dimension": "network", "amount": 0, "unit": "byte", "owner": "fixture.enricher"},
+          {"dimension": "filesystem", "amount": 0, "unit": "byte", "owner": "fixture.enricher"},
+          {"dimension": "model_spend", "amount": 0, "unit": "micro_usd", "owner": "fixture.enricher"},
+          {"dimension": "connections", "amount": 0, "unit": "connection", "owner": "fixture.enricher"},
+          {"dimension": "credentials", "amount": 0, "unit": "credential", "owner": "fixture.enricher"}
+        ],
+        "capabilities": [{"name": "graph.output.propose", "owner": "fixture.enricher"}],
+        "provider_effects": [{"effect": "observe", "owner": "fixture.enricher"}]
+      }
+    },
+    {
+      "id": "fixture.tool",
+      "kind": "tool",
+      "target": "fixture_tool:tool",
+      "capabilities": ["provider.metadata.read"],
+      "requirements": {
+        "quantities": [
+          {"dimension": "cpu", "amount": 25, "unit": "millicore", "owner": "fixture.tool"},
+          {"dimension": "memory", "amount": 8388608, "unit": "byte", "owner": "fixture.tool"},
+          {"dimension": "concurrency", "amount": 1, "unit": "slot", "owner": "fixture.tool"},
+          {"dimension": "workers", "amount": 0, "unit": "worker", "owner": "fixture.tool"},
+          {"dimension": "storage", "amount": 0, "unit": "byte", "owner": "fixture.tool"},
+          {"dimension": "network", "amount": 512, "unit": "byte", "owner": "fixture.tool"},
+          {"dimension": "filesystem", "amount": 0, "unit": "byte", "owner": "fixture.tool"},
+          {"dimension": "model_spend", "amount": 1000, "unit": "micro_usd", "owner": "fixture.tool"},
+          {"dimension": "connections", "amount": 1, "unit": "connection", "owner": "fixture.tool"},
+          {"dimension": "credentials", "amount": 1, "unit": "credential", "owner": "fixture.tool"}
+        ],
+        "capabilities": [{"name": "provider.metadata.read", "owner": "fixture.tool"}],
+        "provider_effects": [{"effect": "observe", "owner": "fixture.tool"}]
+      }
+    },
+    {
+      "id": "fixture.network-probe",
+      "kind": "verifier",
+      "target": "fixture_network_probe:network_probe",
+      "capabilities": ["network"],
+      "requirements": {
+        "quantities": [
+          {"dimension": "cpu", "amount": 10, "unit": "millicore", "owner": "fixture.network-probe"},
+          {"dimension": "memory", "amount": 1048576, "unit": "byte", "owner": "fixture.network-probe"},
+          {"dimension": "concurrency", "amount": 1, "unit": "slot", "owner": "fixture.network-probe"},
+          {"dimension": "workers", "amount": 0, "unit": "worker", "owner": "fixture.network-probe"},
+          {"dimension": "storage", "amount": 0, "unit": "byte", "owner": "fixture.network-probe"},
+          {"dimension": "network", "amount": 1024, "unit": "byte", "owner": "fixture.network-probe"},
+          {"dimension": "filesystem", "amount": 0, "unit": "byte", "owner": "fixture.network-probe"},
+          {"dimension": "model_spend", "amount": 0, "unit": "micro_usd", "owner": "fixture.network-probe"},
+          {"dimension": "connections", "amount": 0, "unit": "connection", "owner": "fixture.network-probe"},
+          {"dimension": "credentials", "amount": 0, "unit": "credential", "owner": "fixture.network-probe"}
+        ],
+        "capabilities": [{"name": "network", "owner": "fixture.network-probe"}],
+        "provider_effects": [{"effect": "observe", "owner": "fixture.network-probe"}]
+      }
+    },
+    {
+      "id": "fixture.filesystem-probe",
+      "kind": "verifier",
+      "target": "fixture_filesystem_probe:filesystem_probe",
+      "capabilities": ["filesystem"],
+      "requirements": {
+        "quantities": [
+          {"dimension": "cpu", "amount": 10, "unit": "millicore", "owner": "fixture.filesystem-probe"},
+          {"dimension": "memory", "amount": 1048576, "unit": "byte", "owner": "fixture.filesystem-probe"},
+          {"dimension": "concurrency", "amount": 1, "unit": "slot", "owner": "fixture.filesystem-probe"},
+          {"dimension": "workers", "amount": 0, "unit": "worker", "owner": "fixture.filesystem-probe"},
+          {"dimension": "storage", "amount": 0, "unit": "byte", "owner": "fixture.filesystem-probe"},
+          {"dimension": "network", "amount": 0, "unit": "byte", "owner": "fixture.filesystem-probe"},
+          {"dimension": "filesystem", "amount": 1024, "unit": "byte", "owner": "fixture.filesystem-probe"},
+          {"dimension": "model_spend", "amount": 0, "unit": "micro_usd", "owner": "fixture.filesystem-probe"},
+          {"dimension": "connections", "amount": 0, "unit": "connection", "owner": "fixture.filesystem-probe"},
+          {"dimension": "credentials", "amount": 0, "unit": "credential", "owner": "fixture.filesystem-probe"}
+        ],
+        "capabilities": [{"name": "filesystem", "owner": "fixture.filesystem-probe"}],
+        "provider_effects": [{"effect": "observe", "owner": "fixture.filesystem-probe"}]
+      }
+    },
+    {
+      "id": "fixture.flaky",
+      "kind": "verifier",
+      "target": "fixture_flaky:flaky",
+      "capabilities": [],
+      "requirements": {
+        "quantities": [
+          {"dimension": "cpu", "amount": 10, "unit": "millicore", "owner": "fixture.flaky"},
+          {"dimension": "memory", "amount": 1048576, "unit": "byte", "owner": "fixture.flaky"},
+          {"dimension": "concurrency", "amount": 1, "unit": "slot", "owner": "fixture.flaky"},
+          {"dimension": "workers", "amount": 0, "unit": "worker", "owner": "fixture.flaky"},
+          {"dimension": "storage", "amount": 0, "unit": "byte", "owner": "fixture.flaky"},
+          {"dimension": "network", "amount": 0, "unit": "byte", "owner": "fixture.flaky"},
+          {"dimension": "filesystem", "amount": 0, "unit": "byte", "owner": "fixture.flaky"},
+          {"dimension": "model_spend", "amount": 0, "unit": "micro_usd", "owner": "fixture.flaky"},
+          {"dimension": "connections", "amount": 0, "unit": "connection", "owner": "fixture.flaky"},
+          {"dimension": "credentials", "amount": 0, "unit": "credential", "owner": "fixture.flaky"}
+        ],
+        "capabilities": [],
+        "provider_effects": [{"effect": "observe", "owner": "fixture.flaky"}]
+      }
+    }
+  ]
+}

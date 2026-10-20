@@ -1,0 +1,81 @@
+pact_version: 4
+target_pact_version: 4
+# Copy this directory to pact/changes/<your-change-id>/ and replace the
+# placeholders. Use docs/develop/ui/operator-contract.md for active view
+# ownership, docs/runbooks/agents/ui.md as the agent workflow, and
+# pact/ui-change-guide.md for PACT artifact conventions.
+change:
+  id: ui-change-example
+  title: "<one-line title: what UI capability does this change add/modify?>"
+  status: proposal
+  tier: 2
+  rationale: >-
+    <Why this UI change? What operator/user problem does it solve, and what
+    does it unlock? Keep the rationale in this PACT rather than a separate
+    proposal artifact.>
+  root_cause: >-
+    <What is missing or wrong in the current surface? Frame it as the UI gap —
+    a missing control, a state the console can't express, a flow that forces a
+    workaround.>
+  affected_areas:
+  - supervisor-console
+requirements:
+- id: req.ui.example
+  title: "<Component> renders and behaves per the pinned reference"
+  statement: >-
+    The <Component> matches the pinned reference in `ui/references/`, meets
+    the typed contract in `ui/spec.md`, and has static plus live browser proof.
+    Visual approval is reviewer-owned, not agent-owned.
+  evidence_policy:
+    # >=1 rendered-in-browser proof is REQUIRED (ui_interaction OR ui_visual):
+    # never ship a UI change without exercising it in a browser.
+    required_any:
+    - ui_interaction
+    - ui_visual
+    required:
+    - ui_quality_gate
+    - manual_visual
+tasks:
+- id: task.ui.design
+  title: "Reference and slice: land design.md + ui/references"
+  status: todo
+  verification: >-
+    `design.md` and `ui/references/` identify the route/component, reviewer,
+    viewport, what must match, what may intentionally differ, and the evidence
+    required by docs/runbooks/agents/ui.md. If this is a refinement pass,
+    `ui/feedback/` records keep/change/remove and one next-pass-focus axis. No
+    visual implementation starts before this is present.
+  requirements:
+  - req.ui.example
+- id: task.ui.contract
+  title: "Contract: land ui/spec.md and needed ui/ siblings"
+  status: todo
+  verification: >-
+    `ui/spec.md` (TS interface + token bindings + a11y checklist + 1-3
+    user-journey scenarios + anti-patterns) and only the needed `ui/` siblings
+    are complete; `okg pact gate post-edit <id>` is clean.
+  requirements:
+  - req.ui.example
+- id: task.ui.build-and-prove
+  title: "Build static, get approval, run UI gate, wire live, and attach evidence"
+  status: todo
+  verification: >-
+    Browser evidence exists for the static fixture and the live route; named
+    reviewer approval is recorded under `ui/approvals/`; the PACT-approved
+    single-app UI gate passes; `ui_interaction` or `ui_visual` plus
+    `ui_quality_gate` and `manual_visual` evidence is attached with
+    `okg pact evidence attach`; `okg pact gate task-done <id> <task>` passes.
+  requirements:
+  - req.ui.example
+dependencies:
+- from: task.ui.design
+  to: task.ui.contract
+  kind: blocks
+- from: task.ui.contract
+  to: task.ui.build-and-prove
+  kind: blocks
+test_plan: []
+formal: []
+waivers: []
+evidence: []
+edits: []

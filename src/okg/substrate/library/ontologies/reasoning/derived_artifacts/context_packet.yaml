@@ -1,0 +1,91 @@
+id: https://palimpzest.mit.edu/okg/modules/reasoning/derived_artifacts/context_packet
+name: context_packet
+title: "Engram-shaped Research Context Packet"
+description: |-
+  Engram/Glia-shaped Research Context Packet for an agentic
+  systems-research run. Renders typed graph state (design
+  principles, mechanisms, trade-offs, anti-patterns, evidence)
+  into the markdown contract documented in
+  Engram/docs/okg-context-packet.md.
+
+  Per `add-context-packet-derived-artifact` (Layer 3B of
+  `add-portable-memex-deployments`). Section queries use the
+  `okg.subtype_ancestors` closure (Layer 1A) so refinements from
+  any composed module (engram_runs, an external design-knowledge module, ...)
+  surface automatically without modifying this definition.
+
+inputs:
+  problem_name:
+    type: string
+    required: true
+    description: Engram problem id (cloudcast, vidur, llm_sql, ...).
+  domain:
+    type: enum
+    required: true
+    values:
+      - networking
+      - ml_systems
+      - databases
+      - distributed_systems
+      - other
+    description: |-
+      Coarse problem-class bucket. Drives `problem_class_summary`
+      and `experiment_advice` template helpers when no domain-
+      specific override exists.
+  topic_slugs:
+    type: list
+    item_type: string
+    required: true
+    description: |-
+      Concept / topic slugs to retrieve. Matched against the
+      `topic_slugs` attribute on DesignPrinciple, Mechanism,
+      TradeOff, AntiPattern, Evidence-refined nodes.
+  generation_id:
+    type: int
+    required: false
+    description: |-
+      Pin queries to this OKG generation. When omitted, the
+      MCP tool resolves to the deployment's latest published
+      generation.
+  evidence_budget:
+    type: int
+    default: 20
+    description: Maximum entries per section.
+  token_budget:
+    type: int
+    default: 4000
+    description: |-
+      Approximate output-markdown token cap. Estimator is the
+      deterministic 4-chars-per-token heuristic.
+
+queries:
+  - name: design_principles
+    sql: queries/design_principles.sql
+    ancestor: design_principle
+  - name: mechanisms
+    sql: queries/mechanisms.sql
+    ancestor: mechanism
+  - name: trade_offs
+    sql: queries/trade_offs.sql
+    ancestor: trade_off
+  - name: anti_patterns
+    sql: queries/anti_patterns.sql
+    ancestor: anti_pattern
+  - name: evidence
+    sql: queries/evidence.sql
+    ancestor: evidence
+
+output:
+  format: markdown
+  template: templates/context_packet.md.j2
+  media_type: text/markdown
+  artifact_type: okg/context-packet-v1
+  renderer_ref: okg.renderer.context_packet.v1
+
+helpers:
+  module: okg.substrate.library.ontologies.reasoning.derived_artifacts.context_packet
+  problem_class_summary: problem_class_summary
+  experiment_advice: experiment_advice
+  estimate_tokens: estimate_tokens
+  trim_to_token_budget: trim_to_token_budget
+  render_context_packet: render_context_packet

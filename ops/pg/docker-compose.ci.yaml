@@ -1,0 +1,34 @@
+# CI-only overrides for OpenStack self-hosted runners.
+#
+# OpenStack runner jobs build the Postgres image on self-hosted VMs. The default
+# Docker bridge DNS path has been flaky there, while host-level DNS is healthy.
+# Keep local-dev compose unchanged and use host networking only for the image
+# build step in CI.
+
+services:
+  db:
+    build:
+      context: .
+      network: host
+    labels:
+      okg.runner.owner: job
+      okg.runner.retention: ephemeral
+    # Password logins only (PACT ci-postgres-scram). Without --auth-*, initdb
+    # writes `trust` rules for the local socket and 127.0.0.1 that come before
+    # the image's own password rule, so any password -- or none -- logged in.
+    # Local development keeps docker-compose.yaml's value; this overlay
+    # replaces it only in CI. The base healthcheck, pg_isready, does not log in.
+    environment:
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8 --auth-local=scram-sha-256 --auth-host=scram-sha-256"
+
+volumes:
+  okg_pgdata:
+    labels:
+      okg.runner.owner: job
+      okg.runner.retention: ephemeral
+
+networks:
+  default:
+    labels:
+      okg.runner.owner: job
+      okg.runner.retention: ephemeral

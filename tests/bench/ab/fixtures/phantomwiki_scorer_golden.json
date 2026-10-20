@@ -1,0 +1,2722 @@
+[
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "",
+  "recall": 1.0,
+  "true": ""
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran",
+  "recall": 0.0,
+  "true": ""
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "Dino Beltran",
+  "recall": 1.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "dino beltran",
+  "recall": 1.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "  Dino Beltran  ",
+  "recall": 1.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "Dino Beltran,Shelli Beltran",
+  "recall": 1.0,
+  "true": "Shelli Beltran,Dino Beltran"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "Dino Beltran,Dino Beltran",
+  "recall": 1.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 0.5,
+  "pred": "Dino Beltran,",
+  "recall": 1.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": ",",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 1.0,
+  "pred": "Dino Beltran",
+  "recall": 0.5,
+  "true": "Dino Beltran,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.8,
+  "precision": 0.6666666666666666,
+  "pred": "Dino Beltran,Shelli Beltran,Vicki Hackworth",
+  "recall": 1.0,
+  "true": "Dino Beltran,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "The answer is Dino Beltran",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "3",
+  "recall": 1.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 1.0,
+  "pred": "3",
+  "recall": 0.5,
+  "true": "0,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran ,3",
+  "recall": 0.0,
+  "true": "Shelli Beltran,Williams Smock,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "Vicki Hackworth,Shelli Beltran,0",
+  "recall": 0.5,
+  "true": "0,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 1.0,
+  "pred": "0268-08-09",
+  "recall": 0.25,
+  "true": "3,Ophelia Beltran,Dino Beltran,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran",
+  "recall": 0.0,
+  "true": "0268-08-09,3,early years teacher,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 0.5,
+  "pred": "Shelli Beltran, Williams Smock",
+  "recall": 1.0,
+  "true": "Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.25,
+  "pred": "Shelli Beltran ,0268-08-09 ,3 ,Ophelia Beltran",
+  "recall": 1.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.75,
+  "precision": 0.75,
+  "pred": "0268-08-09,Dino Beltran,Ophelia Beltran,3",
+  "recall": 0.75,
+  "true": "Ophelia Beltran,Vicki Hackworth,Dino Beltran,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher, Alison Smock, 0",
+  "recall": 0.0,
+  "true": "Vicki Hackworth,Shelli Beltran,3,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 1.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.5,
+  "true": "3,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.25,
+  "pred": "Alison Smock, Williams Smock, 0, 3",
+  "recall": 0.3333333333333333,
+  "true": "Alison Smock,early years teacher,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "3,Ophelia Beltran",
+  "recall": 0.3333333333333333,
+  "true": "3,early years teacher,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran,  Shelli Beltran,  Dino Beltran,  Vicki Hackworth",
+  "recall": 0.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "Vicki Hackworth,early years teacher,0268-08-09,Ophelia Beltran",
+  "recall": 0.5,
+  "true": "Shelli Beltran,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "0,Shelli Beltran,Williams Smock,Vicki Hackworth",
+  "recall": 0.5,
+  "true": "Ophelia Beltran,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "Williams Smock, Alison Smock, Shelli Beltran",
+  "recall": 0.5,
+  "true": "0,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock,  Dino Beltran",
+  "recall": 0.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 0.6666666666666666,
+  "pred": "3,Shelli Beltran,0",
+  "recall": 0.6666666666666666,
+  "true": "3,Alison Smock,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran ,Alison Smock",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0268-08-09",
+  "recall": 0.0,
+  "true": "Shelli Beltran,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "Shelli Beltran,early years teacher,Ophelia Beltran",
+  "recall": 0.25,
+  "true": "Ophelia Beltran,0268-08-09,3,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran",
+  "recall": 0.0,
+  "true": "0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.25,
+  "precision": 0.25,
+  "pred": "0268-08-09 ,Vicki Hackworth ,Ophelia Beltran ,Alison Smock",
+  "recall": 0.25,
+  "true": "Alison Smock,early years teacher,0,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.3333333333333333,
+  "pred": "0,3,0268-08-09",
+  "recall": 0.3333333333333333,
+  "true": "Alison Smock,0,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran,Vicki Hackworth,0,early years teacher",
+  "recall": 0.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran",
+  "recall": 0.0,
+  "true": "Williams Smock,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.3333333333333333,
+  "pred": "3 ,Dino Beltran ,early years teacher",
+  "recall": 1.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher,  0268-08-09,  Vicki Hackworth,  0",
+  "recall": 0.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 0.5,
+  "pred": "early years teacher,Vicki Hackworth",
+  "recall": 1.0,
+  "true": "early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran ,0268-08-09 ,3",
+  "recall": 0.0,
+  "true": "Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.5,
+  "pred": "early years teacher,Alison Smock,0,Williams Smock",
+  "recall": 0.5,
+  "true": "Shelli Beltran,Williams Smock,early years teacher,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.0,
+  "true": "0,3,Vicki Hackworth,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,Dino Beltran,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.5,
+  "pred": "Dino Beltran,Williams Smock",
+  "recall": 0.25,
+  "true": "0268-08-09,Dino Beltran,Ophelia Beltran,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0268-08-09,Vicki Hackworth,Dino Beltran",
+  "recall": 0.0,
+  "true": "Williams Smock,Ophelia Beltran,3,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock",
+  "recall": 0.0,
+  "true": "0268-08-09,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "0 ,Alison Smock ,3",
+  "recall": 0.25,
+  "true": "Shelli Beltran,early years teacher,Alison Smock,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Williams Smock,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.25,
+  "pred": "Ophelia Beltran ,Williams Smock ,Alison Smock ,early years teacher",
+  "recall": 0.3333333333333333,
+  "true": "0268-08-09,Dino Beltran,early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran",
+  "recall": 0.0,
+  "true": "early years teacher,Shelli Beltran,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "early years teacher,0268-08-09",
+  "recall": 0.3333333333333333,
+  "true": "early years teacher,3,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "Williams Smock ,0268-08-09 ,Ophelia Beltran ,3",
+  "recall": 0.5,
+  "true": "Alison Smock,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.5,
+  "pred": "Alison Smock,  Ophelia Beltran",
+  "recall": 0.25,
+  "true": "Vicki Hackworth,Ophelia Beltran,Shelli Beltran,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0268-08-09,Vicki Hackworth",
+  "recall": 0.0,
+  "true": "0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 0.5,
+  "pred": "Shelli Beltran, Ophelia Beltran, 0268-08-09, early years teacher",
+  "recall": 1.0,
+  "true": "0268-08-09,early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.3333333333333333,
+  "pred": "3,  Vicki Hackworth,  Ophelia Beltran",
+  "recall": 1.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0",
+  "recall": 0.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 1.0,
+  "pred": "early years teacher",
+  "recall": 0.5,
+  "true": "early years teacher,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock, 0268-08-09, Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Dino Beltran,Shelli Beltran,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0268-08-09",
+  "recall": 0.0,
+  "true": "0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran",
+  "recall": 0.0,
+  "true": "Alison Smock,Ophelia Beltran,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0268-08-09, Williams Smock",
+  "recall": 0.0,
+  "true": "Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 1.0,
+  "pred": "0268-08-09",
+  "recall": 0.3333333333333333,
+  "true": "early years teacher,3,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.25,
+  "pred": "Alison Smock ,0268-08-09 ,Shelli Beltran ,Ophelia Beltran",
+  "recall": 0.3333333333333333,
+  "true": "Williams Smock,3,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "0268-08-09, 3",
+  "recall": 0.3333333333333333,
+  "true": "Alison Smock,Ophelia Beltran,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran ,Alison Smock ,Ophelia Beltran ,3",
+  "recall": 0.0,
+  "true": "Williams Smock,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0,  Williams Smock",
+  "recall": 0.0,
+  "true": "early years teacher,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 1.0,
+  "pred": "Williams Smock",
+  "recall": 0.3333333333333333,
+  "true": "Alison Smock,Williams Smock,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 1.0,
+  "pred": "Shelli Beltran",
+  "recall": 0.25,
+  "true": "Shelli Beltran,Alison Smock,0268-08-09,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 0.5,
+  "pred": "Ophelia Beltran ,Williams Smock",
+  "recall": 1.0,
+  "true": "Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3 ,Alison Smock ,0",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,Vicki Hackworth,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran,  Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Dino Beltran,Alison Smock,0,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran, Alison Smock, Vicki Hackworth, Shelli Beltran",
+  "recall": 0.0,
+  "true": "0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock,Dino Beltran,Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 1.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.5,
+  "true": "Alison Smock,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.25,
+  "pred": "0,3,Alison Smock,Williams Smock",
+  "recall": 1.0,
+  "true": "Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0",
+  "recall": 0.0,
+  "true": "Vicki Hackworth,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.25,
+  "pred": "Alison Smock,  Shelli Beltran,  Dino Beltran,  early years teacher",
+  "recall": 1.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran,Alison Smock",
+  "recall": 0.0,
+  "true": "Dino Beltran,Williams Smock,0268-08-09,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.5,
+  "pred": "0,  Shelli Beltran",
+  "recall": 0.5,
+  "true": "Ophelia Beltran,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.25,
+  "pred": "early years teacher ,Shelli Beltran ,0 ,Ophelia Beltran",
+  "recall": 1.0,
+  "true": "Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.5,
+  "pred": "Williams Smock,  Alison Smock,  Dino Beltran,  Ophelia Beltran",
+  "recall": 0.5,
+  "true": "Williams Smock,early years teacher,Alison Smock,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth,  early years teacher,  Shelli Beltran",
+  "recall": 0.0,
+  "true": "Williams Smock,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 1.0,
+  "pred": "0268-08-09",
+  "recall": 0.5,
+  "true": "0268-08-09,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "3,Dino Beltran,early years teacher,Vicki Hackworth",
+  "recall": 0.5,
+  "true": "0,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock,Vicki Hackworth",
+  "recall": 0.0,
+  "true": "0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "Dino Beltran ,Alison Smock ,3",
+  "recall": 0.5,
+  "true": "Alison Smock,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock, Vicki Hackworth, 0268-08-09, 0",
+  "recall": 0.0,
+  "true": "Williams Smock,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran,  early years teacher,  Dino Beltran,  0268-08-09",
+  "recall": 0.0,
+  "true": "3,Alison Smock,Vicki Hackworth,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "Dino Beltran,Alison Smock",
+  "recall": 0.3333333333333333,
+  "true": "Shelli Beltran,Dino Beltran,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "3, early years teacher, Shelli Beltran",
+  "recall": 0.25,
+  "true": "Alison Smock,0,Shelli Beltran,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran ,Williams Smock",
+  "recall": 0.0,
+  "true": "3,Vicki Hackworth,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.3333333333333333,
+  "pred": "0268-08-09 ,Shelli Beltran ,early years teacher",
+  "recall": 1.0,
+  "true": "early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran",
+  "recall": 0.0,
+  "true": "0,Ophelia Beltran,3,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "0268-08-09,  Williams Smock",
+  "recall": 0.3333333333333333,
+  "true": "Ophelia Beltran,Alison Smock,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "Williams Smock,3,0,Vicki Hackworth",
+  "recall": 0.5,
+  "true": "0268-08-09,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.25,
+  "precision": 0.25,
+  "pred": "3,  Vicki Hackworth,  Shelli Beltran,  Dino Beltran",
+  "recall": 0.25,
+  "true": "Williams Smock,3,Ophelia Beltran,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher, Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Shelli Beltran,0,Alison Smock,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.25,
+  "precision": 0.25,
+  "pred": "Ophelia Beltran ,Vicki Hackworth ,3 ,0",
+  "recall": 0.25,
+  "true": "0268-08-09,Shelli Beltran,0,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock,  Williams Smock",
+  "recall": 0.0,
+  "true": "Dino Beltran,Ophelia Beltran,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "Dino Beltran, Ophelia Beltran, Alison Smock, 3",
+  "recall": 0.5,
+  "true": "Ophelia Beltran,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "3,Dino Beltran,Shelli Beltran,Williams Smock",
+  "recall": 0.5,
+  "true": "Ophelia Beltran,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.3333333333333333,
+  "pred": "0268-08-09 ,early years teacher ,Dino Beltran",
+  "recall": 0.3333333333333333,
+  "true": "Shelli Beltran,0268-08-09,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.25,
+  "pred": "Vicki Hackworth ,3 ,Alison Smock ,Dino Beltran",
+  "recall": 0.3333333333333333,
+  "true": "Ophelia Beltran,0,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.3333333333333333,
+  "pred": "3,Vicki Hackworth,Williams Smock",
+  "recall": 0.3333333333333333,
+  "true": "3,Shelli Beltran,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.5,
+  "pred": "Ophelia Beltran,  Alison Smock",
+  "recall": 0.25,
+  "true": "early years teacher,0,Vicki Hackworth,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 0.5,
+  "pred": "Alison Smock,  0268-08-09",
+  "recall": 1.0,
+  "true": "Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "0268-08-09,  Williams Smock,  3",
+  "recall": 0.5,
+  "true": "3,early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran, Shelli Beltran, early years teacher",
+  "recall": 0.0,
+  "true": "Dino Beltran,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0,  Dino Beltran,  0268-08-09",
+  "recall": 0.0,
+  "true": "Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0,Williams Smock,Alison Smock",
+  "recall": 0.0,
+  "true": "0268-08-09,early years teacher,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0 ,3",
+  "recall": 0.0,
+  "true": "Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock, Dino Beltran, 0",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3",
+  "recall": 0.0,
+  "true": "early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "early years teacher ,Ophelia Beltran ,Alison Smock ,Shelli Beltran",
+  "recall": 0.5,
+  "true": "Dino Beltran,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 1.0,
+  "pred": "3",
+  "recall": 0.25,
+  "true": "Ophelia Beltran,0,3,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "0268-08-09, Vicki Hackworth, 0",
+  "recall": 0.25,
+  "true": "Ophelia Beltran,3,Vicki Hackworth,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0, Williams Smock, Dino Beltran",
+  "recall": 0.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3,  0268-08-09,  0",
+  "recall": 0.0,
+  "true": "Alison Smock,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5714285714285715,
+  "precision": 0.5,
+  "pred": "Vicki Hackworth,  Ophelia Beltran,  0268-08-09,  3",
+  "recall": 0.6666666666666666,
+  "true": "Vicki Hackworth,3,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "Alison Smock,0",
+  "recall": 0.3333333333333333,
+  "true": "0268-08-09,3,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock ,Dino Beltran",
+  "recall": 0.0,
+  "true": "Alison Smock,Vicki Hackworth,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0,  Alison Smock",
+  "recall": 0.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran,  0,  Ophelia Beltran",
+  "recall": 0.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth,  0268-08-09,  3",
+  "recall": 0.0,
+  "true": "early years teacher,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3",
+  "recall": 0.0,
+  "true": "0268-08-09,0,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.8571428571428571,
+  "precision": 1.0,
+  "pred": "0,  Dino Beltran,  3",
+  "recall": 0.75,
+  "true": "Dino Beltran,3,0,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth,  Alison Smock",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher, 0268-08-09, Ophelia Beltran, 0",
+  "recall": 0.0,
+  "true": "Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5714285714285715,
+  "precision": 0.6666666666666666,
+  "pred": "3,  Vicki Hackworth,  Williams Smock",
+  "recall": 0.5,
+  "true": "Williams Smock,Shelli Beltran,0,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran",
+  "recall": 0.0,
+  "true": "0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran ,Williams Smock",
+  "recall": 0.0,
+  "true": "0,0268-08-09,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3 ,Williams Smock",
+  "recall": 0.0,
+  "true": "Vicki Hackworth,Alison Smock,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock",
+  "recall": 0.0,
+  "true": "Shelli Beltran,Dino Beltran,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher, Alison Smock, Ophelia Beltran, Dino Beltran",
+  "recall": 0.0,
+  "true": "0,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "Alison Smock,  0268-08-09,  Vicki Hackworth",
+  "recall": 0.5,
+  "true": "Vicki Hackworth,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran, 3, 0",
+  "recall": 0.0,
+  "true": "0268-08-09,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0268-08-09",
+  "recall": 0.0,
+  "true": "Dino Beltran,Vicki Hackworth,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3 ,early years teacher ,Williams Smock",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 0.5,
+  "pred": "Ophelia Beltran,  Dino Beltran",
+  "recall": 1.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "0, 0268-08-09, 3",
+  "recall": 0.25,
+  "true": "3,Shelli Beltran,early years teacher,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.5,
+  "pred": "0268-08-09 ,Alison Smock",
+  "recall": 0.25,
+  "true": "Shelli Beltran,0268-08-09,Dino Beltran,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Alison Smock,Williams Smock,early years teacher,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "Alison Smock,Shelli Beltran,Dino Beltran",
+  "recall": 0.25,
+  "true": "Williams Smock,0,Vicki Hackworth,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock, 0",
+  "recall": 0.0,
+  "true": "Dino Beltran,early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "early years teacher, 0268-08-09, 0",
+  "recall": 0.25,
+  "true": "Shelli Beltran,Ophelia Beltran,Alison Smock,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 1.0,
+  "pred": "Alison Smock",
+  "recall": 0.25,
+  "true": "Vicki Hackworth,Alison Smock,Williams Smock,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock,early years teacher,Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Dino Beltran,0,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth ,Dino Beltran",
+  "recall": 0.0,
+  "true": "0"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "Alison Smock",
+  "recall": 1.0,
+  "true": "Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher, Williams Smock, 0268-08-09",
+  "recall": 0.0,
+  "true": "3,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.3333333333333333,
+  "pred": "early years teacher ,Ophelia Beltran ,Shelli Beltran",
+  "recall": 1.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "Alison Smock, Williams Smock",
+  "recall": 0.3333333333333333,
+  "true": "Vicki Hackworth,0268-08-09,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.3333333333333333,
+  "pred": "3 ,Dino Beltran ,Shelli Beltran",
+  "recall": 1.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5714285714285715,
+  "precision": 0.6666666666666666,
+  "pred": "Ophelia Beltran ,3 ,Williams Smock",
+  "recall": 0.5,
+  "true": "0268-08-09,early years teacher,3,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Shelli Beltran,0268-08-09,3,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.25,
+  "pred": "Ophelia Beltran ,0268-08-09 ,Alison Smock ,Shelli Beltran",
+  "recall": 1.0,
+  "true": "Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran,  Ophelia Beltran",
+  "recall": 0.0,
+  "true": "0,Dino Beltran,early years teacher,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock, 3, early years teacher",
+  "recall": 0.0,
+  "true": "0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.25,
+  "precision": 0.25,
+  "pred": "Dino Beltran,Ophelia Beltran,3,Shelli Beltran",
+  "recall": 0.25,
+  "true": "Alison Smock,early years teacher,Williams Smock,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.5,
+  "pred": "3,0268-08-09,Ophelia Beltran,Vicki Hackworth",
+  "recall": 0.5,
+  "true": "0268-08-09,early years teacher,Vicki Hackworth,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "Ophelia Beltran,  Alison Smock,  Shelli Beltran",
+  "recall": 0.5,
+  "true": "Alison Smock,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher,  Alison Smock",
+  "recall": 0.0,
+  "true": "0268-08-09,Ophelia Beltran,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran,  Shelli Beltran,  3",
+  "recall": 0.0,
+  "true": "early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock ,early years teacher",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock, early years teacher, Vicki Hackworth, 0268-08-09",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 1.0,
+  "pred": "Williams Smock",
+  "recall": 0.5,
+  "true": "Ophelia Beltran,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5714285714285715,
+  "precision": 0.5,
+  "pred": "Vicki Hackworth,  3,  0,  early years teacher",
+  "recall": 0.6666666666666666,
+  "true": "0,Dino Beltran,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0",
+  "recall": 0.0,
+  "true": "Williams Smock,Dino Beltran,early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock,Dino Beltran",
+  "recall": 0.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5714285714285715,
+  "precision": 0.5,
+  "pred": "Alison Smock ,3 ,Vicki Hackworth ,Shelli Beltran",
+  "recall": 0.6666666666666666,
+  "true": "Shelli Beltran,3,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "Dino Beltran,Alison Smock,Shelli Beltran,Williams Smock",
+  "recall": 0.5,
+  "true": "Shelli Beltran,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "Alison Smock, 0, 0268-08-09",
+  "recall": 0.25,
+  "true": "3,Vicki Hackworth,Williams Smock,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran,  0268-08-09,  Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,3,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.3333333333333333,
+  "pred": "Alison Smock, 3, Dino Beltran",
+  "recall": 0.3333333333333333,
+  "true": "Vicki Hackworth,Dino Beltran,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.3333333333333333,
+  "pred": "Williams Smock ,0268-08-09 ,early years teacher",
+  "recall": 0.3333333333333333,
+  "true": "3,0,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock ,Ophelia Beltran ,early years teacher ,Alison Smock",
+  "recall": 0.0,
+  "true": "Dino Beltran,Vicki Hackworth,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran, Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Vicki Hackworth,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3, early years teacher, Dino Beltran",
+  "recall": 0.0,
+  "true": "Vicki Hackworth,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock",
+  "recall": 0.0,
+  "true": "Vicki Hackworth,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "Dino Beltran ,Vicki Hackworth",
+  "recall": 0.3333333333333333,
+  "true": "early years teacher,Vicki Hackworth,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3,Alison Smock,early years teacher",
+  "recall": 0.0,
+  "true": "Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran ,Alison Smock",
+  "recall": 0.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "Alison Smock, Williams Smock, 0268-08-09, Ophelia Beltran",
+  "recall": 0.5,
+  "true": "Williams Smock,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher,Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Dino Beltran,Vicki Hackworth,3,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0",
+  "recall": 0.0,
+  "true": "Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock",
+  "recall": 0.0,
+  "true": "3,Ophelia Beltran,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher,0268-08-09",
+  "recall": 0.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "Vicki Hackworth,  Shelli Beltran,  early years teacher",
+  "recall": 0.25,
+  "true": "Alison Smock,3,Shelli Beltran,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "0,Vicki Hackworth",
+  "recall": 0.3333333333333333,
+  "true": "Williams Smock,Alison Smock,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 1.0,
+  "pred": "3",
+  "recall": 0.5,
+  "true": "3,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher",
+  "recall": 0.0,
+  "true": "0,Alison Smock,Dino Beltran,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 1.0,
+  "pred": "0268-08-09",
+  "recall": 0.25,
+  "true": "Vicki Hackworth,Ophelia Beltran,0268-08-09,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.5,
+  "pred": "Ophelia Beltran, 0268-08-09",
+  "recall": 0.25,
+  "true": "0268-08-09,Dino Beltran,0,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Shelli Beltran,0,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran,Vicki Hackworth,0",
+  "recall": 0.0,
+  "true": "Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.5,
+  "pred": "Shelli Beltran, 3",
+  "recall": 0.5,
+  "true": "3,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.25,
+  "pred": "early years teacher,3,Williams Smock,Ophelia Beltran",
+  "recall": 1.0,
+  "true": "early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher",
+  "recall": 0.0,
+  "true": "0268-08-09,Dino Beltran,Alison Smock,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3 ,Alison Smock",
+  "recall": 0.0,
+  "true": "0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 0.5,
+  "pred": "early years teacher,Williams Smock,Dino Beltran,0268-08-09",
+  "recall": 1.0,
+  "true": "early years teacher,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.25,
+  "pred": "0268-08-09,3,Dino Beltran,Williams Smock",
+  "recall": 0.3333333333333333,
+  "true": "Ophelia Beltran,Dino Beltran,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock",
+  "recall": 0.0,
+  "true": "early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 1.0,
+  "pred": "Alison Smock",
+  "recall": 0.3333333333333333,
+  "true": "0,0268-08-09,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.25,
+  "pred": "0268-08-09 ,Alison Smock ,3 ,Shelli Beltran",
+  "recall": 0.3333333333333333,
+  "true": "3,Vicki Hackworth,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.8,
+  "precision": 1.0,
+  "pred": "3,Shelli Beltran",
+  "recall": 0.6666666666666666,
+  "true": "Shelli Beltran,3,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.25,
+  "pred": "Shelli Beltran,  3,  0,  Ophelia Beltran",
+  "recall": 0.3333333333333333,
+  "true": "Ophelia Beltran,Dino Beltran,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran,3",
+  "recall": 0.0,
+  "true": "0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock",
+  "recall": 0.0,
+  "true": "Alison Smock,early years teacher,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5714285714285715,
+  "precision": 0.5,
+  "pred": "0268-08-09,  Williams Smock,  early years teacher,  Alison Smock",
+  "recall": 0.6666666666666666,
+  "true": "3,early years teacher,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "Shelli Beltran ,0268-08-09 ,Vicki Hackworth ,early years teacher",
+  "recall": 0.5,
+  "true": "Shelli Beltran,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.25,
+  "pred": "0268-08-09, Dino Beltran, 0, Shelli Beltran",
+  "recall": 1.0,
+  "true": "0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran,  0268-08-09",
+  "recall": 0.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock,  Ophelia Beltran",
+  "recall": 0.0,
+  "true": "early years teacher,3,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "Ophelia Beltran,  0268-08-09",
+  "recall": 0.3333333333333333,
+  "true": "Alison Smock,Williams Smock,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth, 0",
+  "recall": 0.0,
+  "true": "Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5714285714285715,
+  "precision": 0.6666666666666666,
+  "pred": "Ophelia Beltran, 0, 3",
+  "recall": 0.5,
+  "true": "Alison Smock,3,Ophelia Beltran,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0268-08-09,  early years teacher",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 1.0,
+  "pred": "Dino Beltran",
+  "recall": 0.5,
+  "true": "3,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran ,0 ,0268-08-09 ,Alison Smock",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran",
+  "recall": 0.0,
+  "true": "Dino Beltran,0268-08-09,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "0 ,Alison Smock ,0268-08-09",
+  "recall": 0.5,
+  "true": "0268-08-09,early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.3333333333333333,
+  "pred": "Dino Beltran, Vicki Hackworth, early years teacher",
+  "recall": 1.0,
+  "true": "Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher,  Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Dino Beltran,Williams Smock,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3,0268-08-09",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.3333333333333333,
+  "pred": "Ophelia Beltran ,3 ,0",
+  "recall": 0.3333333333333333,
+  "true": "Shelli Beltran,0,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran,0268-08-09",
+  "recall": 0.0,
+  "true": "0,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "Shelli Beltran ,3 ,early years teacher",
+  "recall": 0.25,
+  "true": "Alison Smock,3,Ophelia Beltran,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "Ophelia Beltran,early years teacher,3,Vicki Hackworth",
+  "recall": 0.5,
+  "true": "0268-08-09,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "Shelli Beltran,  Vicki Hackworth,  Williams Smock,  3",
+  "recall": 0.5,
+  "true": "0,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher",
+  "recall": 0.0,
+  "true": "Williams Smock,0268-08-09,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "Shelli Beltran,Dino Beltran,Alison Smock",
+  "recall": 0.5,
+  "true": "Alison Smock,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,Shelli Beltran,early years teacher,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.25,
+  "precision": 0.25,
+  "pred": "3, Dino Beltran, early years teacher, Ophelia Beltran",
+  "recall": 0.25,
+  "true": "Alison Smock,0,0268-08-09,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock",
+  "recall": 0.0,
+  "true": "Dino Beltran,3,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0 ,Alison Smock",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0",
+  "recall": 0.0,
+  "true": "early years teacher,Ophelia Beltran,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "Alison Smock, Vicki Hackworth, Dino Beltran, 0",
+  "recall": 0.5,
+  "true": "Vicki Hackworth,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock,  early years teacher",
+  "recall": 0.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.3333333333333333,
+  "pred": "0268-08-09, Williams Smock, Ophelia Beltran",
+  "recall": 0.3333333333333333,
+  "true": "Williams Smock,Vicki Hackworth,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3",
+  "recall": 0.0,
+  "true": "Alison Smock,Dino Beltran,Ophelia Beltran,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran",
+  "recall": 0.0,
+  "true": "Shelli Beltran,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran, Shelli Beltran",
+  "recall": 0.0,
+  "true": "3,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "Alison Smock,  Vicki Hackworth,  3",
+  "recall": 0.5,
+  "true": "Vicki Hackworth,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran, early years teacher",
+  "recall": 0.0,
+  "true": "Alison Smock,Dino Beltran,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0268-08-09",
+  "recall": 0.0,
+  "true": "early years teacher,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock,  Vicki Hackworth,  Dino Beltran",
+  "recall": 0.0,
+  "true": "0,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3",
+  "recall": 0.0,
+  "true": "Shelli Beltran,early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "3,Williams Smock,early years teacher",
+  "recall": 0.25,
+  "true": "early years teacher,0268-08-09,Alison Smock,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3",
+  "recall": 0.0,
+  "true": "0,0268-08-09,Shelli Beltran,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock,Williams Smock",
+  "recall": 0.0,
+  "true": "Dino Beltran,Ophelia Beltran,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher,  Shelli Beltran",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,3,Alison Smock,Dino Beltran"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "early years teacher",
+  "recall": 1.0,
+  "true": "early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran,  Vicki Hackworth,  Dino Beltran,  3",
+  "recall": 0.0,
+  "true": "0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0268-08-09, Vicki Hackworth, early years teacher",
+  "recall": 0.0,
+  "true": "3,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran,Vicki Hackworth,3,Alison Smock",
+  "recall": 0.0,
+  "true": "early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "early years teacher",
+  "recall": 0.0,
+  "true": "Alison Smock,3,Shelli Beltran,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0,  3,  Williams Smock",
+  "recall": 0.0,
+  "true": "0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "Ophelia Beltran, Shelli Beltran",
+  "recall": 0.3333333333333333,
+  "true": "early years teacher,Ophelia Beltran,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "3 ,Alison Smock ,early years teacher",
+  "recall": 0.5,
+  "true": "0268-08-09,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.3333333333333333,
+  "pred": "Ophelia Beltran,0268-08-09,Williams Smock",
+  "recall": 1.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0,Williams Smock,3,early years teacher",
+  "recall": 0.0,
+  "true": "0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.5,
+  "pred": "Ophelia Beltran ,Williams Smock",
+  "recall": 0.5,
+  "true": "Williams Smock,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran,Shelli Beltran",
+  "recall": 0.0,
+  "true": "Williams Smock,Alison Smock,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 1.0,
+  "pred": "Dino Beltran",
+  "recall": 0.3333333333333333,
+  "true": "Dino Beltran,Alison Smock,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock,  early years teacher,  Shelli Beltran",
+  "recall": 0.0,
+  "true": "Williams Smock,Ophelia Beltran,0268-08-09,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.25,
+  "pred": "Alison Smock,0268-08-09,Ophelia Beltran,3",
+  "recall": 1.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.5,
+  "pred": "3 ,0 ,Dino Beltran ,Alison Smock",
+  "recall": 0.5,
+  "true": "Shelli Beltran,Alison Smock,3,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 1.0,
+  "pred": "3",
+  "recall": 0.3333333333333333,
+  "true": "Dino Beltran,Ophelia Beltran,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 1.0,
+  "pred": "3",
+  "recall": 0.25,
+  "true": "Dino Beltran,Alison Smock,early years teacher,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran,  Ophelia Beltran,  Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran, Alison Smock",
+  "recall": 0.0,
+  "true": "0268-08-09,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.3333333333333333,
+  "pred": "0268-08-09,  early years teacher,  Williams Smock",
+  "recall": 1.0,
+  "true": "Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.25,
+  "pred": "Ophelia Beltran, Shelli Beltran, Dino Beltran, 0",
+  "recall": 0.5,
+  "true": "0,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.0,
+  "true": "0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran",
+  "recall": 0.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.28571428571428575,
+  "precision": 0.3333333333333333,
+  "pred": "Ophelia Beltran, early years teacher, 3",
+  "recall": 0.25,
+  "true": "early years teacher,Dino Beltran,0268-08-09,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.3333333333333333,
+  "precision": 0.3333333333333333,
+  "pred": "early years teacher ,0268-08-09 ,Williams Smock",
+  "recall": 0.3333333333333333,
+  "true": "Dino Beltran,Vicki Hackworth,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.25,
+  "pred": "Williams Smock,3,Ophelia Beltran,Shelli Beltran",
+  "recall": 1.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth",
+  "recall": 0.0,
+  "true": "0,0268-08-09,Williams Smock,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "Williams Smock, Ophelia Beltran, Dino Beltran",
+  "recall": 0.5,
+  "true": "Williams Smock,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,early years teacher,Alison Smock,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 1.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.5,
+  "true": "Ophelia Beltran,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.6666666666666666,
+  "precision": 0.5,
+  "pred": "0,  early years teacher",
+  "recall": 1.0,
+  "true": "0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.75,
+  "precision": 0.75,
+  "pred": "Alison Smock,  3,  0268-08-09,  Dino Beltran",
+  "recall": 0.75,
+  "true": "3,Alison Smock,Shelli Beltran,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0268-08-09,  Williams Smock,  Ophelia Beltran,  Alison Smock",
+  "recall": 0.0,
+  "true": "early years teacher,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "Dino Beltran ,0",
+  "recall": 0.3333333333333333,
+  "true": "early years teacher,3,Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock,  Shelli Beltran,  0",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,Williams Smock,early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 1.0,
+  "pred": "early years teacher",
+  "recall": 0.3333333333333333,
+  "true": "early years teacher,Vicki Hackworth,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran ,3",
+  "recall": 0.0,
+  "true": "Vicki Hackworth,0268-08-09,early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5714285714285715,
+  "precision": 0.5,
+  "pred": "0 ,0268-08-09 ,Alison Smock ,Dino Beltran",
+  "recall": 0.6666666666666666,
+  "true": "Dino Beltran,Shelli Beltran,0"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.25,
+  "pred": "0268-08-09,Vicki Hackworth,0,3",
+  "recall": 1.0,
+  "true": "Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock,Dino Beltran,0268-08-09",
+  "recall": 0.0,
+  "true": "3,Williams Smock,early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3 ,Vicki Hackworth ,Shelli Beltran",
+  "recall": 0.0,
+  "true": "0268-08-09,early years teacher"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "Alison Smock, 3",
+  "recall": 1.0,
+  "true": "3,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Alison Smock",
+  "recall": 0.0,
+  "true": "3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0 ,0268-08-09",
+  "recall": 0.0,
+  "true": "3,Shelli Beltran,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran ,Vicki Hackworth",
+  "recall": 0.0,
+  "true": "early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 0.5,
+  "pred": "Shelli Beltran, 3",
+  "recall": 0.5,
+  "true": "3,Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.5,
+  "pred": "early years teacher ,Williams Smock",
+  "recall": 0.3333333333333333,
+  "true": "Alison Smock,Dino Beltran,Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0",
+  "recall": 0.0,
+  "true": "0268-08-09,Vicki Hackworth,Dino Beltran,Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 1.0,
+  "pred": "Alison Smock",
+  "recall": 0.3333333333333333,
+  "true": "Vicki Hackworth,early years teacher,Alison Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5714285714285715,
+  "precision": 0.6666666666666666,
+  "pred": "Shelli Beltran,  3,  Ophelia Beltran",
+  "recall": 0.5,
+  "true": "Williams Smock,Ophelia Beltran,early years teacher,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "3, Dino Beltran, 0268-08-09, Alison Smock",
+  "recall": 0.0,
+  "true": "early years teacher"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.4,
+  "precision": 0.3333333333333333,
+  "pred": "0268-08-09, Vicki Hackworth, Alison Smock",
+  "recall": 0.5,
+  "true": "Williams Smock,0268-08-09"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0",
+  "recall": 0.0,
+  "true": "Shelli Beltran,Vicki Hackworth,Alison Smock,3"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "0268-08-09, Alison Smock, Williams Smock",
+  "recall": 0.0,
+  "true": "Ophelia Beltran,Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.5,
+  "precision": 1.0,
+  "pred": "Williams Smock",
+  "recall": 0.3333333333333333,
+  "true": "Ophelia Beltran,Williams Smock,early years teacher"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "Dino Beltran",
+  "recall": 1.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran",
+  "recall": 0.0,
+  "true": "Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran",
+  "recall": 0.0,
+  "true": "Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran",
+  "recall": 0.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Dino Beltran",
+  "recall": 0.0,
+  "true": "Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "Shelli Beltran",
+  "recall": 1.0,
+  "true": "Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran",
+  "recall": 0.0,
+  "true": "Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran",
+  "recall": 0.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Shelli Beltran",
+  "recall": 0.0,
+  "true": "Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Shelli Beltran"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "Vicki Hackworth",
+  "recall": 1.0,
+  "true": "Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Vicki Hackworth",
+  "recall": 0.0,
+  "true": "Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Vicki Hackworth"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "Ophelia Beltran",
+  "recall": 1.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Ophelia Beltran",
+  "recall": 0.0,
+  "true": "Williams Smock"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock",
+  "recall": 0.0,
+  "true": "Dino Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock",
+  "recall": 0.0,
+  "true": "Shelli Beltran"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock",
+  "recall": 0.0,
+  "true": "Vicki Hackworth"
+ },
+ {
+  "exact_match": false,
+  "f1": 0.0,
+  "precision": 0.0,
+  "pred": "Williams Smock",
+  "recall": 0.0,
+  "true": "Ophelia Beltran"
+ },
+ {
+  "exact_match": true,
+  "f1": 1.0,
+  "precision": 1.0,
+  "pred": "Williams Smock",
+  "recall": 1.0,
+  "true": "Williams Smock"
+ }
+]

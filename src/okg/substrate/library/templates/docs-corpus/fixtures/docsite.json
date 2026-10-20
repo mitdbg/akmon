@@ -1,0 +1,12 @@
+{
+  "nodes": [
+    {"node_id": "docs:intro", "subtype": "document",
+     "attrs": {"path": "/intro", "text": "Introduction to OKG."}},
+    {"node_id": "docs:architecture", "subtype": "document",
+     "attrs": {"path": "/architecture", "text": "High-level architecture."}}
+  ],
+  "edges": [
+    {"src": "docs:intro", "dst": "docs:architecture",
+     "edge_type": "links_to"}
+  ]
+}

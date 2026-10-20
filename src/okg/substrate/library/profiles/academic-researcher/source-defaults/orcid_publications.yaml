@@ -1,0 +1,29 @@
+# orcid_publications — the day-1 academic-researcher publication win.
+# Reads the operator's public ORCID record (no auth) and projects
+# their works as Paper nodes, their employment block as Organization
+# + affiliated_with edges, and the PI as a Person node. Each Paper
+# records a `field_route` provenance hint (inspire-hep / dblp /
+# openalex) for a downstream co-author enrichment pass.
+#
+# Distinct from `dblp_by_orcid` (which resolves a DBLP author record
+# from the same ORCID): this source reads ORCID's own works +
+# employments API directly, so it is the only source that emits the
+# PI's institutional `affiliated_with` edges. Both key off the single
+# `${orcid}` install answer; the identity layer merges the papers.
+
+orcid_publications:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.academic_researcher.orcid_publications
+  class: OrcidPublicationsSource
+  ownership_id: ${deployment_name}.orcid_publications
+  source_class: mutable_api
+  record_identity_kind: remote_id
+  record_identity_fields: [put_code]
+  source_revision_kind: version_token
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    # The PI's ORCID (NNNN-NNNN-NNNN-NNNN). Empty == not configured;
+    # the source soft-skips (zero facts, no error) when blank, and
+    # raises loudly if a configured ORCID's public API call fails.
+    orcid: ${orcid}

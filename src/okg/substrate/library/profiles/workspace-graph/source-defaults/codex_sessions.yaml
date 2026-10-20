@@ -1,0 +1,39 @@
+codex_sessions:
+  module: okg.substrate.library.sources.codex_sessions
+  class: CodexSessionsSource
+  ownership_id: ${deployment_name}.codex_sessions
+  predecessor_source: ${deployment_name}.git_files
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [repo, node_id]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    repo: ${deployment_name}
+    repo_root: ${repo_root}
+    codex_sessions_root: ${codex_sessions_root}
+    archived_sessions_root: ${codex_archived_sessions_root}
+    cwd_filter:
+      - ${repo_root}
+    since: ${since}
+    capture_tool_use_events:
+      - exec_command
+      - apply_patch
+      - query
+      - inspect
+      - search
+      - expand
+      - filter
+      - map
+      - aggregate
+  # `okg runtime worker` checks this source every poll.interval_seconds and
+  # re-reads it only when its change probe reports a change. Without the
+  # worker, nothing here runs; `okg ingest` still refreshes on demand.
+  sync:
+    triggers: [poll, manual, reconcile]
+    default_event_mode: scope_complete
+    reconcile_mode: scope_complete
+    poll:
+      probe: change_probe
+      interval_seconds: 300

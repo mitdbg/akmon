@@ -1,0 +1,6 @@
+name: repo_starter
+version: 1.0.0
+description: 'Minimal repo subtype starter: repo, branch, commit, pull_request.
+  For deployments that want a forge-shaped graph without GitHub/GitLab specifics.'
+provides:
+  subtypes_file: schema.yaml

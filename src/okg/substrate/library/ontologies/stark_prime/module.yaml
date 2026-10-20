@@ -1,0 +1,5 @@
+name: stark_prime
+version: 1.0.0
+description: STaRK-Prime PrimeKG-derived biomedical retrieval graph (entities only; the QA table is never ingested).
+provides:
+  subtypes_file: schema.yaml

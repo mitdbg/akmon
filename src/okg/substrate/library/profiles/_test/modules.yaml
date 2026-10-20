@@ -1,0 +1,6 @@
+# Two minimal in-tree modules. Both have no sources / no enrichers
+# so a fresh deployment scaffolds cleanly with zero external
+# dependencies.
+modules:
+  - reasoning
+  - bookkeeping

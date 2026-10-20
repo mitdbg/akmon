@@ -1,0 +1,41 @@
+name: agent_memory
+version: 1.0.0
+description: Evidence-aware agent claims, observations, experiments, decisions,
+  verification results.
+provides:
+  subtypes_file: schema.yaml
+extends:
+  bookkeeping:
+    description: Agent-memory records may explicitly reference bookkeeping Project nodes through project_ref.
+    cross_link_rules:
+    - cross_links/agent_memory_to_bookkeeping.yaml
+  agent_sessions:
+    description: Agent-memory records may explicitly reference agent sessions through
+      session_ref, and the producing agent through actor_ref.
+    cross_link_rules:
+    - cross_links/agent_memory_to_agent_sessions.yaml
+  person:
+    description: Agent-memory records may explicitly reference the person that produced
+      them through actor_ref.
+    cross_link_rules:
+    - cross_links/agent_memory_to_person.yaml
+  git_graph:
+    description: Agent-memory records may explicitly reference source files and commits through code_refs/reference_refs.
+    cross_link_rules:
+    - cross_links/agent_memory_to_git_graph.yaml
+  code_graph:
+    description: Agent-memory records may explicitly reference code graph entities through code_refs/artifact_refs/reference_refs.
+    cross_link_rules:
+    - cross_links/agent_memory_to_code_graph.yaml
+  ci:
+    description: Agent-memory records may explicitly reference and use test evidence from CI/test subtypes.
+    cross_link_rules:
+    - cross_links/agent_memory_to_ci.yaml
+  openspec:
+    description: Agent-memory records may explicitly reference OpenSpec changes, tasks, and acceptance criteria.
+    cross_link_rules:
+    - cross_links/agent_memory_to_openspec.yaml
+  extraction:
+    description: Agent-memory records may explicitly reference extracted documents, chunks, and mentions.
+    cross_link_rules:
+    - cross_links/agent_memory_to_extraction.yaml

@@ -1,0 +1,17 @@
+{
+  "name": "okg-reference-node",
+  "cluster_name": "okg-reference",
+  "cluster_uuid": "IX9AxNMSQde5Lf5GaS5RSA",
+  "version": {
+    "distribution": "opensearch",
+    "number": "2.19.1",
+    "build_type": "tar",
+    "build_hash": "2e4741fb45d1b150aaeeadf66d41445b23ff5982",
+    "build_date": "2025-02-27T01:22:24.665339607Z",
+    "build_snapshot": false,
+    "lucene_version": "9.12.1",
+    "minimum_wire_compatibility_version": "7.10.0",
+    "minimum_index_compatibility_version": "7.0.0"
+  },
+  "tagline": "The OpenSearch Project: https://opensearch.org/"
+}

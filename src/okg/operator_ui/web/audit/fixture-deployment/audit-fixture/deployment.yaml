@@ -1,0 +1,17 @@
+# Deterministic seeded FIXTURE deployment for the operator-ui audit gate.
+#
+# NOT a real deployment: it exists only so the viz backend's deployment-dir
+# resolver (boot.py _find_deployment_dir) has a directory + manifest to load when
+# the audit runs against a seeded fixture DB. Point the harness at it with
+# OKG_DEPLOYMENTS_DIR=<this dir's parent> and OKG_DSN=<the seeded fixture DB>.
+#
+# No `viz:` block -> the backend uses the built-in default viz config. The
+# empty schema is the deployment's checked-in catalog authority; the data comes
+# from seed_fixture.py, which publishes a chronos generation directly.
+name: audit-fixture
+description: Deterministic seeded fixture for the operator-ui audit gate.
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+release:
+  channel: dev

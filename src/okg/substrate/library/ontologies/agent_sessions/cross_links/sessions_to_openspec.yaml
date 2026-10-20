@@ -1,0 +1,242 @@
+# Cross-link rules: agent_sessions → openspec.
+#
+# Per `declarative-cross-source-linker` (2026-04-26): a
+# session that has an `affects` edge to a `source_file` whose
+# `path` lives under `openspec/changes/<slug>/` (including
+# `archive/<slug>/`) gets a bidirectional `references` edge
+# to the matching `open_spec_change`. Covers both
+# `agent_session` and `sub_agent_session`. Replaces the
+# hand-rolled SessionChangeLinker.
+#
+# The tree may sit at any depth: OpenSpec puts it at `<repo>/openspec/`,
+# and a repository may keep it elsewhere (okg moved its own to
+# `history/openspec/`, PACT layout-history-openspec). The match is anchored
+# at the start (`re.match`), so the optional `.*/` prefix admits a nested tree
+# while still requiring a whole `openspec` path segment.
+rules:
+  - id: session_edits_file_under_change_dir
+    src:
+      subtype: [agent_session, sub_agent_session]
+      via_edge:
+        edge_type: affects
+        dst_subtype: source_file
+    dst:
+      subtype: open_spec_change
+      field: change_id
+      derive_from_path:
+        attr: path
+        regex: '^(?:.*/)?openspec/changes/(?:archive/)?([a-zA-Z0-9_-]+)/'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  - id: session_edits_file_under_pact_change_dir
+    src:
+      subtype: [agent_session, sub_agent_session]
+      via_edge:
+        edge_type: affects
+        dst_subtype: source_file
+    dst:
+      subtype: pact_change
+      field: change_id
+      derive_from_path:
+        attr: path
+        regex: '^pact/changes/(?:archive/)?([a-zA-Z0-9_-]+)/'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  # Per the original feedback's B7 (2026-04-27): the
+  # `session_edits_file_under_change_dir` rule above only
+  # catches sessions that *edit* files under
+  # `openspec/changes/<slug>/`. Sessions that touch a change
+  # via the `openspec` CLI (`openspec validate <slug>`,
+  # `openspec show <slug>`, `openspec archive <slug>`) bypass
+  # that rule because they don't edit a file. After
+  # `add-tool-use-event-capture` (2026-04-27) shipped per-call
+  # detail, the missing edges are now derivable from
+  # `tool_use_event.command`. This rule extracts the slug from
+  # the Bash command and matches against the change's
+  # `change_id`. PACT commands are kept in parallel rules so
+  # PACT and OpenSpec workflow analysis can use target subtypes.
+  - id: tool_use_event_runs_openspec_command_for_change
+    src:
+      subtype: tool_use_event
+      field: command
+    dst:
+      subtype: open_spec_change
+      field: change_id
+      derive_from_path:
+        # `derive_from_path` uses re.match (anchored at start), so
+        # the leading `.*` accepts both bare `openspec validate
+        # <slug>` and wrapper forms (`uv run openspec ...`,
+        # `/path/to/openspec ...`). The `\b` after `openspec`
+        # ensures we don't match `openspec-foo`.
+        attr: command
+        regex: '.*\bopenspec\s+(?:validate|show|archive|diff|apply)\s+([a-zA-Z0-9_-]+)\b'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  - id: tool_use_event_runs_pact_command_for_change
+    src:
+      subtype: tool_use_event
+      field: command
+    dst:
+      subtype: pact_change
+      field: change_id
+      derive_from_path:
+        attr: command
+        regex: '.*\bokg(?:\s+--json|\s+--root\s+\S+)*\s+pact(?:\s+--json|\s+--root\s+\S+)*\s+(?:validate|show|status|next|explain|render|check-view|normalize|advance|evidence\s+ingest|task\s+(?:done|block|add)|attach-evidence|require(?:-test)?|dep\s+add|loop\s+record|edit\s+(?:plan|apply)|review\s+approve)(?:\s+--json|\s+--format\s+\S+|\s+--pytest-report\s+\S+|\s+--formal-report\s+\S+|\s+--graph-report\s+\S+|\s+--evidence\s+\S+)*\s+([a-zA-Z0-9_-]+)\b'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  # Per dogfood-canary follow-up gap #3 (2026-05-18): the rule above
+  # links tool_use_events to changes, but the enclosing
+  # agent_session/sub_agent_session doesn't inherit the link. This
+  # rule walks via_edge `session -contains-> tool_use_event` and
+  # re-emits the regex match at the session level so the dashboard
+  # query `which sessions touched change X?` answers correctly for
+  # the recent (CLI-driven) work pattern.
+  - id: session_runs_openspec_command_for_change_via_tool_use
+    src:
+      subtype: [agent_session, sub_agent_session]
+      via_edge:
+        edge_type: contains
+        dst_subtype: tool_use_event
+    dst:
+      subtype: open_spec_change
+      field: change_id
+      derive_from_path:
+        attr: command
+        regex: '.*\bopenspec\s+(?:validate|show|archive|diff|apply)\s+([a-zA-Z0-9_-]+)\b'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  - id: session_runs_pact_command_for_change_via_tool_use
+    src:
+      subtype: [agent_session, sub_agent_session]
+      via_edge:
+        edge_type: contains
+        dst_subtype: tool_use_event
+    dst:
+      subtype: pact_change
+      field: change_id
+      derive_from_path:
+        attr: command
+        regex: '.*\bokg(?:\s+--json|\s+--root\s+\S+)*\s+pact(?:\s+--json|\s+--root\s+\S+)*\s+(?:validate|show|status|next|explain|render|check-view|normalize|advance|evidence\s+ingest|task\s+(?:done|block|add)|attach-evidence|require(?:-test)?|dep\s+add|loop\s+record|edit\s+(?:plan|apply)|review\s+approve)(?:\s+--json|\s+--format\s+\S+|\s+--pytest-report\s+\S+|\s+--formal-report\s+\S+|\s+--graph-report\s+\S+|\s+--evidence\s+\S+)*\s+([a-zA-Z0-9_-]+)\b'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  - id: agent_message_mentions_openspec_change_dir
+    src:
+      subtype: agent_message
+      field: content_excerpt
+    dst:
+      subtype: open_spec_change
+      field: change_id
+      derive_from_path:
+        attr: content_excerpt
+        regex: '.*\bopenspec/changes/(?:archive/)?([a-zA-Z0-9_-]+)\b'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  - id: agent_message_mentions_pact_change_dir
+    src:
+      subtype: agent_message
+      field: content_excerpt
+    dst:
+      subtype: pact_change
+      field: change_id
+      derive_from_path:
+        attr: content_excerpt
+        regex: '.*\bpact/changes/(?:archive/)?([a-zA-Z0-9_-]+)\b'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  - id: agent_message_runs_openspec_command_for_change
+    src:
+      subtype: agent_message
+      field: content_excerpt
+    dst:
+      subtype: open_spec_change
+      field: change_id
+      derive_from_path:
+        attr: content_excerpt
+        regex: '.*\bopenspec\s+(?:validate|show|archive|diff|apply)\s+([a-zA-Z0-9_-]+)\b'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  - id: agent_message_runs_pact_command_for_change
+    src:
+      subtype: agent_message
+      field: content_excerpt
+    dst:
+      subtype: pact_change
+      field: change_id
+      derive_from_path:
+        attr: content_excerpt
+        regex: '.*\bokg(?:\s+--json|\s+--root\s+\S+)*\s+pact(?:\s+--json|\s+--root\s+\S+)*\s+(?:validate|show|status|next|explain|render|check-view|normalize|advance|evidence\s+ingest|task\s+(?:done|block|add)|attach-evidence|require(?:-test)?|dep\s+add|loop\s+record|edit\s+(?:plan|apply)|review\s+approve)(?:\s+--json|\s+--format\s+\S+|\s+--pytest-report\s+\S+|\s+--formal-report\s+\S+|\s+--graph-report\s+\S+|\s+--evidence\s+\S+)*\s+([a-zA-Z0-9_-]+)\b'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  - id: agent_message_runs_openspec_command_for_change_via_tool_use
+    src:
+      subtype: agent_message
+      via_edge:
+        edge_type: contains
+        dst_subtype: tool_use_event
+    dst:
+      subtype: open_spec_change
+      field: change_id
+      derive_from_path:
+        attr: command
+        regex: '.*\bopenspec\s+(?:validate|show|archive|diff|apply)\s+([a-zA-Z0-9_-]+)\b'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  - id: agent_message_runs_pact_command_for_change_via_tool_use
+    src:
+      subtype: agent_message
+      via_edge:
+        edge_type: contains
+        dst_subtype: tool_use_event
+    dst:
+      subtype: pact_change
+      field: change_id
+      derive_from_path:
+        attr: command
+        regex: '.*\bokg(?:\s+--json|\s+--root\s+\S+)*\s+pact(?:\s+--json|\s+--root\s+\S+)*\s+(?:validate|show|status|next|explain|render|check-view|normalize|advance|evidence\s+ingest|task\s+(?:done|block|add)|attach-evidence|require(?:-test)?|dep\s+add|loop\s+record|edit\s+(?:plan|apply)|review\s+approve)(?:\s+--json|\s+--format\s+\S+|\s+--pytest-report\s+\S+|\s+--formal-report\s+\S+|\s+--graph-report\s+\S+|\s+--evidence\s+\S+)*\s+([a-zA-Z0-9_-]+)\b'
+        capture_field: change_id
+    matcher: derive_from_path
+    edge: references
+    bidirectional: true
+
+  # Note (2026-05-19): sub_agent_session nodes don't carry their
+  # own tool_use_events — those are owned by the parent
+  # agent_session. The DeclarativeLinker's `via_edge` is
+  # single-hop, so we can't derive `sub_agent_session -references->
+  # change` via a two-hop path. Filed as a follow-up: either (a)
+  # add a multi-hop `via_path` matcher to DeclarativeLinker, or
+  # (b) have the agent_memory source emit `references` edges for
+  # sub-agents at ingest by copying the parent's tool_use_event
+  # mentions. Out of scope for this session.

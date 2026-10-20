@@ -1,0 +1,5 @@
+name: literature
+version: 1.0.0
+description: Scientific-literature paper abstracts from frozen corpora.
+provides:
+  subtypes_file: schema.yaml

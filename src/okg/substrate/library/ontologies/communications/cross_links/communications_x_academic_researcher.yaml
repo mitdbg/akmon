@@ -1,0 +1,74 @@
+# communications ↔ academic_researcher cross-link rules.
+#
+# Emails / ChatMessages can be ABOUT Advisees, Grants, etc.
+# Mapping is operator-driven (Gmail labels like `Lab/Alice`)
+# or LLM-extracted from the body. EmailThread similarly
+# carries thread_about edges so a sustained conversation
+# about a Grant aggregates correctly.
+
+rules:
+  - id: email_about_advisee
+    src:
+      subtype: email
+      field: email_id
+    dst:
+      subtype: advisee
+      field: person_id
+    matcher: exact
+    edge: mentions
+    bidirectional: false
+
+  - id: email_about_grant
+    src:
+      subtype: email
+      field: email_id
+    dst:
+      subtype: grant
+      field: grant_id
+    matcher: exact
+    edge: mentions
+    bidirectional: false
+
+  - id: email_thread_about_advisee
+    src:
+      subtype: email_thread
+      field: thread_id
+    dst:
+      subtype: advisee
+      field: person_id
+    matcher: exact
+    edge: thread_about
+    bidirectional: false
+
+  - id: email_thread_about_grant
+    src:
+      subtype: email_thread
+      field: thread_id
+    dst:
+      subtype: grant
+      field: grant_id
+    matcher: exact
+    edge: thread_about
+    bidirectional: false
+
+  - id: chat_message_about_advisee
+    src:
+      subtype: chat_message
+      field: message_id
+    dst:
+      subtype: advisee
+      field: person_id
+    matcher: exact
+    edge: mentions
+    bidirectional: false
+
+  - id: chat_message_about_grant
+    src:
+      subtype: chat_message
+      field: message_id
+    dst:
+      subtype: grant
+      field: grant_id
+    matcher: exact
+    edge: mentions
+    bidirectional: false

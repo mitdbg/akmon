@@ -1,0 +1,168 @@
+{
+  "generated_by": "tests/substrate/chat/test_deep_links.py",
+  "grammar_authority": "src/okg/operator_ui/web/src/operator-ui/app/HomeApp.tsx (consoleHashFor)",
+  "operator_ui_base": "https://okg.example.org/operator/",
+  "entries": [
+    {
+      "name": "node-plain",
+      "input": {
+        "kind": "node",
+        "id": "node-42",
+        "generation": null,
+        "producer_key": null
+      },
+      "expect": {
+        "refusal": "no-console-view"
+      },
+      "url": null,
+      "rendered": "node-42"
+    },
+    {
+      "name": "node-pinned-generation",
+      "input": {
+        "kind": "node",
+        "id": "node-42",
+        "generation": "gen-9",
+        "producer_key": null
+      },
+      "expect": {
+        "refusal": "no-console-view"
+      },
+      "url": null,
+      "rendered": "node-42"
+    },
+    {
+      "name": "node-with-separators",
+      "input": {
+        "kind": "node",
+        "id": "git://example-org/example-repo:src/okg/substrate/chat/deep_links.py",
+        "generation": "gen:2026-08-03T00:00:00Z/17",
+        "producer_key": null
+      },
+      "expect": {
+        "refusal": "no-console-view"
+      },
+      "url": null,
+      "rendered": "git://example-org/example-repo:src/okg/substrate/chat/deep_links.py"
+    },
+    {
+      "name": "node-unicode-and-spaces",
+      "input": {
+        "kind": "node",
+        "id": "mix: /a&b?c#d é",
+        "generation": null,
+        "producer_key": null
+      },
+      "expect": {
+        "refusal": "no-console-view"
+      },
+      "url": null,
+      "rendered": "mix: /a&b?c#d é"
+    },
+    {
+      "name": "agent-session",
+      "input": {
+        "kind": "agent_session",
+        "id": "sess-7",
+        "generation": null,
+        "producer_key": null
+      },
+      "expect": {
+        "refusal": "no-console-view"
+      },
+      "url": null,
+      "rendered": "sess-7"
+    },
+    {
+      "name": "producer-run",
+      "input": {
+        "kind": "producer_run",
+        "id": "run-2026-08-03-014",
+        "generation": null,
+        "producer_key": "git.commits"
+      },
+      "expect": {
+        "refusal": "no-console-view"
+      },
+      "url": null,
+      "rendered": "run-2026-08-03-014"
+    },
+    {
+      "name": "mcp-trace",
+      "input": {
+        "kind": "mcp_trace",
+        "id": "trc-abc123",
+        "generation": null,
+        "producer_key": null
+      },
+      "expect": {
+        "refusal": "no-console-view"
+      },
+      "url": null,
+      "rendered": "trc-abc123"
+    }
+  ],
+  "subtype_cases": [
+    {
+      "name": "live-mcp-subtype-node",
+      "subtype": "verification_step",
+      "id": "pact-verification:docs-site-organization:evidence:ev.manual.req-docs-site-plain-language.20260619T062145040475Z",
+      "url": null,
+      "rendered": "pact-verification:docs-site-organization:evidence:ev.manual.req-docs-site-plain-language.20260619T062145040475Z",
+      "expect": {
+        "refusal": "no-console-view"
+      }
+    },
+    {
+      "name": "unknown-subtype",
+      "subtype": "future_kind",
+      "id": "session:future",
+      "url": null,
+      "rendered": "session:future",
+      "expect": {
+        "refusal": "unknown-subtype"
+      }
+    },
+    {
+      "name": "intentionally-unroutable-subtype",
+      "subtype": "chat_message",
+      "id": "chat-message:1",
+      "url": null,
+      "rendered": "chat-message:1",
+      "expect": {
+        "refusal": "unroutable-subtype"
+      }
+    },
+    {
+      "name": "missing-node-id",
+      "subtype": "source_file",
+      "id": "source_file",
+      "url": null,
+      "rendered": "source_file",
+      "expect": {
+        "refusal": "malformed-row"
+      }
+    },
+    {
+      "name": "edge-shaped-row",
+      "subtype": null,
+      "id": "edge:1",
+      "url": null,
+      "rendered": "edge:1",
+      "expect": {
+        "refusal": "malformed-row"
+      }
+    }
+  ],
+  "retired_hashes": [
+    "#home",
+    "#health?producer=git.commits",
+    "#graph?mode=instances&focus=node-42",
+    "#graph?mode=instances&focus=node-42&generation=gen-9",
+    "#trace?session=sess-7",
+    "#trace?mode=producers&producer=git.commits&run=run-2026-08-03-014",
+    "#trace?mode=producers&trace=trc-abc123",
+    "#performance",
+    "#deployment"
+  ]
+}

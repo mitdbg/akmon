@@ -1,0 +1,23 @@
+# apple_calendar_local — macOS Calendar sqlite reader.
+# Non-macOS hosts: degrades to zero rows + skip metric.
+
+apple_calendar_local:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.apple_calendar_local
+  class: AppleCalendarLocalSource
+  ownership_id: ${deployment_name}.apple_calendar_local
+  source_class: mutable_api
+  record_identity_kind: remote_id
+  record_identity_fields: [uid]
+  source_revision_kind: version_token
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params: {}
+
+  # Untrusted-origin content: held on the quarantine branch until an
+  # operator approves it via `okg admission decide` (PACT
+  # make-admission-review-load-bearing).
+  admission_policy:
+    trust_label: untrusted
+    admission_mode: review
+    output_scope_summary: "calendar invites are attacker-deliverable; titles/bodies are third-party-authored"

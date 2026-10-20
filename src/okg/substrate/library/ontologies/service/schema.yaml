@@ -1,0 +1,68 @@
+id: https://palimpzest.mit.edu/okg/modules/service
+name: service
+title: "Service — runnable services + endpoints + environments"
+description: |-
+  Long-running services or daemons, the addressable
+  surfaces they expose, and the deployment environments
+  they live in. Promoted from the legacy
+  `okg.ontology.service` fragment (per
+  `unify-ontology-systems`, 2026-04-26).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  svc: https://palimpzest.mit.edu/okg/modules/service/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Service:
+    description: A named long-running service or daemon.
+    class_uri: svc:Service
+    attributes:
+      service_id:
+        required: true
+      name:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: name
+  Endpoint:
+    description: An addressable surface exposed by a service (URL, port).
+    class_uri: svc:Endpoint
+    attributes:
+      endpoint_id:
+        required: true
+      url:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Environment:
+    description: A deployment environment (prod, staging, dev).
+    class_uri: svc:Environment
+    attributes:
+      environment_id:
+        required: true
+      name:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  EdgeNarrowings:
+    description: Intra-module narrowings for service.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      service_exposes_endpoint:
+        annotations:
+          edge_archetype: exposes
+          src_subtypes: Service
+          dst_subtypes: Endpoint
+      service_deployed_in_environment:
+        annotations:
+          edge_archetype: deployed_in
+          src_subtypes: Service
+          dst_subtypes: Environment
+      service_depends_on_service:
+        annotations:
+          edge_archetype: depends_on
+          src_subtypes: Service
+          dst_subtypes: Service

@@ -1,0 +1,10 @@
+# communications intra-module cross-link rules.
+#
+# Intra narrowings (EmailThread contains Email; ChatChannel
+# contains ChatMessage; ChatMessage replies_to ChatMessage)
+# live in schema.yaml's EdgeNarrowings block. This file is
+# a placeholder for future declarative resolver rules and
+# reserves the file path referenced from module.yaml's
+# `provides.intra_cross_link_rules`.
+
+rules: []

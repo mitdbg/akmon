@@ -1,0 +1,82 @@
+# DevOps template — services, repos, tickets, incidents.
+#
+# Per `unify-ontology-systems` (2026-04-26): templates use
+# the canonical `modules:` shape (matching okg-workspace).
+# Each name resolves to
+# `okg.substrate.library.ontologies/<name>/schema.yaml`.
+# `okg init --template devops` writes the deployment name below
+# (`--deployment-name`, or the template name when it is not given).
+name: "{{ deployment_name }}"
+postgres:
+  dsn: ${OKG_DSN}
+# Every command that loads a deployment requires both keys. schemas/ holds
+# deployment-local schema files; the starter ships none, so the directory
+# holds only a .gitkeep and the ontology comes from `modules:` below.
+schema_dir: schemas
+source_registry: source_registry.yaml
+modules:
+  - service
+  - repo_starter
+  - ticket
+  - incident
+  - person
+
+# Nomos privacy posture (issue #2757). Without it `okg ingest` refuses every
+# source before reading a record: the source audit needs a deployment posture
+# and a source policy for each source class this template uses (mutable_api
+# for jira and github).
+#
+# Class: org_operational_private, not the personal_okg class the
+# codebase-index starter uses. Jira tickets, incidents and GitHub pull
+# requests are a team's operational records, not one person's files. The
+# posture is the one an internal team deployment uses to read the same
+# kinds of source under this class, plus read access for mcp_client as in the
+# codebase-index starter; export_policy is no_export, the strictest value the
+# class allows.
+#
+# Both sources are meant to read the bundled JSON snapshots under fixtures/,
+# with no credential. The ingest runner still checks the live-call boundary
+# (`source.live_call`) for every mutable_api reader, so the policy sets
+# live_call_allowed: true with the review obligation that
+# live_call_default: review asks for; with false, an `enforce` deployment
+# would refuse both sources. Pointing a source at a live Jira or GitHub also
+# needs a credential reference: set credential_ref_policy and provenance:
+# remote_api then.
+#
+# Runtime enforcement is `off`: a fresh install leaves Nomos runtime checks
+# off when the deployment declares no access rules (issue #3414, Jason
+# 2026-10-05 `nomosdefault A`). The posture and source policies below still
+# apply in every mode: `okg ingest` audits each source against them. Audit
+# and enforce are opt-in. `audit` records every runtime decision without
+# blocking; `enforce` refuses denied effects and needs a policy bundle, which
+# `okg up`, `okg provision`, `okg deployment nomos-rollout-audit
+# --apply-baseline` and `okg init`'s first publish seed in either mode.
+# Readiness for the ci, dogfood and production profiles requires `enforce`
+# (`nomos.runtime.mode_not_blocking`).
+nomos:
+  runtime_enforcement: "off"
+  deployment_posture:
+    deployment_class: org_operational_private
+    read_principals: [human_operator, agent, okg_service, mcp_client]
+    write_principals: [human_operator, okg_service, source_adapter]
+    mcp_write_default: review
+    export_policy: no_export
+    secret_handling: secret_ref_required
+    live_call_default: review
+    allowed_source_sensitivities: [local_private, private]
+    allowed_data_classifications: [private]
+    allowed_exportability: [no_export]
+    privacy_obligations: [audit, no_export]
+    readiness_profiles: [org-private]
+  source_policy_defaults:
+    by_source_class:
+      mutable_api:
+        store_raw: true
+        sensitivity: private
+        data_classification: private
+        credential_ref_policy: none
+        live_call_allowed: true
+        exportability: no_export
+        retention: source_defined
+        provenance: local_filesystem
+        privacy_obligations: [audit, no_export, review]

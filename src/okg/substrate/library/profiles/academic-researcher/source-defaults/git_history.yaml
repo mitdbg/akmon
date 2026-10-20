@@ -1,0 +1,17 @@
+# Git commit history for an explicitly chosen project repo. Disabled
+# at install so setup approval is the first repo-ingest boundary.
+git_history:
+  predecessor_source: git_files
+  enabled_by_default: false
+  module: okg.substrate.library.sources.git_graph_history
+  class: GitHistorySource
+  ownership_id: ${deployment_name}.git_history
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [repo, commit_sha]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    repo: ${deployment_name}
+    repo_root: ${git_repos}

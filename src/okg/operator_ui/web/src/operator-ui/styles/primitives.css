@@ -1,0 +1,6124 @@
+/* ===========================================================================
+ * Motion layer. The console re-fires between themes with a short colour
+ * crossfade (the "firing" made literal) instead of a hard cut, hover/active
+ * states ease, and menus pop in. All of it is off under prefers-reduced-motion.
+ * =========================================================================== */
+@media (prefers-reduced-motion: no-preference) {
+  body,
+  .okg-shell,
+  .okg-shell__rail,
+  .okg-shell__nav-link,
+  .okg-shell__nav-glyph,
+  .okg-shell__brand-mark,
+  .okg-top-status,
+  .okg-panel,
+  .okg-fact,
+  .okg-fact__bar-seg,
+  .okg-row,
+  .okg-badge,
+  .okg-status-dot,
+  .okg-read-link,
+  .okg-read-link__target,
+  .okg-theme-toggle,
+  .okg-theme-menu__item,
+  .okg-top-status__refresh,
+  .okg-failure,
+  .okg-empty,
+  input,
+  select,
+  textarea,
+  button {
+    transition:
+      background-color var(--okg-motion-medium) ease,
+      border-color var(--okg-motion-medium) ease,
+      color var(--okg-motion-medium) ease,
+      fill var(--okg-motion-medium) ease,
+      box-shadow var(--okg-motion-fast) ease;
+  }
+
+  /* Menus ease in on mount, growing from the edge they are anchored to — the
+     component stamps `data-placement` when it positions the portaled menu. */
+  .okg-theme-menu {
+    animation: okg-pop-in var(--okg-motion-fast) ease both;
+    transform-origin: top right;
+  }
+
+  .okg-theme-menu[data-placement="above"] {
+    transform-origin: bottom left;
+  }
+}
+
+@keyframes okg-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Honour the OS setting: kill motion, and the theme swap is instant. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.okg-shell {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: var(--okg-layout-rail) minmax(0, 1fr);
+  background: var(--okg-color-bg);
+}
+
+.okg-shell[data-rail-collapsed="true"] {
+  grid-template-columns: 3.75rem minmax(0, 1fr);
+}
+
+.okg-shell__rail {
+  display: flex;
+  flex-direction: column;
+  /* Pin the rail to the viewport so the foot-of-rail picker stays reachable when
+     the content column scrolls (otherwise the bottom-anchored picker drops below
+     the fold on tall pages / short viewports). */
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--okg-color-rail);
+  color: var(--okg-color-rail-text);
+  padding: var(--okg-space-4) var(--okg-space-3);
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-shell__rail {
+  padding-inline: var(--okg-space-2);
+}
+
+/* The firing picker lives at the foot of the rail, pushed down below the nav. */
+.okg-shell__rail-footer {
+  margin-top: auto;
+  padding-top: var(--okg-space-4);
+  border-top: 0.0625rem solid var(--okg-color-rail-border);
+}
+
+.okg-shell__rail-footer .okg-theme-picker {
+  display: block;
+}
+
+/* Chat-site link: shell chrome pointing at a SIBLING surface, deliberately
+   not one of the five view tabs. Read as different from a nav item — dashed
+   border, no active state, an outbound caret, smaller ink — so nobody mistakes
+   it for a sixth console view. */
+.okg-shell__external-link {
+  display: flex;
+  align-items: center;
+  min-height: 1.875rem;
+  gap: var(--okg-space-2);
+  margin-bottom: var(--okg-space-2);
+  padding: var(--okg-space-1) var(--okg-space-3);
+  color: var(--okg-color-rail-muted);
+  text-decoration: none;
+  border: 0.0625rem dashed var(--okg-color-rail-border);
+  border-radius: var(--okg-radius-md);
+  font-size: var(--okg-text-sm);
+  font-weight: var(--okg-weight-medium);
+}
+
+.okg-shell__external-link:hover,
+.okg-shell__external-link:focus-visible {
+  background: var(--okg-color-rail-hover);
+  border-color: var(--okg-color-rail-muted);
+  color: var(--okg-color-rail-text);
+  outline: none;
+}
+
+.okg-shell__external-link:focus-visible {
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-shell__external-glyph {
+  display: inline-flex;
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+}
+
+.okg-shell__external-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+
+.okg-shell__external-out {
+  margin-left: auto;
+  opacity: 0.75;
+}
+
+/* An undeclared chat site is STATED, never papered over with a guessed
+   host. Muted, non-interactive, same footprint as the link it replaces. */
+.okg-shell__external-note {
+  margin: 0 0 var(--okg-space-2);
+  padding: var(--okg-space-1) var(--okg-space-3);
+  color: var(--okg-color-rail-muted);
+  font-size: var(--okg-text-xs);
+  line-height: 1.35;
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-shell__external-link {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-shell__external-label,
+.okg-shell[data-rail-collapsed="true"] .okg-shell__external-out,
+.okg-shell[data-rail-collapsed="true"] .okg-shell__external-note {
+  display: none;
+}
+
+.okg-shell__rail-footer .okg-theme-toggle {
+  width: 100%;
+  justify-content: flex-start;
+  background: transparent;
+  color: var(--okg-color-rail-text);
+  border-color: var(--okg-color-rail-border);
+}
+
+.okg-shell__rail-footer .okg-theme-toggle:hover {
+  background: var(--okg-color-rail-hover);
+  border-color: var(--okg-color-rail-muted);
+}
+
+.okg-shell__rail-footer .okg-theme-toggle__caret {
+  margin-left: auto;
+  color: var(--okg-color-rail-muted);
+}
+
+/* At the foot of the rail the menu opens UPWARD, left-aligned. That used to be
+   a descendant rule here; the menu is now portaled to <body> and cannot be
+   selected through its old ancestors, so the component decides the placement
+   (no room below the trigger -> above it) and stamps `data-placement`. The
+   geometry is unchanged — see `.okg-theme-menu[data-placement]` below. */
+
+.okg-shell__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  margin-bottom: var(--okg-space-6);
+  font-size: var(--okg-text-lg);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-shell__rail-toggle {
+  display: inline-grid;
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-left: auto;
+  place-items: center;
+  padding: 0;
+  border: 0.0625rem solid var(--okg-color-rail-border);
+  border-radius: var(--okg-radius-md);
+  background: transparent;
+  color: var(--okg-color-rail-text);
+  font-size: var(--okg-text-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.okg-shell__rail-toggle:hover,
+.okg-shell__rail-toggle:focus-visible {
+  background: var(--okg-color-rail-hover);
+  outline: none;
+}
+
+.okg-shell__rail-toggle:focus-visible {
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-shell__brand {
+  flex-direction: column;
+  gap: var(--okg-space-2);
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-shell__brand-label,
+.okg-shell[data-rail-collapsed="true"] .okg-shell__nav-label,
+.okg-shell[data-rail-collapsed="true"] .okg-theme-toggle__label,
+.okg-shell[data-rail-collapsed="true"] .okg-theme-toggle__caret {
+  display: none;
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-shell__rail-toggle {
+  margin-left: 0;
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-shell__nav-link,
+.okg-shell[data-rail-collapsed="true"] .okg-shell__rail-footer .okg-theme-toggle {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.okg-shell__brand-mark {
+  display: inline-grid;
+  width: 1.625rem;
+  height: 1.625rem;
+  place-items: center;
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-brand-mark);
+  color: var(--okg-color-rail);
+}
+
+/* The AKMON anvil sits at ~72% of the tile, centred; currentColor = rail ink. */
+.okg-shell__brand-mark svg {
+  width: 72%;
+  height: 72%;
+}
+
+.okg-shell__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--okg-space-1);
+}
+
+.okg-shell__nav-link {
+  display: flex;
+  align-items: center;
+  min-height: 2.125rem;
+  gap: var(--okg-space-2);
+  padding: var(--okg-space-2) var(--okg-space-3);
+  color: var(--okg-color-rail-link);
+  text-decoration: none;
+  border-radius: var(--okg-radius-md);
+  font-weight: var(--okg-weight-medium);
+}
+
+.okg-shell__nav-link:hover,
+.okg-shell__nav-link:focus-visible {
+  background: var(--okg-color-rail-hover);
+  color: var(--okg-color-rail-text);
+  outline: none;
+}
+
+.okg-shell__nav-link:focus-visible {
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-shell__nav-link[aria-current="page"] {
+  background: var(--okg-color-rail-active);
+  color: var(--okg-color-on-dark);
+}
+
+.okg-shell__nav-glyph {
+  display: inline-flex;
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  opacity: 0.92;
+}
+
+.okg-shell__nav-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+
+.okg-shell__rail-note {
+  margin-top: var(--okg-space-8);
+  padding-top: var(--okg-space-4);
+  border-top: 0.0625rem solid var(--okg-color-rail-border);
+  color: var(--okg-color-rail-muted);
+  line-height: var(--okg-leading-relaxed);
+}
+
+.okg-shell__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.okg-top-status {
+  min-height: var(--okg-layout-topbar);
+  display: flex;
+  align-items: center;
+  gap: var(--okg-space-3);
+  padding: 0 var(--okg-layout-gutter);
+  border-bottom: 0.0625rem solid var(--okg-color-line);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-muted);
+}
+
+.okg-top-status__title {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-lg);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-top-status__spacer {
+  flex: 1;
+}
+
+.okg-top-status__refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--okg-color-strong);
+  background: var(--okg-color-surface);
+  border: 1px solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.okg-top-status__refresh:hover:not(:disabled) {
+  background: var(--okg-color-surface-muted);
+  border-color: var(--okg-color-muted);
+}
+
+.okg-top-status__refresh:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+.okg-top-status__refresh:focus-visible {
+  outline: none;
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-top-status__refresh-icon {
+  font-size: 0.95em;
+  line-height: 1;
+  display: inline-block;
+}
+
+.okg-top-status__refresh[aria-busy="true"] .okg-top-status__refresh-icon {
+  animation: okg-spin 0.8s linear infinite;
+}
+
+@keyframes okg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Firing picker (Lyceaum / Cyclades light, Melanómorpha / Hephaestus dark).
+   The trigger mirrors the refresh button so it sits quietly in the top-status
+   action cluster; the menu drops below it. */
+.okg-theme-picker {
+  position: relative;
+  display: inline-flex;
+}
+
+.okg-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: var(--okg-weight-medium);
+  color: var(--okg-color-strong);
+  background: var(--okg-color-surface);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.okg-theme-toggle:hover {
+  background: var(--okg-color-surface-muted);
+  border-color: var(--okg-color-muted);
+}
+
+.okg-theme-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-theme-toggle__glyph {
+  font-size: 0.95em;
+  line-height: 1;
+  color: var(--okg-color-accent);
+}
+
+.okg-theme-toggle__caret {
+  font-size: 0.7em;
+  line-height: 1;
+  color: var(--okg-color-subtle);
+}
+
+/* Firing menu: one row per theme, each with a chip previewing that firing.
+ *
+ * FIXED, and portaled into <body> by `ThemePicker`
+ * (shared/ui/components.tsx), which places `top` / `left` from the trigger's
+ * measured rect. Both halves are the fix for the selected check mark being
+ * invisible, and the reason is an OVERFLOW CLIP rather than a paint order:
+ * the picker sits at the foot of `.okg-shell__rail`, which is a scroll
+ * container (`overflow-y: auto`, :92; `overflow-x: hidden`, :14519), and a
+ * 12rem menu inside a 168 px rail lost its right 36 px — the check mark
+ * included. The menu already carried `z-index: 40` and nothing was painted
+ * over it, so raising it could not have helped; and the rail's overflow cannot
+ * be opened up either, because `resize: horizontal` (:14520) only works on a
+ * non-`visible` overflow. So the menu leaves the clipping box and the rail
+ * keeps every property it had. */
+.okg-theme-menu {
+  position: fixed;
+  /* `top` / `left` are written by the component; there is no static fallback
+     on purpose — a wrong guess would paint the menu somewhere plausible. */
+  z-index: 40;
+  min-width: 12rem;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  background: var(--okg-color-surface);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  box-shadow: var(--okg-shadow-drawer);
+}
+
+.okg-theme-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: var(--okg-weight-medium);
+  text-align: left;
+  color: var(--okg-color-text);
+  background: transparent;
+  border: 0.0625rem solid transparent;
+  border-radius: var(--okg-radius-md);
+  padding: 0.32rem 0.45rem;
+  cursor: pointer;
+}
+
+.okg-theme-menu__item:hover {
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-theme-menu__item:focus-visible {
+  outline: none;
+  box-shadow: var(--okg-focus-ring);
+}
+
+/* The selected row. The accent moves HERE from the check mark (below): it is
+   still the thing that marks the active firing in colour, but as a decorative
+   edge rather than as the only carrier of the state, so a deployment that
+   declares a low-contrast accent degrades the tint and not the indicator. */
+.okg-theme-menu__item[aria-pressed="true"] {
+  border-color: var(--okg-color-accent);
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-theme-menu__label {
+  flex: 1 1 auto;
+}
+
+/* The check mark, in the ink the surface is designed against rather than in the
+   accent.
+ *
+ * While it was clipped this glyph read `rgb(16, 185, 129)` on
+ * `rgb(230, 236, 241)` — a ratio of 2.13, `passesAA: false`. That failure was
+ * unobservable; un-clipping it puts it on screen. The accent cannot fix it,
+ * because the accent is DEPLOYMENT-DECLARED: `viz.theme` maps `accent` straight
+ * onto `--okg-color-accent` (styles/deploymentTheme.ts:134), so its contrast
+ * against this surface is whatever a manifest happened to choose, and no value
+ * the console picks can bound it.
+ *
+ * `--okg-color-strong` is not in the seven-token override set
+ * (deploymentTheme.ts:132-140) and neither is `--okg-color-surface-muted`, so
+ * this pair is console-controlled end to end: it clears AA in all four shipped
+ * firings and cannot be broken by any declaration. The accent keeps a carrier
+ * on the selected row's border above. */
+.okg-theme-menu__check {
+  flex: 0 0 auto;
+  font-size: 0.9em;
+  color: var(--okg-color-strong);
+}
+
+.okg-theme-swatch {
+  flex: 0 0 auto;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: var(--okg-radius-sm);
+  border: 0.0625rem solid rgb(0 0 0 / 0.18);
+  box-shadow: inset 0 0 0 0.0625rem rgb(255 255 255 / 0.12);
+}
+
+/* Each chip previews its TARGET firing (ground / link / accent), independent of
+   the active theme, so the menu shows what you're switching to. */
+.okg-theme-swatch--lyceaum {
+  background: linear-gradient(135deg, #ece5d5 0 40%, #1c6a96 40% 70%, #a85c2a 70% 100%);
+}
+.okg-theme-swatch--melanomorpha {
+  background: linear-gradient(135deg, #140e08 0 40%, #6faacb 40% 70%, #d06e3c 70% 100%);
+}
+.okg-theme-swatch--cyclades {
+  background: linear-gradient(135deg, #eef2f6 0 40%, #0e6ba8 40% 70%, #0e2b45 70% 100%);
+}
+.okg-theme-swatch--hephaestus {
+  background: linear-gradient(135deg, #101317 0 40%, #56b4e6 40% 70%, #ff6a1f 70% 100%);
+}
+
+.okg-top-status__item {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.okg-top-status__item--generation {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.okg-top-status__item--read-only {
+  white-space: nowrap;
+}
+
+.okg-top-status__item strong {
+  color: var(--okg-color-strong);
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* The generation id is middle-truncated in TopStatus (full value in the title),
+   so it stays ONE line instead of wrapping the header to 2–3 rows. */
+.okg-top-status__item--generation strong {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.okg-deployment-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  color: var(--okg-color-muted);
+  font-weight: var(--okg-weight-medium);
+}
+
+.okg-deployment-selector select {
+  min-width: 9rem;
+  max-width: 14rem;
+  min-height: 1.875rem;
+  padding: 0 var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-strong);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-deployment-selector select:focus-visible {
+  outline: none;
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-main {
+  width: 100%;
+  max-width: none;
+  padding: var(--okg-layout-gutter);
+}
+
+.okg-home {
+  display: grid;
+  gap: var(--okg-space-3);
+}
+
+.okg-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.42fr);
+  gap: var(--okg-space-3);
+  align-items: start;
+}
+
+.okg-health .okg-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(28rem, 0.8fr);
+}
+
+.okg-stack {
+  display: grid;
+  gap: var(--okg-space-3);
+  align-content: start;
+}
+
+.okg-panel {
+  overflow: hidden;
+  background: var(--okg-color-surface);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+}
+
+.okg-panel__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--okg-space-3);
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-panel__title,
+.okg-section-header__title {
+  margin: 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-sm);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.okg-panel__note,
+.okg-section-header__meta {
+  color: var(--okg-color-muted);
+}
+
+.okg-panel__body {
+  padding: var(--okg-space-4);
+}
+
+.okg-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--okg-space-3);
+}
+
+.okg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-1);
+  min-height: 1.375rem;
+  padding: 0 var(--okg-space-2);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-pill);
+  background: var(--okg-color-surface-muted);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  white-space: nowrap;
+}
+
+.okg-badge[data-tone="ok"] {
+  border-color: var(--okg-color-ok-line);
+  background: var(--okg-color-ok-bg);
+  color: var(--okg-color-ok);
+}
+
+.okg-badge[data-tone="warn"] {
+  border-color: var(--okg-color-warn-line);
+  background: var(--okg-color-warn-bg);
+  color: var(--okg-color-warn-text);
+}
+
+.okg-badge[data-tone="bad"] {
+  border-color: var(--okg-color-bad-line);
+  background: var(--okg-color-bad-bg);
+  color: var(--okg-color-bad);
+}
+
+.okg-badge[data-tone="info"] {
+  border-color: var(--okg-color-info-line);
+  background: var(--okg-color-info-bg);
+  color: var(--okg-color-info);
+}
+
+.okg-status-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--okg-radius-pill);
+  background: var(--okg-color-muted);
+  flex: none;
+}
+
+.okg-status-dot[data-tone="ok"] {
+  background: var(--okg-color-ok);
+}
+
+.okg-status-dot[data-tone="warn"] {
+  background: var(--okg-color-warn);
+}
+
+.okg-status-dot[data-tone="bad"] {
+  background: var(--okg-color-bad);
+}
+
+.okg-status-dot[data-tone="info"] {
+  background: var(--okg-color-info);
+}
+
+.okg-fact-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 0.0625rem solid var(--okg-color-line);
+  border-left: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-fact {
+  min-width: 0;
+  padding: var(--okg-space-3);
+  border-right: 0.0625rem solid var(--okg-color-line);
+  border-bottom: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-fact__label {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-fact__value {
+  margin-top: var(--okg-space-1);
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-xl);
+  font-weight: var(--okg-weight-bold);
+  line-height: var(--okg-leading-tight);
+}
+
+.okg-fact__meta {
+  margin-top: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Part-whole meter under a fact value: proportional tone-coloured segments. */
+.okg-fact__bar {
+  display: flex;
+  gap: 0.0625rem;
+  height: 0.3125rem;
+  margin-top: 0.4rem;
+  border-radius: var(--okg-radius-pill);
+  overflow: hidden;
+  background: var(--okg-color-line-soft);
+}
+
+.okg-fact__bar-seg {
+  display: block;
+  min-width: 0.1875rem;
+  border-radius: var(--okg-radius-pill);
+}
+
+.okg-fact__bar-seg[data-tone="ok"] { background: var(--okg-color-ok); }
+.okg-fact__bar-seg[data-tone="warn"] { background: var(--okg-color-warn); }
+.okg-fact__bar-seg[data-tone="bad"] { background: var(--okg-color-bad); }
+.okg-fact__bar-seg[data-tone="info"] { background: var(--okg-color-info); }
+.okg-fact__bar-seg[data-tone="neutral"] { background: var(--okg-color-muted); }
+
+.okg-health {
+  display: grid;
+  gap: var(--okg-space-3);
+}
+
+.okg-health > *,
+.okg-health-view > *,
+.okg-health-lifecycle > *,
+.okg-health-lifecycle__path > *,
+.okg-health-lifecycle__step > * {
+  min-width: 0;
+}
+
+.okg-health-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 0.74fr) minmax(24rem, 1fr);
+  gap: var(--okg-space-4);
+  align-items: stretch;
+  padding: var(--okg-space-4);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-summary__status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--okg-space-3);
+  align-items: baseline;
+}
+
+.okg-health-summary__status h1 {
+  margin: 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-xl);
+  line-height: var(--okg-leading-tight);
+}
+
+.okg-health-summary__status p {
+  max-width: 43rem;
+  margin: var(--okg-space-2) 0 0;
+  color: var(--okg-color-muted);
+  line-height: var(--okg-leading-relaxed);
+  overflow-wrap: anywhere;
+}
+
+.okg-health-summary .okg-fact-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.okg-health-read-failures {
+  display: grid;
+  gap: var(--okg-space-2);
+}
+
+.okg-health-read-failure {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.8fr) minmax(28rem, 1.2fr);
+  gap: var(--okg-space-4);
+  align-items: start;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border: 0.0625rem solid var(--okg-color-warn-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-warn-bg);
+  color: var(--okg-color-warn-text);
+}
+
+.okg-health-read-failure__copy {
+  display: grid;
+  gap: var(--okg-space-1);
+  min-width: 0;
+}
+
+.okg-health-read-failure__copy p {
+  margin: 0;
+  line-height: var(--okg-leading-relaxed);
+}
+
+.okg-health-read-failure dl {
+  display: grid;
+  gap: var(--okg-space-1);
+  min-width: 0;
+  margin: 0;
+}
+
+.okg-health-read-failure dl > div {
+  display: grid;
+  grid-template-columns: 6rem minmax(0, 1fr);
+  gap: var(--okg-space-2);
+  min-width: 0;
+}
+
+.okg-health-read-failure dt {
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-read-failure dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.okg-health-read-failure code {
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.okg-health-issues {
+  display: grid;
+  gap: var(--okg-space-3);
+  padding: var(--okg-space-4);
+  border: 0.0625rem solid var(--okg-color-warn-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-warn-bg);
+}
+
+.okg-health-issues__header h2 {
+  margin: 0;
+  color: var(--okg-color-warn-text);
+  font-size: var(--okg-text-lg);
+  line-height: var(--okg-leading-tight);
+}
+
+.okg-health-issues__header p {
+  margin: var(--okg-space-1) 0 0;
+  color: var(--okg-color-warn-text);
+}
+
+.okg-health-issue-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--okg-space-2);
+}
+
+.okg-health-issue {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--okg-space-2);
+  align-items: start;
+  min-width: 0;
+  padding: var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-warn-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-issue--action {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.okg-health-issue--action:hover,
+.okg-health-issue--action:focus-visible {
+  border-color: var(--okg-color-link);
+  outline: 0.125rem solid var(--okg-color-focus);
+  outline-offset: 0.125rem;
+}
+
+.okg-health-issue__body {
+  display: grid;
+  gap: var(--okg-space-1);
+  min-width: 0;
+}
+
+.okg-health-issue__body strong {
+  color: var(--okg-color-strong);
+  overflow-wrap: anywhere;
+}
+
+.okg-health-issue__body span,
+.okg-health-issue__body em {
+  color: var(--okg-color-muted);
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.okg-health-issue__body .okg-health-issue__action {
+  margin-top: var(--okg-space-1);
+  color: var(--okg-color-link);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-health-stages {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-stage {
+  min-width: 0;
+  padding: var(--okg-space-3);
+  border-left: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-stage:first-child {
+  border-left: 0;
+}
+
+.okg-health-stage__label {
+  display: flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-stage__value {
+  margin-top: var(--okg-space-2);
+  color: var(--okg-color-strong);
+  font-weight: var(--okg-weight-bold);
+  overflow-wrap: anywhere;
+}
+
+.okg-health-stage__meta {
+  margin-top: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  overflow-wrap: anywhere;
+}
+
+.okg-health-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.okg-health-table-wrap--bounded {
+  max-height: 31rem;
+  border: 0.0625rem solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-md);
+  overflow: auto;
+}
+
+.okg-health-table-wrap--bounded .okg-health-table thead {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--okg-color-surface);
+}
+
+.okg-health-workspace {
+  display: grid;
+  gap: var(--okg-space-3);
+  padding: var(--okg-space-4);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-workspace__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--okg-space-4);
+}
+
+.okg-health-workspace__head h2 {
+  margin: 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-lg);
+}
+
+.okg-health-workspace__head p {
+  margin: var(--okg-space-1) 0 0;
+  color: var(--okg-color-muted);
+}
+
+.okg-health-workspace__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(24rem, 0.82fr);
+  gap: var(--okg-space-3);
+  align-items: start;
+}
+
+.okg-health-table {
+  width: 100%;
+  /* Was 42rem (672px), which exceeded the ~642px table column in the Health
+     two-pane layout → the table overflowed and overflow-x:auto scrolled the
+     rightmost "Next check" header off-screen ("NEXT CHI"). 38rem lets it fit the
+     container (columns compress + wrap), so every header is fully visible; the
+     wrap still scrolls on genuinely narrow viewports. */
+  min-width: 38rem;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.okg-health-table th,
+.okg-health-table td {
+  padding: var(--okg-space-2);
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.okg-health-table th {
+  border-top: 0;
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-table td {
+  color: var(--okg-color-text);
+}
+
+.okg-health-table th:first-child,
+.okg-health-table td:first-child {
+  width: 13rem;
+  max-width: 13rem;
+}
+
+.okg-health-table tr.is-selected td {
+  background: var(--okg-color-link-bg);
+}
+
+.okg-health-table tr.is-selected td:first-child {
+  box-shadow: inset 0.1875rem 0 0 var(--okg-color-link);
+}
+
+.okg-health-table td strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-producer-link {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--okg-color-link);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  text-align: left;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-health-producer-link:hover,
+.okg-health-producer-link:focus-visible {
+  color: var(--okg-color-strong);
+  outline: none;
+  text-decoration: underline;
+}
+
+.okg-health-producer-link[aria-current="true"] {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-count--muted {
+  color: var(--okg-color-muted);
+}
+
+.okg-health-checks,
+.okg-health-check {
+  display: grid;
+  gap: var(--okg-space-2);
+}
+
+.okg-health-check {
+  padding-bottom: var(--okg-space-3);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-check:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.okg-health-check .okg-row {
+  padding: 0;
+  border-top: 0;
+}
+
+.okg-health-check__next {
+  color: var(--okg-color-muted);
+  line-height: var(--okg-leading-relaxed);
+}
+
+/* Health diagnostic workbench -------------------------------------------------
+   A route-level information architecture: trust, inventory, time series,
+   producer diagnosis, and checks each own one work surface. */
+
+.okg-health-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--okg-space-1);
+  min-height: 2.75rem;
+  padding: 0 var(--okg-space-2);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-nav button {
+  min-height: 2.25rem;
+  padding: 0 var(--okg-space-3);
+  border: 0;
+  border-bottom: 0.1875rem solid transparent;
+  background: transparent;
+  color: var(--okg-color-muted);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-health-nav button:hover {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-nav button:focus-visible {
+  outline: 0.125rem solid var(--okg-color-focus);
+  outline-offset: -0.125rem;
+}
+
+.okg-health-nav button[aria-current="page"] {
+  border-bottom-color: var(--okg-color-link);
+  color: var(--okg-color-strong);
+}
+
+.okg-health-view {
+  display: grid;
+  gap: var(--okg-space-3);
+  align-content: start;
+}
+
+.okg-health-view-heading,
+.okg-health-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--okg-space-4);
+}
+
+.okg-health-view-heading {
+  padding: var(--okg-space-2) 0 var(--okg-space-3);
+  border-bottom: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-health-view-heading > div,
+.okg-health-section-heading > div {
+  min-width: 0;
+}
+
+.okg-health-view-heading > div > span,
+.okg-health-section-heading > div > span,
+.okg-health-diagnosis > span,
+.okg-health-metric-omissions > span {
+  display: block;
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.okg-health-view-heading h1,
+.okg-health-section-heading h2 {
+  margin: var(--okg-space-1) 0 0;
+  color: var(--okg-color-strong);
+  line-height: var(--okg-leading-tight);
+}
+
+.okg-health-view-heading h1 {
+  font-size: var(--okg-text-2xl);
+}
+
+.okg-health-section-heading h2 {
+  font-size: var(--okg-text-lg);
+}
+
+.okg-health-view-heading p,
+.okg-health-section-heading p {
+  max-width: 52rem;
+  margin: var(--okg-space-1) 0 0;
+  color: var(--okg-color-muted);
+  line-height: var(--okg-leading-relaxed);
+}
+
+.okg-health-view-heading > span,
+.okg-health-section-heading > span {
+  flex: none;
+  color: var(--okg-color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-health-section-heading button,
+.okg-health-attention__item > button,
+.okg-health-population__rows button,
+.okg-health-back,
+.okg-health-metric-inspector button,
+.okg-health-detail-state > button {
+  min-height: 2rem;
+  padding: 0 var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-link);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-health-section-heading button:hover,
+.okg-health-section-heading button:focus-visible,
+.okg-health-attention__item > button:hover,
+.okg-health-attention__item > button:focus-visible,
+.okg-health-population__rows button:hover,
+.okg-health-population__rows button:focus-visible,
+.okg-health-back:hover,
+.okg-health-back:focus-visible,
+.okg-health-metric-inspector button:hover,
+.okg-health-metric-inspector button:focus-visible {
+  border-color: var(--okg-color-link);
+  outline: 0.125rem solid var(--okg-color-focus);
+  outline-offset: 0.125rem;
+}
+
+.okg-health-trust {
+  display: grid;
+  grid-template-columns: minmax(22rem, 0.82fr) minmax(0, 1.18fr);
+  gap: var(--okg-space-4);
+  padding: var(--okg-space-4);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-left: 0.25rem solid var(--okg-color-warn);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-trust__verdict {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--okg-space-3);
+  align-items: start;
+}
+
+.okg-health-trust__verdict > div > span {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.okg-health-trust__verdict h1 {
+  margin: var(--okg-space-1) 0 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-2xl);
+  line-height: var(--okg-leading-tight);
+}
+
+.okg-health-trust__verdict p {
+  margin: var(--okg-space-2) 0 0;
+  color: var(--okg-color-text);
+  line-height: var(--okg-leading-relaxed);
+}
+
+.okg-health-trust__facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-left: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-health-trust__facts > div {
+  display: grid;
+  align-content: center;
+  gap: var(--okg-space-1);
+  min-width: 0;
+  padding: 0 var(--okg-space-3);
+  border-right: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-trust__facts > div:last-child {
+  border-right: 0;
+}
+
+.okg-health-trust__facts span,
+.okg-health-trust__facts small {
+  color: var(--okg-color-muted);
+}
+
+.okg-health-trust__facts small {
+  overflow-wrap: anywhere;
+}
+
+.okg-health-trust__facts span {
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-trust__facts strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-xl);
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-health-attention,
+.okg-health-lifecycle,
+.okg-health-population,
+.okg-health-detail__evidence-grid > section,
+.okg-health-detail__history,
+.okg-health-metrics-selection > section,
+.okg-health-metrics-chart,
+.okg-health-metric-omissions,
+.okg-health-check-list,
+.okg-health-diagnostic-reads {
+  display: grid;
+  gap: var(--okg-space-3);
+  padding: var(--okg-space-4);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-attention {
+  border-color: var(--okg-color-warn-line);
+}
+
+.okg-health-attention__list {
+  display: grid;
+  border: 0.0625rem solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-md);
+  overflow: hidden;
+}
+
+.okg-health-attention__columns {
+  display: grid;
+  grid-template-columns: minmax(15rem, 0.95fr) minmax(18rem, 1.45fr) auto;
+  gap: var(--okg-space-4);
+  padding: var(--okg-space-2) var(--okg-space-3) var(--okg-space-2) calc(var(--okg-space-3) + 0.75rem + var(--okg-space-3));
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  background: var(--okg-color-surface-muted);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.okg-health-attention__item {
+  display: grid;
+  grid-template-columns: auto minmax(15rem, 0.95fr) minmax(18rem, 1.45fr) auto;
+  gap: var(--okg-space-3);
+  align-items: center;
+  padding: var(--okg-space-3);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-attention__item:last-child {
+  border-bottom: 0;
+}
+
+.okg-health-attention__identity,
+.okg-health-attention__evidence {
+  display: grid;
+  gap: var(--okg-space-1);
+  min-width: 0;
+}
+
+.okg-health-attention__identity > span {
+  color: var(--okg-color-warn-text);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-attention__item h3 {
+  margin: 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-base);
+}
+
+.okg-health-attention__item p {
+  margin: 0;
+  color: var(--okg-color-text);
+}
+
+.okg-health-attention__item strong {
+  color: var(--okg-color-warn-text);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-health-lifecycle__path {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--okg-space-2);
+}
+
+.okg-health-lifecycle__step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--okg-space-2);
+  align-items: center;
+}
+
+.okg-health-lifecycle__step > div {
+  display: grid;
+  gap: var(--okg-space-1);
+  min-height: 6rem;
+  padding: var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-health-lifecycle__step > div > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.okg-health-lifecycle__step > div > span {
+  display: flex;
+  align-items: center;
+  gap: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-lifecycle__step strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-lifecycle__step small {
+  color: var(--okg-color-muted);
+}
+
+.okg-health-lifecycle__step > i {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-lg);
+  font-style: normal;
+}
+
+.okg-health-population__rows {
+  display: grid;
+  gap: 0;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-population__rows > div {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr) auto;
+  gap: var(--okg-space-3);
+  align-items: center;
+  min-height: 3rem;
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-population__rows strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-population__rows span {
+  color: var(--okg-color-muted);
+}
+
+.okg-health-producer-controls {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.65fr) minmax(0, 1.35fr);
+  gap: var(--okg-space-4);
+  align-items: end;
+  padding: var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-search {
+  display: grid;
+  gap: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-search input,
+.okg-health-metrics-toolbar select {
+  width: 100%;
+  min-height: 2.375rem;
+  padding: 0 var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-strong);
+  font: inherit;
+  text-transform: none;
+}
+
+.okg-health-search input:focus-visible,
+.okg-health-metrics-toolbar select:focus-visible {
+  border-color: var(--okg-color-link);
+  outline: 0.125rem solid var(--okg-color-focus);
+  outline-offset: 0.125rem;
+}
+
+.okg-health-filter-stack {
+  display: grid;
+  gap: var(--okg-space-2);
+  justify-items: end;
+}
+
+.okg-health-filter-group,
+.okg-health-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.125rem;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-health-filter-group button,
+.okg-health-range button {
+  min-height: 1.875rem;
+  padding: 0 var(--okg-space-2);
+  border: 0;
+  border-radius: var(--okg-radius-sm);
+  background: transparent;
+  color: var(--okg-color-muted);
+  font: inherit;
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-health-filter-group button span {
+  margin-left: var(--okg-space-1);
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-health-filter-group button[aria-pressed="true"],
+.okg-health-range button[aria-pressed="true"] {
+  background: var(--okg-color-surface);
+  color: var(--okg-color-strong);
+  box-shadow: inset 0 0 0 0.0625rem var(--okg-color-line);
+}
+
+.okg-health-filter-group button:focus-visible,
+.okg-health-range button:focus-visible {
+  outline: 0.125rem solid var(--okg-color-focus);
+  outline-offset: 0.0625rem;
+}
+
+.okg-health-directory-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--okg-space-3);
+  color: var(--okg-color-muted);
+}
+
+.okg-health-producer-table-wrap {
+  max-height: 36rem;
+  overflow: auto;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-producer-table {
+  width: 100%;
+  min-width: 52rem;
+  border-collapse: collapse;
+  font-size: var(--okg-text-sm);
+}
+
+.okg-health-producer-table thead {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  background: var(--okg-color-surface-muted);
+  box-shadow: 0 0.0625rem 0 var(--okg-color-line);
+}
+
+.okg-health-producer-table th,
+.okg-health-producer-table td {
+  padding: 0.7rem var(--okg-space-3);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  color: var(--okg-color-text);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.okg-health-producer-table thead th {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.okg-health-producer-table thead button {
+  margin: -0.35rem -0.45rem;
+  padding: 0.35rem 0.45rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.okg-health-producer-table thead button:hover,
+.okg-health-producer-table thead button:focus-visible {
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-link-bg);
+  color: var(--okg-color-strong);
+  outline: none;
+}
+
+.okg-health-producer-table tbody tr:hover {
+  background: var(--okg-color-link-bg);
+}
+
+.okg-health-producer-table tbody tr:last-child th,
+.okg-health-producer-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.okg-health-producer-table tbody th {
+  min-width: 12rem;
+  color: var(--okg-color-strong);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-health-producer-table tbody th small {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-normal);
+  text-transform: capitalize;
+}
+
+.okg-health-table-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  font-weight: var(--okg-weight-bold);
+  white-space: nowrap;
+}
+
+.okg-health-producer-table .is-numeric {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.okg-health-producer-table__next {
+  min-width: 11rem;
+  max-width: 18rem;
+  color: var(--okg-color-muted) !important;
+  line-height: 1.35;
+}
+
+.okg-health-producer-table thead th:last-child,
+.okg-health-producer-table tbody td:last-child {
+  position: sticky;
+  right: 0;
+  background: var(--okg-color-surface);
+  box-shadow: -0.0625rem 0 0 var(--okg-color-line-soft);
+}
+
+.okg-health-producer-table thead th:last-child {
+  z-index: 3;
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-health-producer-table tbody tr:hover td:last-child {
+  background: var(--okg-color-link-bg);
+}
+
+.okg-health-producer-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--okg-color-link);
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.okg-health-producer-link:hover,
+.okg-health-producer-link:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
+.okg-health-diagnose-button {
+  padding: 0.4rem 0.65rem;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-link);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.okg-health-diagnose-button:hover,
+.okg-health-diagnose-button:focus-visible {
+  border-color: var(--okg-color-link);
+  background: var(--okg-color-link-bg);
+  outline: none;
+}
+
+.okg-health-directory {
+  display: grid;
+  max-height: 34rem;
+  overflow: auto;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-directory-row {
+  display: grid;
+  grid-template-columns: auto minmax(13rem, 0.85fr) minmax(20rem, 1.4fr) 7rem auto;
+  gap: var(--okg-space-3);
+  align-items: center;
+  width: 100%;
+  min-height: 5.25rem;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border: 0;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.okg-health-directory-row:first-child {
+  border-top: 0;
+}
+
+.okg-health-directory-row:hover,
+.okg-health-directory-row:focus-visible {
+  background: var(--okg-color-link-bg);
+  outline: none;
+  box-shadow: inset 0.1875rem 0 0 var(--okg-color-link);
+}
+
+.okg-health-directory-row__identity,
+.okg-health-directory-row__evidence,
+.okg-health-directory-row__kind {
+  display: grid;
+  gap: var(--okg-space-1);
+  min-width: 0;
+}
+
+.okg-health-directory-row__identity > span,
+.okg-health-directory-row__evidence > span,
+.okg-health-directory-row__kind > span {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-directory-row__identity > strong,
+.okg-health-directory-row__evidence > strong {
+  overflow: hidden;
+  color: var(--okg-color-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-health-directory-row__identity > small,
+.okg-health-directory-row__evidence > small,
+.okg-health-directory-row__kind > small {
+  color: var(--okg-color-muted);
+  overflow-wrap: anywhere;
+}
+
+.okg-health-directory-row__evidence > strong.is-muted {
+  color: var(--okg-color-muted);
+  font-weight: var(--okg-weight-normal);
+}
+
+.okg-health-directory-row__kind {
+  text-align: right;
+}
+
+.okg-health-directory-row__action {
+  color: var(--okg-color-link);
+  font-weight: var(--okg-weight-bold);
+  white-space: nowrap;
+}
+
+.okg-health-back {
+  width: fit-content;
+}
+
+.okg-health-detail-state {
+  display: grid;
+  gap: var(--okg-space-3);
+}
+
+.okg-health-detail__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--okg-space-4);
+  padding: 0 0 var(--okg-space-3);
+  border-bottom: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-health-detail__back {
+  display: block;
+  width: fit-content;
+  margin: 0 0 var(--okg-space-3);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--okg-color-link);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-health-detail__back:hover,
+.okg-health-detail__back:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.okg-health-detail__header > div > span {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-detail__header h1 {
+  margin: var(--okg-space-1) 0 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-2xl);
+  overflow-wrap: anywhere;
+}
+
+.okg-health-detail__header h1:focus {
+  outline: none;
+}
+
+.okg-health-detail__header p {
+  margin: var(--okg-space-1) 0 0;
+  color: var(--okg-color-muted);
+}
+
+.okg-health-detail__header .okg-health-detail__verdict {
+  color: var(--okg-color-text);
+}
+
+.okg-health-detail__verdict strong {
+  color: var(--okg-color-ok);
+}
+
+.okg-health-diagnosis {
+  display: grid;
+  gap: var(--okg-space-2);
+  padding: var(--okg-space-4);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-left: 0.25rem solid var(--okg-color-info);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-diagnosis--warn,
+.okg-health-diagnosis--bad {
+  border-color: var(--okg-color-warn-line);
+  border-left-color: var(--okg-color-warn);
+  background: var(--okg-color-warn-bg);
+}
+
+.okg-health-diagnosis h2 {
+  margin: 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-xl);
+}
+
+.okg-health-diagnosis strong {
+  margin-top: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  text-transform: uppercase;
+}
+
+.okg-health-diagnosis p {
+  margin: 0;
+  color: var(--okg-color-text);
+}
+
+.okg-health-detail__evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--okg-space-3);
+}
+
+.okg-health-detail__evidence-grid.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.okg-health-detail__snapshot,
+.okg-health-detail__operational {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  padding: var(--okg-space-4);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-detail__snapshot.is-single,
+.okg-health-detail__operational.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.okg-health-detail__snapshot > div,
+.okg-health-detail__operational > div {
+  min-width: 0;
+  padding-right: var(--okg-space-4);
+}
+
+.okg-health-detail__snapshot > div + div,
+.okg-health-detail__operational > div + div {
+  padding-right: 0;
+  padding-left: var(--okg-space-4);
+  border-left: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-detail__snapshot .okg-health-evidence-list > div,
+.okg-health-detail__operational .okg-health-progress-list > div {
+  grid-template-columns: minmax(7rem, 0.75fr) minmax(0, 1fr);
+  gap: var(--okg-space-1) var(--okg-space-3);
+  align-items: start;
+}
+
+.okg-health-detail__snapshot .okg-health-evidence-list small,
+.okg-health-detail__operational .okg-health-progress-list small {
+  grid-column: 2;
+}
+
+.okg-health-detail__snapshot .okg-health-evidence-list dd,
+.okg-health-detail__snapshot .okg-health-evidence-list small,
+.okg-health-detail__operational .okg-health-progress-list dd,
+.okg-health-detail__operational .okg-health-progress-list small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.okg-health-evidence-gap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--okg-space-4);
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-health-evidence-gap > div {
+  min-width: 13rem;
+}
+
+.okg-health-evidence-gap span {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-evidence-gap h2,
+.okg-health-evidence-gap p {
+  margin: var(--okg-space-1) 0 0;
+}
+
+.okg-health-evidence-gap h2 {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-lg);
+}
+
+.okg-health-evidence-gap p {
+  flex: 1;
+  color: var(--okg-color-muted);
+  line-height: 1.45;
+}
+
+.okg-health-evidence-gap button {
+  white-space: nowrap;
+}
+
+.okg-health-evidence-list,
+.okg-health-progress-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.okg-health-evidence-list > div,
+.okg-health-progress-list > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.7fr) minmax(0, 0.6fr) minmax(0, 1fr);
+  gap: var(--okg-space-3);
+  align-items: baseline;
+  min-height: 2.75rem;
+  padding: var(--okg-space-2) 0;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-evidence-list > div:first-child,
+.okg-health-progress-list > div:first-child {
+  border-top: 0;
+}
+
+.okg-health-evidence-list dt,
+.okg-health-progress-list dt {
+  color: var(--okg-color-muted);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-health-evidence-list dd,
+.okg-health-progress-list dd {
+  margin: 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-lg);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-health-evidence-list small,
+.okg-health-progress-list small {
+  color: var(--okg-color-muted);
+}
+
+.okg-health-history-empty {
+  display: grid;
+  gap: var(--okg-space-1);
+  min-height: 7rem;
+  place-content: center;
+  border: 0.0625rem solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface-muted);
+  color: var(--okg-color-muted);
+  text-align: center;
+}
+
+.okg-health-history-empty strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-run-history {
+  display: grid;
+  gap: var(--okg-space-2);
+}
+
+.okg-health-run-history__summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--okg-space-3);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-health-run-history__summary strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-run-history__table-wrap {
+  overflow-x: auto;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-run-history__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-health-run-history__table th,
+.okg-health-run-history__table td {
+  min-width: 7rem;
+  padding: var(--okg-space-2) var(--okg-space-3);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.okg-health-run-history__table th:first-child,
+.okg-health-run-history__table td:first-child {
+  padding-left: 0;
+}
+
+.okg-health-run-history__table th {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.okg-health-run-history__table td {
+  color: var(--okg-color-text);
+}
+
+.okg-health-run-history__table .is-numeric {
+  text-align: right;
+}
+
+.okg-health-run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-health-run-status::before {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--okg-color-muted);
+  content: "";
+}
+
+.okg-health-run-status.is-ok::before {
+  background: var(--okg-color-ok);
+}
+
+.okg-health-run-status.is-warn::before {
+  background: var(--okg-color-warn);
+}
+
+.okg-health-run-status.is-bad::before {
+  background: var(--okg-color-bad);
+}
+
+.okg-health-omissions {
+  display: grid;
+  gap: var(--okg-space-2);
+  margin: 0;
+  padding-left: var(--okg-space-4);
+  color: var(--okg-color-muted);
+}
+
+.okg-health-metrics-workbench {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border-top: 0.0625rem solid var(--okg-color-line);
+  border-bottom: 0.0625rem solid var(--okg-color-line);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-metrics-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 13rem 13rem;
+  gap: var(--okg-space-3);
+  align-items: end;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-metrics-toolbar > label {
+  display: grid;
+  gap: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-custom-range {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) minmax(14rem, 1fr) auto;
+  gap: var(--okg-space-3);
+  align-items: end;
+  padding: var(--okg-space-3);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-custom-range label {
+  display: grid;
+  gap: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-custom-range input {
+  min-height: 2.55rem;
+  padding: 0 var(--okg-space-2);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  color: var(--okg-color-strong);
+  background: var(--okg-color-surface);
+  font: inherit;
+}
+
+.okg-health-custom-range > button {
+  min-height: 2.55rem;
+  padding: 0 var(--okg-space-3);
+  border: 0;
+  border-radius: var(--okg-radius-md);
+  color: var(--okg-color-surface);
+  background: var(--okg-color-accent);
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-health-custom-range > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--okg-color-muted);
+}
+
+.okg-health-custom-range > p[role="alert"] {
+  color: var(--okg-color-bad);
+}
+
+.okg-health-metrics-resolution {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--okg-space-4);
+  align-items: center;
+  padding: var(--okg-space-2) var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  background: var(--okg-color-surface-muted);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-health-metrics-resolution > div {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.okg-health-metrics-resolution strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-metrics-selection {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(22rem, 0.85fr);
+  gap: var(--okg-space-3);
+}
+
+.okg-health-metrics-builder {
+  position: relative;
+  display: grid;
+  gap: var(--okg-space-2);
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  background: transparent;
+}
+
+.okg-health-metrics-builder__line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--okg-space-2);
+  align-items: center;
+}
+
+.okg-health-metrics-builder__clear {
+  margin-left: auto;
+  border: 0;
+  color: var(--okg-color-link);
+  background: transparent;
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-health-metrics-builder__line > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.okg-health-metrics-builder .okg-health-selection-chips {
+  align-items: center;
+}
+
+.okg-health-selection-chips .okg-health-add-producer {
+  border-style: dashed;
+  background: transparent;
+  color: var(--okg-color-link);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-health-metric-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--okg-space-1);
+}
+
+.okg-health-metric-toggles button {
+  min-height: 2rem;
+  padding: 0 var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: 999rem;
+  color: var(--okg-color-muted);
+  background: var(--okg-color-surface);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-health-metric-toggles button[aria-pressed="true"] {
+  border-color: var(--okg-color-link);
+  color: var(--okg-color-strong);
+  background: var(--okg-color-link-bg);
+}
+
+.okg-health-producer-popover {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--okg-space-3);
+  padding: var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-link);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface-muted);
+  box-shadow: var(--okg-shadow-drawer);
+}
+
+.okg-health-producer-popover .okg-health-search--compact {
+  width: 100%;
+  align-self: start;
+}
+
+.okg-health-producer-popover .okg-health-producer-picker {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-height: 12rem;
+  background: var(--okg-color-surface);
+}
+
+.okg-health-metrics-selection__heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--okg-space-3);
+}
+
+.okg-health-metrics-selection__heading > div {
+  display: grid;
+  gap: var(--okg-space-1);
+}
+
+.okg-health-metrics-selection__heading > div > span {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-metrics-selection__heading strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-metrics-selection__heading > button,
+.okg-health-metrics-empty-window button {
+  min-height: 2rem;
+  padding: 0 var(--okg-space-2);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  color: var(--okg-color-strong);
+  background: var(--okg-color-surface);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-health-search--compact {
+  width: min(20rem, 50%);
+}
+
+.okg-health-producer-picker,
+.okg-health-metric-picker {
+  display: grid;
+  max-height: 10rem;
+  overflow: auto;
+  border: 0.0625rem solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-md);
+}
+
+.okg-health-producer-picker label,
+.okg-health-metric-picker label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--okg-space-2);
+  align-items: start;
+  padding: var(--okg-space-2);
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+  cursor: pointer;
+}
+
+.okg-health-producer-picker label:first-child,
+.okg-health-metric-picker label:first-child {
+  border-top: 0;
+}
+
+.okg-health-producer-picker label:hover,
+.okg-health-metric-picker label:hover {
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-health-producer-picker label > span,
+.okg-health-metric-picker label > span {
+  display: grid;
+  gap: var(--okg-space-1);
+}
+
+.okg-health-producer-picker strong,
+.okg-health-metric-picker strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-producer-picker small,
+.okg-health-metric-picker small {
+  color: var(--okg-color-muted);
+}
+
+.okg-health-metric-picker .is-unavailable {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.okg-health-selection-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--okg-space-1);
+}
+
+.okg-health-selection-chips button {
+  min-height: 1.75rem;
+  padding: 0 var(--okg-space-2);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: 999rem;
+  background: var(--okg-color-link-bg);
+  color: var(--okg-color-strong);
+  font: inherit;
+  font-size: var(--okg-text-xs);
+  cursor: pointer;
+}
+
+.okg-health-selection-chips button:focus-visible {
+  outline: 0.125rem solid var(--okg-color-focus);
+  outline-offset: 0.125rem;
+}
+
+.okg-health-selection-chips small {
+  color: var(--okg-color-muted);
+  text-transform: uppercase;
+}
+
+.okg-health-metrics-plot {
+  display: grid;
+  gap: var(--okg-space-2);
+  overflow: hidden;
+  border: 0.0625rem solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-metrics-plot svg {
+  width: 100%;
+  min-height: 22rem;
+}
+
+.okg-health-metrics-plot svg > rect {
+  fill: var(--okg-color-surface);
+  stroke: var(--okg-color-line);
+}
+
+.okg-health-metrics-plot svg line {
+  stroke: var(--okg-color-line-soft);
+  stroke-width: 1;
+}
+
+.okg-health-metrics-plot svg text {
+  fill: var(--okg-color-muted);
+  font-size: 0.75rem;
+}
+
+.okg-health-metrics-plot__line {
+  fill: none;
+  stroke-width: 2.35;
+  vector-effect: non-scaling-stroke;
+}
+
+.okg-health-metrics-plot__hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.okg-health-series-table {
+  display: grid;
+  border-top: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-health-series-table__head,
+.okg-health-series-table > button {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1fr) repeat(4, minmax(5rem, 7rem));
+  gap: var(--okg-space-3);
+  align-items: center;
+  min-height: 2.75rem;
+  padding: var(--okg-space-2) var(--okg-space-3);
+  text-align: left;
+}
+
+.okg-health-metric-panels {
+  display: grid;
+  gap: var(--okg-space-4);
+  transition: opacity 160ms ease;
+}
+
+.okg-health-metric-panels.is-updating {
+  opacity: 0.62;
+}
+
+.okg-health-metric-panel {
+  overflow: hidden;
+  border-top: 0.0625rem solid var(--okg-color-line);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-metric-panel:first-child {
+  border-top: 0;
+}
+
+.okg-health-metric-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--okg-space-3);
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-metric-panel > header > div {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.okg-health-metric-panel > header span {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-metric-panel > header h3 {
+  margin: 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-lg);
+}
+
+.okg-health-metric-panel > header > strong {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-health-metric-panel .okg-health-metrics-plot {
+  border: 0;
+  border-radius: 0;
+}
+
+.okg-health-metric-panel__empty {
+  margin: 0;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  color: var(--okg-color-muted);
+}
+
+.okg-health-metrics-empty-window {
+  display: grid;
+  gap: var(--okg-space-2);
+}
+
+.okg-health-metrics-empty-window > div {
+  display: flex;
+  justify-content: center;
+  gap: var(--okg-space-2);
+}
+
+.okg-health-series-table__head {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-series-table > button {
+  border: 0;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+  background: transparent;
+  color: var(--okg-color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.okg-health-series-table > button:hover,
+.okg-health-series-table > button:focus-visible {
+  background: var(--okg-color-surface-muted);
+  outline: none;
+}
+
+.okg-health-series-table > button.is-hidden {
+  opacity: 0.5;
+}
+
+.okg-health-series-table > button > span:first-child {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 var(--okg-space-2);
+  align-items: center;
+}
+
+.okg-health-series-table > button > span:first-child i {
+  grid-row: 1 / span 2;
+  width: 0.65rem;
+  height: 0.65rem;
+}
+
+.okg-health-series-table strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-series-table small {
+  color: var(--okg-color-muted);
+}
+
+.okg-health-metrics-chart__note {
+  margin: 0;
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-health-metrics-loading {
+  padding: var(--okg-space-2) var(--okg-space-3);
+  border-top: 0.0625rem solid var(--okg-color-info-line);
+  border-bottom: 0.0625rem solid var(--okg-color-info-line);
+  background: var(--okg-color-info-bg);
+  color: var(--okg-color-text);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-health-metric-inspector {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: var(--okg-space-3);
+  align-items: center;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-top: 0.0625rem solid var(--okg-color-link);
+  border-bottom: 0.0625rem solid var(--okg-color-link);
+  background: var(--okg-color-link-bg);
+}
+
+.okg-health-metric-inspector > div {
+  display: grid;
+  gap: var(--okg-space-1);
+}
+
+.okg-health-metric-inspector span,
+.okg-health-metric-inspector small {
+  color: var(--okg-color-muted);
+}
+
+.okg-health-metric-inspector strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-lg);
+}
+
+.okg-health-metric-omissions {
+  border: 0;
+  border-top: 0.0625rem solid var(--okg-color-warn-line);
+  border-radius: 0;
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-health-metrics-workbench .okg-health-metrics-chart {
+  padding: var(--okg-space-4);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.okg-health-metrics-failure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--okg-space-4);
+  min-height: 6rem;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-top: 0.0625rem solid var(--okg-color-bad-line);
+  border-bottom: 0.0625rem solid var(--okg-color-bad-line);
+  background: var(--okg-color-bad-bg);
+}
+
+.okg-health-metrics-failure > div {
+  display: grid;
+  gap: var(--okg-space-1);
+}
+
+.okg-health-metrics-failure strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-metrics-failure span {
+  color: var(--okg-color-muted);
+}
+
+.okg-health-metrics-failure button {
+  min-height: 2rem;
+  padding: 0 var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-bad-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-strong);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-health-metric-omissions h2 {
+  margin: 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-lg);
+}
+
+.okg-health-metric-omissions ul {
+  display: grid;
+  gap: var(--okg-space-1);
+  margin: 0;
+  padding-left: var(--okg-space-4);
+  color: var(--okg-color-warn-text);
+}
+
+.okg-health-metric-omissions__producers {
+  display: grid;
+  gap: var(--okg-space-2);
+}
+
+.okg-health-metric-omissions__producers article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--okg-space-3);
+  align-items: center;
+  padding: var(--okg-space-2) 0;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-metric-omissions__producers article:first-child {
+  border-top: 0;
+}
+
+.okg-health-metric-omissions__producers article > div {
+  display: grid;
+  gap: var(--okg-space-1);
+}
+
+.okg-health-metric-omissions__producers small {
+  color: var(--okg-color-warn-text);
+}
+
+.okg-health-check-kpis {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--okg-space-2);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-health-check-kpis > span {
+  white-space: nowrap;
+}
+
+.okg-health-check-kpis > span + span::before {
+  margin-right: var(--okg-space-2);
+  color: var(--okg-color-line);
+  content: "·";
+}
+
+.okg-health-check-kpis strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-md);
+}
+
+.okg-health-check-workbench {
+  overflow: hidden;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-check-workbench .okg-health-check-list,
+.okg-health-check-workbench .okg-health-diagnostic-reads {
+  padding: var(--okg-space-4);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.okg-health-check-workbench .okg-health-diagnostic-reads {
+  border-top: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-health-check-list article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(20rem, 0.8fr);
+  gap: var(--okg-space-3);
+  align-items: start;
+  padding: var(--okg-space-3) 0;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-check-list article:first-of-type {
+  border-top: 0;
+}
+
+.okg-health-check-list h3 {
+  margin: 0 0 var(--okg-space-1);
+  color: var(--okg-color-strong);
+}
+
+.okg-health-check-list article > div > strong {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-health-check-list dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--okg-space-3);
+  margin: 0;
+}
+
+.okg-health-check-list dl > div {
+  display: grid;
+  gap: var(--okg-space-1);
+}
+
+.okg-health-check-list dt {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-check-list dd {
+  margin: 0;
+  color: var(--okg-color-strong);
+}
+
+.okg-health-diagnostic-reads > div:not(.okg-health-section-heading) {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.7fr) 9rem minmax(0, 1fr);
+  gap: var(--okg-space-3);
+  align-items: center;
+  min-height: 2.75rem;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-diagnostic-reads > .okg-health-diagnostic-reads__head:not(.okg-health-section-heading) {
+  min-height: 2rem;
+  border-top: 0;
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.okg-health-diagnostic-reads > div:not(.okg-health-section-heading) > span {
+  display: flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  color: var(--okg-color-strong);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-health-diagnostic-reads > div:not(.okg-health-section-heading) > strong,
+.okg-health-diagnostic-reads > div:not(.okg-health-section-heading) > small {
+  min-width: 0;
+  color: var(--okg-color-muted);
+  overflow-wrap: anywhere;
+}
+
+.okg-health-diagnostic-reads > div.is-failed {
+  color: var(--okg-color-warn-text);
+}
+
+.okg-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--okg-space-3);
+  align-items: baseline;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-row:first-child {
+  border-top: 0;
+}
+
+.okg-row__title {
+  color: var(--okg-color-strong);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-row__meta,
+.okg-row__next {
+  color: var(--okg-color-muted);
+  overflow-wrap: anywhere;
+}
+
+.okg-read-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--okg-space-3);
+  min-height: 2rem;
+  padding: var(--okg-space-2) var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  color: var(--okg-color-link);
+  background: var(--okg-color-surface);
+  text-decoration: none;
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-read-link:hover,
+.okg-read-link:focus-visible {
+  background: var(--okg-color-link-bg);
+  outline: none;
+}
+
+.okg-read-link:focus-visible {
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-read-link__target {
+  color: var(--okg-color-link);
+}
+
+.okg-failure {
+  border: 0.0625rem solid var(--okg-color-warn-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-warn-bg);
+  color: var(--okg-color-warn-text);
+  padding: var(--okg-space-3);
+}
+
+.okg-failure__title {
+  margin: 0 0 var(--okg-space-1);
+  color: var(--okg-color-warn-text);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-failure__body {
+  margin: 0;
+}
+
+/* The next-check guidance sits on its own line, de-emphasized, so it reads as a
+   distinct "what to do" rather than running into the failure summary. */
+.okg-failure__next {
+  margin: var(--okg-space-1) 0 0;
+  font-size: var(--okg-text-xs);
+  opacity: 0.85;
+}
+
+.okg-failure__retry {
+  min-height: 2.25rem;
+  margin-top: var(--okg-space-3);
+  padding: 0 var(--okg-space-3);
+  border: 0.0625rem solid currentColor;
+  border-radius: var(--okg-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--okg-text-sm);
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-failure__retry:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.okg-failure__retry:focus-visible {
+  outline: none;
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-stale-refresh {
+  display: grid;
+  gap: var(--okg-space-2);
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border: 0.0625rem solid var(--okg-color-warn-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-warn-bg);
+  color: var(--okg-color-warn-text);
+}
+
+.okg-stale-refresh__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--okg-space-2);
+  flex-wrap: wrap;
+}
+
+.okg-stale-refresh__head strong {
+  color: var(--okg-color-warn-text);
+}
+
+.okg-stale-refresh__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--okg-space-2) var(--okg-space-4);
+  margin: 0;
+}
+
+.okg-stale-refresh__facts div {
+  min-width: 0;
+}
+
+.okg-stale-refresh__facts dt {
+  margin: 0;
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-stale-refresh__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.okg-stale-refresh__body,
+.okg-stale-refresh__next {
+  margin: 0;
+}
+
+.okg-stale-refresh__next {
+  font-size: var(--okg-text-xs);
+  opacity: 0.86;
+}
+
+.okg-empty {
+  padding: var(--okg-space-4);
+  border: 0.0625rem dashed var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  color: var(--okg-color-muted);
+  background: var(--okg-color-surface-muted);
+}
+
+/* Loading, not empty: a solid border + a pulsing dot read as "filling in",
+   where the dashed empty state reads as "nothing here." */
+.okg-empty--loading {
+  display: flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  border-style: solid;
+  border-color: var(--okg-color-line-soft);
+}
+
+.okg-empty__pulse {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--okg-radius-pill);
+  background: var(--okg-color-link);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .okg-empty__pulse {
+    animation: okg-pulse 1.1s ease-in-out infinite;
+  }}
+
+@keyframes okg-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.okg-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.0625rem var(--okg-space-2);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-pill);
+  background: var(--okg-color-surface-muted);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-medium);
+  white-space: nowrap;
+}
+
+.okg-chip--warn {
+  border-color: var(--okg-color-warn-line);
+  background: var(--okg-color-warn-bg);
+  color: var(--okg-color-warn-text);
+}
+
+.okg-chip--bad {
+  border-color: var(--okg-color-bad-line);
+  background: var(--okg-color-bad-bg);
+  color: var(--okg-color-bad);
+}
+
+.okg-neighborhood__disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--okg-space-2);
+  width: 100%;
+  min-height: 4.5rem;
+  padding: var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-link);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-link-bg);
+  color: var(--okg-color-strong);
+  text-align: left;
+  cursor: pointer;
+}
+
+.okg-neighborhood__disclosure:hover {
+  background: color-mix(in srgb, var(--okg-color-link-bg) 72%, var(--okg-color-surface));
+}
+
+.okg-neighborhood__disclosure:focus-visible {
+  outline: none;
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-neighborhood__disclosure-copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.okg-neighborhood__disclosure-copy > strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-md);
+}
+
+.okg-neighborhood__disclosure-copy > small {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-neighborhood__disclosure-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  color: var(--okg-color-link);
+  font-size: var(--okg-text-sm);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-neighborhood__disclosure-action > span {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: var(--okg-radius-pill);
+  background: var(--okg-color-link);
+  color: var(--okg-color-surface);
+  font-size: var(--okg-text-lg);
+}
+
+.okg-neighborhood__body {
+  display: grid;
+  gap: var(--okg-space-2);
+  min-width: 0;
+  padding: var(--okg-space-3) 0;
+}
+
+.okg-neighborhood__back {
+  justify-self: start;
+  min-height: 2rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--okg-color-link);
+  font-size: var(--okg-text-sm);
+  font-weight: var(--okg-weight-medium);
+  cursor: pointer;
+}
+
+.okg-neighborhood__back:focus-visible {
+  outline: none;
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-neighborhood__head,
+.okg-neighborhood__range,
+.okg-neighborhood__pager,
+.okg-neighborhood__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--okg-space-2);
+}
+
+.okg-neighborhood__head > div {
+  display: grid;
+  gap: var(--okg-space-1);
+}
+
+.okg-neighborhood__head h3 {
+  margin: 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-lg);
+}
+
+.okg-neighborhood__head > strong,
+.okg-neighborhood__range {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-neighborhood__range > span {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.okg-neighborhood__range > span > strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-neighborhood__range small {
+  color: var(--okg-color-subtle);
+}
+
+.okg-neighborhood__add-page {
+  min-height: 2.25rem;
+  padding: 0 var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-link) !important;
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-link) !important;
+  color: var(--okg-color-surface) !important;
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-neighborhood__kicker {
+  color: var(--okg-color-subtle);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-neighborhood__guidance {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  line-height: var(--okg-leading-relaxed);
+}
+
+.okg-neighborhood__search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--okg-space-2);
+}
+
+.okg-neighborhood__tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7.5rem;
+  gap: var(--okg-space-2);
+  align-items: end;
+}
+
+.okg-neighborhood__tools > label {
+  display: grid;
+  gap: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-neighborhood__search button {
+  padding-inline: var(--okg-space-3);
+}
+
+.okg-neighborhood__search input,
+.okg-neighborhood__tools select {
+  min-width: 0;
+  min-height: 2.25rem;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-text);
+}
+
+.okg-neighborhood__search input {
+  width: 100%;
+  padding: 0 var(--okg-space-2);
+}
+
+.okg-neighborhood__tools select {
+  width: 100%;
+  padding: 0 var(--okg-space-2);
+}
+
+.okg-neighborhood__facets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--okg-space-1);
+  max-height: 5.25rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: var(--okg-space-1);
+}
+
+.okg-neighborhood__filters {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-neighborhood__filters summary {
+  cursor: pointer;
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-neighborhood__filters > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--okg-space-2);
+  padding-top: var(--okg-space-2);
+}
+
+.okg-neighborhood__filters label {
+  display: grid;
+  gap: var(--okg-space-1);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-neighborhood__filters select {
+  min-width: 0;
+  min-height: 2.25rem;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-text);
+}
+
+.okg-neighborhood__facets button,
+.okg-neighborhood__pager button,
+.okg-neighborhood__actions button,
+.okg-neighborhood__search button,
+.okg-neighborhood-row button {
+  min-height: 2rem;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-text);
+  cursor: pointer;
+}
+
+.okg-neighborhood__facets button {
+  flex: 0 0 auto;
+  padding: 0 var(--okg-space-2);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-neighborhood__facets button[data-active="true"] {
+  border-color: var(--okg-color-link);
+  background: var(--okg-color-link-bg);
+  color: var(--okg-color-link);
+}
+
+.okg-neighborhood__results {
+  display: grid;
+  max-height: 22rem;
+  overflow-y: auto;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-neighborhood__confirmation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--okg-space-2);
+  padding: var(--okg-space-2);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-success-bg);
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-neighborhood__confirmation button {
+  min-height: 1.75rem;
+  border: 0;
+  background: transparent;
+  color: var(--okg-color-link);
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-neighborhood-row__body span,
+.okg-neighborhood__loading,
+.okg-neighborhood__failure {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-neighborhood__failure {
+  padding: var(--okg-space-3);
+  border-left: 0.1875rem solid var(--okg-color-danger);
+  background: var(--okg-color-danger-bg);
+}
+
+.okg-neighborhood__failure p {
+  margin-top: var(--okg-space-1);
+}
+
+@keyframes okg-instance-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 72rem) {
+
+  .okg-top-status {
+    flex-wrap: wrap;
+    min-height: 0;
+    gap: var(--okg-space-2) var(--okg-space-3);
+    padding-block: var(--okg-space-2);
+  }
+
+  .okg-top-status__spacer {
+    display: none;
+  }
+
+  .okg-top-status__item {
+    flex: 0 0 auto;
+  }
+
+  .okg-top-status__item--generation {
+    flex: 1 1 22rem;
+  }
+
+  .okg-top-status__item--read-only {
+    min-width: auto;
+  }}
+
+@media (max-width: 48rem) {
+
+  .okg-shell {
+    display: block;
+  }
+
+  .okg-shell__rail {
+    padding: var(--okg-space-3);
+  }
+
+  .okg-shell__brand {
+    margin-bottom: var(--okg-space-3);
+  }
+
+  .okg-shell__nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .okg-shell__nav-link {
+    flex: 1 1 5rem;
+    justify-content: center;
+  }
+
+  .okg-shell__rail-note {
+    display: none;
+  }
+
+  .okg-top-status {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding: var(--okg-space-3);
+  }
+
+  .okg-top-status__title,
+  .okg-top-status__spacer {
+    flex-basis: 100%;
+  }
+
+  .okg-top-status__item--generation {
+    flex-basis: 100%;
+  }
+
+  .okg-deployment-selector {
+    min-width: 0;
+    flex: 1 1 14rem;
+  }
+
+  .okg-deployment-selector select {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .okg-main {
+    padding: var(--okg-space-3);
+  }
+
+  .okg-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .okg-health .okg-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .okg-fact-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .okg-health-issue-list {
+    grid-template-columns: 1fr;
+  }
+
+  .okg-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .okg-row__next {
+    grid-column: 2;
+  }}
+
+@media (max-width: 64rem) {
+  .okg-shell {
+    display: block;
+  }
+
+  .okg-shell__rail {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--okg-space-3);
+    min-width: 0;
+    position: relative;
+    top: auto;
+    align-self: stretch;
+    height: auto;
+    padding: var(--okg-space-2) var(--okg-space-3);
+    overflow-y: visible;
+    overflow-x: visible;
+  }
+
+  /* Rail focus mode is a desktop affordance. On compact layouts the rail is
+     already a shallow horizontal bar, so a persisted desktop preference must
+     not strip its labels or leave an unexplained icon-only header. */
+  .okg-shell__rail-toggle {
+    display: none;
+  }
+
+  .okg-shell[data-rail-collapsed="true"] .okg-shell__brand {
+    flex-direction: row;
+  }
+
+  .okg-shell[data-rail-collapsed="true"] .okg-shell__brand-label,
+  .okg-shell[data-rail-collapsed="true"] .okg-shell__nav-label,
+  .okg-shell[data-rail-collapsed="true"] .okg-theme-toggle__label,
+  .okg-shell[data-rail-collapsed="true"] .okg-theme-toggle__caret {
+    display: inline;
+  }
+
+  .okg-shell[data-rail-collapsed="true"] .okg-shell__nav-link,
+  .okg-shell[data-rail-collapsed="true"] .okg-shell__rail-footer .okg-theme-toggle {
+    padding-inline: var(--okg-space-3);
+  }
+
+  .okg-shell__brand {
+    flex: none;
+    margin-bottom: 0;
+  }
+
+  .okg-shell__nav {
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .okg-shell__nav-link {
+    flex: 1 1 5rem;
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  .okg-shell__rail-footer {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  /* Narrow: the rail is a horizontal bar. Keep the chat link compact and
+     drop the undeclared-state note, which has no room and no urgency. */
+  .okg-shell__external-link {
+    margin-bottom: 0;
+  }
+
+  .okg-shell__external-note {
+    display: none;
+  }
+
+  .okg-top-status {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    min-height: 0;
+    gap: var(--okg-space-2);
+    padding: var(--okg-space-2) var(--okg-space-3);
+  }
+
+  .okg-top-status__title {
+    flex: 0 0 auto;
+  }
+
+  .okg-top-status__spacer {
+    display: none;
+  }
+
+  .okg-top-status__item {
+    flex: 1 1 9rem;
+    min-width: 9rem;
+  }
+
+  .okg-top-status__item--generation {
+    flex: 1 1 100%;
+  }
+
+  .okg-deployment-selector {
+    min-width: 0;
+    flex: 1 1 14rem;
+  }
+
+  .okg-deployment-selector select {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1;
+  }
+
+  .okg-health-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .okg-health-trust {
+    grid-template-columns: 1fr;
+  }
+
+  .okg-health-trust__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-top: 0.0625rem solid var(--okg-color-line);
+    border-left: 0;
+  }
+
+  .okg-health-trust__facts > div {
+    padding: var(--okg-space-3);
+  }
+
+  .okg-health-read-failure {
+    grid-template-columns: 1fr;
+  }
+
+  .okg-health-lifecycle__path,
+  .okg-health-lifecycle__step,
+  .okg-health-population__rows > div {
+    grid-template-columns: 1fr;
+  }
+
+  .okg-health-lifecycle__step > i {
+    display: none;
+  }
+
+  .okg-health-workspace__head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .okg-health-workspace__grid,
+  .okg-producer-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .okg-health-summary .okg-fact-grid,
+  .okg-health-stages {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .okg-health-stage:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .okg-health-stage:nth-child(n + 3) {
+    border-top: 0.0625rem solid var(--okg-color-line-soft);
+  }
+
+  .okg-health-table,
+  .okg-health-table thead,
+  .okg-health-table tbody,
+  .okg-health-table tr,
+  .okg-health-table th,
+  .okg-health-table td {
+    display: block;
+  }
+
+  .okg-health-table {
+    min-width: 0;
+  }
+
+  .okg-health-table thead {
+    display: none;
+  }
+
+  .okg-health-table tr {
+    padding: var(--okg-space-3) 0;
+    border-top: 0.0625rem solid var(--okg-color-line-soft);
+  }
+
+  .okg-health-table tr:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .okg-health-table td {
+    display: grid;
+    grid-template-columns: minmax(7rem, 0.36fr) minmax(0, 1fr);
+    gap: var(--okg-space-2);
+    padding: var(--okg-space-1) 0;
+    border-top: 0;
+  }
+
+  .okg-health-table td::before {
+    content: attr(data-label);
+    color: var(--okg-color-muted);
+    font-size: var(--okg-text-xs);
+    font-weight: var(--okg-weight-bold);
+    text-transform: uppercase;
+  }}
+/* Workflow diagnostics status chip. */
+.okg-graph-diagnostics .okg-chip[data-status="ok"] {
+  border-color: var(--okg-color-ok-line);
+  background: var(--okg-color-ok-bg);
+  color: var(--okg-color-strong);
+}
+.okg-graph-diagnostics .okg-chip[data-status="error"] {
+  background: var(--okg-color-bad-bg);
+  color: var(--okg-color-bad);
+}
+
+.okg-compact-run-overview {
+  display: grid;
+  gap: var(--okg-space-3);
+  margin-top: var(--okg-space-3);
+  border-top: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-compact-run-failure,
+.okg-compact-run-outcome {
+  display: grid;
+  gap: var(--okg-space-1);
+  padding: var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-compact-run-failure {
+  border-color: var(--okg-color-bad-line);
+  background: var(--okg-color-bad-bg);
+  color: var(--okg-color-bad);
+}
+
+.okg-compact-run-failure > span {
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.okg-compact-run-failure strong {
+  font-size: var(--okg-text-lg);
+}
+
+.okg-compact-run-failure p,
+.okg-compact-run-outcome span {
+  margin: 0;
+  color: var(--okg-color-text);
+}
+
+.okg-compact-run-outcome {
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-compact-run-table {
+  min-width: 48rem;
+}
+
+.okg-compact-run-table td:last-child {
+  max-width: 40rem;
+  text-align: left;
+  white-space: normal;
+}
+
+.okg-perf-execution-summary__actions button,
+.okg-perf-execution-inspector__actions button.okg-button-primary {
+  border-color: var(--okg-color-link);
+  background: var(--okg-color-link);
+  color: var(--okg-color-surface);
+}
+
+.okg-perf-execution-inspector__actions button.okg-button-quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--okg-color-muted);
+}
+
+.d3-flame-graph-tip {
+  min-width: 16rem;
+  padding: var(--okg-space-2);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-strong);
+  color: var(--okg-color-surface);
+  font-size: var(--okg-text-xs);
+  z-index: 10;
+}
+
+@media (max-width: 30rem) {
+  /* Phone: keep the top nav wrapped so every view is reachable without a
+     horizontal swipe. */
+  .okg-shell__rail {
+    overflow-x: visible;
+  }
+
+  .okg-shell__nav {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .okg-shell__nav-link {
+    flex: 1 1 5rem;
+  }}
+
+.okg-home-briefing {
+  padding: var(--okg-space-4);
+}
+
+.okg-home-eyebrow,
+.okg-home-fact dt {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.okg-home-briefing__lead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--okg-space-3);
+  align-items: start;
+  margin-top: var(--okg-space-2);
+}
+
+.okg-home-briefing__lead > .okg-status-dot {
+  margin-top: 0.45rem;
+}
+
+.okg-home-briefing__posture {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-sm);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-home-briefing h1 {
+  margin: 0.15rem 0 0;
+  color: var(--okg-color-strong);
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+  line-height: var(--okg-leading-tight);
+}
+
+.okg-home-briefing p {
+  max-width: 50rem;
+  margin: var(--okg-space-1) 0 0;
+  color: var(--okg-color-muted);
+}
+
+.okg-home-primary-link,
+.okg-home-target {
+  color: var(--okg-color-link);
+  font-weight: var(--okg-weight-bold);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.okg-home-primary-link {
+  align-self: center;
+  padding: var(--okg-space-2) var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+}
+
+.okg-home-primary-link:hover,
+.okg-home-primary-link:focus-visible,
+.okg-home-target:hover,
+.okg-home-target:focus-visible {
+  color: var(--okg-color-accent);
+  text-decoration: underline;
+}
+
+.okg-home-primary-link:focus-visible,
+.okg-home-target:focus-visible,
+.okg-home-run:focus-visible,
+.okg-home-event:focus-visible,
+.okg-home-pause:focus-visible {
+  outline: none;
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-home-facts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: var(--okg-space-4) 0 0;
+  padding: var(--okg-space-3) 0 0;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-home-fact {
+  min-width: 0;
+  padding: 0 var(--okg-space-3);
+  border-left: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-home-fact:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.okg-home-fact dd {
+  margin: 0;
+}
+
+.okg-home-fact__value {
+  display: block;
+  font-size: var(--okg-text-lg);
+}
+
+.okg-home-fact__meta {
+  display: block;
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(19rem, 0.85fr);
+  gap: var(--okg-space-3);
+  align-items: start;
+}
+
+.okg-home-live {
+  position: sticky;
+  top: calc(var(--okg-space-4) + 3.25rem);
+}
+
+.okg-home-surface__header {
+  align-items: center;
+  flex-wrap: nowrap;
+  min-height: 3rem;
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-home-surface__header h2 {
+  letter-spacing: 0.045em;
+}
+
+.okg-home-surface__header p,
+.okg-home-surface__header > span {
+  margin: 0.15rem 0 0;
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-queue-wrap {
+  overflow-x: auto;
+}
+
+.okg-home-queue {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.okg-home-queue th {
+  padding: var(--okg-space-2) var(--okg-space-3);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  color: var(--okg-color-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.okg-home-queue td {
+  padding: var(--okg-space-3);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  vertical-align: top;
+}
+
+.okg-home-queue tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.okg-home-severity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  color: var(--okg-color-strong);
+  font-weight: var(--okg-weight-bold);
+  white-space: nowrap;
+}
+
+.okg-home-issue,
+.okg-home-freshness__state,
+.okg-home-freshness__copy {
+  display: grid;
+  gap: 0.1875rem;
+}
+
+.okg-home-issue strong,
+.okg-home-freshness__copy strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-home-issue span,
+.okg-home-evidence,
+.okg-home-freshness__copy span {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-target {
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-freshness {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.okg-home-freshness li {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr) auto;
+  gap: var(--okg-space-3);
+  align-items: start;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  border-left: 0.1875rem solid transparent;
+}
+
+.okg-home-freshness li:last-child { border-bottom: 0; }
+.okg-home-freshness li[data-tone="ok"] { border-left-color: var(--okg-color-ok); }
+.okg-home-freshness li[data-tone="warn"] { border-left-color: var(--okg-color-warn); }
+.okg-home-freshness li[data-tone="bad"] { border-left-color: var(--okg-color-bad); }
+.okg-home-freshness li[data-tone="info"] { border-left-color: var(--okg-color-info); }
+
+.okg-home-freshness__state {
+  color: var(--okg-color-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.okg-home-freshness__state strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-sm);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.okg-home-live-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-home-runs {
+  display: grid;
+}
+
+.okg-home-run {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--okg-space-3);
+  align-items: center;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  color: inherit;
+  text-decoration: none;
+}
+
+.okg-home-run:last-child { border-bottom: 0; }
+.okg-home-run:hover,
+.okg-home-event:hover { background: var(--okg-color-surface-muted); }
+
+.okg-home-run__main {
+  display: flex;
+  min-width: 0;
+  gap: var(--okg-space-2);
+  align-items: flex-start;
+}
+
+.okg-home-run__main > .okg-status-dot { margin-top: 0.3rem; }
+
+.okg-home-run__copy {
+  min-width: 0;
+}
+
+.okg-home-run__copy strong,
+.okg-home-run__copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-home-run__copy strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-home-run__copy small {
+  margin-top: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  font-size: 0.6875rem;
+}
+
+.okg-home-run__state {
+  display: grid;
+  gap: var(--okg-space-1);
+  justify-items: end;
+}
+
+.okg-home-run__state strong {
+  color: var(--okg-color-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-home-run__state span,
+.okg-home-event__target {
+  color: var(--okg-color-link);
+  font-size: 0.6875rem;
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-home-pause {
+  padding: var(--okg-space-1) var(--okg-space-2);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-link);
+  font: inherit;
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-home-pause[aria-pressed="true"] {
+  border-color: var(--okg-color-warn-line);
+  background: var(--okg-color-warn-bg);
+  color: var(--okg-color-warn-text);
+}
+
+.okg-home-events {
+  max-height: 27rem;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.okg-home-events li {
+  position: relative;
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-home-events li:last-child { border-bottom: 0; }
+
+.okg-home-events li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 1.6rem;
+  bottom: -0.75rem;
+  left: 5rem;
+  width: 0.0625rem;
+  background: var(--okg-color-line);
+}
+
+.okg-home-event {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 3.25rem auto minmax(0, 1fr) auto;
+  gap: var(--okg-space-2);
+  padding: var(--okg-space-3) var(--okg-space-4);
+  color: inherit;
+  text-decoration: none;
+}
+
+.okg-home-event time {
+  color: var(--okg-color-muted);
+  font-size: 0.6875rem;
+}
+
+.okg-home-event > .okg-status-dot { margin-top: 0.2rem; }
+
+.okg-home-event__copy {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.okg-home-event__copy strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-event__copy span {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-event__target { align-self: center; }
+
+.okg-home-empty,
+.okg-home-activity-failure {
+  padding: var(--okg-space-4);
+  color: var(--okg-color-muted);
+}
+
+.okg-home-activity-failure {
+  display: grid;
+  gap: var(--okg-space-1);
+  border-left: 0.1875rem solid var(--okg-color-bad);
+  background: var(--okg-color-bad-bg);
+  color: var(--okg-color-bad);
+}
+
+@media (max-width: 1100px) {
+  .okg-home-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.72fr);
+  }
+
+  .okg-home-queue th:nth-child(3),
+  .okg-home-queue td:nth-child(3) {
+    display: none;
+  }}
+
+@media (max-width: 820px) {
+  .okg-home-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .okg-home-live {
+    position: static;
+  }
+
+  .okg-home-events {
+    max-height: none;
+  }}
+
+@media (max-width: 680px) {
+  .okg-home-briefing__lead {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .okg-home-primary-link {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .okg-home-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: var(--okg-space-3);
+  }
+
+  .okg-home-fact:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .okg-home-fact:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .okg-home-freshness li {
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+  }
+
+  .okg-home-freshness .okg-home-target {
+    grid-column: 2;
+    justify-self: start;
+  }}
+
+/* Restored approved Health visual system — 2026-07-20 */
+.okg-health-condition {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--okg-space-5);
+  padding: var(--okg-space-4) 0 var(--okg-space-5);
+  border-bottom: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-health-condition > div {
+  min-width: 0;
+}
+
+.okg-health-condition > div > span,
+.okg-health-producer-rail > header > span,
+.okg-health-producer-rail > section > span {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.okg-health-condition h1 {
+  max-width: 58rem;
+  margin: var(--okg-space-1) 0 0;
+  color: var(--okg-color-strong);
+  font-size: clamp(1.85rem, 2.6vw, 2.75rem);
+  letter-spacing: -0.04em;
+  line-height: 1.02;
+}
+
+.okg-health-condition p {
+  max-width: 58rem;
+  margin: var(--okg-space-2) 0 0;
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-base);
+  line-height: var(--okg-leading-relaxed);
+}
+
+.okg-health-condition > button {
+  flex: none;
+  min-height: 2.5rem;
+  padding: 0 var(--okg-space-4);
+  border: 0;
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-link);
+  color: var(--okg-color-on-accent, #fff);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+  box-shadow: var(--okg-shadow-sm);
+}
+
+.okg-health-condition > button:hover,
+.okg-health-condition > button:focus-visible {
+  filter: brightness(1.08);
+  outline: 0.125rem solid var(--okg-color-focus);
+  outline-offset: 0.125rem;
+}
+
+.okg-health-runtime,
+.okg-health-system {
+  overflow: hidden;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-runtime > .okg-health-section-heading,
+.okg-health-system > .okg-health-section-heading {
+  align-items: center;
+  min-height: 4rem;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line);
+}
+
+.okg-health-runtime > .okg-health-section-heading > span,
+.okg-health-system > .okg-health-section-heading > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+}
+
+.okg-health-resource-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.okg-health-resource-grid > div {
+  display: grid;
+  align-content: start;
+  gap: var(--okg-space-1);
+  min-height: 9rem;
+  padding: var(--okg-space-4);
+  border-right: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-resource-grid > div:last-child {
+  border-right: 0;
+}
+
+.okg-health-resource-grid > div > span,
+.okg-health-resource-grid > div > small {
+  color: var(--okg-color-muted);
+}
+
+.okg-health-resource-grid > div > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.okg-health-resource-grid strong {
+  margin-top: var(--okg-space-2);
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-xl);
+}
+
+.okg-health-resource-grid p {
+  margin: auto 0 0;
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-health-runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.okg-health-runtime-grid > button,
+.okg-health-runtime-grid > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--okg-space-3);
+  min-height: 4.25rem;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border: 0;
+  border-right: 0.0625rem solid var(--okg-color-line-soft);
+  background: var(--okg-color-surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.okg-health-runtime-grid > button {
+  cursor: pointer;
+}
+
+.okg-health-runtime-grid > :last-child {
+  border-right: 0;
+}
+
+.okg-health-runtime-grid > button:hover,
+.okg-health-runtime-grid > button:focus-visible {
+  background: var(--okg-color-link-bg);
+  outline: none;
+  box-shadow: inset 0 -0.1875rem 0 var(--okg-color-link);
+}
+
+.okg-health-runtime-grid > button > span,
+.okg-health-runtime-grid > div > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  text-transform: uppercase;
+}
+
+.okg-health-runtime-grid > button > strong,
+.okg-health-runtime-grid > div > strong {
+  color: var(--okg-color-strong);
+  text-align: right;
+}
+
+.okg-health-system__plot-heading {
+  border-top: 0;
+}
+
+.okg-health-system-plots {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.okg-health-system-plot {
+  min-width: 0;
+  padding: var(--okg-space-4);
+  border-right: 0.0625rem solid var(--okg-color-line-soft);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-system-plot:last-child {
+  border-right: 0;
+}
+
+.okg-health-system-plot {
+  border-bottom: 0;
+}
+
+.okg-health-system-plot > header {
+  display: flex;
+  gap: var(--okg-space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.okg-health-system-plot h3 {
+  margin: 0;
+}
+
+.okg-health-system-plot h3 {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-md);
+}
+
+.okg-health-system-plot footer {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-health-system-plot > header > strong {
+  flex: none;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-lg);
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-health-system-plot__chart {
+  position: relative;
+  margin-top: var(--okg-space-2);
+}
+
+.okg-health-system-plot__chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.okg-health-system-plot__grid {
+  stroke: var(--okg-color-line-soft);
+  stroke-width: 1;
+}
+
+.okg-health-system-plot__axis,
+.okg-health-system-plot__time {
+  fill: var(--okg-color-muted);
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-health-system-plot__line {
+  fill: none;
+  stroke: var(--okg-color-link);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.25;
+  vector-effect: non-scaling-stroke;
+}
+
+.okg-health-system-plot__point {
+  fill: var(--okg-color-surface);
+  stroke: var(--okg-color-link);
+  opacity: 0;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.okg-health-system-plot__point.is-latest,
+.okg-health-system-plot__point.is-active,
+.okg-health-system-plot__point:focus-visible {
+  opacity: 1;
+}
+
+.okg-health-system-plot__point.is-active,
+.okg-health-system-plot__point:focus-visible {
+  outline: none;
+  fill: var(--okg-color-link);
+}
+
+.okg-health-system-plot__cursor {
+  stroke: var(--okg-color-muted);
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.okg-health-system-plot__inspection {
+  min-height: 1.25rem;
+  margin-top: var(--okg-space-1);
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-health-system-plot__empty {
+  display: grid;
+  min-height: 11.25rem;
+  place-items: center;
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-health-system-plot footer {
+  min-height: 1rem;
+}
+
+.okg-health-system__note {
+  margin: 0;
+  padding: var(--okg-space-2) var(--okg-space-4);
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+  background: var(--okg-color-surface-muted);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-health-condition-row {
+  display: grid;
+  grid-template-columns: auto minmax(14rem, 1fr) minmax(16rem, 1fr) auto;
+  gap: var(--okg-space-3);
+  align-items: center;
+  width: 100%;
+  min-height: 4.5rem;
+  padding: var(--okg-space-3);
+  border: 0;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.okg-health-condition-row:hover,
+.okg-health-condition-row:focus-visible {
+  background: var(--okg-color-link-bg);
+  outline: none;
+}
+
+.okg-health-condition-row > span:not(.okg-status-dot) {
+  display: grid;
+  gap: var(--okg-space-1);
+  min-width: 0;
+}
+
+.okg-health-condition-row strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-condition-row small {
+  color: var(--okg-color-muted);
+  overflow-wrap: anywhere;
+}
+
+.okg-health-condition-row em {
+  color: var(--okg-color-link);
+  font-style: normal;
+  font-weight: var(--okg-weight-bold);
+  white-space: nowrap;
+}
+
+.okg-health-attention__more {
+  width: 100%;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border: 0;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+  background: var(--okg-color-surface-muted);
+  color: var(--okg-color-link);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  text-align: left;
+  cursor: pointer;
+}
+
+.okg-health-attention__more:hover,
+.okg-health-attention__more:focus-visible {
+  background: var(--okg-color-link-bg);
+  outline: none;
+}
+
+.okg-health-producer-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  max-width: 100%;
+  min-height: 32rem;
+  overflow: hidden;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-producer-layout.has-detail {
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+}
+
+.okg-health-producer-layout .okg-health-producer-table-wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  max-height: 40rem;
+  border: 0;
+  border-radius: 0;
+}
+
+.okg-health-producer-table tbody tr {
+  cursor: pointer;
+}
+
+.okg-health-producer-table tbody tr:focus-visible,
+.okg-health-producer-table tbody tr.is-selected {
+  background: var(--okg-color-link-bg);
+  outline: none;
+  box-shadow: inset 0.1875rem 0 0 var(--okg-color-link);
+}
+
+.okg-health-producer-table thead th:last-child,
+.okg-health-producer-table tbody td:last-child {
+  position: static;
+  box-shadow: none;
+}
+
+.okg-health-producer-rail {
+  min-width: 0;
+  padding: var(--okg-space-4);
+  border-left: 0.0625rem solid var(--okg-color-line);
+  background: var(--okg-color-surface);
+}
+
+.okg-health-producer-rail > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--okg-space-3);
+}
+
+.okg-health-producer-rail > header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+}
+
+.okg-health-producer-rail > header > button {
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--okg-color-muted);
+  font: inherit;
+  font-size: 1.35rem;
+  cursor: pointer;
+}
+
+.okg-health-producer-rail > header > button:hover,
+.okg-health-producer-rail > header > button:focus-visible {
+  background: var(--okg-color-surface-muted);
+  color: var(--okg-color-strong);
+  outline: none;
+}
+
+.okg-health-producer-rail h2 {
+  margin: var(--okg-space-4) 0 var(--okg-space-1);
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-xl);
+  overflow-wrap: anywhere;
+}
+
+.okg-health-producer-rail > p {
+  margin: 0;
+  color: var(--okg-color-muted);
+}
+
+.okg-health-producer-rail__condition {
+  display: grid;
+  gap: var(--okg-space-1);
+  margin: var(--okg-space-4) calc(-1 * var(--okg-space-4)) 0;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-block: 0.0625rem solid var(--okg-color-line);
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-health-producer-rail__condition.is-warn,
+.okg-health-producer-rail__condition.is-bad {
+  background: var(--okg-color-warn-bg);
+}
+
+.okg-health-producer-rail__condition strong {
+  color: var(--okg-color-strong);
+}
+
+.okg-health-producer-rail__condition span {
+  color: var(--okg-color-muted);
+  line-height: 1.45;
+}
+
+.okg-health-producer-rail dl {
+  margin: 0;
+}
+
+.okg-health-producer-rail dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--okg-space-3);
+  padding: var(--okg-space-3) 0;
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-producer-rail dt {
+  color: var(--okg-color-muted);
+}
+
+.okg-health-producer-rail dd {
+  margin: 0;
+  color: var(--okg-color-strong);
+  font-weight: var(--okg-weight-bold);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.okg-health-producer-rail__actions {
+  padding: var(--okg-space-4) 0;
+}
+
+.okg-health-producer-rail__actions button {
+  width: 100%;
+  min-height: 2.5rem;
+  border: 0;
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-link);
+  color: var(--okg-color-on-accent, #fff);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+.okg-health-producer-rail > section {
+  padding: var(--okg-space-3) 0;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-health-producer-rail > section p {
+  margin: var(--okg-space-2) 0 0;
+  color: var(--okg-color-muted);
+  line-height: 1.5;
+}
+
+.okg-health-check-heading-tools {
+  display: grid;
+  justify-items: end;
+  gap: var(--okg-space-2);
+}
+
+.okg-health-context-selection {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  padding: 0.4rem 0.55rem;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: 999px;
+  background: var(--okg-color-surface);
+}
+
+.okg-health-context-selection button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--okg-color-link);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+  cursor: pointer;
+}
+
+@media (max-width: 72rem) {
+  .okg-health-resource-grid,
+    .okg-health-runtime-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }}
+
+@media (max-width: 72rem) {
+  .okg-health-resource-grid > div:nth-child(2),
+    .okg-health-resource-grid > div:nth-child(4),
+    .okg-health-runtime-grid > :nth-child(even) {
+      border-right: 0;
+    }}
+
+@media (max-width: 72rem) {
+  .okg-health-resource-grid > div:nth-child(n + 3),
+    .okg-health-runtime-grid > :nth-child(n + 3) {
+      border-top: 0.0625rem solid var(--okg-color-line-soft);
+    }}
+
+@media (max-width: 72rem) {
+  .okg-health-producer-layout.has-detail {
+      grid-template-columns: minmax(0, 1fr) minmax(17rem, 20rem);
+    }}
+
+@media (max-width: 56rem) {
+  .okg-health-condition,
+    .okg-health-view-heading {
+      align-items: flex-start;
+      flex-direction: column;
+    }}
+
+@media (max-width: 56rem) {
+  .okg-health-condition-row {
+      grid-template-columns: auto minmax(0, 1fr);
+    }}
+
+@media (max-width: 56rem) {
+  .okg-health-condition-row > span:nth-of-type(2),
+    .okg-health-condition-row > em {
+      grid-column: 2;
+    }}
+
+@media (max-width: 56rem) {
+  .okg-health-producer-layout.has-detail {
+      grid-template-columns: minmax(0, 1fr);
+    }}
+
+@media (max-width: 56rem) {
+  .okg-health-system-plots {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }}
+
+@media (max-width: 56rem) {
+  .okg-health-system-plot,
+    .okg-health-system-plot:last-child {
+      border-right: 0.0625rem solid var(--okg-color-line-soft);
+      border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+    }}
+
+@media (max-width: 56rem) {
+  .okg-health-system-plot:nth-child(even) {
+      border-right: 0;
+    }}
+
+@media (max-width: 56rem) {
+  .okg-health-system-plot:nth-last-child(-n + 2) {
+      border-bottom: 0;
+    }}
+
+@media (max-width: 56rem) {
+  .okg-health-producer-rail {
+      order: -1;
+      border-top: 0.0625rem solid var(--okg-color-line);
+      border-left: 0;
+    }}
+
+@media (max-width: 56rem) {
+  .okg-health-producer-layout.has-detail .okg-health-producer-table-wrap {
+      max-height: 30rem;
+      border-top: 0.0625rem solid var(--okg-color-line);
+    }}
+
+@media (max-width: 40rem) {
+  .okg-health-nav {
+      overflow-x: auto;
+    }}
+
+@media (max-width: 40rem) {
+  .okg-health-section-heading {
+      min-width: 0;
+      align-items: flex-start;
+      flex-direction: column;
+      gap: var(--okg-space-2);
+    }
+
+  .okg-health-section-heading > span {
+      flex: auto;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }}
+
+@media (max-width: 40rem) {
+  .okg-health-resource-grid,
+    .okg-health-runtime-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }}
+
+@media (max-width: 40rem) {
+  .okg-health-system-plots {
+      grid-template-columns: minmax(0, 1fr);
+    }}
+
+@media (max-width: 40rem) {
+  .okg-health-system-plot,
+    .okg-health-system-plot:nth-child(even),
+    .okg-health-system-plot:nth-last-child(-n + 2) {
+      border-right: 0;
+      border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+    }}
+
+@media (max-width: 40rem) {
+  .okg-health-system-plot:last-child {
+      border-bottom: 0;
+    }}
+
+@media (max-width: 40rem) {
+  .okg-health-resource-grid > div,
+    .okg-health-runtime-grid > button,
+    .okg-health-runtime-grid > div {
+      border-top: 0.0625rem solid var(--okg-color-line-soft);
+      border-right: 0;
+    }}
+
+
+
+/* Deployment control plane. */
+
+
+.okg-deployment-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  color: var(--okg-color-muted);
+  font-weight: var(--okg-weight-medium);
+}
+
+.okg-deployment-selector select {
+  min-width: 9rem;
+  max-width: 14rem;
+  min-height: 1.875rem;
+  padding: 0 var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-strong);
+  font: inherit;
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-deployment-selector select:focus-visible {
+  outline: none;
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-deployment-environment-selector {
+  display: none;
+}
+
+@media (max-width: 48rem) {
+
+  .okg-deployment-selector {
+    min-width: 0;
+    flex: 1 1 14rem;
+  }
+
+  .okg-deployment-selector select {
+    min-width: 0;
+    flex: 1;
+  }}
+
+@media (max-width: 64rem) {
+
+  .okg-deployment-selector {
+    min-width: 0;
+    flex: 1 1 14rem;
+  }
+
+  .okg-deployment-selector select {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1;
+  }}
+
+/* ---------------------------------------------------------------------------
+   AKMON operator shell
+
+   The OKG selector belongs to the navigation context, not a repeated page
+   header. Keep route chrome quiet so each operational surface starts at the
+   top of the workspace.
+   --------------------------------------------------------------------------- */
+.okg-shell {
+  grid-template-columns: auto minmax(0, 1fr);
+  --okg-live-rail-width: 10.5rem;
+}
+
+.okg-shell__rail {
+  width: var(--okg-live-rail-width);
+  min-width: 4rem;
+  max-width: 18rem;
+  padding: 0 var(--okg-space-3) var(--okg-space-3);
+  overflow-x: hidden;
+  resize: horizontal;
+}
+
+.okg-shell__brand {
+  min-height: 4.1rem;
+  margin: 0;
+  gap: var(--okg-space-2);
+}
+
+.okg-shell__brand-mark {
+  width: 2.05rem;
+  height: 2.05rem;
+  border-radius: var(--okg-radius-sm);
+}
+
+.okg-shell__brand-mark svg {
+  width: 82%;
+  height: 82%;
+}
+
+.okg-shell__brand-copy {
+  display: grid;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.okg-shell__brand-label {
+  line-height: 1;
+}
+
+.okg-shell__brand-role {
+  color: var(--okg-color-rail-muted);
+  font-family: var(--okg-font-mono);
+  font-size: 0.5625rem;
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.16em;
+}
+
+.okg-shell__meander {
+  width: calc(100% + (var(--okg-space-3) * 2));
+  height: 0.5rem;
+  margin: 0 calc(var(--okg-space-3) * -1);
+  background: var(--okg-color-brand-mark);
+  mask-image: url("./hellenic-meander-band.png");
+  mask-repeat: repeat-x;
+  mask-position: center;
+  mask-size: auto 100%;
+}
+
+.okg-shell__nav {
+  margin-top: 5.7rem;
+}
+
+.okg-shell__rail-footer::before {
+  display: block;
+  margin: 0 0 var(--okg-space-2) var(--okg-space-1);
+  color: var(--okg-color-rail-muted);
+  content: "APPEARANCE";
+  font-family: var(--okg-font-mono);
+  font-size: 0.5625rem;
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.14em;
+}
+
+.okg-shell__rail-footer .okg-theme-toggle {
+  border: 0;
+  background: var(--okg-color-rail-hover);
+}
+
+/* The AKMON rail uses a larger firing chip than the base picker does.
+ *
+ * This was one descendant rule, `.okg-shell__rail-footer .okg-theme-swatch`,
+ * and it reached the MENU's chips as well as the trigger's only because the
+ * menu happened to be rendered inside the rail. The menu is now portaled to
+ * <body> (see `.okg-theme-menu`), so that reach is gone and the two mounts are
+ * named: the menu carries its own chip size rather than inheriting one from
+ * wherever it is rendered. Measured before and after, the chips are 1.5rem in
+ * both — this keeps the menu's appearance identical across the portal so the
+ * only visual difference the change makes is the clip disappearing. */
+.okg-shell__rail-footer .okg-theme-toggle .okg-theme-swatch,
+.okg-theme-menu .okg-theme-swatch {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+}
+
+.okg-top-status {
+  display: contents;
+}
+
+.okg-top-status > :not(.okg-deployment-selector):not(.okg-top-status__refresh) {
+  display: none;
+}
+
+.okg-top-status > .okg-deployment-selector {
+  position: fixed;
+  z-index: 4;
+  top: 5rem;
+  left: var(--okg-space-3);
+  display: grid;
+  width: max(3rem, calc(var(--okg-live-rail-width) - 3.75rem));
+  gap: var(--okg-space-1);
+  color: var(--okg-color-rail-muted);
+  font-family: var(--okg-font-mono);
+  font-size: 0.5625rem;
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.14em;
+}
+
+.okg-top-status > .okg-deployment-selector select {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  min-height: 2rem;
+  padding: 0 0.375rem;
+  border-color: var(--okg-color-rail-border);
+  background: var(--okg-color-rail-hover);
+  color: var(--okg-color-rail-text);
+  font-family: var(--okg-font-sans);
+  font-size: 0.6875rem;
+  letter-spacing: 0;
+}
+
+.okg-top-status > .okg-top-status__refresh {
+  position: fixed;
+  z-index: 4;
+  top: 6.05rem;
+  left: calc(var(--okg-live-rail-width) - 2.75rem);
+  width: 2rem;
+  height: 2rem;
+  justify-content: center;
+  padding: 0;
+  border-color: var(--okg-color-rail-border);
+  background: var(--okg-color-rail-hover);
+  color: var(--okg-color-rail-text);
+  font-size: 0;
+}
+
+.okg-top-status > .okg-top-status__refresh .okg-top-status__refresh-icon {
+  font-size: 1rem;
+}
+
+.okg-main {
+  min-height: 100vh;
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-shell__brand {
+  flex-direction: row;
+  justify-content: center;
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-shell__brand-copy,
+.okg-shell[data-rail-collapsed="true"] .okg-shell__nav-label,
+.okg-shell[data-rail-collapsed="true"] .okg-theme-toggle__label,
+.okg-shell[data-rail-collapsed="true"] .okg-theme-toggle__caret,
+.okg-shell[data-rail-collapsed="true"] .okg-shell__rail-footer::before,
+.okg-shell[data-rail-collapsed="true"] .okg-top-status > .okg-deployment-selector,
+.okg-shell[data-rail-collapsed="true"] .okg-top-status > .okg-top-status__refresh {
+  display: none;
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-shell__nav {
+  margin-top: var(--okg-space-4);
+}
+
+.okg-shell[data-rail-collapsed="true"] .okg-shell__nav-link,
+.okg-shell[data-rail-collapsed="true"] .okg-shell__rail-footer .okg-theme-toggle {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+@media (max-width: 44rem) {
+  .okg-shell__rail {
+    width: 4rem;
+    resize: none;
+  }}
+
+/* Restored approved Home, Health, and Graph visual surfaces. */
+
+.okg-home--mission-control {
+  gap: var(--okg-space-3);
+}
+
+.okg-home-briefing,
+.okg-home-surface {
+  overflow: hidden;
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-lg);
+  background: var(--okg-color-surface);
+}
+
+.okg-home-briefing {
+  padding: var(--okg-space-4);
+}
+
+.okg-home-eyebrow,
+.okg-home-fact dt {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.okg-home-briefing__lead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--okg-space-3);
+  align-items: start;
+  margin-top: var(--okg-space-2);
+}
+
+.okg-home-briefing__lead > .okg-status-dot {
+  margin-top: 0.45rem;
+}
+
+.okg-home-briefing__posture {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-sm);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-home-briefing h1 {
+  margin: 0.15rem 0 0;
+  color: var(--okg-color-strong);
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+  line-height: var(--okg-leading-tight);
+}
+
+.okg-home-briefing p {
+  max-width: 50rem;
+  margin: var(--okg-space-1) 0 0;
+  color: var(--okg-color-muted);
+}
+
+.okg-home-primary-link,
+.okg-home-target {
+  color: var(--okg-color-link);
+  font-weight: var(--okg-weight-bold);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.okg-home-primary-link {
+  align-self: center;
+  padding: var(--okg-space-2) var(--okg-space-3);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+}
+
+.okg-home-primary-link:hover,
+.okg-home-primary-link:focus-visible,
+.okg-home-target:hover,
+.okg-home-target:focus-visible {
+  color: var(--okg-color-accent);
+  text-decoration: underline;
+}
+
+.okg-home-primary-link:focus-visible,
+.okg-home-target:focus-visible,
+.okg-home-run:focus-visible,
+.okg-home-event:focus-visible,
+.okg-home-pause:focus-visible {
+  outline: none;
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-home-facts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: var(--okg-space-4) 0 0;
+  padding: var(--okg-space-3) 0 0;
+  border-top: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-home-fact {
+  min-width: 0;
+  padding: 0 var(--okg-space-3);
+  border-left: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-home-fact:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.okg-home-fact dd {
+  margin: 0;
+}
+
+.okg-home-fact__value {
+  display: block;
+  margin-top: var(--okg-space-1);
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-lg);
+  font-weight: var(--okg-weight-bold);
+  line-height: var(--okg-leading-tight);
+}
+
+.okg-home-fact__meta {
+  display: block;
+  margin-top: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-fact__bar {
+  display: flex;
+  height: 0.3125rem;
+  margin-top: var(--okg-space-2);
+  overflow: hidden;
+  border-radius: var(--okg-radius-pill);
+  background: var(--okg-color-line-soft);
+}
+
+.okg-home-fact__bar i {
+  display: block;
+  height: 100%;
+}
+
+.okg-home-fact__bar i[data-tone="ok"] { background: var(--okg-color-ok); }
+
+.okg-home-fact__bar i[data-tone="warn"] { background: var(--okg-color-warn); }
+
+.okg-home-fact__bar i[data-tone="bad"] { background: var(--okg-color-bad); }
+
+.okg-home-fact__bar i[data-tone="info"] { background: var(--okg-color-info); }
+
+.okg-home-fact__bar i[data-tone="neutral"] { background: var(--okg-color-muted); }
+
+.okg-home-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(19rem, 0.85fr);
+  gap: var(--okg-space-3);
+  align-items: start;
+}
+
+.okg-home-main-stack,
+.okg-home-live {
+  display: grid;
+  gap: var(--okg-space-3);
+}
+
+.okg-home-live {
+  position: sticky;
+  top: calc(var(--okg-space-4) + 3.25rem);
+}
+
+.okg-home-surface__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--okg-space-3);
+  min-height: 3rem;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-home-surface__header h2 {
+  margin: 0;
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-sm);
+  font-weight: var(--okg-weight-bold);
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.okg-home-surface__header p,
+.okg-home-surface__header > span {
+  margin: 0.15rem 0 0;
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-queue-wrap {
+  overflow-x: auto;
+}
+
+.okg-home-queue {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.okg-home-queue th {
+  padding: var(--okg-space-2) var(--okg-space-3);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  color: var(--okg-color-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.okg-home-queue td {
+  padding: var(--okg-space-3);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  vertical-align: top;
+}
+
+.okg-home-queue tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.okg-home-severity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  color: var(--okg-color-strong);
+  font-weight: var(--okg-weight-bold);
+  white-space: nowrap;
+}
+
+.okg-home-issue,
+.okg-home-freshness__state,
+.okg-home-freshness__copy {
+  display: grid;
+  gap: 0.1875rem;
+}
+
+.okg-home-issue strong,
+.okg-home-freshness__copy strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-home-issue span,
+.okg-home-evidence,
+.okg-home-freshness__copy span {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-target {
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-freshness {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.okg-home-freshness li {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr) auto;
+  gap: var(--okg-space-3);
+  align-items: start;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  border-left: 0.1875rem solid transparent;
+}
+
+.okg-home-freshness li:last-child { border-bottom: 0; }
+
+.okg-home-freshness li[data-tone="ok"] { border-left-color: var(--okg-color-ok); }
+
+.okg-home-freshness li[data-tone="warn"] { border-left-color: var(--okg-color-warn); }
+
+.okg-home-freshness li[data-tone="bad"] { border-left-color: var(--okg-color-bad); }
+
+.okg-home-freshness li[data-tone="info"] { border-left-color: var(--okg-color-info); }
+
+.okg-home-freshness__state {
+  color: var(--okg-color-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.okg-home-freshness__state strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-sm);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.okg-home-live-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okg-space-2);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-home-runs {
+  display: grid;
+}
+
+.okg-home-run {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--okg-space-3);
+  align-items: center;
+  padding: var(--okg-space-3) var(--okg-space-4);
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+  color: inherit;
+  text-decoration: none;
+}
+
+.okg-home-run:last-child { border-bottom: 0; }
+
+.okg-home-run:hover,
+.okg-home-event:hover { background: var(--okg-color-surface-muted); }
+
+.okg-home-run__main {
+  display: flex;
+  min-width: 0;
+  gap: var(--okg-space-2);
+  align-items: flex-start;
+}
+
+.okg-home-run__main > .okg-status-dot { margin-top: 0.3rem; }
+
+.okg-home-run__copy {
+  min-width: 0;
+}
+
+.okg-home-run__copy strong,
+.okg-home-run__copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-home-run__copy strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-sm);
+}
+
+.okg-home-run__copy small {
+  margin-top: var(--okg-space-1);
+  color: var(--okg-color-muted);
+  font-size: 0.6875rem;
+}
+
+.okg-home-run__state {
+  display: grid;
+  gap: var(--okg-space-1);
+  justify-items: end;
+}
+
+.okg-home-run__state strong {
+  color: var(--okg-color-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-home-run__state span,
+.okg-home-event__target {
+  color: var(--okg-color-link);
+  font-size: 0.6875rem;
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-home-pause {
+  padding: var(--okg-space-1) var(--okg-space-2);
+  border: 0.0625rem solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-link);
+  font: inherit;
+  font-size: var(--okg-text-xs);
+  font-weight: var(--okg-weight-bold);
+}
+
+.okg-home-pause[aria-pressed="true"] {
+  border-color: var(--okg-color-warn-line);
+  background: var(--okg-color-warn-bg);
+  color: var(--okg-color-warn-text);
+}
+
+.okg-home-events {
+  max-height: 27rem;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.okg-home-events li {
+  position: relative;
+  border-bottom: 0.0625rem solid var(--okg-color-line-soft);
+}
+
+.okg-home-events li:last-child { border-bottom: 0; }
+
+.okg-home-events li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 1.6rem;
+  bottom: -0.75rem;
+  left: 5rem;
+  width: 0.0625rem;
+  background: var(--okg-color-line);
+}
+
+.okg-home-event {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 3.25rem auto minmax(0, 1fr) auto;
+  gap: var(--okg-space-2);
+  padding: var(--okg-space-3) var(--okg-space-4);
+  color: inherit;
+  text-decoration: none;
+}
+
+.okg-home-event time {
+  color: var(--okg-color-muted);
+  font-size: 0.6875rem;
+}
+
+.okg-home-event > .okg-status-dot { margin-top: 0.2rem; }
+
+.okg-home-event__copy {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.okg-home-event__copy strong {
+  color: var(--okg-color-strong);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-event__copy span {
+  color: var(--okg-color-muted);
+  font-size: var(--okg-text-xs);
+}
+
+.okg-home-event__target { align-self: center; }
+
+.okg-home-empty,
+.okg-home-activity-failure {
+  padding: var(--okg-space-4);
+  color: var(--okg-color-muted);
+}
+
+.okg-home-activity-failure {
+  display: grid;
+  gap: var(--okg-space-1);
+  border-left: 0.1875rem solid var(--okg-color-bad);
+  background: var(--okg-color-bad-bg);
+  color: var(--okg-color-bad);
+}
+
+.okg-home-activity-failure code {
+  overflow-wrap: anywhere;
+  color: var(--okg-color-strong);
+}
+
+@media (max-width: 1100px) {
+  .okg-home-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.72fr);
+  }
+
+  .okg-home-queue th:nth-child(3),
+  .okg-home-queue td:nth-child(3) {
+    display: none;
+  }}
+
+@media (max-width: 820px) {
+  .okg-home-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .okg-home-live {
+    position: static;
+  }
+
+  .okg-home-events {
+    max-height: none;
+  }}
+
+@media (max-width: 680px) {
+  .okg-home-briefing__lead {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .okg-home-primary-link {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .okg-home-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: var(--okg-space-3);
+  }
+
+  .okg-home-fact:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .okg-home-fact:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .okg-home-freshness li {
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+  }
+
+  .okg-home-freshness .okg-home-target {
+    grid-column: 2;
+    justify-self: start;
+  }}
+
+@media (max-width: 44rem) {
+  .okg-shell,
+  .okg-shell[data-rail-collapsed="true"] {
+    display: grid;
+    grid-template-columns: 4rem minmax(0, 1fr);
+  }
+
+  .okg-shell__rail {
+    position: sticky;
+    top: 0;
+    align-items: stretch;
+    align-self: start;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: var(--okg-space-3);
+    width: 4rem;
+    height: 100vh;
+    padding: var(--okg-space-2);
+    overflow-x: hidden;
+    overflow-y: auto;
+    resize: none;
+  }
+
+  .okg-shell__brand {
+    justify-content: center;
+  }
+
+  .okg-shell__nav {
+    flex: 0 0 auto;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    margin-top: var(--okg-space-4);
+  }
+
+  .okg-shell__nav-link {
+    flex: none;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .okg-shell__rail-footer {
+    margin-top: auto;
+    padding-top: var(--okg-space-4);
+    border-top: 0.0625rem solid var(--okg-color-rail-border);
+  }
+
+  .okg-shell__body {
+    padding-top: 3.25rem;
+  }
+
+  .okg-shell[data-rail-collapsed="true"] .okg-top-status > .okg-deployment-selector {
+    position: fixed;
+    z-index: 4;
+    top: 0.625rem;
+    right: 3.5rem;
+    left: 4.75rem;
+    display: block;
+    width: auto;
+  }
+
+  .okg-shell[data-rail-collapsed="true"] .okg-top-status > .okg-deployment-selector > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .okg-shell[data-rail-collapsed="true"] .okg-top-status > .okg-deployment-selector select {
+    width: 100%;
+  }
+
+  .okg-shell[data-rail-collapsed="true"] .okg-top-status > .okg-top-status__refresh {
+    position: fixed;
+    z-index: 4;
+    top: 0.625rem;
+    right: 0.75rem;
+    left: auto;
+    display: inline-flex;
+  }}
+
+/* Narrow operator surfaces keep controls and evidence readable without
+   widening the document. Wide evidence tables remain intentionally
+   scrollable and advertise that interaction at the viewport where it matters. */
+.okg-horizontal-scroll-hint {
+  display: none;
+}
+
+@media (max-width: 40rem) {
+
+  .okg-health-producer-controls,
+  .okg-health-metrics-toolbar,
+  .okg-health-custom-range,
+  .okg-health-metrics-selection {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .okg-health-filter-stack {
+    min-width: 0;
+    justify-items: stretch;
+  }
+
+  .okg-health-filter-group,
+  .okg-health-range {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .okg-health-filter-group button,
+  .okg-health-range button {
+    flex: 1 1 auto;
+  }
+
+  .okg-health-directory-toolbar,
+  .okg-health-metrics-resolution {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .okg-health-metrics-resolution span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .okg-health-metrics-builder__clear {
+    flex: 1 0 100%;
+    margin-left: 0;
+    text-align: left;
+  }
+
+  .okg-health-check-list article {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .okg-health-check-list article dl {
+    grid-column: 1 / -1;
+  }
+
+  .okg-horizontal-scroll-hint {
+    display: block;
+    margin: 0;
+    padding: var(--okg-space-2) var(--okg-space-3);
+    border-block: 0.0625rem solid var(--okg-color-line-soft);
+    background: var(--okg-color-surface-muted);
+    color: var(--okg-color-muted);
+    font-size: var(--okg-text-xs);
+  }
+
+  .okg-unified-trace-table-wrap:focus-visible,
+  .okg-health-producer-table-wrap:focus-visible {
+    outline: 0.125rem solid var(--okg-color-focus);
+    outline-offset: -0.125rem;
+  }}
+
+.okg-publication { display: grid; gap: var(--okg-space-3); padding-block: var(--okg-space-3); }
+.okg-publication > div { min-width: 0; }
+.okg-publication span { display: block; font-weight: 600; }
+.okg-publication code { overflow-wrap: anywhere; white-space: normal; }
+.okg-publication p { margin-block: var(--okg-space-1); }
+.okg-publication summary { cursor: pointer; }
+.okg-publication details > div { margin-block: var(--okg-space-3); }

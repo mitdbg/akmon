@@ -1,0 +1,59 @@
+# CV section classifier prompt.
+#
+# Per `refine-academic-pi-with-comms-and-calendar` Tier B:
+# the cv_ingest_llm source uses this prompt to classify a CV's
+# section headings into the academic_researcher subtypes.
+#
+# Operators override per-deployment by writing a sibling YAML
+# under `deployments/<name>/prompts/cv_section_classifier.yaml`.
+
+name: cv_section_classifier
+version: 1.0.0
+
+# Section heading regexes the source falls back to before
+# invoking the LLM. Catches the 80% case (standard CV layouts)
+# without an LLM round-trip.
+fast_path_patterns:
+  talk_engagement:
+    - "(?i)invited talks?"
+    - "(?i)keynotes?"
+    - "(?i)colloquia"
+    - "(?i)plenary talks?"
+  committee:
+    - "(?i)service"
+    - "(?i)program committees?"
+    - "(?i)editorial boards?"
+    - "(?i)editorial roles?"
+  course:
+    - "(?i)teaching"
+    - "(?i)courses (taught|offered)"
+  recommendation_letter:
+    - "(?i)letters of recommendation"
+    - "(?i)recommendations"
+
+# Per-extractor confidence floors. Below-floor candidates
+# emit ExtractionDropped Observations.
+confidence_floors:
+  talk_engagement: 0.70
+  committee: 0.70
+  course: 0.70
+  recommendation_letter: 0.65
+
+# LLM prompt (used when fast_path doesn't catch a section).
+llm_prompt: |
+  You are an academic CV section classifier. Read the section
+  text below and return a JSON array of typed entries.
+
+  Each entry has:
+    - subtype: one of {talk_engagement, committee, course,
+      recommendation_letter, unknown}
+    - confidence: float [0, 1]
+    - attrs: a dict of subtype-specific attributes (title,
+      host, date, role, etc.)
+    - evidence_snippet: the text fragment supporting this entry
+
+  Return ONLY the JSON array, no prose.
+
+  Section heading: {{section_heading}}
+  Section body:
+  {{section_body}}

@@ -1,0 +1,113 @@
+name: mcp-two-principal-fixture
+description: >
+  The two-principal MCP identity fixture (#1180, PACT mcp-two-principal-proof).
+  A deliberately tiny, source-less deployment whose only job is to DECLARE the
+  per-user identity contract an authenticated multi-user MCP server needs:
+  Nomos runtime enforcement on, a read posture that admits mcp_client, and a
+  nomos.principal_mapping block naming the header that carries the signed-in
+  user. Every other fixture deployment leaves runtime enforcement off, which
+  `okg mcp-serve --multi-user-principals` refuses at start, so none of them
+  could carry this proof. See README.md.
+
+# schema_dir + source_registry must exist (lint blocker otherwise). This
+# deployment contributes no local subtypes, no modules and no sources.
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+# No `database:` is declared on purpose. The proof runs against a disposable
+# database it creates and drops per run, and passes that DSN explicitly; a
+# declared name would pin the fixture to one database on one server.
+postgres:
+  dsn: ${OKG_DSN}
+
+modules: []
+
+enrichers: []
+
+embeddings:
+  enabled: false
+  reason: the identity proof reads by predicate, never by semantic search
+
+nomos:
+  # The load-bearing line. `--multi-user-principals` refuses to start when a
+  # deployment's runtime enforcement is off, because per-user principals would
+  # be resolved and then ignored -- a server that reports multi-user and serves
+  # everyone everything. `audit` evaluates and records every decision.
+  runtime_enforcement: audit
+  deployment_posture:
+    deployment_class: public_reference_demo
+    read_principals:
+      - human_operator
+      - okg_service
+      # Required: nomos.principal_mapping.principal_kind must be a kind this
+      # posture already admits, or the mapping is refused at load.
+      - mcp_client
+    write_principals:
+      - okg_service
+    mcp_write_default: deny
+    export_policy: public_allowed
+    secret_handling: no_secrets
+    live_call_default: deny
+    allowed_source_sensitivities:
+      - public
+    allowed_data_classifications:
+      - public
+    allowed_exportability:
+      - public
+    privacy_obligations:
+      - audit
+    readiness_profiles:
+      - smoke
+  # The identity contract. All six fields are required and unknown keys are
+  # refused. The bearer token authenticates the fronting APPLICATION; that
+  # application's sign-in names the user in `subject_header`. Nothing else is
+  # identity -- not a tool argument, not an undeclared header.
+  #
+  # Delegation risk, recorded here because it is a property of this shape and
+  # not of this fixture: any holder of the application's bearer token may name
+  # any user in that header, and the audit trail records one constant verifier
+  # for the token, so it cannot say WHICH application asserted the principal.
+  # Sound behind a controlled proxy; not on a reachable port.
+  principal_mapping:
+    provider_id: okg-chat-sso
+    issuer: https://chat.example.edu/
+    audience: okg-mcp
+    subject_claim: email
+    subject_header: X-OKG-Principal
+    principal_kind: mcp_client
+  rollout:
+    status: deferred
+    reason: >
+      a test fixture with no retained graph and no operator; the identity
+      contract above is exercised per pull request, not operated
+    owner:
+      name: mcp-identity
+      contact: mcp-identity@okg.example
+    review_by: "2027-01-01"
+
+# The declared agent surface (issue #2067). Migrated from the frozen
+# legacy path with no change in behaviour: `served` is exactly what
+# `okg mcp-serve --allow-writes` registered before the block existed, so no
+# launch loses a tool. A read-only launch still registers the seven read
+# operators; the write gate stays the launch operator's. No response budget
+# and no chat projection are declared, so both keep the substrate defaults.
+agent_surface:
+  served:
+    - inspect
+    - search
+    - expand
+    - filter
+    - map
+    - aggregate
+    - query
+    - record
+    - propose
+    - list_sources
+    - add_source
+    - remove_source
+    - source_status
+    - discover_sources
+    - propose_setup
+    - commit_setup
+    - connector_route_status
+    - connector_ingest_batch

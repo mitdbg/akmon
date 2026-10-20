@@ -1,0 +1,35 @@
+name: chat_sessions
+version: 1.0.0
+description: >-
+  Open WebUI chat conversations, their messages, the ratings and arena
+  preferences people leave on them, and one per-turn pointer into the
+  context-audit artifact. A NEW module rather than an extension of
+  agent_sessions: a human chat turn is not a coding-agent harness
+  transcript, and overloading agent_session / agent_message would silently
+  change the meaning of every existing query over that module.
+provides:
+  subtypes_file: schema.yaml
+# Each block names ONE upstream module whose subtypes may appear as the dst
+# of a `chat_message references X` edge. The allowlist is CLOSED: the triples
+# live in schema.yaml's EdgeNarrowings, one per named class, each marked
+# `optional_when_subtypes_missing` so it resolves to nothing when the target
+# module is not loaded (the agent_sessions convention). No rule files are
+# listed because the adapter emits these edges itself from the audit filter's
+# own citation footer -- the declarative linker materializes none of them.
+extends:
+  openspec:
+    description: >-
+      A chat answer citing a PACT or OpenSpec record links to open_spec_change,
+      pact_change, or pact_task.
+  agent_sessions:
+    description: >-
+      A chat answer citing a coding-agent session links to agent_session or
+      sub_agent_session.
+  git_graph:
+    description: A chat answer citing repository state links to source_file or git_commit.
+  forge:
+    description: A chat answer citing GitHub state links to pull_request or issue.
+  extraction:
+    description: A chat answer citing corpus content links to document or document_chunk.
+  ci:
+    description: A chat answer citing a test result links to test_case.

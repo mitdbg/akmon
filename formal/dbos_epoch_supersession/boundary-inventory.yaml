@@ -1,0 +1,2043 @@
+schema: okg.dbos_boundary_inventory/v1
+entries:
+- path: src/okg/substrate/consistency/chronos_sql_mirror.py
+  entrypoint: _ensure_mirror_tables
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive fence
+    before this mutation class can ship
+- path: src/okg/substrate/consistency/chronos_sql_mirror.py
+  entrypoint: refresh_chronos_sql_mirror
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive fence
+    before this mutation class can ship
+- path: src/okg/substrate/consistency/chronos_sql_mirror.py
+  entrypoint: _acquire_lock
+  categories:
+  - authority_transition
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive fence
+    before this mutation class can ship
+- path: src/okg/substrate/consistency/chronos_sql_mirror.py
+  entrypoint: __init__
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive fence
+    before this mutation class can ship
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _phase_backup
+  categories:
+  - authority_transition
+  - nomos_apply
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _phase_generation_recovery
+  categories:
+  - authority_transition
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: advances the durable upgrade phase cursor through _persist_ helpers; the
+    progress vocabulary survives only in prose
+  explicit: true
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _phase_smoke_publish
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _phase_source_convergence
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: persists source convergence deadlines and recovery workflows; the durable
+    progress it advances is named only in prose
+  explicit: true
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _prepare_runtime_readiness_witness
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: persists the runtime readiness witness that later phases resume from; no
+    progress word survives in the code
+  explicit: true
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _publish_recovery_plan
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: nonmutating/diagnostic
+  owner_change: fence-local-okg-workflow-versions
+  reason: read-only recovery plan (#1791); the scan keys on the call name plan_publish_recovery,
+    but the plan opens bounded read-only connections, takes no lease and writes nothing
+  explicit: true
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _refresh_target_nomos_inventory
+  categories:
+  - nomos_apply
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _revalidate_runtime_fence_resume
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: revalidates the runtime fence before resuming, which is an authority check;
+    fence is not in the code vocabulary
+  explicit: true
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _run_current_full_restore_verification
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _run_phase
+  categories:
+  - authority_transition
+  - nomos_apply
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _smoke_publish_proof
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _target_nomos_inventory
+  categories:
+  - nomos_apply
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _verify_backup_restore
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _write_disaster_recovery_receipt
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: _write_restore_drill_receipt
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: writes a restore-drill receipt; receipt is joined by underscores in the
+    name, which the word-boundary match cannot see
+  explicit: true
+- path: src/okg/substrate/deployment_upgrade.py
+  entrypoint: run_deployment_upgrade
+  categories:
+  - authority_transition
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: drives and persists the resumable upgrade state file across phases; progress
+    is named only in prose
+  explicit: true
+- path: src/okg/substrate/publisher/checkpoint_attestations.py
+  entrypoint: _prepare_attestor_implementation_import
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/deployment_stack.py
+  entrypoint: _build_deployment_publisher_stack_uncached
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/factory.py
+  entrypoint: build_deployment_publisher
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/native_view_stage.py
+  entrypoint: _carry_forward_without_corpus
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/native_view_stage.py
+  entrypoint: _collect_source_records
+  categories:
+  - chronos_graph_write
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/native_view_stage.py
+  entrypoint: _emit_lineage_envelopes
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/native_view_stage.py
+  entrypoint: _invalidate_unlined_runs
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/native_view_stage.py
+  entrypoint: _project_view_cites
+  categories:
+  - chronos_graph_write
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/native_view_stage.py
+  entrypoint: _render_outputs_from_templates
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/native_view_stage.py
+  entrypoint: _render_sql_relation_template
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/native_view_stage.py
+  entrypoint: _replace_view_template_dependencies
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/native_view_stage.py
+  entrypoint: _run_one
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: writes native view rows into the Chronos generation through its projection
+    helper; chronos is named only in prose
+  explicit: true
+- path: src/okg/substrate/publisher/native_view_stage.py
+  entrypoint: run
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: runs the native view stage and advances its stage cursor through helpers
+    that hold the SQL
+  explicit: true
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: __init__
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _release_dbos_publish_lock_after_failure
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: cycle
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _acquire_dbos_publish_lock
+  categories:
+  - authority_transition
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _admit_derived_edge_outputs
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: admits derived edges by flipping envelope status to published; the trigger
+    is a bare status literal, not an identifier
+  explicit: true
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _admit_derived_node_outputs
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: admits derived nodes by flipping envelope status to published; the trigger
+    is a bare status literal, not an identifier
+  explicit: true
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _advance_enricher_progress
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _advisory_keys
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _apply_publisher_derived_fact_batch
+  categories:
+  - authority_transition
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: applies a derived fact batch under the publish lock and advances the batch
+    cursor through apply_bounded_fact_batch
+  explicit: true
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _chronos_fence_protected_writes
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _chronos_graph_effect_identity_query
+  categories:
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _chronos_refuse_writes_since_counted
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _chronos_segment_signature_now
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _consume_count_stamp_recovery_authorization
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _cycle_chronos_native
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  - nomos_apply
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: issues generation DML through f-string SQL assembled in helpers; no complete
+    DML literal survives inside this function
+  explicit: true
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _emit_chronos_extractor_edge_facts
+  categories:
+  - chronos_graph_write
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _enricher_policy
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _finalize_lens_promotion_generation_refs
+  categories:
+  - authority_transition
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _insert_link_endpoint_facts
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _load_unapplied_derived_facts
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _locked_connection
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _nomos_generation_publish_blocker
+  categories:
+  - authority_transition
+  - nomos_apply
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: decides and commits the generation publish blocker; publish reaches the
+    code only as a bare literal
+  explicit: true
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _attach_prelock_enrich_report
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _publish_lock_on_connection
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _record_chronos_publish_telemetry
+  categories:
+  - chronos_graph_write
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _record_post_publish_projection_status
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _refresh_published_generation_watermarks
+  categories:
+  - authority_transition
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _run_enrichers
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _evaluate
+  categories:
+  - chronos_graph_write
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: _run_lens_promotion_phase
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: drains lens promotions through apply_promoted_overlay, writing derived node
+    facts and flipping envelopes to published
+  explicit: true
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: chronos_graph_branch_mutation_token
+  categories:
+  - chronos_graph_write
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: chronos_scoped_delta_counts_from_dirty_scope
+  categories:
+  - chronos_graph_write
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
+  entrypoint: reserve
+  categories:
+  - authority_transition
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/_schedule_factory.py
+  entrypoint: _enqueue
+  categories:
+  - dbos_decorated_entry
+  - dbos_direct_producer
+  boundaries:
+  - body_entry
+  - enqueue
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/_schedule_factory.py
+  entrypoint: _register
+  categories:
+  - dbos_direct_producer
+  boundaries:
+  - enqueue
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/_schedule_factory.py
+  entrypoint: make_enqueue_schedule
+  categories:
+  - dbos_direct_producer
+  boundaries:
+  - enqueue
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admin.py
+  entrypoint: client_enqueue_admission_decide
+  categories:
+  - dbos_direct_producer
+  boundaries:
+  - enqueue
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admin.py
+  entrypoint: client_enqueue_admission_submit
+  categories:
+  - dbos_direct_producer
+  boundaries:
+  - enqueue
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admin.py
+  entrypoint: client_enqueue_source_sync
+  categories:
+  - dbos_direct_producer
+  boundaries:
+  - enqueue
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admission_workflows.py
+  entrypoint: _apply_facts_in_bounded_chunks
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admission_workflows.py
+  entrypoint: _apply_quarantined_source_run
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admission_workflows.py
+  entrypoint: _authorize_nomos_admission_decision
+  categories:
+  - nomos_apply
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admission_workflows.py
+  entrypoint: _decide_step
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admission_workflows.py
+  entrypoint: _drop_quarantined_source_run
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admission_workflows.py
+  entrypoint: _emit_review_payload_facts
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admission_workflows.py
+  entrypoint: _run_decide
+  categories:
+  - chronos_graph_write
+  - nomos_apply
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admission_workflows.py
+  entrypoint: _run_submit
+  categories:
+  - chronos_graph_write
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admission_workflows.py
+  entrypoint: _submit_step
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admission_workflows.py
+  entrypoint: admission_decide_workflow_impl
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/admission_workflows.py
+  entrypoint: admission_submit_workflow_impl
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/audit.py
+  entrypoint: audit_provenance_split
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/bootstrap.py
+  entrypoint: _record_bootstrap
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/bootstrap.py
+  entrypoint: bootstrap_dbos_schema
+  categories:
+  - authority_transition
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: installs the DBOS schema and role split through apply_role_split and ensure_deployment_apply_schema,
+    which carry the DDL
+  explicit: true
+- path: src/okg/substrate/runtime/bootstrap.py
+  entrypoint: reconcile_mcp_login_role
+  categories:
+  - authority_transition
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/dbos_enqueue.py
+  entrypoint: enqueue_deployment_workflow
+  categories:
+  - dbos_direct_producer
+  boundaries:
+  - enqueue
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/embed_workflow.py
+  entrypoint: _embed_one_step
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/embed_workflow.py
+  entrypoint: _embed_workflow_impl
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/embed_workflow.py
+  entrypoint: _enqueue_embed_workflow
+  categories:
+  - dbos_decorated_entry
+  - dbos_direct_producer
+  boundaries:
+  - body_entry
+  - enqueue
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/embed_workflow.py
+  entrypoint: _fill_vector_sets_step
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/embed_workflow.py
+  entrypoint: register_embed_schedule
+  categories:
+  - dbos_direct_producer
+  boundaries:
+  - enqueue
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/engine.py
+  entrypoint: build_dbos_config
+  categories:
+  - chronos_graph_write
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/environment_exec.py
+  entrypoint: _run_supervised_launchd_process
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/escalation.py
+  entrypoint: _close_current_live_row
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/escalation.py
+  entrypoint: _insert_fact
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/escalation.py
+  entrypoint: _insert_live
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/escalation.py
+  entrypoint: _transition
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/escalation.py
+  entrypoint: create_escalation
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/escalation.py
+  entrypoint: sweep_timed_out_escalations
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/declared_attr_index_workflow.py
+  entrypoint: declared_attr_index_workflow
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/escalation_sweep_workflow.py
+  entrypoint: _capture_now
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/escalation_sweep_workflow.py
+  entrypoint: escalation_sweep_workflow
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/gates_reevaluate_workflow.py
+  entrypoint: _capture_now
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/gates_reevaluate_workflow.py
+  entrypoint: _gates_reevaluate_workflow
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/generation.py
+  entrypoint: allocate_worker_write_generation
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/hooks.py
+  entrypoint: enqueue_hooks
+  categories:
+  - dbos_direct_producer
+  boundaries:
+  - enqueue
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/lens_putback_workflow.py
+  entrypoint: _capture_now
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/lens_putback_workflow.py
+  entrypoint: lens_putback_sweep_workflow
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/promotion_fence.py
+  entrypoint: _capture_and_remove_dbos_schedules
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/promotion_fence.py
+  entrypoint: _restore_dbos_schedules
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/promotion_fence.py
+  entrypoint: acquire_promotion_fence
+  categories:
+  - authority_transition
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: claims durable promotion ownership and locks the deployment; the receipt
+    trigger is a dict-key literal, not an identifier
+  explicit: true
+- path: src/okg/substrate/runtime/publisher_workflow.py
+  entrypoint: _apply_admission_feedback
+  categories:
+  - authority_transition
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: applies admission feedback and advances the generation feedback cursor through
+    apply_generation_feedback
+  explicit: true
+- path: src/okg/substrate/runtime/publisher_workflow.py
+  entrypoint: _run_one_cycle
+  categories:
+  - authority_transition
+  - chronos_graph_write
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: runs a publisher cycle that writes the Chronos generation and persists publish
+    stage timings
+  explicit: true
+- path: src/okg/substrate/runtime/publisher_workflow.py
+  entrypoint: publisher_cycle_workflow
+  categories:
+  - authority_transition
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/publisher_workflow.py
+  entrypoint: register_publisher_workflow
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/quiescence.py
+  entrypoint: main
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/recovery_test.py
+  entrypoint: _receiver_worker_main
+  categories:
+  - dbos_direct_producer
+  boundaries:
+  - enqueue
+  disposition: nonmutating/diagnostic
+  owner_change: fence-local-okg-workflow-versions
+  reason: diagnostic-only workflow producer; production admission is forbidden and
+    the diagnostic boundary remains inventoried
+- path: src/okg/substrate/runtime/recovery_test.py
+  entrypoint: _sleeper
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: nonmutating/diagnostic
+  owner_change: fence-local-okg-workflow-versions
+  reason: diagnostic-only workflow producer; production admission is forbidden and
+    the diagnostic boundary remains inventoried
+- path: src/okg/substrate/runtime/release_authority.py
+  entrypoint: environment_worker_authority_status
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/reuse_pass_workflow.py
+  entrypoint: commit_maintenance_state
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/reuse_pass_workflow.py
+  entrypoint: reuse_pass_step
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/reuse_pass_workflow.py
+  entrypoint: run_reuse_pass_in_cycle
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/scheduled.py
+  entrypoint: _doctor_workflow_unfenced
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/scheduled.py
+  entrypoint: doctor_workflow
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/scheduled.py
+  entrypoint: register_substrate_schedules
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/services.py
+  entrypoint: bump_live_version_to_latest
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/services.py
+  entrypoint: cleanup_disabled_feature_schedules
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/services.py
+  entrypoint: cleanup_stale_enqueued_workflows
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/services.py
+  entrypoint: cleanup_stale_internal_pending_workflows
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/services.py
+  entrypoint: cleanup_stale_pending_workflows
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/services.py
+  entrypoint: reap_stale_internal_enqueued
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/services.py
+  entrypoint: source_sync_replay_boundary
+  categories:
+  - authority_transition
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/services.py
+  entrypoint: stamp_replaceable_deployment_enqueued
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/services.py
+  entrypoint: stamp_unversioned_deployment_enqueued
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/smoke.py
+  entrypoint: _smoke_wait
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: nonmutating/diagnostic
+  owner_change: fence-local-okg-workflow-versions
+  reason: diagnostic-only workflow producer; production admission is forbidden and
+    the diagnostic boundary remains inventoried
+- path: src/okg/substrate/runtime/smoke.py
+  entrypoint: run_smoke
+  categories:
+  - dbos_direct_producer
+  boundaries:
+  - enqueue
+  disposition: nonmutating/diagnostic
+  owner_change: fence-local-okg-workflow-versions
+  reason: diagnostic-only workflow producer; production admission is forbidden and
+    the diagnostic boundary remains inventoried
+- path: src/okg/substrate/runtime/source_poll_schedule.py
+  entrypoint: _poll_source_group
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_poll_schedule.py
+  entrypoint: register_source_poll_schedules
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_priority.py
+  entrypoint: adopt_run_guard
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_priority.py
+  entrypoint: publisher_publish_lock_holder_id
+  categories:
+  - authority_transition
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_priority.py
+  entrypoint: publisher_publish_lock_on_connection
+  categories:
+  - authority_transition
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_priority.py
+  entrypoint: __init__
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_priority.py
+  entrypoint: source_sync_admission_intent_lock
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_priority.py
+  entrypoint: source_sync_run_guard
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_workflow.py
+  entrypoint: _capture_observed_at
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_workflow.py
+  entrypoint: _ingest_failure_details
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_workflow.py
+  entrypoint: _record_setup_done
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_workflow.py
+  entrypoint: _run_durable_ingest_cycle
+  categories:
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_workflow.py
+  entrypoint: register_source_sync_workflow
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/source_sync_workflow.py
+  entrypoint: source_sync_workflow_impl
+  categories:
+  - authority_transition
+  - dbos_decorated_entry
+  boundaries:
+  - body_entry
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/worker.py
+  entrypoint: _sync_edge_precedence
+  categories:
+  - chronos_graph_write
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/worker.py
+  entrypoint: run_worker
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/workflow_cancel.py
+  entrypoint: cancel_deployment_workflow
+  categories:
+  - authority_transition
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: cancels a workflow under the deployment admission lock; lock is joined by
+    underscores in the code
+  explicit: true
+- path: src/okg/substrate/runtime/workflow_cancel.py
+  entrypoint: cleanup_deadline_expired_pending_workflows
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/workflow_operational_outcomes.py
+  entrypoint: define_operational_transactions
+  categories:
+  - authority_transition
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/workflow_operational_outcomes.py
+  entrypoint: record_outcome_tx
+  categories:
+  - authority_transition
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/workflow_operational_outcomes.py
+  entrypoint: register_execution_tx
+  categories:
+  - authority_transition
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/runtime/workflow_telemetry.py
+  entrypoint: _record_source_sync_admission_wait
+  categories:
+  - progress_state
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/source_sync_enqueue.py
+  entrypoint: _compact_dbos_queued_source_sync
+  categories:
+  - authority_transition
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/source_sync_enqueue.py
+  entrypoint: _compact_dbos_queued_source_sync_by_compatibility
+  categories:
+  - authority_transition
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/source_sync_enqueue.py
+  entrypoint: _compact_dbos_queued_source_sync_by_prefix
+  categories:
+  - authority_transition
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/source_sync_enqueue.py
+  entrypoint: _compact_dbos_queued_source_sync_candidates
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/source_sync_enqueue.py
+  entrypoint: _running_publisher_workflow_id
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/source_sync_producers.py
+  entrypoint: _write_poll_fingerprint
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/source_sync_producers.py
+  entrypoint: _write_poll_suppressed_observation
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/source_sync_producers.py
+  entrypoint: handle_webhook_payload
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/source_sync_producers.py
+  entrypoint: make_webhook_http_server
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/source_sync_producers.py
+  entrypoint: record_source_sync_producer_health
+  categories:
+  - progress_state
+  - sql_mutation
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/source_sync_producers.py
+  entrypoint: run_poll_once
+  categories:
+  - authority_transition
+  boundaries:
+  - lease
+  - publish
+  - receipt_transition
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship

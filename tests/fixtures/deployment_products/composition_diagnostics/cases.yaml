@@ -1,0 +1,152 @@
+schema: okg.deployment_product.composition_diagnostics/v2
+success_fixture: success.yaml
+refusals:
+  # Expected owner, asset ID, chain, and fix action are asserted against the
+  # diagnostics emitted by the public resolver/composer APIs.
+  - id: missing-reference
+    stage: typed_asset_resolution
+    code: missing_reference
+    owner: owner
+    asset_id: owner:missing
+    chain: [owner:root, owner:missing]
+    fix_action: register the referenced owner-qualified asset
+  - id: dependency-cycle
+    stage: typed_asset_resolution
+    code: reference_cycle
+    owner: null
+    asset_id: owner:a
+    chain: [owner:a, owner:b, owner:a]
+    fix_action: remove one reference in the cycle
+  - id: same-id-digest-declaration-collision
+    stage: typed_asset_resolution
+    code: duplicate_declaration_mismatch
+    owner: owner
+    asset_id: owner:shared
+    chain: []
+    fix_action: deduplicate the complete declaration or change the qualified ID
+  - id: different-digest-collision
+    stage: typed_asset_resolution
+    code: digest_collision
+    owner: owner
+    asset_id: owner:shared
+    chain: []
+    fix_action: select one content digest for this owner-qualified ID
+  - id: unsupported-version
+    stage: typed_asset_resolution
+    code: unsupported_version
+    owner: owner
+    asset_id: owner:child
+    chain: [owner:root, owner:child]
+    fix_action: select the compatible asset version
+  - id: unsupported-capability
+    stage: typed_asset_resolution
+    code: unsupported_capability
+    owner: owner
+    asset_id: owner:child
+    chain: [owner:root, owner:child]
+    fix_action: publish a capability-compatible asset
+  - id: typed-override-wrong-value
+    stage: typed_asset_resolution
+    code: override_value_invalid
+    owner: owner
+    asset_id: owner:refresh
+    chain: [owner:refresh]
+    fix_action: supply a value accepted by the declared slot schema
+  - id: typed-override-raw-pointer
+    stage: typed_asset_resolution
+    code: raw_document_pointer
+    owner: instance
+    asset_id: refresh
+    chain: []
+    fix_action: use the declared stable slot_id
+  - id: typed-override-unknown-field
+    stage: typed_asset_resolution
+    code: override_unknown_field
+    owner: instance
+    asset_id: refresh
+    chain: []
+    fix_action: remove unknown fields and use the typed override vocabulary
+  - id: duplicate-semantic-ownership
+    stage: semantic_catalog_composition
+    code: duplicate_semantic_ownership
+    owner: owner-b
+    asset_id: module
+    chain: []
+    fix_action: choose one owner-qualified module or publish an explicit catalog migration
+  - id: unknown-narrowing-endpoint
+    stage: semantic_catalog_composition
+    code: unknown_narrowing_endpoint
+    owner: owner-a
+    asset_id: bridge
+    chain: []
+    fix_action: declare both endpoint subtypes or correct the bridge/module reference before migration
+  - id: bridge-endpoint-mismatch
+    stage: semantic_catalog_composition
+    code: bridge_endpoint_mismatch
+    owner: owner-a
+    asset_id: bridge
+    chain: []
+    fix_action: change the narrowing endpoints or declare the exact owning modules in endpoint_modules
+  - id: ambiguous-bridge-endpoint
+    stage: semantic_catalog_composition
+    code: ambiguous_bridge_endpoint
+    owner: owner-a
+    asset_id: bridge
+    chain: []
+    fix_action: declare source_module and target_module using exact owner-qualified module IDs
+  - id: incompatible-identity
+    stage: semantic_catalog_composition
+    code: incompatible_identity
+    owner: owner-a
+    asset_id: identity
+    chain: []
+    fix_action: publish a catalog migration that names the old and new identity fields
+  - id: incompatible-cardinality
+    stage: semantic_catalog_composition
+    code: incompatible_cardinality
+    owner: owner-a
+    asset_id: bridge
+    chain: []
+    fix_action: use many (unbounded) or at_most_one_target, or publish a migration that adds an enforceable rule
+  - id: incompatible-evolution
+    stage: semantic_catalog_composition
+    code: incompatible_evolution
+    owner: owner-a
+    asset_id: migration
+    chain: []
+    fix_action: provide an additive migration with explicit old and new identities, or stage a reviewed breaking migration
+  - id: alias-collision
+    stage: semantic_catalog_composition
+    code: alias_key_collision
+    owner: owner-b
+    asset_id: alias-b
+    chain: []
+    fix_action: choose one canonical/scope for the alias or publish an explicit migration
+  - id: concept-collision
+    stage: semantic_catalog_composition
+    code: concept_node_id_collision
+    owner: owner-b
+    asset_id: seed-b
+    chain: []
+    fix_action: assign one canonical concept node ID and publish a migration for renames
+  - id: inheritance-cycle
+    stage: semantic_catalog_composition
+    code: inheritance_cycle
+    owner: owner-a
+    asset_id: module
+    chain: []
+    fix_action: remove one parent/is_a declaration or publish an explicit migration that breaks the cycle
+  - id: malformed-semantic-payload
+    stage: semantic_catalog_composition
+    code: semantic_payload_unknown_field
+    owner: owner-a
+    asset_id: malformed
+    chain: []
+    fix_action: remove unknown fields; allowed fields are module, module_id, semantic_module_id, semantic_subtypes, subtypes
+  - id: malformed-semantic-contribution
+    stage: semantic_catalog_composition
+    code: semantic_required_field_missing
+    owner: owner-a
+    asset_id: contribution
+    chain: []
+    fix_action: provide all fields required by the existing catalog apply lifecycle

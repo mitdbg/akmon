@@ -1,0 +1,88 @@
+{
+  "schema": "okg.runtime_authority.split_fixture.v1",
+  "captured_at": "2026-07-27T02:30:00+00:00",
+  "deployment": "okg-workspace",
+  "severity": "p0",
+  "authorities": {
+    "canonical_runtime": {
+      "authority_source": "canonical_sync_root_local_env",
+      "working_directory": "<canonical-sync-root>",
+      "database_identity": "<canonical-okg-workspace-database>",
+      "code_revision": "808ea07f0d4b601edd91397a067d0fb089eb7e1d",
+      "database_state": "available"
+    },
+    "request_worktree": {
+      "authority_source": "worktree_local_env",
+      "working_directory": "<request-worktree>",
+      "database_identity": "<retired-isolated-database>",
+      "code_revision": "<dirty-request-worktree>",
+      "database_state": "missing"
+    },
+    "supervisor_before_reconcile": {
+      "authority_source": "installed_launch_agent",
+      "working_directory": "<stale-supervisor-root>",
+      "database_identity": "<retired-isolated-database>",
+      "code_revision": "<stale-supervisor-release>",
+      "database_state": "retired"
+    }
+  },
+  "mismatches": [
+    "working_directory",
+    "database_identity",
+    "code_revision",
+    "release_identity"
+  ],
+  "failure_chain": [
+    {
+      "code": "supervisor_definition_drift",
+      "outcome": "running_process_did_not_match_declared_runtime"
+    },
+    {
+      "code": "replacement_ack_timeout",
+      "outcome": "replacement_worker_did_not_acknowledge_expected_authority"
+    },
+    {
+      "code": "release_schema_skew_refusal",
+      "outcome": "replacement_worker_failed_closed"
+    },
+    {
+      "code": "structured_error_serialization_failed",
+      "outcome": "datetime_diagnostic_replaced_actionable_error"
+    },
+    {
+      "code": "proof_generation_absent_from_canonical_runtime",
+      "outcome": "reported_graph_proof_was_not_canonical"
+    }
+  ],
+  "proof_binding": {
+    "reported_generation_id": "okg:okg-workspace:branch:default:gen:20260726T053211446278Z:7fc1bb6eedd5",
+    "reported_status": "published",
+    "present_in_canonical_database": false,
+    "canonical_match_count": 0,
+    "source_pact": "cover-external-backed-source-lineage"
+  },
+  "recovery_observation": {
+    "eventual_generation_id": "okg:okg-workspace:branch:default:gen:20260727T022716055092Z:3c649ac10701",
+    "eventual_generation_status": "published",
+    "trust_level_after_publish": "stale_context",
+    "remaining_stale_required_sources": [
+      "okg-workspace.codex-sessions"
+    ],
+    "status_surface_errors": [
+      "legacy_empty_supersedes_workflow_id"
+    ],
+    "classification": "eventual_progress_without_coherent_authority"
+  },
+  "related_p0_findings": [
+    "source_poll_admission_lock_convoy",
+    "dbos_cancel_does_not_interrupt_execution",
+    "source_sync_replays_non_durable_ingest_body",
+    "publisher_graph_effect_scan_is_not_work_bounded"
+  ],
+  "redaction": {
+    "credentials_present": false,
+    "dsn_present": false,
+    "literal_user_home_paths_present": false,
+    "retired_database_name_present": false
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "complete": true,
+  "records": [
+    {
+      "id": "A",
+      "kind": "record",
+      "text": "alpha original"
+    },
+    {
+      "id": "B",
+      "kind": "record",
+      "text": "beta retained"
+    }
+  ]
+}

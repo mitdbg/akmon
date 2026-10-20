@@ -1,0 +1,26 @@
+# academic_researcher ↔ reasoning cross-link rules.
+#
+# Per `add-academic-pi-ontology-module` (Child 1 of
+# `add-academic-pi-profile`): one narrowing connecting the
+# daily-use lab surface back to the gravitational reasoning core.
+#
+#   - `action_item_addresses_question`. ActionItem nodes
+#     authored from meeting notes can address a Question node in
+#     the reasoning module (e.g., an open research question the
+#     advisee should investigate). The frontmatter author tags
+#     `addresses: question:<slug>` on the ActionItem; the rule
+#     resolves the ref to a Question.question_id.
+#
+# Silently skips when `reasoning` isn't loaded.
+
+rules:
+  - id: action_item_addresses_question
+    src:
+      subtype: action_item
+      field: addresses_ref
+    dst:
+      subtype: question
+      field: question_id
+    matcher: exact
+    edge: addresses
+    bidirectional: false

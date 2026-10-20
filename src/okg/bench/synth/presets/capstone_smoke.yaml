@@ -1,0 +1,70 @@
+# Capstone COMPOSITION PROOF preset (task.complete.capstone): the deterministic,
+# LLM-free, structured twin of the prose capstone. It exercises all four axes
+# TOGETHER on one manifest so the mechanics are proven to compose in normal suite
+# time (<2 min) — the prose+LLM axis (e) is proven separately by the real run.
+#
+# The lossless deterministic lane removes the survival draw, so every count below
+# is exact and seeded — pinned, not hoped for. What this proves is that the four
+# features do not destroy each other when stamped into ONE generation:
+#   - the precedence arm settles all FIVE decisive bases (b), on plain
+#     value_perturbation buckets the arm plan reserves for itself;
+#   - the three relational Σ classes + functional fire all FOUR kinds (c),
+#     on buckets the arm plan EXCLUDES (an ingest stamp would flip their channel);
+#   - a majority-visibility class settles on the corrupted majority -> mis_repaired
+#     over realized-majority-preserved sites (h), on buckets the arm also excludes;
+#   - the two-generation corrections delta moves C_eff (d), targeting corruptions
+#     the arm did not stamp.
+#
+# SIZING (seed capstone-smoke-2, world_smoke patients=8, redundancy 2..3, measured):
+#   - value_perturbation=20 gives the arm 12 one_vs_one + 11 majority PLAIN buckets
+#     after the 3 special buckets are excluded; the all-signals arm needs 7 + 2, so
+#     >1.5x margin on both shapes -> every one of its 9 roles seats.
+#   - cardinality_violation=4 at visibility_corrupted=2: 3 of the 4 picked
+#     care_provider facts render at k=3 (2 corrupted + 1 surviving clean) -> 3
+#     genuine majority-wrong conflicts; majority_wrong_floor=1 is a 3x margin.
+#   - the three coverage classes deliver 1 each -> incompatible_pair / linked_pair /
+#     unresolved_key each fire once; require_constraint_kinds makes a zero LOUD.
+# Pool check (world_smoke@8): numeric obs 25 >= value_perturbation 20 +
+#   ambiguous_subject 1 = 21; care_provider 4 == cardinality 4; condition active 71
+#   >> 1; record_reference+birthdate 8 >> 1. The planner fails closed if any pool
+#   is overrun.
+preset_name: capstone_smoke
+seed: "capstone-smoke-2"
+world_path: world_smoke
+redundancy:
+  # min 2 seats the arm's one_vs_one isolation buckets (k=2 -> 1 corrupted vs 1
+  # clean); max 3 seats the majority buckets (k=3) the corroborate/disagree roles
+  # AND the majority-visibility class need. A uniform k would give one shape only.
+  renderings_per_fact_min: 2
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 20, magnitude: 0.3, visibility_corrupted: 1}
+    cardinality_violation: {count: 4, visibility_corrupted: 2}
+    incompatible_status_pair: {count: 1, visibility_corrupted: 1}
+    linked_reference: {count: 1, visibility_corrupted: 1}
+    ambiguous_subject: {count: 1, magnitude: 0.2, visibility_corrupted: 1}
+benign_variation:
+  unit_rescale_rate: 0.0
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+realism:
+  render_mode: structured
+  extractor: deterministic_labels
+clean_fp_ceiling: 0
+surviving_conflict_floor: 20
+precedence_arm:
+  admits:
+    - operator_precedent
+    - explicit_supersession
+    - claim_local_effective_date
+    - declared_source_authority
+    - dependency_adjusted_support
+require_constraint_kinds:
+  - functional
+  - incompatible_pair
+  - linked_pair
+  - unresolved_key
+majority_wrong_floor: 1
+materialize_pdf: false

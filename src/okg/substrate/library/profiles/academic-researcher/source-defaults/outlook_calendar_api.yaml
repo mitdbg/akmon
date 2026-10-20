@@ -1,0 +1,19 @@
+# outlook_calendar_api — Microsoft Graph calendarView/delta with
+# strict calendar allowlist + event-level allowlist (okg: tag or
+# recurring-pattern match, mirroring calendar_ics). Shares the
+# tenant-internal `msgraph` Entra app with outlook-mail.
+
+outlook_calendar_api:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.outlook_api
+  class: OutlookCalendarApiSource
+  ownership_id: ${deployment_name}.outlook_calendar_api
+  source_class: mutable_api
+  record_identity_kind: remote_id
+  record_identity_fields: [event_id]
+  source_revision_kind: version_token
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    deployment_name: ${deployment_name}
+    outlook_calendars: ${outlook_calendars}

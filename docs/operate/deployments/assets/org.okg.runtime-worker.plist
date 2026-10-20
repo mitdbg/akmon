@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd plist for the OKG DBOS runtime worker (macOS).
+
+  Per `consolidate-deployment-runtime` (2026-05-11): one supervised
+  worker process per deployment runs DBOS workflows + the embedded
+  Watcher + the embedded webhook server. launchd is the macOS
+  supervisor equivalent of systemd; this plist keeps the worker
+  alive across crashes and across logout/login cycles.
+
+  Install (per-user LaunchAgent — best for dev machines):
+    cp docs/operate/deployments/assets/org.okg.runtime-worker.plist \
+       ~/Library/LaunchAgents/org.okg.runtime-worker.okg-workspace.plist
+    # Edit the file to fill in the placeholders below.
+    launchctl bootstrap gui/$(id -u) \
+      ~/Library/LaunchAgents/org.okg.runtime-worker.okg-workspace.plist
+    launchctl enable gui/$(id -u)/org.okg.runtime-worker.okg-workspace
+
+  Each deployment gets its own copy with a distinct `Label`. The
+  filename convention `org.okg.runtime-worker.<deployment>.plist`
+  matches the `Label` element below.
+
+  Verify:
+    launchctl print gui/$(id -u)/org.okg.runtime-worker.okg-workspace
+    tail -F /tmp/okg-runtime-worker.okg-workspace.log
+    okg doctor --deployment okg-workspace --json | \
+      jq .runtime_services_health
+
+  Unload (stop the service):
+    launchctl bootout gui/$(id -u) \
+      ~/Library/LaunchAgents/org.okg.runtime-worker.okg-workspace.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <!-- One Label per deployment. Change the suffix to match. -->
+  <string>org.okg.runtime-worker.okg-workspace</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <!-- REQUIRED — full path to the venv's `okg` entry point. -->
+    <string>/Users/YOU/projects/okg/.venv/bin/okg</string>
+    <string>runtime</string>
+    <string>worker</string>
+    <string>--deployment</string>
+    <string>okg-workspace</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <!-- REQUIRED — repo root so the deployment manifest resolves. -->
+  <string>/Users/YOU/projects/okg</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+    <!-- OKG_DSN is interpolated into the manifest's postgres.dsn. It carries
+         the database password, so it is NOT committed here. Provide it out of
+         band via the launchd user environment (LaunchAgents inherit it):
+
+           launchctl setenv OKG_DSN 'postgres://USER:PASSWORD@HOST:PORT/DB'
+
+         Set it before `launchctl bootstrap` (and again after each reboot, or
+         from a login item). The worker refuses to start with OKG_DSN unset --
+         there is no in-file fallback, so a missing value fails loudly rather
+         than pointing at a wrong/default database. -->
+  </dict>
+
+  <!-- Keep the worker alive: relaunch on any exit, including crashes
+       and clean SIGTERMs. -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Start at user login. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- launchd's default throttle (10 s between starts) is fine for
+       a worker; speed it up with ThrottleInterval if you're
+       iterating. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <!-- SIGTERM is what the worker's signal handler expects; launchd's
+       default is SIGTERM so we don't need to override. ExitTimeOut
+       gives DBOS time to drain in-flight workflows. -->
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/okg-runtime-worker.okg-workspace.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/okg-runtime-worker.okg-workspace.log</string>
+
+  <!-- Reasonable resource bounds. Adjust based on deployment size. -->
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>4096</integer>
+  </dict>
+</dict>
+</plist>

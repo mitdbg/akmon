@@ -1,0 +1,77 @@
+pact_version: 4
+target_pact_version: 4
+change:
+  id: registry-env-expansion
+  title: 'Expand ${ENV_VAR} in source_registry.yaml values'
+  status: proposal
+  tier: 1
+  rationale: >-
+    source_registry.yaml values can use the fixed deployment-relative anchors
+    (${repo_root}, ${deployment_dir}) but NOT environment variables — only
+    code_repos.base gets os.path.expandvars. So any explicit source that needs a
+    machine-specific path (e.g. a code checkout root) must hardcode it (e.g.
+    /home/<user>/repos/WMCore), which makes the deployment non-portable: it
+    cannot be moved to another machine/user without editing the registry. Expand
+    ${ENV_VAR} across all registry values so one env var (e.g.
+    ${OKG_CODE_REPOS_ROOT}) makes the whole registry portable.
+  affected_areas:
+  - source-registry loading
+  affected_code:
+  - src/okg/substrate/sources/registry.py
+requirements:
+- id: req.envexpand.expand
+  title: 'registry values expand ${ENV_VAR} from the environment at load'
+  statement: >-
+    When loading source_registry.yaml, any string value containing a braced
+    ${VAR} reference whose VAR is set in the environment MUST be expanded to that
+    value, in any source param (not just code_repos.base), after the fixed
+    ${repo_root}/${deployment_dir} anchors are applied.
+  evidence_policy:
+    required:
+    - executed_test
+  scenarios: []
+  acceptance: []
+- id: req.envexpand.safe
+  title: 'expansion is safe and backward compatible'
+  statement: >-
+    Only the braced ${VAR} form is expanded; a bare `$x` (as in a glob or regex)
+    MUST be left untouched. An undefined ${VAR} MUST be left literal (so a
+    missing required var fails loudly downstream rather than silently resolving
+    to an empty path). Registries with no ${VAR} references MUST load unchanged.
+  evidence_policy:
+    required:
+    - executed_test
+  scenarios: []
+  acceptance: []
+tasks:
+- id: task.envexpand.impl
+  title: Expand ${ENV_VAR} in _substitute_node after anchor substitution
+  status: todo
+  verification: >-
+    Unit tests load a registry whose source param uses ${VAR}; a set VAR expands
+    to its value; an unset VAR stays literal; a bare `$x` is unchanged; existing
+    code_repos + placeholder tests still pass.
+  requirements:
+  - req.envexpand.expand
+  - req.envexpand.safe
+  evidence: []
+  environment: []
+dependencies: []
+test_plan:
+- id: tp.envexpand.expand
+  requirement: req.envexpand.expand
+  test_id: tests/substrate/test_registry_env_expansion.py::test_env_var_expands_in_source_params
+  command: uv run --extra dev pytest tests/substrate/test_registry_env_expansion.py -k expands -q
+- id: tp.envexpand.undefined
+  requirement: req.envexpand.safe
+  test_id: tests/substrate/test_registry_env_expansion.py::test_undefined_env_var_left_literal
+  command: uv run --extra dev pytest tests/substrate/test_registry_env_expansion.py -k undefined -q
+- id: tp.envexpand.bare
+  requirement: req.envexpand.safe
+  test_id: tests/substrate/test_registry_env_expansion.py::test_bare_dollar_not_expanded
+  command: uv run --extra dev pytest tests/substrate/test_registry_env_expansion.py -k bare -q
+formal: []
+waivers: []
+evidence: []
+edits: []
+prose: {}

@@ -1,0 +1,29 @@
+version: 1
+deployment:
+  name: bootstrap-example
+  path: deployments/bootstrap-example
+  template_base: empty
+  description: Example deployment being prepared by the bootstrapper.
+  postgres:
+    dsn: ${OKG_DSN}
+domain_brief:
+  text: "Track changing operational documents and source records."
+  example_questions: []
+sources: []
+record_shapes: []
+ontology_plan:
+  library_modules: []
+  subtypes: []
+narrowing_plan: []
+extractor_plan:
+  entity_patterns: []
+  linker_routes: []
+  aliases: []
+view_plan:
+  views: []
+quality_plan:
+  invariants: []
+  fixture_assertions: []
+verification:
+  status: unverified
+  checks: []

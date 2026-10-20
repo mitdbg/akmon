@@ -1,0 +1,435 @@
+{
+ "clean_fp_ceiling": 0,
+ "clean_gate_passed": true,
+ "clean_run_fp": 0,
+ "config_digest": "aa415cee069ec9c4d3c983364ba0983561d5b5da34d25ee51cfda977b9a634c6",
+ "corrupted_unexpected_findings": {
+  "engine_attributed": [],
+  "extractor_attributed": []
+ },
+ "cost_model": {
+  "action_prices": {
+   "check": 0.0,
+   "correction": 0.0,
+   "extract_document": 0.0,
+   "parse": 0.0,
+   "publish": 0.0
+  },
+  "default_error_cost": 1.0,
+  "error_costs": {
+   "ambiguous_subject": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "broken_reference": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "cardinality_violation": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "dangling_entity": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "derived_value": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "digit_transposition": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "entity_swap": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "incompatible_status_pair": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "label_value_mismatch": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "linked_reference": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "polarity_flip": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "unit_conversion_error": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "value_perturbation": {
+    "error_cost": 1.0,
+    "mandatory": false
+   }
+  },
+  "mandatory_classes": []
+ },
+ "cross_doc_recall": {
+  "denominator": 5,
+  "recovered": 5
+ },
+ "extraction": {
+  "denominator": 308,
+  "missed": [],
+  "recovered": 308
+ },
+ "funnel": {
+  "detection_recall": {
+   "conditional": {
+    "denominator": 6,
+    "detected": 5
+   },
+   "end_to_end": {
+    "denominator": 11,
+    "detected": 6
+   }
+  },
+  "partition_state": {
+   "cross_doc": {
+    "detected_only": 1,
+    "repaired": 4
+   },
+   "internal_only": {
+    "not_detected": 1
+   },
+   "undetectable_by_construction": {
+    "not_detected": 4
+   },
+   "world_knowledge": {
+    "detected_only": 1
+   }
+  },
+  "repair_rate": {
+   "conditional": {
+    "denominator": 6,
+    "repaired": 4
+   },
+   "end_to_end": {
+    "denominator": 11,
+    "repaired": 4
+   }
+  },
+  "states": {
+   "counterpart_lost": 0,
+   "detected_only": 2,
+   "laundered_at_extraction": 0,
+   "mis_repaired": 0,
+   "missed_at_extraction": 0,
+   "not_detected": 5,
+   "removed_from_scope": 0,
+   "repaired": 4
+  },
+  "total": 11
+ },
+ "majority_flavor": {
+  "copy": {
+   "mis_repaired": 0,
+   "preserved": 0
+  },
+  "independent": {
+   "mis_repaired": 0,
+   "preserved": 0
+  }
+ },
+ "manifest_digest": "8061128484ff195dac385a81531f7bdde46b0e3f8e440d9aecd1d179c177115a",
+ "per_class": {
+  "broken_reference": {
+   "candidate": 0,
+   "denominator": 1,
+   "layer": "render",
+   "missed_buckets": [
+    "birthdate:patient_katia630_guillermina633_berge125"
+   ],
+   "routed": 0,
+   "verdict": 0
+  },
+  "cardinality_violation": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "kg_fork",
+   "missed_buckets": [],
+   "routed": 0,
+   "verdict": 1
+  },
+  "dangling_entity": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "render",
+   "missed_buckets": [],
+   "routed": 0,
+   "verdict": 1
+  },
+  "derived_value": {
+   "candidate": 0,
+   "denominator": 1,
+   "layer": "kg_fork",
+   "missed_buckets": [
+    "body_mass_index:patient_karen597_marlen929_rogahn59"
+   ],
+   "routed": 0,
+   "verdict": 0
+  },
+  "digit_transposition": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "render",
+   "missed_buckets": [],
+   "routed": 1,
+   "verdict": 1
+  },
+  "entity_swap": {
+   "candidate": 0,
+   "denominator": 1,
+   "layer": "kg_fork",
+   "missed_buckets": [
+    "medication_naproxen:patient_margret280_sherell789_daniel959"
+   ],
+   "routed": 0,
+   "verdict": 0
+  },
+  "label_value_mismatch": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "render",
+   "missed_buckets": [],
+   "routed": 1,
+   "verdict": 1
+  },
+  "polarity_flip": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "kg_fork",
+   "missed_buckets": [],
+   "routed": 0,
+   "verdict": 1
+  },
+  "unit_conversion_error": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "render",
+   "missed_buckets": [],
+   "routed": 0,
+   "verdict": 1
+  },
+  "value_perturbation": {
+   "candidate": 0,
+   "denominator": 2,
+   "layer": "kg_fork",
+   "missed_buckets": [
+    "body_height:patient_margret280_sherell789_daniel959",
+    "hemoglobin_a1c:patient_katia630_guillermina633_berge125"
+   ],
+   "routed": 0,
+   "verdict": 0
+  }
+ },
+ "per_class_survival": {
+  "by_class": {
+   "broken_reference": {
+    "sites": 1,
+    "survived": 1
+   },
+   "cardinality_violation": {
+    "sites": 1,
+    "survived": 1
+   },
+   "dangling_entity": {
+    "sites": 1,
+    "survived": 1
+   },
+   "derived_value": {
+    "sites": 1,
+    "survived": 1
+   },
+   "digit_transposition": {
+    "sites": 1,
+    "survived": 1
+   },
+   "entity_swap": {
+    "sites": 1,
+    "survived": 1
+   },
+   "label_value_mismatch": {
+    "sites": 1,
+    "survived": 1
+   },
+   "polarity_flip": {
+    "sites": 1,
+    "survived": 1
+   },
+   "unit_conversion_error": {
+    "sites": 1,
+    "survived": 1
+   },
+   "value_perturbation": {
+    "sites": 2,
+    "survived": 2
+   }
+  },
+  "non_surviving_sites": []
+ },
+ "per_kind_detection": {
+  "by_kind": {
+   "functional": {
+    "conditional": {
+     "denominator": 11,
+     "detected": 6
+    },
+    "end_to_end": {
+     "denominator": 11,
+     "detected": 6
+    }
+   },
+   "incompatible_pair": {
+    "conditional": {
+     "denominator": 0,
+     "detected": 0
+    },
+    "end_to_end": {
+     "denominator": 0,
+     "detected": 0
+    }
+   },
+   "linked_pair": {
+    "conditional": {
+     "denominator": 0,
+     "detected": 0
+    },
+    "end_to_end": {
+     "denominator": 0,
+     "detected": 0
+    }
+   },
+   "unresolved_key": {
+    "conditional": {
+     "denominator": 0,
+     "detected": 0
+    },
+    "end_to_end": {
+     "denominator": 0,
+     "detected": 0
+    }
+   }
+  },
+  "linked_cross_bucket": []
+ },
+ "per_partition": {
+  "cross_doc": {
+   "denominator": 5,
+   "verdict": 5
+  },
+  "internal_only": {
+   "denominator": 1,
+   "verdict": 0
+  },
+  "undetectable_by_construction": {
+   "denominator": 4,
+   "verdict": 0
+  },
+  "world_knowledge": {
+   "denominator": 1,
+   "verdict": 1
+  }
+ },
+ "poisoning": {
+  "all_flips_on_authority": true,
+  "by_basis": {},
+  "eligible": 6,
+  "enabled": false,
+  "expected_basis": "declared_source_authority",
+  "flip_rate": 0.0,
+  "flipped": 0,
+  "per_bucket": [],
+  "poison_rate": 0.0,
+  "poisoned": 0
+ },
+ "qualification": {
+  "mandatory_planted": 0,
+  "mandatory_unresolved": 0,
+  "qualified": true,
+  "reason": "the corpus plants no mandatory violation",
+  "unresolved_mandatory_corruptions": []
+ },
+ "qualified": true,
+ "remaining_error_cost": {
+  "by_stage": {
+   "detection": {
+    "corruptions": 5,
+    "cost": 5.0,
+    "mandatory_unresolved": 0
+   },
+   "extraction": {
+    "corruptions": 0,
+    "cost": 0.0,
+    "mandatory_unresolved": 0
+   },
+   "repair": {
+    "corruptions": 2,
+    "cost": 2.0,
+    "mandatory_unresolved": 0
+   }
+  },
+  "corruptions": 7,
+  "infinite": false,
+  "mandatory_unresolved": 0,
+  "scale": 1.0,
+  "total": 7.0,
+  "unresolved_mandatory_corruptions": []
+ },
+ "repair": {
+  "detected": 6,
+  "detected_only": 2,
+  "mis_repaired": 0,
+  "repaired": 4,
+  "total": 11,
+  "unadjudicated": 5
+ },
+ "schema": "okg.synth.scorecard.v1",
+ "spent_action_cost": {
+  "by_class": {
+   "check": {
+    "cost": 0.0,
+    "count": 10,
+    "unit_price": 0.0
+   },
+   "correction": {
+    "cost": 0.0,
+    "count": 0,
+    "unit_price": 0.0
+   },
+   "extract_document": {
+    "cost": 0.0,
+    "count": 64,
+    "unit_price": 0.0
+   },
+   "parse": {
+    "cost": 0.0,
+    "count": 64,
+    "unit_price": 0.0
+   },
+   "publish": {
+    "cost": 0.0,
+    "count": 2,
+    "unit_price": 0.0
+   }
+  },
+  "total": 0.0
+ },
+ "twins": {
+  "denominator": 3,
+  "flagged": 0
+ },
+ "undetectable_flagged_fp": 0,
+ "world_knowledge": {
+  "denominator": 1,
+  "verdict": 1
+ }
+}

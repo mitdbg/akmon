@@ -1,0 +1,30 @@
+# Cross-link rules: agent_memory -> bookkeeping.
+#
+# These rules primarily declare catalog narrowings for explicit
+# record() reference edges. The record operator emits project_ref as an
+# explicit `references` edge; the linker rule stays harmless when the
+# source attrs do not carry a project_ref field.
+rules:
+  # `study` belongs here for the same reason the record subtypes do: the study
+  # record template advertises `project_ref`. It was omitted when this list was
+  # first written, so a study's declared parent link was dropped at lowering
+  # with `reason: missing_narrowing` while the node was still created (#947).
+  # tests/substrate/mcp/test_record_operator.py
+  # ::test_record_template_reference_fields_have_routes is the mechanical guard
+  # against re-omission.
+  - id: agent_records_reference_project
+    src:
+      subtype:
+        - agent_claim
+        - agent_observation
+        - agent_experiment
+        - verification_result
+        - agent_decision
+        - study
+      field: project_ref
+    dst:
+      subtype: project
+      field: project_id
+    matcher: exact
+    edge: references
+    bidirectional: false

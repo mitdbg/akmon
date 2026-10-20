@@ -1,0 +1,660 @@
+id: https://palimpzest.mit.edu/okg/modules/cti
+name: cti
+title: CTI Graph — CVEs, CWE weaknesses, and the ATT&CK knowledge graph
+description: |-
+  Cyber-threat-intelligence corpora ingested from operator-frozen
+  local snapshots: NVD CVE feeds (nvd_feeds source), the MITRE CWE
+  catalog XML (cwe_catalog source), and MITRE ATT&CK STIX bundles
+  (attack_stix source).
+
+  This module previously declared four subtypes and two narrowings —
+  a CVE list, a weakness list, a technique list and a tactic list. That
+  shape could not express three of CTIBench's four answer units:
+  cti-mcq asks for an ATT&CK ENTITY RELATION (which mitigation covers a
+  technique, which group uses it), cti-rcm's gold is frequently the
+  PARENT of the obvious CWE, and cti-vsp is graded on the EIGHT CVSS
+  base metrics rather than a vector string. Per `okg-corpus-cti` the
+  module now carries what the released artifacts already assert:
+
+  * the ATT&CK entity types the bundle's relationship objects point at
+    — attack_group (intrusion-set), attack_software (malware AND tool,
+    one subtype because ATT&CK relates them identically),
+    attack_mitigation (course-of-action), attack_campaign,
+    attack_detection_strategy (x-mitre-detection-strategy, the source
+    endpoint of `detects` in every current release), attack_analytic
+    (x-mitre-analytic, the detection logic beneath a strategy), and
+    attack_data_component (the source endpoint of `detects` in bundles
+    predating detection strategies, and now reachable only through the
+    analytic layer);
+  * the CWE hierarchy, split three ways so an ancestor relation
+    (child_of) can never be confused with a sibling one (related_to)
+    or with a category grouping (has_member);
+  * the CVSS base metrics as individually queryable attributes.
+
+  Seventeen narrowings cover EXACTLY the edges the three sources emit.
+
+  Per `okg-bench-ctibench` (2026-07-27) and `okg-corpus-cti`
+  (2026-07-28).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  cti: https://palimpzest.mit.edu/okg/modules/cti/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Cve:
+    description: |-
+      One CVE entry from an NVD feed snapshot. Conventionally
+      node id cve:nvd:<cve_id> (CVE ids are globally unique, so the
+      natural key namespaces the node).
+    class_uri: cti:Cve
+    attributes:
+      cve_id:
+        required: true
+        description: "The CVE identifier, e.g. CVE-2021-44228."
+      description:
+        required: true
+        description: The english description text from the feed.
+      cvss_version:
+        description: |-
+          Version of the preferred CVSS metric (3.1 preferred over
+          3.0 over 2.0). Absent (null) when NVD has not scored the
+          CVE — an honest absence, never a defaulted score.
+      cvss_vector:
+        description: The CVSS vector string of the preferred metric.
+      cvss_base_score:
+        range: float
+        description: The base score of the preferred metric.
+      cvss_base_severity:
+        description: |-
+          Released qualitative severity (LOW | MEDIUM | HIGH |
+          CRITICAL) of a v3.1/v3.0 metric. OMITTED — the key is not
+          present at all — for a v2-only or unscored CVE, and for a v3
+          block that ships no baseSeverity. Never derived from the
+          score.
+      cvss_attack_vector:
+        description: |-
+          AV of the preferred v3.1/v3.0 vector, as NVD publishes it
+          (NETWORK | ADJACENT_NETWORK | LOCAL | PHYSICAL).
+
+          This attribute and the seven below are the answer unit
+          cti-vsp is graded on, so they are stored individually rather
+          than parsed out of cvss_vector at query time. They are
+          OMITTED — not null — when the preferred metric is v2 or the
+          CVE is unscored, because an absent key is the only encoding a
+          presence test can tell apart from a real metric. The vector
+          reassembled from all eight MUST equal the released
+          cvss_vector; nvd_feeds fails the ingest otherwise.
+      cvss_attack_complexity:
+        description: "AC of the v3.x vector (LOW | HIGH)."
+      cvss_privileges_required:
+        description: "PR of the v3.x vector (NONE | LOW | HIGH)."
+      cvss_user_interaction:
+        description: "UI of the v3.x vector (NONE | REQUIRED)."
+      cvss_scope:
+        description: "S of the v3.x vector (UNCHANGED | CHANGED)."
+      cvss_confidentiality_impact:
+        description: "C of the v3.x vector (HIGH | LOW | NONE)."
+      cvss_integrity_impact:
+        description: "I of the v3.x vector (HIGH | LOW | NONE)."
+      cvss_availability_impact:
+        description: "A of the v3.x vector (HIGH | LOW | NONE)."
+      weakness_mapping_status:
+        description: |-
+          Why this CVE references no CWE, as NVD states it — one of
+          `nvd_cwe_noinfo` (NVD-CWE-noinfo: no information),
+          `nvd_cwe_other` (NVD-CWE-Other: an analyst judged the weakness
+          to fall outside CWE — a judgment, not an absence, so it is
+          kept distinct), or `not_stated` (the feed entry carries no
+          weakness block at all).
+
+          OMITTED — the key is not present at all — whenever NVD DID
+          cite a CWE. So an isolated cve node WITHOUT this key means a
+          has_weakness edge was lost between the feed and the graph, and
+          an isolation probe can demand a stated reason rather than
+          accept an aggregate fraction. Stamped from the parsed feed,
+          never from whether the edge was emitted, which would be
+          circular. This is the CVE-side twin of cwe's
+          no_relations_reason.
+      published_at:
+        required: true
+        range: datetime
+      modified_at:
+        required: true
+        range: datetime
+      created_at:
+        range: datetime
+        description: Equal to published_at (the CVE's semantic birth).
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_created_at_from: published_at
+      okg_last_modified_at_from: modified_at
+  Cwe:
+    description: |-
+      One entry from the MITRE CWE catalog — a Weakness, or a Category
+      (NVD still tags CVEs with legacy category ids, so a category is a
+      referenceable weakness node here). Conventionally node id
+      cwe:mitre:<cwe_id>; nvd_feeds' has_weakness edges resolve onto
+      these ids. A category reaches the entries it groups through
+      has_member — it can group weaknesses AND other categories, which
+      is why one narrowing covers both.
+    class_uri: cti:Cwe
+    attributes:
+      cwe_id:
+        required: true
+        description: "The CWE identifier, e.g. CWE-79."
+      name:
+        required: true
+      kind:
+        description: "weakness | category — which catalog section it came from."
+      abstraction:
+        description: "Pillar | Class | Base | Variant | Compound."
+      description:
+        description: |-
+          First Description text from the catalog entry (a Category's
+          Summary text).
+      applicable_platforms:
+        multivalued: true
+        description: |-
+          The catalog's Applicable_Platforms entries, prefixed by the
+          element that declared them ("Language:PHP",
+          "Technology:Web Server"). Empty when the entry declares none.
+      consequence_scopes:
+        multivalued: true
+        description: |-
+          Distinct Common_Consequences//Scope values (Confidentiality,
+          Integrity, Availability, ...). Empty when the entry declares
+          no consequences.
+      unresolved_related_weaknesses:
+        multivalued: true
+        description: |-
+          Related_Weakness targets that name a CWE id this catalog does
+          NOT define. They are kept here — never as a stub node (which
+          would enter the candidate pool the benchmark scores) and
+          never as a dangling edge (which would block the publish), per
+          `okg-corpus-design`. Empty when every relation resolved.
+      unresolved_members:
+        multivalued: true
+        description: |-
+          The same, for a Category's Has_Member targets: member ids the
+          catalog does not define stay here rather than becoming stub
+          nodes. Present only on a category entry; empty when every
+          membership resolved (which is the case in cwec v4.20).
+      no_relations_reason:
+        description: |-
+          Why the catalog relates this entry to nothing — one of
+          `retired_entry` (Status="Deprecated": MITRE keeps the id for
+          stability and strips its relationships) or
+          `no_relationships_declared` (a live entry the catalog gives no
+          relations, e.g. an empty CERT/SEI mapping category).
+
+          OMITTED — the key is not present at all — whenever the catalog
+          DOES declare a relation touching the entry, whether the entry
+          declares it or another entry names the entry. So an isolated
+          cwe node WITHOUT this key means an edge was lost between
+          declaration and emission, and an isolation probe can demand a
+          stated reason instead of accepting an aggregate fraction. It
+          is stamped from the parsed declarations, never from the
+          emitted edge count, which would be circular.
+
+          Distinct from unresolved_related_weaknesses /
+          unresolved_members: those say "everything I cited dangles",
+          which is NOT benign; this says "I cited nothing and nobody
+          cited me", which is.
+      created_at:
+        range: datetime
+        description: |-
+          The catalog release Date; omitted when the snapshot's
+          Weakness_Catalog carries no Date attribute.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_created_at_from: created_at
+  AttackTechnique:
+    description: |-
+      One ATT&CK technique or sub-technique (STIX attack-pattern).
+      Conventionally node id attack_technique:mitre:<technique_id>.
+    class_uri: cti:AttackTechnique
+    attributes:
+      technique_id:
+        required: true
+        description: "ATT&CK id, e.g. T1548 or T1548.002."
+      name:
+        required: true
+      platforms:
+        description: Comma-separated x_mitre_platforms values.
+      is_subtechnique:
+        range: boolean
+      description:
+        description: |-
+          Technique description, truncated at 20,000 chars — a bound
+          above the longest released ATT&CK description, raised from
+          2,000 because cti-ate matches report prose against technique
+          prose. attack_stix counts any truncation in last_run_stats.
+      detection:
+        description: |-
+          The released x_mitre_detection guidance (what to look for in
+          telemetry), same 20,000-char bound. Null when the technique
+          ships none — which is EVERY technique in a current bundle:
+          ATT&CK retired x_mitre_detection when it introduced detection
+          strategies, and the guidance now lives on the analytics they
+          reference. Populated only from a bundle predating that move.
+      created_at:
+        range: datetime
+      no_relations_reason:
+        description: |-
+          Why the released bundle relates this object to nothing — one of
+          `unreferenced_in_bundle` (no relationship object, embedded ref or
+          kill-chain phase names it) or `referenced_only_by_excluded_objects`
+          (every declaration naming it pairs it with a revoked, deprecated or
+          superseded object, or one of an unmodelled STIX type). Counted from
+          a census over the RAW bundle taken before any node is emitted, so
+          it states what the input declares and never whether an edge came
+          out. ABSENT when the bundle declared a live relation, which makes
+          an isolate carrying no reason a parsing regression.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_created_at_from: created_at
+  AttackTactic:
+    description: |-
+      One ATT&CK tactic (STIX x-mitre-tactic). Conventionally
+      node id attack_tactic:mitre:<tactic_id>.
+    class_uri: cti:AttackTactic
+    attributes:
+      tactic_id:
+        required: true
+        description: "ATT&CK tactic id, e.g. TA0004."
+      name:
+        required: true
+      shortname:
+        required: true
+        description: |-
+          The x_mitre_shortname (e.g. privilege-escalation) that
+          techniques' kill_chain_phases reference.
+      created_at:
+        range: datetime
+      no_relations_reason:
+        description: |-
+          Why the released bundle relates this object to nothing — one of
+          `unreferenced_in_bundle` (no relationship object, embedded ref or
+          kill-chain phase names it) or `referenced_only_by_excluded_objects`
+          (every declaration naming it pairs it with a revoked, deprecated or
+          superseded object, or one of an unmodelled STIX type). Counted from
+          a census over the RAW bundle taken before any node is emitted, so
+          it states what the input declares and never whether an edge came
+          out. ABSENT when the bundle declared a live relation, which makes
+          an isolate carrying no reason a parsing regression.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_created_at_from: created_at
+  AttackGroup:
+    description: |-
+      One ATT&CK group / named adversary (STIX intrusion-set).
+      Conventionally node id attack_group:mitre:<group_id>.
+    class_uri: cti:AttackGroup
+    attributes:
+      group_id:
+        required: true
+        description: "ATT&CK group id, e.g. G0016."
+      name:
+        required: true
+      aliases:
+        multivalued: true
+        description: |-
+          The released aliases, verbatim and in catalog order. Threat
+          reports name groups by alias (APT29 / Cozy Bear / Midnight
+          Blizzard), so this is cti-ate's way from report prose to a
+          group and thence to its techniques.
+      description:
+        description: Group description, 20,000-char bound.
+      created_at:
+        range: datetime
+      no_relations_reason:
+        description: |-
+          Why the released bundle relates this object to nothing — one of
+          `unreferenced_in_bundle` (no relationship object, embedded ref or
+          kill-chain phase names it) or `referenced_only_by_excluded_objects`
+          (every declaration naming it pairs it with a revoked, deprecated or
+          superseded object, or one of an unmodelled STIX type). Counted from
+          a census over the RAW bundle taken before any node is emitted, so
+          it states what the input declares and never whether an edge came
+          out. ABSENT when the bundle declared a live relation, which makes
+          an isolate carrying no reason a parsing regression.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_created_at_from: created_at
+  AttackSoftware:
+    description: |-
+      One piece of ATT&CK-tracked software — STIX `malware` OR `tool`.
+      ONE subtype, because ATT&CK relates the two identically (a group
+      uses either; either uses a technique) and cti-mcq does not
+      distinguish them; the distinction is kept as software_type.
+      Conventionally node id attack_software:mitre:<software_id>.
+    class_uri: cti:AttackSoftware
+    attributes:
+      software_id:
+        required: true
+        description: "ATT&CK software id, e.g. S0002."
+      name:
+        required: true
+      software_type:
+        description: "malware | tool — the STIX object type it came from."
+      aliases:
+        multivalued: true
+        description: |-
+          The released x_mitre_aliases — the names reports use for the
+          same implant (e.g. Mimikatz / mimikatz.exe).
+      platforms:
+        description: Comma-separated x_mitre_platforms values.
+      description:
+        description: Software description, 20,000-char bound.
+      created_at:
+        range: datetime
+      no_relations_reason:
+        description: |-
+          Why the released bundle relates this object to nothing — one of
+          `unreferenced_in_bundle` (no relationship object, embedded ref or
+          kill-chain phase names it) or `referenced_only_by_excluded_objects`
+          (every declaration naming it pairs it with a revoked, deprecated or
+          superseded object, or one of an unmodelled STIX type). Counted from
+          a census over the RAW bundle taken before any node is emitted, so
+          it states what the input declares and never whether an edge came
+          out. ABSENT when the bundle declared a live relation, which makes
+          an isolate carrying no reason a parsing regression.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_created_at_from: created_at
+  AttackMitigation:
+    description: |-
+      One ATT&CK mitigation (STIX course-of-action). Conventionally
+      node id attack_mitigation:mitre:<mitigation_id>.
+    class_uri: cti:AttackMitigation
+    attributes:
+      mitigation_id:
+        required: true
+        description: "ATT&CK mitigation id, e.g. M1013."
+      name:
+        required: true
+      description:
+        description: Mitigation guidance, 20,000-char bound.
+      created_at:
+        range: datetime
+      no_relations_reason:
+        description: |-
+          Why the released bundle relates this object to nothing — one of
+          `unreferenced_in_bundle` (no relationship object, embedded ref or
+          kill-chain phase names it) or `referenced_only_by_excluded_objects`
+          (every declaration naming it pairs it with a revoked, deprecated or
+          superseded object, or one of an unmodelled STIX type). Counted from
+          a census over the RAW bundle taken before any node is emitted, so
+          it states what the input declares and never whether an edge came
+          out. ABSENT when the bundle declared a live relation, which makes
+          an isolate carrying no reason a parsing regression.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_created_at_from: created_at
+  AttackCampaign:
+    description: |-
+      One ATT&CK campaign (STIX campaign) — a named intrusion activity
+      with a time span. Conventionally node id
+      attack_campaign:mitre:<campaign_id>.
+    class_uri: cti:AttackCampaign
+    attributes:
+      campaign_id:
+        required: true
+        description: "ATT&CK campaign id, e.g. C0001."
+      name:
+        required: true
+      aliases:
+        multivalued: true
+        description: The released aliases for the campaign.
+      description:
+        description: Campaign description, 20,000-char bound.
+      created_at:
+        range: datetime
+      no_relations_reason:
+        description: |-
+          Why the released bundle relates this object to nothing — one of
+          `unreferenced_in_bundle` (no relationship object, embedded ref or
+          kill-chain phase names it) or `referenced_only_by_excluded_objects`
+          (every declaration naming it pairs it with a revoked, deprecated or
+          superseded object, or one of an unmodelled STIX type). Counted from
+          a census over the RAW bundle taken before any node is emitted, so
+          it states what the input declares and never whether an edge came
+          out. ABSENT when the bundle declared a live relation, which makes
+          an isolate carrying no reason a parsing regression.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_created_at_from: created_at
+  AttackDetectionStrategy:
+    description: |-
+      One ATT&CK detection strategy (STIX x-mitre-detection-strategy) —
+      the object modern ATT&CK (spec 3.3.0) makes the SOURCE endpoint of
+      every `detects` relationship, replacing the data component in that
+      role. Conventionally node id
+      attack_detection_strategy:mitre:<detection_strategy_id>; unlike
+      data components these DO carry a mitre external id.
+
+      The concrete detection logic sits one level below, in the
+      attack_analytic objects a strategy `contains`. That link, and the
+      analytic's link to the data components its log sources come from,
+      are EMBEDDED refs rather than STIX relationship objects;
+      attack_stix follows them, which is what keeps data components
+      reachable at all.
+    class_uri: cti:AttackDetectionStrategy
+    attributes:
+      detection_strategy_id:
+        required: true
+        description: "ATT&CK detection strategy id, e.g. DET0237."
+      name:
+        required: true
+        description: "e.g. Detection Strategy for RC Scripts."
+      description:
+        description: |-
+          Null for every object in the current release: ATT&CK ships
+          detection strategies with no description text and keeps the
+          prose on the analytics beneath them. An honest absence, never
+          a fabricated string.
+      created_at:
+        range: datetime
+      no_relations_reason:
+        description: |-
+          Why the released bundle relates this object to nothing — one of
+          `unreferenced_in_bundle` (no relationship object, embedded ref or
+          kill-chain phase names it) or `referenced_only_by_excluded_objects`
+          (every declaration naming it pairs it with a revoked, deprecated or
+          superseded object, or one of an unmodelled STIX type). Counted from
+          a census over the RAW bundle taken before any node is emitted, so
+          it states what the input declares and never whether an edge came
+          out. ABSENT when the bundle declared a live relation, which makes
+          an isolate carrying no reason a parsing regression.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_created_at_from: created_at
+  AttackAnalytic:
+    description: |-
+      One ATT&CK analytic (STIX x-mitre-analytic) — the concrete
+      detection logic beneath a detection strategy, and where ATT&CK
+      moved the telemetry guidance when it retired x_mitre_detection
+      from the technique. Conventionally node id
+      attack_analytic:mitre:<analytic_id>.
+
+      Each analytic belongs to exactly one detection strategy (which
+      `contains` it) and `references` the data components its log
+      sources come from. Both links are embedded refs in the bundle, not
+      relationship objects.
+    class_uri: cti:AttackAnalytic
+    attributes:
+      analytic_id:
+        required: true
+        description: "ATT&CK analytic id, e.g. AN0110."
+      name:
+        required: true
+        description: "e.g. Analytic 0110."
+      platforms:
+        description: Comma-separated x_mitre_platforms values.
+      description:
+        description: |-
+          The detection logic itself — what to monitor and how to
+          correlate it. 20,000-char bound. This is the text that used to
+          live on the technique as x_mitre_detection.
+      created_at:
+        range: datetime
+      no_relations_reason:
+        description: |-
+          Why the released bundle relates this object to nothing — one of
+          `unreferenced_in_bundle` (no relationship object, embedded ref or
+          kill-chain phase names it) or `referenced_only_by_excluded_objects`
+          (every declaration naming it pairs it with a revoked, deprecated or
+          superseded object, or one of an unmodelled STIX type). Counted from
+          a census over the RAW bundle taken before any node is emitted, so
+          it states what the input declares and never whether an edge came
+          out. ABSENT when the bundle declared a live relation, which makes
+          an isolate carrying no reason a parsing regression.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_created_at_from: created_at
+  AttackDataComponent:
+    description: |-
+      One ATT&CK data component (STIX x-mitre-data-component) — the
+      telemetry a technique is detected in. It was the SOURCE endpoint
+      of every `detects` relationship until ATT&CK introduced detection
+      strategies; in a current bundle it originates NONE of them and is
+      reached only as the target of attack_analytic `references`.
+
+      The natural key is the uuid half of the STIX id: recent releases
+      also stamp a DCxxxx external id, but the uuid is the one key
+      present in every bundle vintage. Node id
+      attack_data_component:mitre:<uuid>. Naming them by label would
+      merge two data sources' identically-named components.
+    class_uri: cti:AttackDataComponent
+    attributes:
+      data_component_id:
+        required: true
+        description: The uuid half of the object's STIX id.
+      name:
+        required: true
+        description: "e.g. Process Creation, Command Execution."
+      description:
+        description: Data-component description, 20,000-char bound.
+      created_at:
+        range: datetime
+      no_relations_reason:
+        description: |-
+          Why the released bundle relates this object to nothing — one of
+          `unreferenced_in_bundle` (no relationship object, embedded ref or
+          kill-chain phase names it) or `referenced_only_by_excluded_objects`
+          (every declaration naming it pairs it with a revoked, deprecated or
+          superseded object, or one of an unmodelled STIX type). Counted from
+          a census over the RAW bundle taken before any node is emitted, so
+          it states what the input declares and never whether an edge came
+          out. ABSENT when the bundle declared a live relation, which makes
+          an isolate carrying no reason a parsing regression.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_created_at_from: created_at
+  EdgeNarrowings:
+    description: |-
+      Edge narrowings emitted by the cti module — exactly the seventeen
+      triples the three sources emit, no more. attack_stix RAISES on a
+      relationship OR embedded ref whose endpoint pair is not one of
+      these, so an unmodeled pair can never be dropped quietly.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      cve_has_weakness_cwe:
+        annotations:
+          edge_archetype: has_weakness
+          src_subtypes: Cve
+          dst_subtypes: Cwe
+      cwe_child_of_cwe:
+        annotations:
+          edge_archetype: child_of
+          src_subtypes: Cwe
+          dst_subtypes: Cwe
+      cwe_related_to_cwe:
+        annotations:
+          edge_archetype: related_to
+          src_subtypes: Cwe
+          dst_subtypes: Cwe
+      cwe_has_member_cwe:
+        annotations:
+          edge_archetype: has_member
+          src_subtypes: Cwe
+          dst_subtypes: Cwe
+      attack_technique_part_of_attack_tactic:
+        annotations:
+          edge_archetype: part_of
+          src_subtypes: AttackTechnique
+          dst_subtypes: AttackTactic
+      attack_technique_subtechnique_of_attack_technique:
+        annotations:
+          edge_archetype: subtechnique_of
+          src_subtypes: AttackTechnique
+          dst_subtypes: AttackTechnique
+      attack_group_uses_attack_technique:
+        annotations:
+          edge_archetype: uses
+          src_subtypes: AttackGroup
+          dst_subtypes: AttackTechnique
+      attack_group_uses_attack_software:
+        annotations:
+          edge_archetype: uses
+          src_subtypes: AttackGroup
+          dst_subtypes: AttackSoftware
+      attack_software_uses_attack_technique:
+        annotations:
+          edge_archetype: uses
+          src_subtypes: AttackSoftware
+          dst_subtypes: AttackTechnique
+      attack_campaign_uses_attack_technique:
+        annotations:
+          edge_archetype: uses
+          src_subtypes: AttackCampaign
+          dst_subtypes: AttackTechnique
+      attack_campaign_uses_attack_software:
+        annotations:
+          edge_archetype: uses
+          src_subtypes: AttackCampaign
+          dst_subtypes: AttackSoftware
+      attack_campaign_attributed_to_attack_group:
+        annotations:
+          edge_archetype: attributed_to
+          src_subtypes: AttackCampaign
+          dst_subtypes: AttackGroup
+      attack_mitigation_mitigates_attack_technique:
+        annotations:
+          edge_archetype: mitigates
+          src_subtypes: AttackMitigation
+          dst_subtypes: AttackTechnique
+      attack_detection_strategy_detects_attack_technique:
+        annotations:
+          edge_archetype: detects
+          src_subtypes: AttackDetectionStrategy
+          dst_subtypes: AttackTechnique
+      attack_data_component_detects_attack_technique:
+        annotations:
+          edge_archetype: detects
+          src_subtypes: AttackDataComponent
+          dst_subtypes: AttackTechnique
+      attack_detection_strategy_contains_attack_analytic:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AttackDetectionStrategy
+          dst_subtypes: AttackAnalytic
+      attack_analytic_references_attack_data_component:
+        annotations:
+          edge_archetype: references
+          src_subtypes: AttackAnalytic
+          dst_subtypes: AttackDataComponent

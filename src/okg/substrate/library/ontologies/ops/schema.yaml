@@ -1,0 +1,515 @@
+id: https://palimpzest.mit.edu/okg/modules/ops
+name: ops
+title: Ops Graph — incident scenarios over an application topology and its alerts
+description: |-
+  Computing-operations corpora ingested from operator-frozen local copies
+  via the ops_telemetry source: the ITBench Apache-2.0 clone (scenario
+  index JSONs, the application library, and the deployment artifacts that
+  name each application's components and Prometheus alerting rules) plus,
+  optionally, recorded observability trajectories (CC-BY-NC-4.0
+  operator-supplied local copy, never vendored).
+
+  The model is derived from the benchmark's ANSWER UNIT — a component
+  identifier plus an ordered action sequence over it — not from the file
+  layout. A scenario's `environment.applications` is a FOREIGN KEY into the
+  application library, never a topology: measured across all 66 upstream
+  scenario indexes (pinned ref 7c68548) it holds exactly one entry, and
+  only two distinct application ids exist corpus-wide (opentelemetry-demo
+  x61, book-info x5). So the scenario points at an
+  OpsApplication, the application owns the OpsService vocabulary its own
+  deployment artifacts name, and OpsAlert is a rule DEFINITION the
+  application installs. The scenario index's `alerts` array (non-empty on
+  30 of 66 scenarios) resolves by name against those definitions.
+
+  Seven subtypes: OpsApplication, OpsService, OpsAlert, OpsScenario,
+  TelemetryRun, TelemetrySignal, AlertFiring. Ten narrowings cover exactly
+  the edges the source emits.
+
+  ALERT DEFINITION AND ALERT FIRING ARE TWO SUBTYPES, DELIBERATELY
+  UNCONNECTED. OpsAlert is a rule the application DEFINES; AlertFiring is a
+  firing the published telemetry RECORDED. Measured on
+  `ibm-research/ITBench-Lite` (2026-07-29): 16 distinct observed alertnames,
+  17 rule definitions, and `observed ∩ defined = ∅`. The telemetry records
+  `RequestErrorRate` / `RequestLatency` / `NoRequestsDetected` /
+  `CrashLoopBackOffPodsDetected` where the clone defines `HighRequestErrorRate`
+  / `HighRequestLatency` / `NoRequestsReceived` / `FailedPodsDetected`. This is
+  not a rename to be undone by re-pinning: every revision of
+  `prometheusrules.j2` in the public repo's history defines the `High*` names,
+  including `e9248312`, the last commit before the 2025-12-15 capture, and the
+  THRESHOLDS differ (`RequestErrorRate` is observed 'above 0' where the
+  definition says 'above 1'/'above 3'), so even a description join would bind a
+  firing to a rule it did not come from. There is therefore NO narrowing
+  between them: the data licenses none, and inventing one is what this module
+  refuses to do.
+
+  Gold exclusion is a source contract, but a marking rule rather than an
+  absence rule: the corpus MUST hold the component vocabulary an answer is
+  graded against, and does so through the application catalog, which is
+  built from the library alone and is byte-identical across every scenario
+  sharing an application. No scenario's solutions, injection specs, or
+  prose description ever reach an attribute.
+
+  Per PACT `okg-corpus-ops` (2026-07-28); supersedes the three-subtype
+  `okg-bench-domain-adapters` shape of 2026-07-27.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  ops: https://palimpzest.mit.edu/okg/modules/ops/
+default_range: string
+imports:
+- linkml:types
+classes:
+  OpsApplication:
+    description: |-
+      One application the scenario library defines — the thing a scenario's
+      `environment.applications[].id` points at. Conventionally node id
+      ops_application:<repo>:<application_id>. Owns the service vocabulary
+      and the alert definitions; carries the deployment pin (helm chart
+      reference plus version, or git repository plus tag) and the
+      Kubernetes namespace its alert rules select on.
+    class_uri: ops:OpsApplication
+    attributes:
+      application_id:
+        required: true
+        description: "Library id, e.g. opentelemetry-demo or book-info."
+      name:
+        required: true
+        description: Human-readable application name from the library index.
+      library_index:
+        range: integer
+        description: The application's index number in the library.
+      summary:
+        description: Application description from the library index.
+      upstream_repository:
+        description: Upstream source repository the library index names.
+      platforms:
+        description: Comma-separated platform values from the library index.
+      authors:
+        description: Comma-separated author values from the library index.
+      namespace:
+        required: true
+        description: >-
+          Kubernetes namespace the install role deploys into; the namespace
+          the application's alert expressions select on.
+      deploy_kind:
+        description: "helm or git — how the install role deploys it."
+      deploy_ref:
+        description: Chart reference or git repository the install role pins.
+      deploy_version:
+        description: Chart version or git tag the install role pins.
+      service_count:
+        range: integer
+        description: Number of components resolved from the deploy artifacts.
+      alert_definition_count:
+        range: integer
+        description: Number of alerting rules the application installs.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  OpsService:
+    description: |-
+      One component of an application, named by that application's own
+      deployment artifacts. Conventionally node id
+      ops_service:<repo>:<application_id>:<service_name>. This is the
+      vocabulary a fault-localization answer is graded against, so it must
+      be present — and `origin` records WHICH artifact named it, so a
+      component's evidence is auditable rather than asserted.
+    class_uri: ops:OpsService
+    attributes:
+      service_name:
+        required: true
+        description: "Component name, e.g. product-catalog or productpage."
+      application_id:
+        required: true
+        description: The application that runs this component.
+      namespace:
+        description: Kubernetes namespace the component is deployed into.
+      origin:
+        required: true
+        description: >-
+          Which source-carried artifact named this component —
+          k8s_workload (a Deployment/StatefulSet/DaemonSet in the published
+          telemetry's own object dump, which supersedes the reconstruction
+          for any application whose namespace the telemetry covers),
+          helm_values (a key of the helm values template's components map),
+          install_manifest (an app.kubernetes.io/component or app match
+          label in the install task), or alert_selector (a literal service
+          matcher inside one of the application's alerting rules).
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  OpsAlert:
+    description: |-
+      One Prometheus alerting rule as the application DEFINES it — not a
+      firing instance. Conventionally node id
+      ops_alert:<repo>:<application_id>:<rule_group>:<alert_name>. The rule
+      group is part of the key because an alert name is not unique within
+      an application: otel-demo defines HighRequestLatency and
+      HighRequestErrorRate in both its frontend and backend golden-signal
+      groups, and book-info defines HighRequestErrorRate and
+      NoRequestsReceived in both its productpage and gateway groups.
+    class_uri: ops:OpsAlert
+    attributes:
+      alert_name:
+        required: true
+        description: "The rule's alert name, e.g. HighRequestErrorRate."
+      application_id:
+        required: true
+        description: The application whose rule template defines this alert.
+      rule_group:
+        required: true
+        description: "Prometheus rule group, e.g. opentelemetrydemo.kafka."
+      expr:
+        required: true
+        description: PromQL expression, whitespace-squashed, 4000-char bound.
+      expr_truncated:
+        range: boolean
+        description: True when expr was truncated at 4000 chars.
+      for_window:
+        description: "The rule's `for` window, e.g. 3m."
+      severity:
+        description: "Severity label, e.g. critical or warning."
+      description:
+        description: The rule's description annotation, 4000-char bound.
+      template_path:
+        description: Rule template path, relative to the applications role.
+      target_selector_kind:
+        description: >-
+          positive (the rule names services it watches), negative (it
+          watches everything EXCEPT the services it names), or none (it
+          selects on namespace alone). A rule that is not positive resolves
+          no targets edge, and this attribute states why.
+      targets_resolved:
+        range: boolean
+        description: >-
+          True when at least one targets edge was emitted. False is a
+          REPORTED outcome, never a silent drop.
+      declared_target_services:
+        description: >-
+          Comma-separated positive service matchers the rule's OWN PromQL
+          states — the DECLARATION `targets_resolved` must be read against.
+          `targets_resolved` is emission-derived, so alone it cannot tell a
+          rule that named no service apart from one whose `targets` edge was
+          lost; this attribute is what makes the pair readable.
+      unresolved_target_services:
+        description: >-
+          Comma-separated members of declared_target_services that the
+          application's topology does not define. Reported, never dropped.
+      mentioned_services:
+        description: >-
+          Comma-separated service names the rule's matchers name, positive
+          or negative. Vocabulary evidence, not a target.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  OpsScenario:
+    description: |-
+      One incident scenario from a frozen scenario index. Conventionally
+      node id ops_scenario:<repo>:<scenario_number> — the index's integer
+      scenario number is the natural key the benchmark's instance ids
+      reference. Carries NO solutions, injection specs, or prose
+      description (gold exclusion contract); the description is excluded
+      because it names the faulty component in prose on 59 of 66 scenarios
+      while living outside disruptions/solutions.
+    class_uri: ops:OpsScenario
+    attributes:
+      scenario_number:
+        required: true
+        range: integer
+        description: "The scenario index number, e.g. 3 for 3.json."
+      category:
+        required: true
+        description: "Scenario category from the index, e.g. sre or finops."
+      complexity:
+        required: true
+        description: "Scenario complexity label from the index."
+      platforms:
+        description: Comma-separated platform values from the index.
+      application_id:
+        required: true
+        description: The application this scenario deploys.
+      declared_alert_names:
+        description: >-
+          Comma-separated alert names the scenario index says fired.
+      declared_alert_count:
+        range: integer
+        description: Number of alert names the scenario index declares.
+      unresolved_alert_names:
+        description: >-
+          Comma-separated declared alert names the application's own rule
+          templates do NOT define — reported here rather than stubbed as
+          nodes. 20 of the 33 upstream alert entries are in this state:
+          KubePodNotReady, KubeContainerWaiting, KubePodCrashLooping and
+          KubeHpaMaxedOut are kube-prometheus-stack rules, outside the
+          ITBench tree.
+      unresolved_alert_count:
+        range: integer
+        description: Number of declared alert names with no definition.
+      recorded_run_count:
+        range: integer
+        description: Recorded telemetry runs attributed to this scenario.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  TelemetryRun:
+    description: |-
+      One recording of a scenario. TWO upstream shapes land here, and the
+      attributes say which:
+
+      * a published telemetry snapshot from `ibm-research/ITBench-Lite`
+        (`snapshots/<domain>/<version>/Scenario-<N>/`), node id
+        telemetry_run:<repo>:<scenario number>. It carries alert firings and
+        the Kubernetes object/event dumps, and no `model`.
+      * a recorded trajectory run directory (the
+        model -> domain -> scenario -> run layout), node id
+        telemetry_run:<repo>:<relative run path>. It carries indexed
+        TelemetrySignal artifacts.
+
+      The deny-listed filenames (agent_output.json, session.jsonl,
+      judge_output.json, ground_truth.yaml) are never opened for content.
+      Trajectory deny-list members contribute to file_count; the published
+      snapshot's file_count SUBTRACTS them, because the answer key shipping
+      inside the release is not part of what the run recorded.
+    class_uri: ops:TelemetryRun
+    attributes:
+      model:
+        description: >-
+          The recording agent's model (top-level trajectory layout dir).
+          EMPTY on a published telemetry snapshot, which no agent produced.
+      run_path:
+        required: true
+        description: >-
+          Run directory path, relative to the trajectories root or to the
+          telemetry release root.
+      file_count:
+        required: true
+        range: integer
+        description: Number of files inventoried in the run directory.
+      signal_count:
+        range: integer
+        description: >-
+          Observability artifacts indexed as TelemetrySignal. Zero on a
+          published telemetry snapshot, whose evidence is AlertFiring.
+      alert_firing_count:
+        range: integer
+        description: AlertFiring nodes this snapshot observed.
+      has_object_dump:
+        range: boolean
+        description: >-
+          True when the snapshot ships k8s_objects_raw.tsv — the workload
+          roster that supersedes the helm reconstruction for this namespace.
+      has_event_dump:
+        range: boolean
+        description: True when the snapshot ships k8s_events_raw.tsv.
+      scenario_indexed:
+        range: boolean
+        description: >-
+          Whether the 66-index scenario tree defines the scenario this
+          telemetry names. False means the run exists with NO `recorded_by`
+          edge — REPORTED on the node rather than quietly subtracted from a
+          floor, which is where a later regression that lost a real scenario
+          would otherwise hide. Measured on the release: Scenario-9.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  AlertFiring:
+    description: |-
+      One alert the published telemetry RECORDED firing — an OBSERVATION,
+      never a rule definition. Conventionally node id
+      alert_firing:<repo>:<scenario number>:<alert name>:<activeAt>, because
+      the alerts directory is a ~1/min poll and the same firing appears in
+      hundreds of files; counting files would inflate the corpus by two
+      orders of magnitude.
+
+      IT CARRIES NO `expr`, AND THAT IS LOAD-BEARING. An AlertFiring is not
+      an OpsAlert with observation metadata attached: the two vocabularies
+      are disjoint (see the module description), so no firing can be joined
+      to the rule that produced it, and there is no narrowing between the
+      subtypes. A firing that acquired an `expr` would be a definition
+      wearing an observation's node id. The corpus contract gates exactly
+      that, so a future attempt to "helpfully" reconcile the two fails loudly
+      instead of quietly asserting a correspondence the artifacts do not
+      state.
+    class_uri: ops:AlertFiring
+    attributes:
+      alert_name:
+        required: true
+        description: >-
+          `labels.alertname` on the recorded firing, e.g. RequestErrorRate.
+          Drawn from the TELEMETRY's vocabulary, which does not intersect the
+          rule definitions'.
+      scenario_number:
+        required: true
+        range: integer
+        description: The Scenario-<N> directory this firing was recorded in.
+      active_at:
+        required: true
+        description: >-
+          The firing's `activeAt` timestamp. Part of node identity: it is
+          what distinguishes two firings of one alert name in one scenario.
+      severity:
+        description: "`labels.severity`, e.g. critical or warning."
+      namespace:
+        description: >-
+          `labels.namespace`. Also how a snapshot whose scenario the index
+          tree does not define resolves its application — see
+          scenario_indexed on TelemetryRun.
+      state:
+        description: "The firing's `state`, e.g. firing or pending."
+      description:
+        description: >-
+          The RENDERED `annotations.description` of the firing, 4000-char
+          bound. Rendered means the labels are already substituted, so it
+          names the service and namespace the alert fired on. It is
+          telemetry text, not scenario text, and no scenario document reaches
+          it.
+      artifact_path:
+        description: Alert artifact filename the firing was first read from.
+      declared_service_label:
+        description: >-
+          The service the firing NAMED (`labels.service_name` or
+          `labels.service`), resolvable against the topology or not. The
+          declaration `no_target_reason` is read against.
+      no_target_reason:
+        description: >
+          Why this firing has no `targets` edge, read from the PARSED FIRING
+          and never from whether the edge came out. ABSENT when the firing
+          named a service the application defines — so an untargeted firing
+          carrying no stamp is a LOST EDGE and the isolation probe fires.
+
+          Three reasons, kept distinct because they are three different
+          claims:
+
+          * `no_service_label` — the firing carries no service label at all.
+            Cluster-scoped alerts (Watchdog, KubeSchedulerDown) are about no
+            service by construction. Measured: 272 of 1,146.
+          * `service_outside_topology` — it named a service that is not a
+            workload of the application, overwhelmingly monitoring
+            infrastructure (`prometheus-kube-prometheus-kubelet` and
+            friends). Measured: 484 of 1,146.
+          * `application_unresolved` — no application was resolved for the
+            snapshot at all, so there is no topology to be outside of.
+            Conflating this with the second was a real defect committed while
+            fixing this stamp: a snapshot whose scenario the index does not
+            define was passed `app=None`, the roster was empty, and every
+            firing was stamped "outside the topology" by a check that had
+            never consulted one. Measured on the release: 0, because the
+            namespace fallback resolves Scenario-9 — the branch is retained
+            because its absence is what proves the fallback works.
+    annotations:
+      archetype: observation
+      transient: 'false'
+  TelemetrySignal:
+    description: |-
+      One observability artifact inside a recorded run, indexed rather than
+      ingested. Conventionally node id
+      telemetry_signal:<repo>:<run path>:<kind>:<subject service or _>.
+      The graph is the INDEX: it says which service has which evidence and
+      where to read it, while the bytes stay on disk under the read-only
+      snapshot the agent already mounts. A signal whose artifact states no
+      resolvable subject is the only tolerated isolate in this module, and
+      says WHY via no_subject_reason — read from the parsed artifact, and
+      ABSENT when the artifact named a service the application defines, so an
+      isolate carrying no reason is a lost edge rather than upstream silence.
+
+      NOTE, unfixed and not owned here: the node id ends in
+      `<subject service or _>`, so two unsubjected artifacts of the same kind
+      in one run collide on a single node id and the graph undercounts them.
+    class_uri: ops:TelemetrySignal
+    attributes:
+      kind:
+        required: true
+        description: "log, metric, trace, or event."
+      artifact_path:
+        required: true
+        description: Artifact filename inside the run directory.
+      record_count:
+        required: true
+        range: integer
+        description: Records counted in the artifact.
+      subject_service:
+        description: Service the artifact is about, when it resolved.
+      declared_subject_service:
+        description: >
+          The subject the artifact NAMED, recorded when that name is not a
+          service the application defines. An unresolvable name is a finding
+          to report, not a silent drop.
+      no_subject_reason:
+        description: >
+          Why this signal has no `about` edge, read from the parsed artifact:
+          artifact_empty (no records at all), no_subject_declared (records
+          carry no subject key), or declared_subject_unknown (named a service
+          the application does not define — see declared_subject_service).
+          ABSENT when the artifact named a resolvable service.
+
+          Replaces `subject_resolved`, which was computed as bool(subject) —
+          the same expression that gated the `about` edge — so it was true of
+          every isolate by construction and forgave the parsing regression it
+          was supposed to catch.
+      exemplar:
+        description: One record, serialized and bounded at 4000 chars.
+      exemplar_truncated:
+        range: boolean
+        description: True when the exemplar was truncated at 4000 chars.
+      window_start:
+        description: Earliest timestamp observed in the artifact.
+      window_end:
+        description: Latest timestamp observed in the artifact.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  EdgeNarrowings:
+    description: Edge narrowings emitted by the ops module.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      ops_scenario_deploys_ops_application:
+        annotations:
+          edge_archetype: deploys
+          src_subtypes: OpsScenario
+          dst_subtypes: OpsApplication
+      ops_application_runs_ops_service:
+        annotations:
+          edge_archetype: runs
+          src_subtypes: OpsApplication
+          dst_subtypes: OpsService
+      ops_application_defines_ops_alert:
+        annotations:
+          edge_archetype: defines
+          src_subtypes: OpsApplication
+          dst_subtypes: OpsAlert
+      ops_scenario_raises_ops_alert:
+        annotations:
+          edge_archetype: raises
+          src_subtypes: OpsScenario
+          dst_subtypes: OpsAlert
+      ops_alert_targets_ops_service:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: OpsAlert
+          dst_subtypes: OpsService
+      ops_scenario_recorded_by_telemetry_run:
+        annotations:
+          edge_archetype: recorded_by
+          src_subtypes: OpsScenario
+          dst_subtypes: TelemetryRun
+      telemetry_run_observed_ops_alert:
+        annotations:
+          edge_archetype: observed
+          src_subtypes: TelemetryRun
+          dst_subtypes: OpsAlert
+      telemetry_run_observed_alert_firing:
+        annotations:
+          edge_archetype: observed
+          src_subtypes: TelemetryRun
+          dst_subtypes: AlertFiring
+      alert_firing_targets_ops_service:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: AlertFiring
+          dst_subtypes: OpsService
+      telemetry_signal_about_ops_service:
+        annotations:
+          edge_archetype: about
+          src_subtypes: TelemetrySignal
+          dst_subtypes: OpsService

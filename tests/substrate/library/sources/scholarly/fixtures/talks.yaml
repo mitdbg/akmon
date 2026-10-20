@@ -1,0 +1,12 @@
+- title: "What Comes After the Relational Model"
+  speaker: "Morgan Vale"
+  venue: "VLDB Keynote"
+  year: 2023
+  youtube_url: "https://www.youtube.com/watch?v=ABCDEFGHIJK"
+  annote: "tier: 1, auto_extract: true"
+
+- title: "Foundations of Differential Privacy"
+  speaker: "Cynthia Dwork"
+  venue: "NeurIPS Tutorial"
+  year: 2022
+  youtube_url: "https://youtu.be/QRSTUVWXYZ1"

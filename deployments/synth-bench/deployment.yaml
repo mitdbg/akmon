@@ -1,0 +1,118 @@
+# synth-bench — synthetic commit-replay benchmark deployment.
+#
+# Points at a clone of pallets/click in .scratch/bench-repos/click.
+# Used to measure per-commit publisher cycle time as commits are
+# replayed via `git reset --hard <commit>`.
+#
+# Data is isolated in its own dedicated database (okg_synth_bench)
+# instead of sharing okg_workspace, so the benchmark's DBOS
+# schedules don't collide with the workspace deployment. Only ONE
+# worker should run at a time against this DB.
+
+name: synth-bench
+description: Synthetic commit-replay benchmark — pallets/click history
+
+release:
+  channel: dev
+
+postgres:
+  dsn: ${OKG_DSN}
+  database: okg_synth_bench
+
+nomos:
+  rollout:
+    status: deferred
+    reason: >-
+      Synthetic benchmark deployment; assign a runtime posture when benchmark
+      artifacts become standing graph output instead of local performance data.
+    owner:
+      name: okg-substrate-bench
+      contact: bench-owner@okg.example
+    # Bounded deferral: re-review the posture decision by this date or the
+    # rollout audit re-flags the deferral as failed.
+    review_by: "2027-01-01"
+
+runtime:
+  enabled: true
+  dbos_pool_size: 6
+  okg_read_pool_size: 8
+  okg_write_pool_size: 4
+  concurrency:
+    ingest.source_layer: 3
+    gate.invariants: 1
+    llm.telemetry: 2
+  dbos_schema: dbos
+  bypass_pgbouncer: false
+  sdk_version: "1.0"
+  workflows: []
+  # Faster publisher cron so the benchmark doesn't wait minutes
+  # between cycles.
+  schedules:
+    okg_publisher_cycle: "*/1 * * * *"
+  source_sync:
+    watch:
+      enabled: true
+      # Aggressive: 100 ms debounce. Single-commit `git reset --hard`
+      # produces all its fs events within a few ms, so 100 ms is more
+      # than enough to coalesce them while still feeling instant.
+      # Bursty workloads (50-file `git pull`) might fire a couple
+      # source_syncs instead of one; for this benchmark the tradeoff
+      # is fine.
+      debounce_seconds: 0.1
+    poll:
+      enabled: true
+      slow_when_watch_active: true
+      backstop_multiplier: 5
+    webhook:
+      enabled: false
+
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+# Minimal modules — just git_graph (which provides the git-files
+# source). No openspec, no extraction, no code_graph. This isolates
+# the benchmark to the simplest possible publish path.
+modules:
+  - git_graph
+
+# NO ENRICHERS. The benchmark measures raw publisher-cycle perf;
+# adding linkers/enrichers would conflate publisher work with
+# linker work. The declarative linker on its own can cost
+# 10x the publisher's work on a small source set because it scans
+# the graph for cross-source pairs.
+enrichers: []
+
+# No embedding; pure graph perf.
+embeddings:
+  enabled: false
+  reason: synthetic benchmark; only measuring publisher path
+
+# No doctor checks — substrate doctor's per-deployment hook is
+# optional. Keeps the per-cycle work minimal.
+
+# The declared agent surface (issue #2067). Migrated from the frozen
+# legacy path with no change in behaviour: `served` is exactly what
+# `okg mcp-serve --allow-writes` registered before the block existed, so no
+# launch loses a tool. A read-only launch still registers the seven read
+# operators; the write gate stays the launch operator's. No response budget
+# and no chat projection are declared, so both keep the substrate defaults.
+agent_surface:
+  served:
+    - inspect
+    - search
+    - expand
+    - filter
+    - map
+    - aggregate
+    - query
+    - record
+    - propose
+    - list_sources
+    - add_source
+    - remove_source
+    - source_status
+    - discover_sources
+    - propose_setup
+    - commit_setup
+    - connector_route_status
+    - connector_ingest_batch

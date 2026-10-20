@@ -1,0 +1,259 @@
+name: opensearch-reference
+description: >
+  The reference integration between the OKG and a live external search
+  system (issue #2014, PACT opensearch-reference-integration, Sprint 20
+  charter #2008). A local single-node OpenSearch container holds three
+  seeded indices; this deployment ingests the cluster's METADATA -- one
+  search_cluster node, one search_index node per index, logs_to edges from
+  the two declared services -- and publishes it.
+
+  The graph stores no logs. It stores which cluster exists, which indices
+  it holds, what shape they have, and who writes to them, so an agent can
+  find the right index and then ask that system directly.
+
+  One command brings it up from a clean checkout:
+
+      deployments/opensearch-reference/up.sh
+
+  The container is local, unauthenticated, loopback-bound and disposable.
+  There is no credential in this repository.
+
+release:
+  channel: dev
+
+postgres:
+  dsn: ${OKG_DSN}
+  database: okg_opensearch_reference
+
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+modules:
+  # `service` supplies the Service class that the logs_to narrowing's src
+  # endpoint names; search_systems declares that narrowing as a cross-link
+  # rule which is silently skipped when `service` is absent, so the order
+  # is not load-bearing but the presence is.
+  - service
+  - search_systems
+  # The walk ENDS in a recorded finding (req.ori.walk), and `record(kind=
+  # "finding")` targets the `agent_claim` subtype, which only this module
+  # supplies. Without it the record template resolves to a subtype the
+  # composed catalog does not hold and the write fails inside Chronos
+  # rather than refusing at the tool boundary.
+  - agent_memory
+
+enrichers: []
+
+embeddings:
+  enabled: false
+  reason: >
+    the reference walk reaches an index by structure -- service to index --
+    not by semantic similarity, and an embedding provider would add a
+    credential this example deliberately does not have
+
+host_storage:
+  warn_available_pct: 15
+  blocker_available_pct: 6
+
+nomos:
+  # `audit` evaluates and records every decision without refusing one.
+  # This is the RUNTIME enforcement posture and it does not reach the live
+  # gate: `nomos_external_probe.json` beside this file is compiled directly
+  # by `build_live_gate`, deny-by-default, and any non-allow effect there
+  # stops the adapter call outright.
+  runtime_enforcement: audit
+  deployment_posture:
+    deployment_class: public_reference_demo
+    read_principals:
+      - human_operator
+      - okg_service
+      - mcp_client
+    write_principals:
+      - okg_service
+      - source_adapter
+      # The walk this deployment exists to demonstrate ENDS in a written
+      # finding (req.ori.walk), and a record through MCP is made under the
+      # MCP client's subject. Without it here the deployment could be read
+      # through MCP and never written to, which is not the reference.
+      - mcp_client
+    # `review`, not `allow`: `public_reference_demo` permits only `deny` or
+    # `review`, and `review` is what makes `mcp.record` reachable at all --
+    # `nomos/store.py:364` emits the record rule ONLY for `review`, with an
+    # audit obligation on it. `deny` was declared here first and every
+    # `record` came back `nomos.default_deny`.
+    mcp_write_default: review
+    export_policy: public_allowed
+    secret_handling: no_secrets
+    # Stays `deny`, and an earlier note here saying it would be flipped to
+    # `allow` when the live relations landed was wrong twice over. The
+    # `public_reference_demo` class permits only `deny`
+    # (`nomos/deployment_audit.py`), and the live gate never reads this
+    # field: it reads `nomos_external_probe.json`, which allows exactly
+    # `external.opensearch.search` for `service:okg-runtime` on
+    # `search_index` and denies everything else by default.
+    live_call_default: deny
+    allowed_source_sensitivities:
+      - public
+    allowed_data_classifications:
+      - public
+    allowed_exportability:
+      - public
+    privacy_obligations:
+      - audit
+    readiness_profiles:
+      - smoke
+  source_policy_defaults:
+    by_source_class:
+      reference_catalog:
+        # The external strings this source stores are index names, alias
+        # names, and mapping field names -- public infrastructure metadata
+        # with no document content and no personal data in it. Declaring
+        # store_raw false would demand a pseudonym vault key to protect
+        # identifiers that are not there.
+        store_raw: true
+        sensitivity: public
+        data_classification: public
+        credential_ref_policy: none
+        live_call_allowed: false
+        exportability: public
+        retention: normal
+        provenance: remote_api
+        privacy_obligations:
+          - audit
+  rollout:
+    status: deferred
+    reason: >
+      a disposable reference example with a local container and no retained
+      graph; it is demonstrated and torn down, not operated
+    owner:
+      name: agent-surface
+      contact: agent-surface@okg.example
+    review_by: "2027-01-01"
+
+agent_surface:
+  # The reference walk and nothing else: find the service, expand to the
+  # index it writes, inspect the index to learn what it can be ASKED, expand
+  # along a live relation, record what was learned. Five tools. `served` is
+  # the whole surface -- no launch of this deployment can widen past it --
+  # so a sixth tool here would be a tool this example does not need and
+  # cannot justify.
+  served:
+    - search
+    - expand
+    - inspect
+    - record
+    - list_sources
+
+  # The substrate's own per-call default, and no lower. A DECLARED default
+  # below it does not take effect and a ceiling below it makes the
+  # deployment unusable, both for the same reason: the MCP SDK materializes
+  # the tool schema's `max_bytes` default (65,536) into the call arguments
+  # before the Python function runs, so `response_bounds.py:738`'s
+  # `caller_set_budget` is True on every call and the deployment default is
+  # never substituted. A ceiling of 32,768 was declared here first and every
+  # `search` that omitted `max_bytes` was refused
+  # `invalid_response_byte_budget` for a budget the caller never chose.
+  # Reported against #2075/#2010; this manifest states a ceiling that works
+  # rather than a lower one that reads as enforced and is not.
+  response_bytes:
+    ceiling: 65536
+
+  # The two relations `search_systems`' SearchIndex declares (issue #2014,
+  # req.ori.relations), bound to the local container.
+  #
+  # The DECLARATION -- what may be asked, with what arguments and bounds --
+  # lives in the ontology module. This block says only WHICH SYSTEM answers
+  # and HOW the request is shaped. `principal_mode` is deliberately not
+  # accepted here: a deployment that could raise its own principal mode
+  # would widen a relation's authority without touching the ontology that
+  # declared it.
+  #
+  # The body is a static JSON document with typed value-position slots
+  # (`{$arg: name}`), substituted structurally rather than textually, so an
+  # agent can change WHAT is asked and never the SHAPE of the request. The
+  # mapping language, the egress allowlist and every load refusal belong to
+  # the HTTP adapter, issue #2100 / PACT `live-relation-http-adapter`.
+  #
+  # UNTIL #2100 LANDS THIS DEPLOYMENT DOES NOT START. `build_server` refuses
+  # a binding whose adapter kind has no registered runner
+  # (`LiveAdapterUnavailable`), and the substrate ships no `http` runner.
+  # That refusal is the honest state and is asserted by a test rather than
+  # worked around with a stub runner nobody would notice in production.
+  live_bindings:
+    documents:
+      kind: http
+      config:
+        # The compose file binds 127.0.0.1:9209 -- 9209, not 9200, so a
+        # developer's own OpenSearch is not shadowed. Loopback is a
+        # non-global address, so it is opted into by name.
+        base_url: http://127.0.0.1:9209
+        allowed_hosts: ["127.0.0.1:9209"]
+        allow_non_global: true
+        method: POST
+        # No slot may appear in a path, so the path names the deployment's
+        # index patterns and the node's own index is selected by the
+        # `index` argument in the body below.
+        path: /app-logs-*,ingest-events-*,audit-trail-*/_search
+        content_type: application/json
+        body:
+          size: {$arg: limit}
+          # SERVER-side bounds, both operator literals. `deadline_seconds`
+          # on the relation bounds only this side of the wire: it abandons
+          # the client's thread and leaves the cluster still executing. A
+          # `query_string` accepts `*`, a leading wildcard and a regex, so
+          # the shard-level caps are what stop one agent's typo costing the
+          # cluster a full scan. This deployment is the reference others
+          # copy, so they are stated here rather than left to the reader.
+          terminate_after: 10000
+          timeout: 5s
+          query:
+            bool:
+              filter:
+                - term: {_index: {$arg: index}}
+                - range: {"@timestamp": {gte: {$arg: time_window}}}
+              must:
+                - query_string: {query: {$arg: query}}
+        rows_path: hits.hits
+        max_rows: 100
+        max_response_bytes: 1048576
+      # The container is local, unauthenticated and disposable. There is no
+      # credential in this repository, so there is no `auth_header` and no
+      # secret reference to resolve.
+      secret_refs: []
+
+    histogram:
+      kind: http
+      config:
+        base_url: http://127.0.0.1:9209
+        allowed_hosts: ["127.0.0.1:9209"]
+        allow_non_global: true
+        method: POST
+        path: /app-logs-*,ingest-events-*,audit-trail-*/_search
+        content_type: application/json
+        body:
+          size: 0
+          # The same server-side bounds as `documents`, and they matter more
+          # here: an aggregation over an unbounded match set is the more
+          # expensive of the two shapes.
+          terminate_after: 10000
+          timeout: 5s
+          query:
+            bool:
+              filter:
+                - term: {_index: {$arg: index}}
+                # The WINDOW always bounds `@timestamp`, the ingest time,
+                # while the bucket field below is the caller's argument. A
+                # slot is legal only in value position, so a per-call
+                # window field cannot be expressed here and is not faked.
+                - range: {"@timestamp": {gte: {$arg: time_window}}}
+              must:
+                - query_string: {query: {$arg: query}}
+          aggs:
+            over_time:
+              date_histogram:
+                field: {$arg: field}
+                fixed_interval: {$arg: interval}
+        rows_path: aggregations.over_time.buckets
+        max_rows: 100
+        max_response_bytes: 1048576
+      secret_refs: []

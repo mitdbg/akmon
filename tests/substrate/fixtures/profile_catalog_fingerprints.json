@@ -1,0 +1,6 @@
+{
+  "_test": "ERROR:BridgeSubtypeUnknown:reasoning: narrowing 'hypothesis_supported_by_acceptance_criterion' references unknown child subtype 'acceptance_criterion'",
+  "academic-researcher": "4a3349e170ba9d152f983567cd130f0c08707d2a19b4a696668f5df27171f162",
+  "minimal": "661f3f0edd257774aed76814b6d55c0e7c3b7b0970676d5461b815c2f70a6dfd",
+  "workspace-graph": "c370416cf35555c6d305076ff98b0b455f1d2b16e768a89de3c235322a45d691"
+}

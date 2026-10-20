@@ -1,0 +1,130 @@
+{
+ "_recorded": "Recorded 2026-09-28 from Open WebUI 0.11.0 (okg-openwebui-compat@sha256:e0b1f475fd05...) serving a real okg graph over MCP with a local qwen3.8:27B model (issue #2907). Scrubbed for the public mirror: the deployment and source names, session ids, the user id and query text are replaced; the structure, ids of vendor items and result shapes are as recorded. GET /api/v1/chats/<id> after POST /api/chat/completions with chat_id, id, stream true, tool_ids [server:mcp:<tool server>] and no session_id; that completion answered HTTP 200 with the body null after 38 s.",
+ "chat_id": "108ace33-d1b0-4072-89d6-323995b7a470",
+ "assistant_id": "19a3fe90-ebe2-44dd-870b-45972a4398ac",
+ "row": {
+  "id": "108ace33-d1b0-4072-89d6-323995b7a470",
+  "user_id": "<redacted:user-id>",
+  "title": "What kinds of records does this graph hold?",
+  "chat": {
+   "title": "What kinds of records does this graph hold?",
+   "models": [
+    "okg-example-kb"
+   ],
+   "history": {
+    "messages": {
+     "d1aab3bb-20f3-45b3-82c2-2f70206474f0": {
+      "id": "d1aab3bb-20f3-45b3-82c2-2f70206474f0",
+      "role": "user",
+      "content": "What kinds of records does this graph hold?",
+      "parentId": null,
+      "childrenIds": [
+       "19a3fe90-ebe2-44dd-870b-45972a4398ac"
+      ],
+      "models": [
+       "okg-example-kb"
+      ],
+      "timestamp": 1790642347
+     },
+     "19a3fe90-ebe2-44dd-870b-45972a4398ac": {
+      "id": "19a3fe90-ebe2-44dd-870b-45972a4398ac",
+      "parentId": "d1aab3bb-20f3-45b3-82c2-2f70206474f0",
+      "childrenIds": [],
+      "role": "assistant",
+      "content": "This graph (deployment **example-kb**) holds exactly **two kinds of records** (subtypes):\n\n| Subtype | Count | What it is |\n|---|---|---|\n| `document_chunk` | 86,816 | Individual chunks/pieces of text, the atomic records you would search or read |\n| `documentation_page` | 15,762 | Whole documentation pages that contain those chunks |\n\nThat's **102,578 nodes total**, connected by two edge types:\n\n- **`contains`** (86,816) — a `documentation_page` *contains* its `document_chunk`s\n- **`references`** (26,258) — cross-references between records\n\nSo in short: this is a **documentation/knowledge-base graph** built from wiki-style documentation pages, broken into searchable chunks. There are no code, service, user, or configuration entities — just docs and their chunks.\n\nA few notes on the state of this pinned generation (`…20260928T030402054545Z:6de225750f0f`):\n- It came from a single source, **`example-kb.docs`** (\"docs\"), which is currently flagged **stale** (21.6 h old vs. a 6 h threshold) — so the rows reflect the last sync, not live content.\n- `embed_lag` is reported at 102,578, meaning the semantic-embedding index appears to be lagging, so **semantic search may be less reliable than lexical search** in this generation.\n\n**Citation:** `okg-example-kb_inspect` graph view, pinned generation `okg:example-kb:branch:default:gen:20260928T030402054545Z:6de225750f0f`.",
+      "done": true,
+      "model": "okg-example-kb",
+      "timestamp": 1790642347,
+      "output": [
+       {
+        "type": "reasoning",
+        "id": "r_b92aa29f8ff2407a93eda8cd",
+        "status": "completed",
+        "start_tag": "<think>",
+        "end_tag": "</think>",
+        "attributes": {
+         "type": "reasoning_content"
+        },
+        "content": [
+         {
+          "type": "output_text",
+          "text": "The user wants to know what kinds of records (subtypes/nodes) this graph holds. I should introspect the graph structure. Let me use the inspect tool with a schema/view form. The description says `view` is the allowed schema introspection path. Let me inspect the graph.\n\nLet me use inspect with target kind \"graph\" perhaps, or a view. Let me try inspecting the graph."
+         }
+        ],
+        "summary": null,
+        "started_at": 1790642369.053186,
+        "ended_at": 1790642371.9598923,
+        "duration": 2
+       },
+       {
+        "type": "function_call",
+        "id": "call_vj00lbyn",
+        "call_id": "call_vj00lbyn",
+        "name": "okg-example-kb_inspect",
+        "arguments": "{\"target\": {\"kind\": \"graph\"}}",
+        "status": "completed"
+       },
+       {
+        "type": "function_call_output",
+        "id": "fco_31cb388a8a1944dab80d64e1",
+        "call_id": "call_vj00lbyn",
+        "output": [
+         {
+          "type": "input_text",
+          "text": "{\n  \"truncated\": false,\n  \"generation_id\": \"okg:example-kb:branch:default:gen:20260928T030402054545Z:6de225750f0f\",\n  \"pinned_generation_id\": \"okg:example-kb:branch:default:gen:20260928T030402054545Z:6de225750f0f\",\n  \"pin_scope\": \"transport_session\",\n  \"logical_session_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_freshness\": {\n    \"sources_checked\": 1,\n    \"threshold_hours\": 6.0,\n    \"stale\": [\n      {\n        \"source\": \"example-kb.docs\",\n        \"age_hours\": 21.6\n      }\n    ],\n    \"stale_count\": 1,\n    \"warning\": \"1 source(s) exceed the 6.0h freshness threshold: example-kb.docs (21.6h) - rows from their subtypes reflect the last sync, not the present\"\n  },\n  \"publish_freshness\": {\n    \"latest_published_at\": \"2026-09-28T03:04:02.054545+00:00\",\n    \"publish_age_seconds\": 77730.2,\n    \"newest_source_poll_at\": \"2026-09-28T03:03:21.982210+00:00\",\n    \"publish_lag_seconds\": 0.0,\n    \"threshold_seconds\": 1800.0,\n    \"stale\": false\n  },\n  \"deployment_name\": \"example-kb\",\n  \"catalog_version_id\": 2,\n  \"counts_source\": \"console_count_rollup\",\n  \"visibility\": \"unfiltered\",\n  \"subtype_counts\": {\n    \"document_chunk\": 86816,\n    \"documentation_page\": 15762\n  },\n  \"subtype_count\": 2,\n  \"node_count\": 102578,\n  \"edge_type_counts\": {\n    \"references\": 26258,\n    \"contains\": 86816\n  },\n  \"edge_type_count\": 2,\n  \"edge_count\": 113074,\n  \"embed_lag\": 102578,\n  \"unresolved_mentions\": {\n    \"total\": 0,\n    \"resolved\": 0,\n    \"rate_resolved\": 0.0,\n    \"by_entity_type\": {}\n  },\n  \"schema\": {\n    \"deployment\": \"example-kb\",\n    \"pinned_generation_id\": \"okg:example-kb:branch:default:gen:20260928T030402054545Z:6de225750f0f\",\n    \"subtype_count\": 2,\n    \"subtypes\": {\n      \"document_chunk\": {\n        \"node_count\": 86816\n      },\n      \"documentation_page\": {\n        \"node_count\": 15762\n      }\n    },\n    \"edge_type_count\": 2,\n    \"edge_types\": [\n      \"contains\",\n      \"references\"\n    ],\n    \"edge_type_counts\": {\n      \"references\": 26258,\n      \"contains\": 86816\n    },\n    \"score_functions\": [\n      \"bm25\",\n      \"jaccard\",\n      \"recency\",\n      \"score_sum\",\n      \"by_attr_value\"\n    ],\n    \"minimal\": true,\n    \"minimal_reason\": \"Chronos-backed graph read path\"\n  },\n  \"operator_name\": \"inspect\",\n  \"session_default_generation_id\": \"okg:example-kb:branch:default:gen:20260928T030402054545Z:6de225750f0f\"\n}"
+         }
+        ],
+        "status": "completed"
+       },
+       {
+        "type": "reasoning",
+        "id": "r_82987ecba1634c918a826393",
+        "status": "completed",
+        "start_tag": "<think>",
+        "end_tag": "</think>",
+        "attributes": {
+         "type": "reasoning_content"
+        },
+        "content": [
+         {
+          "type": "output_text",
+          "text": "The user asks what kinds of records this graph holds. I have the answer from the inspect call."
+         }
+        ],
+        "summary": null,
+        "started_at": 1790642374.3598008,
+        "ended_at": 1790642374.9669597,
+        "duration": 0
+       },
+       {
+        "type": "message",
+        "id": "msg_bc168e6c56fe40e0ad817773",
+        "status": "completed",
+        "role": "assistant",
+        "content": [
+         {
+          "type": "output_text",
+          "text": "This graph (deployment **example-kb**) holds exactly **two kinds of records** (subtypes):\n\n| Subtype | Count | What it is |\n|---|---|---|\n| `document_chunk` | 86,816 | Individual chunks/pieces of text, the atomic records you would search or read |\n| `documentation_page` | 15,762 | Whole documentation pages that contain those chunks |\n\nThat's **102,578 nodes total**, connected by two edge types:\n\n- **`contains`** (86,816) — a `documentation_page` *contains* its `document_chunk`s\n- **`references`** (26,258) — cross-references between records\n\nSo in short: this is a **documentation/knowledge-base graph** built from wiki-style documentation pages, broken into searchable chunks. There are no code, service, user, or configuration entities — just docs and their chunks.\n\nA few notes on the state of this pinned generation (`…20260928T030402054545Z:6de225750f0f`):\n- It came from a single source, **`example-kb.docs`** (\"docs\"), which is currently flagged **stale** (21.6 h old vs. a 6 h threshold) — so the rows reflect the last sync, not live content.\n- `embed_lag` is reported at 102,578, meaning the semantic-embedding index appears to be lagging, so **semantic search may be less reliable than lexical search** in this generation.\n\n**Citation:** `okg-example-kb_inspect` graph view, pinned generation `okg:example-kb:branch:default:gen:20260928T030402054545Z:6de225750f0f`."
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "currentId": "19a3fe90-ebe2-44dd-870b-45972a4398ac"
+   }
+  },
+  "updated_at": 1790642385,
+  "created_at": 1790642347,
+  "share_id": null,
+  "archived": false,
+  "pinned": false,
+  "meta": {},
+  "variables": {},
+  "folder_id": null,
+  "tasks": null,
+  "summary": null,
+  "current_message_id": "19a3fe90-ebe2-44dd-870b-45972a4398ac",
+  "context_usage": null
+ }
+}

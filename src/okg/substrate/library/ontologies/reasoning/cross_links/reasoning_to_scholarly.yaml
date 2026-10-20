@@ -1,0 +1,33 @@
+# Cross-link rules between substrate reasoning and substrate
+# scholarly modules.
+#
+# Per the umbrella `expand-memex-to-personal-okg` Pattern A
+# (evidence emission from sources into the reasoning core), the
+# intended rule here is:
+#
+#   paper_produces_observation:
+#     (Paper, produces, Observation)
+#
+# The narrowing is declared in this child's spec contract
+# (`substrate-scholarly-module/spec.md`, Requirement: Paper
+# Produces Observation Cross-Link Rule Placeholder), but the
+# emitting enricher is DEFERRED to a follow-up proposal.
+#
+# Rationale for deferral: extracting structured Observations from
+# a Paper's abstract or body requires either NLP-grade abstract
+# parsing or operator-curated derivation. The design of the
+# `PaperToObservationEnricher` lives in a follow-up proposal once:
+#   (a) the substrate `reasoning` module is composed
+#       (`add-substrate-reasoning-module`), AND
+#   (b) the extraction strategy is settled.
+#
+# Until both prerequisites land, this file remains active with no
+# emitted rules. Catalog composition does NOT insert the
+# `(paper, produces, observation)` narrowing until the rule is
+# actually populated AND the reasoning module is in the
+# composition. The substrate narrowing trigger rejects any
+# `Paper produces Observation` edge inserted in the interim,
+# which is the intended fail-loud behavior per the umbrella's
+# "no silent fallbacks" constraint.
+
+rules: []

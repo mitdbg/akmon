@@ -1,0 +1,6 @@
+name: kinship
+version: 1.0.0
+description: Base kinship, friendship and personal attributes as stated by
+  biographical prose.
+provides:
+  subtypes_file: schema.yaml

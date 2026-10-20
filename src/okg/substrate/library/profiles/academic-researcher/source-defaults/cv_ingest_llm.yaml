@@ -1,0 +1,26 @@
+# cv_ingest_llm — TeX/PDF CV → TalkEngagement + Committee +
+# Course + RecommendationLetter (LLM with section-classifier
+# fast path).
+
+cv_ingest_llm:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.academic_researcher.cv_ingest_llm
+  class: CvIngestLlmSource
+  ownership_id: ${deployment_name}.cv_ingest_llm
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [cv_hash, idx]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    cv_path: ${cv_path}
+    confidence_floor: 0.70
+
+  # Untrusted-origin content: held on the quarantine branch until an
+  # operator approves it via `okg admission decide` (PACT
+  # make-admission-review-load-bearing).
+  admission_policy:
+    trust_label: untrusted
+    admission_mode: review
+    output_scope_summary: "LLM-extracted CV fields; extraction output is untrusted"

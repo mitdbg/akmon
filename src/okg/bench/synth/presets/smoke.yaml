@@ -1,0 +1,26 @@
+# CI smoke preset: seconds, LLM-free, markdown-only, deterministic.
+preset_name: smoke
+seed: "smoke-749-1"
+world_path: world_smoke
+redundancy:
+  renderings_per_fact_min: 1
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 2, magnitude: 0.2, visibility_corrupted: 1}
+    entity_swap: {count: 1, visibility_corrupted: 1}
+    cardinality_violation: {count: 1, visibility_corrupted: 1}
+    polarity_flip: {count: 1, visibility_corrupted: 1}
+    derived_value: {count: 1, magnitude: 0.3, visibility_corrupted: 1}
+    digit_transposition: {count: 1}
+    unit_conversion_error: {count: 1}
+    label_value_mismatch: {count: 1}
+    broken_reference: {count: 1}
+    dangling_entity: {count: 1}
+benign_variation:
+  unit_rescale_rate: 0.4
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+materialize_pdf: false

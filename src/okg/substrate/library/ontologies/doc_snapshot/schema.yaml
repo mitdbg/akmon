@@ -1,0 +1,59 @@
+id: https://palimpzest.mit.edu/okg/modules/doc_snapshot
+name: doc_snapshot
+title: "Doc snapshot — dated document corpus wiring"
+description: >-
+  A dated document snapshot is `extraction` (Document / DocumentChunk /
+  the contains + member_of narrowings between them) composed with
+  `git_graph` (SourceFile). Both of those modules already declare their
+  own subtypes and intra-module narrowings, so this module declares
+  exactly one thing they cannot: the CROSS-MODULE provenance narrowing
+  `Document derived_from SourceFile`.
+
+  Before this module that narrowing existed only inside the
+  okg-workspace deployment template's bridges/ directory, so any
+  deployment composing extraction + git_graph outside that template
+  emitted `derived_from` edges the catalog did not admit. A benchmark
+  corpus that must attribute an answer to a passage, and the passage to
+  a file, cannot depend on another deployment's private bridge.
+
+  Deliberately no subtypes: a module that re-declared Document or
+  DocumentChunk would fork ownership of classes `extraction` owns. The
+  snapshot-specific ATTRIBUTES (`snapshot_date`, `doc_path`,
+  `chunk_ordinal`) therefore live on those classes in
+  `extraction/schema.yaml`, next to the adapter that emits them.
+
+  PACT okg-corpus-doc-corpus / req.fresh.passage.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  docsnap: https://palimpzest.mit.edu/okg/modules/doc_snapshot/
+
+default_range: string
+
+imports:
+- linkml:types
+
+classes:
+
+  EdgeNarrowings:
+    description: >-
+      Cross-module narrowings for a dated document snapshot. NOT guarded
+      with `optional_when_subtypes_missing`: a deployment that loads
+      doc_snapshot without git_graph has no SourceFile to derive from, and
+      that must fail composition loudly rather than quietly dropping the
+      provenance edge — a silently absent narrowing is how a corpus ends
+      up unable to say where a passage came from.
+    annotations:
+      okg_edge_narrowings: "true"
+    attributes:
+      document_derived_from_source_file:
+        description: >-
+          A parsed Document derives from the filesystem source file the
+          predecessor file-walker discovered. `DocCorpusSource` only
+          asserts this edge when the predecessor's SourceFile node is
+          already in the graph, so the narrowing and the emission agree.
+        annotations:
+          edge_archetype: derived_from
+          src_subtypes: Document
+          dst_subtypes: SourceFile

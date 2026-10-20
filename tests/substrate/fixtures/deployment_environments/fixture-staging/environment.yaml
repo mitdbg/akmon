@@ -1,0 +1,43 @@
+api_version: okg.environment/v1
+id: fixture-staging
+tier: staging
+graph_deployment_name: fixture-graph-staging
+definition:
+  path: ../shared-definition/definition.yaml
+database:
+  dsn_secret_ref: env:TEST_STAGING_DSN
+  name: fixture_staging
+  container: fixture-staging-postgres
+  volume: fixture-staging-postgres-data
+  host_port: 55435
+  dbos_identity: fixture-staging:dbos
+release:
+  mode: sealed
+  artifact_store: ${TEST_STATE_ROOT}/artifacts
+  active_pointer: ${TEST_STATE_ROOT}/environments/fixture-staging/active.json
+  previous_pointer: ${TEST_STATE_ROOT}/environments/fixture-staging/previous.json
+runtime:
+  worker_service: org.okg.runtime-worker.fixture-staging
+  state_root: ${TEST_STATE_ROOT}/environments/fixture-staging
+  local_env_file: ${TEST_STATE_ROOT}/environments/fixture-staging/local.env
+  log_root: ${TEST_STATE_ROOT}/environments/fixture-staging/logs
+  config:
+    enabled: false
+ui:
+  service: org.okg.ui.fixture-staging
+  host: 127.0.0.1
+  port: 18771
+webhook:
+  service: org.okg.webhook.fixture-staging
+  host: 127.0.0.1
+  port: 8089
+mcp:
+  transport: stdio
+  registration_id: fixture-staging
+  launcher_environment: fixture-staging
+readiness:
+  policy: dogfood
+  evidence_ref:
+    store: runtime_state
+    path: readiness/current.json
+    max_age_seconds: 900

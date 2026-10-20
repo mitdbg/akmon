@@ -1,0 +1,4 @@
+# Minimal invariants for the _test fixture profile.
+# Empty intentionally — no test currently exercises
+# invariant evaluation against an _test-derived deployment.
+invariants: []

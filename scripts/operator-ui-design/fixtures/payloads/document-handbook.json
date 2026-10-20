@@ -1,0 +1,14 @@
+{
+  "source_record_id": "docs/operate/handbook.md",
+  "subtype": "document",
+  "title": "Operator handbook",
+  "format": "markdown",
+  "revision": "a41c9e2",
+  "observed_at": "2026-09-18T00:00:00.000Z",
+  "attrs": {
+    "path": "docs/operate/handbook.md",
+    "updated": "2026-09-11",
+    "author_email": "[nomos:masked]"
+  },
+  "body": "# Operator handbook\n\nHow to run the deployment day to day. Read **Home** first; it says whether the\nlast update published and what needs attention.\n\n## Daily check\n\n1. Open Home and read the status line.\n2. If an attempt is blocked, open it in Updates and read the recorded error.\n3. Open Sources for the producer it stopped on.\n\n## Producers\n\n| Producer | Kind | Cadence |\n|---|---|---|\n| `source-07-git` | source | every 6 h |\n| `semantic-linker` | enricher | after every update |\n| `daily-brief` | view | daily |\n\n## Publishing by hand\n\n```bash\nokg update run --deployment workspace-mixed\nokg generation describe <id> --invariants\n```\n\n- A version publishes only when every invariant holds.\n- Reads keep serving the previous version until then.\n\nSee the [status page](https://docs.example.invalid/status) for the live view.\n"
+}

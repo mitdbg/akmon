@@ -1,0 +1,486 @@
+/* The redesign's top bar and Home view.
+ *
+ * Three properties are enforced here rather than left to the markup:
+ *
+ *  1. BOUNDED SIZE. Every list is capped in consoleModel.ts -- eight attention
+ *     rows, four attempt rows, six type rows and a tail -- so Home has a
+ *     CEILING that does not move with the deployment. It does not have a
+ *     floor: a block shrinks to its content, because a page that reserves
+ *     300 px for rows that do not exist wastes the screen. What
+ *     design/audit-rules.mjs measures is the ceiling (every Home under
+ *     HOME_HEIGHT_CAP, and the 220-source deployment no taller than the
+ *     others) and that every fixture renders the same set of blocks.
+ *  2. TYPE. 14 px base, one secondary size at 13 px, two greys (ink and
+ *     muted), weight for emphasis. Nothing under 12 px anywhere, including the
+ *     brand lockup -- this bar takes no exemption from rule 11.
+ *  3. HAIRLINES. Rows are 36 to 56 px separated by one-pixel rules. The only
+ *     box on the page is around the identity line, which is a standalone fact.
+ *     No card grid, no tiles, no panels.
+ *
+ * Colours are tokens from styles/tokens.css. No raw hex.
+ */
+
+.okg-console-bar,
+.okg-console {
+  box-sizing: border-box;
+  font-family: var(--okg-font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--okg-color-text);
+}
+
+.okg-console-bar *,
+.okg-console *,
+.okg-console-bar *::before,
+.okg-console *::before {
+  box-sizing: inherit;
+}
+
+/* --- top bar ---------------------------------------------------------- */
+
+.okg-console-bar {
+  background: var(--okg-color-rail);
+  color: var(--okg-color-rail-text);
+}
+
+/* Three columns, and the middle one is 400 px wide: the search sits on the
+ * bar's midpoint, not the free space's, as long as both side groups fit in the
+ * 1fr columns. When one of them does not -- a long deployment name -- the
+ * columns give way and the search settles into the middle of what is left,
+ * which is the stated fallback. The 24 px gap is the minimum clearance. */
+.okg-console-bar__row {
+  display: grid;
+  /* The middle column GIVES WAY rather than holding 400 px while the side
+   * groups overflow into it. The reference states the fallback: "when one of
+   * them does not [fit] the columns give way and the search settles into the
+   * middle of what is left". A rigid 400 px did the opposite -- at 1280 and
+   * 1024 the left group ran under the search box and its last words were
+   * unreadable. It still takes its full 400 px whenever both side groups
+   * fit, which at 1440 depends on how wide the chat control's words are:
+   * "Open chat" leaves it 400, "No chat site declared" brings it to 369. */
+  /* Each side track asks for at least the width its group NEEDS, and the
+   * middle one gives way down to 220 px when they do not both fit. A 0
+   * minimum did not implement the fallback the comment above describes: the
+   * middle held its 400 px and the side group was squeezed INSIDE its track
+   * instead, which since the chat control joined the right-hand group left
+   * the deployment name 12 px -- one letter and an ellipsis, naming no
+   * deployment. */
+  grid-template-columns: minmax(min-content, 1fr) minmax(220px, 400px) minmax(min-content, 1fr);
+  align-items: center;
+  gap: 24px;
+  min-height: 56px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.okg-console-bar__left {
+  /* min-width: 0 so this column can actually shrink; without it a flex item
+   * refuses to go below its content and spills over its neighbour. */
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.okg-console-bar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--okg-color-rail-text);
+  flex: 0 0 auto;
+}
+
+.okg-console-bar__brand-mark {
+  display: block;
+  width: 22px;
+  height: 22px;
+  color: var(--okg-color-brand-mark);
+}
+
+.okg-console-bar__brand-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.okg-console-bar__brand-copy {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.okg-console-bar__brand-label {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+/* 12 px, not the 9 px the rail lockup uses: this bar claims no exemption from
+ * rule 11, so the audit measures it like any other type. */
+.okg-console-bar__brand-role {
+  font-size: 12px;
+  font-family: var(--okg-font-mono);
+  letter-spacing: 0.16em;
+  color: var(--okg-color-rail-muted);
+}
+
+.okg-console-bar__nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+  margin-left: 8px;
+}
+
+.okg-console-bar__link {
+  font-size: 14px;
+  text-decoration: none;
+  color: var(--okg-color-rail-link);
+  padding: 4px 0;
+  border-bottom: 2px solid transparent;
+}
+
+.okg-console-bar__link[data-current="true"] {
+  color: var(--okg-color-rail-text);
+  font-weight: var(--okg-weight-bold);
+  border-bottom-color: var(--okg-color-brand-mark);
+}
+
+.okg-console-bar__search { grid-column: 2; min-width: 0; }
+
+/* Where the view shows its own search box (Explore's landing), the bar's box
+ * is hidden but its grid cell stays. Removing the cell moved the controls
+ * into the middle column, where they overlapped the nav at 1440 (audit B1). */
+.okg-console-bar__search[data-hidden="true"] { visibility: hidden; }
+
+.okg-console-bar__search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding-inline: 8px;
+  border: 1px solid var(--okg-color-line);
+  border-radius: 6px;
+  background: var(--okg-color-surface);
+}
+
+/* The input drops its own outline, so the field draws the ring: the same
+ * one the landing's search box uses (results.css). A 1 px border recolour
+ * alone was the only sign of focus (audit B2). */
+.okg-console-bar__search-field:focus-within {
+  border-color: var(--okg-color-accent);
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-console-bar__search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--okg-font-sans);
+  font-size: 14px;
+  color: var(--okg-color-text);
+}
+
+.okg-console-bar__search-input:focus { outline: none; }
+
+/* A key, drawn as a key. github/ and vercel/ both do this. */
+.okg-console-bar__shortcut {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--okg-color-line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  font-family: var(--okg-font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  color: var(--okg-color-muted);
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-console-bar__search-icon { color: var(--okg-color-muted); }
+
+/* Pinned to the third column, and the left group to the first, so neither
+ * depends on how many cells come before it. */
+.okg-console-bar__left { grid-column: 1; }
+
+.okg-console-bar__controls {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  min-width: 0;
+}
+
+.okg-console-bar__control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.okg-console-bar__control-label {
+  font-size: 12px;
+  color: var(--okg-color-rail-muted);
+  white-space: nowrap;
+}
+
+/* Sized to its value, so the chevron sits by the text. `width: auto` alone
+ * sizes a <select> to its widest option ("latest" sat in a 306 px box);
+ * `field-sizing: content` fixes that in Chromium, and elsewhere the short
+ * labels TopBar prints at or below 1360 px keep the widest option narrow. */
+.okg-console-bar__select { width: auto; min-width: 0; field-sizing: content; }
+
+/* The DEPLOYMENT picker is capped: it is the one control whose width follows a
+ * name, and on workspace-mixed its natural width pushed the search 11 px off
+ * the bar's centre. 160 px holds "workspace-mixed" whole. The version picker
+ * is deliberately not capped -- rule 10 is that the ref being read is printed. */
+/* The DEPLOYMENT picker is the one that gives way. The search is centred on
+ * the bar, the version picker never truncates (rule 10 is that the ref being
+ * read is printed), and when a long deployment name will not fit the column
+ * this is the control that shortens -- its full name is the h1 below and its
+ * `title` holds it too. */
+/* The deployment name gives way when the bar is short of room, but not to
+ * nothing: squeezed to its `min-width: 0` it showed a single character and
+ * an ellipsis, which names no deployment. It shortens to 90 px and stops;
+ * the full name is in its title and in the page below. */
+.okg-console-bar__deployment {
+  flex: 0 1 auto;
+  min-width: 90px;
+  max-width: 150px;
+}
+
+.okg-console-bar__select--version,
+.okg-console-bar__select--firing { flex: 0 0 auto; }
+
+.okg-console-bar__control { flex: 0 0 auto; }
+
+.okg-console-bar__select--version { width: auto; }
+
+.okg-console-bar__select--firing { width: auto; }
+
+/* The 390-only collapse. Hidden at 1440, where all three pickers fit. */
+.okg-console-bar__summary {
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The deployment name, printed rather than picked. It is the widest thing
+ * that can appear in the controls group, so it truncates with the whole name
+ * in its `title` -- the same 150 px the picker it replaced was capped at, so
+ * the search box keeps the bar's centre. */
+.okg-console-bar__deployment,
+.okg-console-bar__summary-deployment {
+  font-size: 14px;
+  color: var(--okg-color-rail-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.okg-console-bar__deployment { flex: 0 1 auto; max-width: 150px; }
+
+/* At 390 the name shares a row with the "⋯" button and nothing else, so it
+ * may take everything the button leaves. It still truncates rather than
+ * wrapping the bar onto a fourth line. */
+.okg-console-bar__summary-deployment { flex: 0 1 auto; min-width: 0; }
+
+.okg-console-bar__more {
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 3px 9px;
+  border: 1px solid var(--okg-color-rail-border);
+  border-radius: var(--okg-radius-sm);
+  background: transparent;
+  color: var(--okg-color-rail-text);
+  cursor: pointer;
+}
+
+.okg-console-bar__firing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.okg-console-bar__swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--okg-color-accent);
+  border: 1px solid var(--okg-color-rail-border);
+}
+
+/* The chat control, at the end of the right-hand group.
+ *
+ * It is a CONTROL here, not a nav entry: the same 14 px and the same rail ink
+ * as the pickers beside it, and no underline border, because the group it
+ * joined has none. `flex: 0 0 auto` so it never gives up width to the
+ * deployment name -- that name is the one control in this group that
+ * truncates, and it says so in its own rule above. */
+.okg-console-bar__chat {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  font-size: 14px;
+  white-space: nowrap;
+  text-decoration: none;
+  color: var(--okg-color-rail-link);
+}
+
+/* The two absences. Muted ink and no pointer: there is no action to offer, so
+ * the words must not look like a control whose enabling condition the reader
+ * should go and find. */
+.okg-console-bar__chat--absent {
+  color: var(--okg-color-rail-muted);
+  cursor: default;
+}
+
+/* The external arrow after the word, at the nav's own size. */
+.okg-console-bar__external {
+  font-size: 11px;
+  margin-left: 4px;
+  opacity: 0.8;
+}
+
+.okg-console-bar__link--absent {
+  color: var(--okg-color-rail-muted);
+  font-size: 14px;
+}
+
+/* The design-fixture switcher's styles are NOT here. They name a control
+ * that exists only in the harness, and a class name only the harness uses
+ * reaching the production stylesheet is what check-bundle-clean.mjs refuses:
+ * the shipped console must not carry the scaffolding's fingerprints. They
+ * live beside the control, in design-harness/design.css. */
+
+/* Borderless on the dark bar, with a hover fill rather than a box at rest --
+ * github/'s bar does the same. The rail's ink is set here, on the control
+ * itself: these are the browser's own <select> and <span> now, so one rule
+ * reaches them and nothing injects a later one. */
+.okg-console-bar .okg-console-bar__select,
+.okg-console-bar .okg-console-bar__deployment {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: var(--okg-font-sans);
+  font-size: 13px;
+  color: var(--okg-color-rail-text);
+  transition: background var(--okg-motion-fast);
+}
+
+.okg-console-bar select.okg-console-bar__select { cursor: pointer; }
+
+/* The option list is the browser's, drawn on its own surface: its ink is the
+ * page's, not the rail's. */
+.okg-console-bar .okg-console-bar__select option { color: var(--okg-color-text); }
+
+/* `display: block` and a line height, not the inline-flex the selects use:
+ * text-overflow does nothing on a flex container, so a name too long for the
+ * column was cut mid-word with no ellipsis to say so. */
+.okg-console-bar .okg-console-bar__deployment {
+  display: block;
+  flex: 0 1 auto;
+  /* 90 px, not 0. The rule 200 lines above states the floor and this one --
+   * two class selectors, so it wins -- was quietly setting it back to zero.
+   * Nothing showed while the right-hand group had room to spare; with the
+   * chat control in that group it showed one character. */
+  min-width: 90px;
+  line-height: 32px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The version is an identifier, so it is set in mono wherever it is printed. */
+.okg-console-bar .okg-console-bar__select--version { font-family: var(--okg-font-mono); }
+
+.okg-console-bar select.okg-console-bar__select:hover {
+  background: var(--okg-color-rail-hover);
+}
+
+.okg-console-bar select.okg-console-bar__select:focus-visible {
+  outline: 2px solid var(--okg-color-rail-text);
+  outline-offset: -2px;
+}
+
+/* The screen-reader-only name on a control whose value says what it is. */
+.okg-console-bar__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* A read the BAR makes for itself that failed. In the bar, under its row and
+   above the meander, because that is where the fact belongs: the words it
+   replaces -- "not read yet" -- are in the controls two lines above. Rail ink
+   on the rail, like everything else in this band. */
+.okg-console-bar__read-failed {
+  padding: 4px 16px 8px;
+  color: var(--okg-color-rail-text);
+  font-size: 12px;
+}
+
+.okg-console-bar__read-failed p { margin: 0; }
+
+.okg-console-bar__meander {
+  height: 8px;
+  background: var(--okg-color-brand-mark);
+  mask-image: url("../../styles/hellenic-meander-band.png");
+  mask-repeat: repeat-x;
+  mask-position: center;
+  mask-size: auto 100%;
+}
+
+/* --- a read that failed ------------------------------------------------ */
+
+/* The failure surface named these four classes and nothing defined them, so
+ * every failed read on this console -- a whole view or one panel -- rendered
+ * as unstyled paragraphs in the browser's own type. It is marked out like the
+ * other bad states on this console, in the same tokens, so a reader can tell
+ * at a glance that this is a statement about a failure and not the content
+ * they asked for. */
+.okg-console__read-failed {
+  margin: 16px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--okg-color-bad-line);
+  border-left-width: 3px;
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-bad-bg);
+}
+
+.okg-console__read-failed-headline {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--okg-color-bad);
+}
+
+/* The route, the status and the server's own sentence. `code` inside it is
+ * already mono; this only holds the size and the colour. */
+.okg-console__read-failed-detail {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--okg-color-text);
+  overflow-wrap: anywhere;
+}
+
+/* The next check reads as advice rather than as more of the error. */
+.okg-console__read-failed-next {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}

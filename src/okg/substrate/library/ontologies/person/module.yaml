@@ -1,0 +1,6 @@
+name: person
+version: 1.0.0
+description: Person + Identity + Team subtypes shared across scholarly, bookkeeping,
+  agent_sessions.
+provides:
+  subtypes_file: schema.yaml

@@ -1,0 +1,65 @@
+{
+ "_recorded": "Recorded 2026-09-28 from Open WebUI 0.11.0 (okg-openwebui-compat@sha256:e0b1f475fd05...) serving a real okg graph over MCP with a local qwen3.8:27B model (issue #2907). Scrubbed for the public mirror: the deployment and source names, session ids, the user id and query text are replaced; the structure, ids of vendor items and result shapes are as recorded. Three graph tool calls from one browser turn, as the stored assistant message's output items: a search the graph refused as an ordinary result (JSON, status refused) and two inspect calls it refused through the MCP error flag, which the vendor raises as Exception(<dict>) and stores as str(e), a Python dict literal.",
+ "output": [
+  {
+   "type": "function_call",
+   "id": "call_b7fm4h34",
+   "call_id": "call_b7fm4h34",
+   "name": "okg-example-kb_search",
+   "arguments": "{\"query\": \"example query\", \"method\": \"semantic\", \"limit\": 10}",
+   "status": "completed"
+  },
+  {
+   "type": "function_call_output",
+   "id": "fco_84eec00f25ff46ab8d69cf20",
+   "call_id": "call_b7fm4h34",
+   "output": [
+    {
+     "type": "input_text",
+     "text": "{\n  \"status\": \"refused\",\n  \"error\": {\n    \"code\": \"semantic_search_unavailable\",\n    \"message\": \"search method='semantic' requires an embedder\",\n    \"fallback_operator\": \"search\",\n    \"fix_hint\": \"Use search for this shape until the search operator supports it directly.\",\n    \"fallback_method\": \"lexical\",\n    \"capability\": {\n      \"method\": \"semantic\",\n      \"embedder_configured\": false\n    }\n  },\n  \"operator_name\": \"search\",\n  \"logical_session_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"pin_scope\": \"transport_session\",\n  \"session_default_generation_id\": null\n}"
+    }
+   ],
+   "status": "completed"
+  },
+  {
+   "type": "function_call",
+   "id": "call_emx8g1d2",
+   "call_id": "call_emx8g1d2",
+   "name": "okg-example-kb_inspect",
+   "arguments": "{\"target\": {\"hydrate\": true, \"id\": \"chunk:aa6e8ffc41c98b58\", \"kind\": \"node\"}, \"select\": [\"text\"]}",
+   "status": "completed"
+  },
+  {
+   "type": "function_call_output",
+   "id": "fco_139be4ce98894beb875d7ba6",
+   "call_id": "call_emx8g1d2",
+   "output": [
+    {
+     "type": "input_text",
+     "text": "{'status': 'refused', 'operator_name': 'inspect', 'error': {'code': 'invalid_operator_arguments', 'message': \"inspect input validation failed at 'target.node.node_id', 'target.node.id'.\", 'fix_hint': \"correct the named field(s), or re-read inspect's inputSchema in tools/list\", 'data': {'tool': 'inspect', 'invalid_fields': ['target.node.node_id', 'target.node.id'], 'validation_kinds': ['missing', 'extra_forbidden']}, 'max_bytes': 65536}, 'logical_session_id': '00000000-0000-0000-0000-000000000000', 'pin_scope': 'transport_session', 'session_default_generation_id': 'okg:example-kb:branch:default:gen:20260928T030402054545Z:6de225750f0f'}"
+    }
+   ],
+   "status": "completed"
+  },
+  {
+   "type": "function_call",
+   "id": "call_gy6uvo1q",
+   "call_id": "call_gy6uvo1q",
+   "name": "okg-example-kb_inspect",
+   "arguments": "{\"select\": [\"text\"], \"target\": {\"kind\": \"node\", \"node_id\": \"chunk:aa6e8ffc41c98b58\"}, \"max_bytes\": 40000}",
+   "status": "completed"
+  },
+  {
+   "type": "function_call_output",
+   "id": "fco_d87979b78bf942899014a8d4",
+   "call_id": "call_gy6uvo1q",
+   "output": [
+    {
+     "type": "input_text",
+     "text": "{'status': 'refused', 'operator_name': 'inspect', 'error': {'code': 'select_unknown_field', 'message': \"get_node: unknown field(s) in select: ['text']\", 'fix_hint': 'the tool\\'s selectable fields are [\\'attrs\\', \\'node_id\\', \\'subtype\\', \\'text_hash\\']; correct the `select` argument and retry; to read a record\\'s whole text in order, call inspect(target={\"kind\":\"text\",\"node_id\":<record>})', 'data': {'tool': 'get_node', 'unknown_fields': ['text'], 'valid_fields': ['attrs', 'node_id', 'subtype', 'text_hash']}, 'max_bytes': 40000}, 'logical_session_id': '00000000-0000-0000-0000-000000000000', 'pin_scope': 'transport_session', 'session_default_generation_id': 'okg:example-kb:branch:default:gen:20260928T030402054545Z:6de225750f0f'}"
+    }
+   ],
+   "status": "completed"
+  }
+ ]
+}

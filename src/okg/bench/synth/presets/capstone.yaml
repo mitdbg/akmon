@@ -1,0 +1,96 @@
+# THE CAPSTONE preset (task.complete.capstone): the majority-wrong PROSE
+# configuration that carries all four (C, Σ, ≻) axes in ONE run. Prose documents,
+# LLM extraction, published clean -> corrupted -> corrected across three pinned
+# generations. Its paired controls (the majority-CLEAN twin and the structured
+# control) are SEPARATELY-landed runs referenced by the capstone evidence, never
+# folded in here.
+#
+# WHY redundancy 2..3 (not prose_llm's 3..3): the precedence arm needs one_vs_one
+# buckets (k=2, 1 corrupted vs 1 clean) to isolate its four attr-backed decisive
+# signals, AND majority buckets (k=3) for corroboration and the majority-visibility
+# mis-repair. A uniform k gives one shape only, so a mixed 2..3 is the only regime
+# that seats the whole arm and the majority class at once.
+#
+# SIZING ARITHMETIC (shown, seed capstone-prose-2, patients=24, redundancy 2..3;
+# measured per-CLAIM prose survival s = 1339/1410 = 0.95 — .scratch/prose_run,
+# NOT the old pessimistic 0.4615):
+#
+#   surviving_conflict_floor = 30
+#     74 corruptions land in the conditional partitions (cross_doc + internal_only).
+#     Per-conflict survival at s=0.95 (>=1 corrupted survives AND >=1 clean/backup):
+#     ~0.93 by the per-claim model; the MEASURED prose_run realized 106/141 ~= 0.75
+#     conditional after laundering. Taking the pessimistic 0.75: expected survivors
+#     ~= 74 * 0.75 = 55; floor 30 is a 1.8x margin (>= the mandated 1.5x). prose_llm
+#     proved floor 30 realizes 106 on the fuller portfolio, so 30 is well within reach.
+#
+#   majority_wrong_floor = 2   (the count of realized-majority-preserved sites)
+#     cardinality_violation=12 at visibility_corrupted=2: seed-2 renders 9 of the 12
+#     picked care_provider facts at k=3 (2 corrupted + 1 clean = a genuine majority
+#     conflict). Preserved after extraction needs both corrupted AND the clean claim
+#     to survive: 9 * s^2 * s = 9 * 0.857 = 7.7 expected preserved; floor 2 is a 3.8x
+#     margin. mis_repaired > 0 needs >=1 preserved site to settle canonically on the
+#     corrupted majority (~2/3 do on the deterministic twin), so ~5 expected — the
+#     gate requires only >=1.
+#
+#   precedence_arm role_redundancy = 2   (per-basis margin against attrition)
+#     Each of the four attr-backed bases is seated on 2 isolation + up-to-2
+#     disagreement buckets. An isolation bucket yields its basis only if BOTH its
+#     claims survive (s^2 ~= 0.90); with >=2 buckets per basis, P(a basis zeros out)
+#     ~= (1-0.90)^2 = 0.01. The gate requires each basis PRESENT, not every target
+#     hit. Arm demand at reps=2: 14 one_vs_one + 4 majority; seed-2 supplies 28 + 51
+#     plain buckets after the 6 special (relational + majority) buckets are excluded.
+#     dependency_adjusted_support rides every majority bucket, so it is never scarce.
+#
+#   require_constraint_kinds = all four; the three relational classes seat 2 each so
+#     a kind cannot zero out by draw, and the runner FAILS if any listed kind has a
+#     zero detection denominator.
+#
+# POOL MARGIN (disjoint eligible pools, world_prose@24; planner fails closed if any
+#   is overrun): numeric 78 >= value_perturbation 40 + ambiguous_subject 2 = 42;
+#   care_provider 17 >= cardinality 12; medications 51 >= entity_swap 8; allergies 16
+#   >= polarity_flip 8; condition-active 237 >> incompatible 2; record_reference+
+#   birthdate 24 >> linked 2. Every bound holds with margin.
+#
+# LLM COST: patients x genres x 2 generations = 24 x 4 x 2 ~= 192 extraction calls
+#   (gen3 REUSES gen2's extracted claims + correction nodes, never re-calling the
+#   model), ~= $2.50 and well over ten minutes — the conductor's to launch, guarded.
+preset_name: capstone
+seed: "capstone-prose-2"
+world_path: world_prose
+redundancy:
+  renderings_per_fact_min: 2
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 40, magnitude: 0.2, visibility_corrupted: 1}
+    cardinality_violation: {count: 12, visibility_corrupted: 2}
+    incompatible_status_pair: {count: 2, visibility_corrupted: 1}
+    linked_reference: {count: 2, visibility_corrupted: 1}
+    ambiguous_subject: {count: 2, magnitude: 0.2, visibility_corrupted: 1}
+    polarity_flip: {count: 8, visibility_corrupted: 1}
+    entity_swap: {count: 8, visibility_corrupted: 1}
+benign_variation:
+  unit_rescale_rate: 0.4
+scale:
+  patients: 24
+  max_facts_per_patient: 40
+realism:
+  render_mode: prose
+  extractor: llm
+clean_fp_ceiling: 0
+surviving_conflict_floor: 30
+precedence_arm:
+  role_redundancy: 2
+  admits:
+    - operator_precedent
+    - explicit_supersession
+    - claim_local_effective_date
+    - declared_source_authority
+    - dependency_adjusted_support
+require_constraint_kinds:
+  - functional
+  - incompatible_pair
+  - linked_pair
+  - unresolved_key
+majority_wrong_floor: 2
+materialize_pdf: false

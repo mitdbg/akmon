@@ -1,0 +1,147 @@
+# Tests the fast lane deselects in this repository. One pytest node id per
+# line; "#" starts a comment.
+
+# Governance: these check the upstream development repository's own records,
+# not the product.
+tests/substrate/test_chronos_interval_budget.py::test_compaction_formal_boundary_documented
+tests/substrate/cli/test_write_apply_boundaries.py::test_repository_generated_publish_commands_include_apply
+
+# Tests that check what this repository's own PACT policy says (pact/AGENTS.md,
+# pact/project.yaml, .okg/coordination.yaml) are not listed: they skip
+# themselves in this copy through tests/private_policy.py, with a reason.
+
+# Docs cite files this copy does not ship (PACT policy, agent runbooks,
+# excluded tests), so the dead-reference check fails here. The fix is a docs
+# change, not a test fixture.
+tests/docs/test_doc_references.py::test_no_new_dead_references
+
+# These bind to the development repository as a live checkout: its
+# coordination policy, a PACT change record under pact/changes/, and its Git
+# state. None of these ship.
+tests/substrate/viz/test_viz_coordination_adapters.py::test_authority_digest_is_pinned_for_chief_and_pair_factories
+tests/substrate/viz/test_viz_coordination_adapters.py::test_chief_and_pair_bind_deterministically_to_plan_snapshot
+tests/substrate/viz/test_viz_coordination_adapters.py::test_factories_refuse_physical_registry_rotation_after_plan_snapshot
+tests/substrate/viz/test_viz_coordination_adapters.py::test_final_stage_fence_rejects_worktree_or_source_rotation[git_head]
+tests/substrate/viz/test_viz_coordination_adapters.py::test_final_stage_fence_rejects_worktree_or_source_rotation[symlink]
+tests/substrate/viz/test_viz_coordination_adapters.py::test_final_stage_fence_rejects_worktree_or_source_rotation[unwritable]
+tests/substrate/viz/test_viz_coordination_adapters.py::test_four_logical_routes_must_resolve_to_four_distinct_physical_routes
+
+# --- Mirror fast lane (PACT mirror-fast-lane-green) -------------------------
+# Each line below names the private material the test needs or the issue
+# that blocks it. The development repository runs every one of them.
+# pytest --deselect matches a node-id prefix. Parameters naming a deployment
+# whose name the copy must not carry are absent here, not deselected: those
+# tests read the names from tests/private_deployments.yaml, which does not ship.
+
+# Tests whose subject is private material.
+tests/docs/test_bringup_doc_consistency.py::test_secondary_docs_defer_to_the_quickstart  # reads only deployments/okg-workspace/{canonical-dev-okg,README}.md
+tests/docs/test_workspace_graph_quickstart.py::test_profile_smoke_test_uses_sample_deployment  # reads the Profile Smoke Test section of deployments/okg-workspace/README.md
+tests/operator_ui/test_deployment_theme.py::test_the_shipped_okg_workspace_theme_serves_accent_only  # pins okg-workspace's real theme
+tests/substrate/chat/test_served_set_equality.py::test_the_real_workspace_manifest_agrees_with_a_read_endpoint  # pins okg-workspace's real agent_surface
+tests/substrate/cli/test_canonical_dev_okg_doc.py::test_dev_setup_doc_covers_the_workflow  # reads deployments/okg-workspace/canonical-dev-okg.md
+tests/substrate/cli/test_deployment_lint.py::test_lint_passes_for_in_repo_deployments[okg-workspace]  # lints a private deployment (one param each)
+tests/substrate/consistency/test_ir_executor_identity.py::test_shipped_okgworkspace_ir_checks_declare_identity  # loads deployments/okg-workspace/checks/structural_ir.py
+tests/substrate/external_backed/test_resource_monitor_schedule.py::test_database_size_failure_is_contained_without_raw_details  # subject is deployments/okg-workspace/workflows/resource_monitor.py (deployment code, not package code)
+tests/substrate/external_backed/test_resource_monitor_schedule.py::test_manifest_registers_workflow_and_schedule  # subject is deployments/okg-workspace/workflows/resource_monitor.py (deployment code, not package code)
+tests/substrate/external_backed/test_resource_monitor_schedule.py::test_resource_monitor_records_database_size  # subject is deployments/okg-workspace/workflows/resource_monitor.py (deployment code, not package code)
+tests/substrate/external_backed/test_resource_monitor_schedule.py::test_schedule_failure_is_contained_without_raw_details  # subject is deployments/okg-workspace/workflows/resource_monitor.py (deployment code, not package code)
+tests/substrate/external_backed/test_resource_monitor_schedule.py::test_workflow_module_registers_schedule  # subject is deployments/okg-workspace/workflows/resource_monitor.py (deployment code, not package code)
+tests/substrate/library/sources/test_doc_corpus_probe.py::test_okg_workspace_defers_doc_corpus_poll_enrolment  # asserts okg-workspace registry config
+tests/substrate/library/sources/test_latex_project_deployment.py::test_okg_workspace_wires_one_shared_manifest_in_dependency_order  # asserts okg-workspace registry wiring
+tests/substrate/mcp/test_operator_surface_integration.py::test_eval_hardening_flags_a_filter_scope_leak  # subject is src/okg/bench/agent_memory/ (the private agent-memory benchmark)
+tests/substrate/test_deployment_upgrade.py::test_okg_ci_dev_is_the_deployment_that_requires_its_exact_database  # reads deployments/okg-ci-dev/deployment.yaml
+tests/substrate/mcp/test_effective_surface.py::test_the_workspace_block_declares_every_tool_it_serves  # pins private deployments' real manifests/instructions
+tests/substrate/mcp/test_effective_surface.py::test_the_workspace_block_keeps_query_on_stdio_and_narrows_only_chat  # pins private deployments' real manifests/instructions
+tests/substrate/mcp/test_effective_surface.py::test_the_workspace_deployment_files_agree_with_its_block  # pins private deployments' real manifests/instructions
+tests/substrate/nomos/test_nomos_baseline_reconcile.py::test_workspace_baseline_covers_declared_derived_source_families  # okg-workspace baseline
+tests/substrate/nomos/test_nomos_runtime_enforcement.py::test_protected_repository_deployments_enable_runtime_enforcement  # okg-workspace/okg-ci posture
+tests/substrate/source_sync/test_sync_commit_replay_benchmarks.py::test_module_exports_required_symbols  # subject is deployments/okg-workspace/views/sync_commit_replay_benchmarks.py
+tests/substrate/source_sync/test_sync_commit_replay_benchmarks.py::test_registry_declares_sync_commit_replay_benchmark_view  # subject is deployments/okg-workspace/views/sync_commit_replay_benchmarks.py
+tests/substrate/source_sync/test_sync_commit_replay_benchmarks.py::test_replay_rows_summarize_csv_diagnostics_and_source_health_context  # subject is deployments/okg-workspace/views/sync_commit_replay_benchmarks.py
+tests/substrate/source_sync/test_sync_commit_replay_benchmarks.py::test_view_def_declares_relation_with_required_columns  # subject is deployments/okg-workspace/views/sync_commit_replay_benchmarks.py
+tests/substrate/source_sync/test_sync_commit_replay_benchmarks.py::test_workspace_registry_exposes_replay_benchmark_factory  # subject is deployments/okg-workspace/views/sync_commit_replay_benchmarks.py
+tests/substrate/test_chat_identity_tokens.py::test_okg_workspace_accent_resolves_to_current_value  # pins okg-workspace accent
+tests/substrate/test_chat_sync_projection.py::Test_query_exclusion::test_okg_workspace_inputs_load_and_exclude_query  # pins okg-workspace's real manifest
+tests/substrate/test_chat_sync_projection.py::Test_query_exclusion::test_okg_workspace_resolves_masked  # pins okg-workspace's real manifest
+tests/substrate/test_deployment_manifest_model.py::test_all_in_repo_manifests_load_without_error[okg-workspace]  # private deployment manifests (one param each)
+tests/substrate/test_deployment_manifest_model.py::test_manifest_baseline_fields_byte_identical[okg-workspace]  # private deployment manifests (one param each)
+tests/substrate/test_deployment_upgrade.py::test_okg_workspace_backup_selects_qualified_parallel_dump_format_strategy  # pins a private deployment's real config
+tests/substrate/test_dogfood_authority.py::test_checked_in_compose_descriptor_carries_no_absolute_path  # tracked okg-workspace compose descriptor
+tests/substrate/test_dogfood_authority.py::test_checked_in_compose_descriptor_matches_the_renderer  # tracked okg-workspace compose descriptor
+tests/substrate/test_dogfood_authority.py::test_checked_in_compose_descriptor_requires_password_environment  # tracked okg-workspace compose descriptor
+tests/substrate/test_source_sync_optimization_ledger.py::test_okg_workspace_view_composition_executes_owner  # imports okg-workspace/views/source_optimization_ledger.py
+tests/substrate/test_source_sync_registry_coverage.py::test_git_file_watch_events_do_not_duplicate_downstream_watchers  # asserts okg-workspace registry sync config
+tests/substrate/test_source_sync_registry_coverage.py::test_okg_workspace_built_in_sources_declare_sync_capabilities  # asserts okg-workspace registry sync config
+tests/substrate/test_source_sync_registry_coverage.py::test_transcript_watch_events_are_scoped_and_compacted  # asserts okg-workspace registry sync config
+tests/deployments/test_kubernetes_chart.py::test_okg_ci_kubernetes_runtime_omits_legacy_local_vm_probe  # okg-ci workflow module, overlay values and runbook
+tests/deployments/test_kubernetes_chart.py::test_okg_ci_openstack_overlay_has_expected_topology  # okg-ci workflow module, overlay values and runbook
+tests/deployments/test_kubernetes_chart.py::test_okg_ci_resource_monitor_output_binds_host_names_to_node_ids  # okg-ci workflow module, overlay values and runbook
+tests/deployments/test_kubernetes_chart.py::test_operator_commands_match_multi_container_test_and_metrics_cli  # okg-ci workflow module, overlay values and runbook
+tests/deployments/test_safe_database_clone_callers.py::test_snapshot_restore_delegates_destructive_work_to_safe_clone_cli  # reads deployments/okg-ci/snapshot_restore.sh
+tests/substrate/cli/test_deployment_lint.py::test_lint_passes_for_in_repo_deployments[okg-ci]  # lints a private deployment (one param each)
+tests/substrate/cli/test_deployment_lint_change_probe.py::test_pinned_poll_registry_inventory_uses_closed_contract  # counts okg-ci + okg-workspace poll sources
+tests/substrate/mcp/test_effective_surface.py::test_every_in_repo_deployment_declares_the_block_serving_what_it_did[okg-ci-dev]  # pins private deployments' real manifests/instructions
+tests/substrate/mcp/test_effective_surface.py::test_every_in_repo_deployment_declares_the_block_serving_what_it_did[okg-ci]  # pins private deployments' real manifests/instructions
+tests/substrate/mcp/test_effective_surface.py::test_the_ci_instructions_are_still_served_after_the_move[okg-ci-dev]  # pins private deployments' real manifests/instructions
+tests/substrate/mcp/test_effective_surface.py::test_the_ci_instructions_are_still_served_after_the_move[okg-ci]  # pins private deployments' real manifests/instructions
+tests/substrate/mcp/test_effective_surface.py::test_the_manifest_and_the_definition_declare_the_same_surface[okg-ci-dev]  # pins private deployments' real manifests/instructions
+tests/substrate/mcp/test_effective_surface.py::test_the_manifest_and_the_definition_declare_the_same_surface[okg-ci]  # pins private deployments' real manifests/instructions
+tests/substrate/mcp/test_effective_surface.py::test_the_two_real_instruction_files_pass  # pins private deployments' real manifests/instructions
+tests/substrate/nomos/test_nomos_deployment_policy_audit.py::test_real_okg_ci_and_workspace_manifests_have_nomos_posture  # private manifests
+tests/substrate/nomos/test_nomos_identity_absence_fail_closed.py::TestCallerAudit::test_shipped_claim_builders_state_their_verification[deployments]  # no raw claim literals ship under deployments/, so there is nothing to audit (the src/ param still runs)
+tests/substrate/runtime/test_deployment_schedule_guard_census.py::test_every_deployment_schedule_is_registered  # no shipped deployment declares workflow modules; census is vacuous in the mirror
+tests/substrate/runtime/test_deployment_schedule_guard_census.py::test_the_census_actually_finds_deployment_workflow_modules  # no shipped deployment declares workflow modules; census is vacuous in the mirror
+tests/substrate/test_deployment_lifecycle_contract.py::test_full_lifecycle_consumers_share_exact_phase_contract  # reads okg-ci RUNBOOK.md and planner
+tests/substrate/test_deployment_manifest_model.py::test_all_in_repo_manifests_load_without_error[okg-ci]  # private deployment manifests (one param each)
+tests/substrate/test_deployment_manifest_model.py::test_manifest_baseline_fields_byte_identical[okg-ci]  # private deployment manifests (one param each)
+tests/substrate/test_deployment_upgrade.py::test_okg_ci_production_smoke_and_attribute_authority_are_closed  # pins a private deployment's real config
+tests/substrate/test_smoke_source_manifest_meta.py::test_canonical_deployments_declare_suitable_smoke_sources  # okg-ci/okg-workspace smoke sources
+tests/substrate/test_source_sync_convergence_inventory.py::test_inventory_classifies_runtime_exposure_and_manual_gates  # asserts private deployments' inventory rows
+tests/substrate/test_source_sync_convergence_inventory.py::test_okg_ci_dev_inventory_honors_fail_closed_source_override  # asserts private deployments' inventory rows
+tests/substrate/test_source_sync_convergence_inventory.py::test_okg_ci_inventory_uses_ci_readiness_profile  # asserts private deployments' inventory rows
+tests/pact/test_deployment_control_plane_kernel_contract.py::test_aggregate_digest_binds_every_registry  # formal checker files + pact/changes records
+tests/pact/test_deployment_control_plane_kernel_contract.py::test_refinement_owners_bind_concrete_controller_mapping  # formal checker files + pact/changes records
+tests/pact/test_external_action_review_model_contract.py::test_formal_refinement_map_covers_all_model_actions  # reads the PACT design dir under pact/changes
+tests/pact/test_external_action_review_model_contract.py::test_production_model_matches_the_approved_design_model  # reads the PACT design dir under pact/changes
+tests/pact/test_pact_formal_evidence_formal.py::test_pact_formal_evidence_formal_binding_covers_contract  # binds to a named pact/changes record
+tests/pact/test_pact_projection_formal.py::test_pact_projection_formal_bindings_cover_graph_native_contract  # binds to a named pact/changes record
+tests/pact/test_pact_proof_integrity_formal.py::test_formal_binding_maps_model_to_its_change  # binds to a named pact/changes record
+tests/pact/test_pact_v4_decision_ledger_formal.py::test_pact_v4_decision_ledger_formal_binding_covers_contract  # binds to a named pact/changes record
+tests/pact/test_workflow_authority_formal.py::test_workflow_authority_formal_binding_covers_contract  # binds to a named pact/changes record
+tests/substrate/distributions/test_legacy_inventory_draft.py::test_declared_entry_count_matches_the_file  # subject is the partner (Archi) inventory draft in pact/changes evidence
+tests/substrate/distributions/test_legacy_inventory_draft.py::test_draft_digest_reproduces_the_declaration  # subject is the partner (Archi) inventory draft in pact/changes evidence
+tests/substrate/distributions/test_legacy_inventory_draft.py::test_draft_has_no_unresolved_entries  # subject is the partner (Archi) inventory draft in pact/changes evidence
+tests/substrate/distributions/test_legacy_inventory_draft.py::test_every_evidence_ref_is_the_pinned_token_shape  # subject is the partner (Archi) inventory draft in pact/changes evidence
+tests/docs/test_akmon_instruction_contract.py::test_at08_source_agent_instructions_point_to_the_canonical_current_guides  # reads src/okg/AGENTS.md, excluded
+tests/docs/test_guidance_consistency.py::test_worktree_dsn_docs_cover_authority_and_isolation  # reads docs/runbooks/agents/worktrees.md
+tests/docs/test_human_writing_contract.py::test_runbook_makes_plain_prose_the_default_surface  # reads docs/runbooks/agents/reporting.md
+tests/pact/test_agent_ui_workflow_docs.py::test_active_ui_guidance_uses_current_evidence_command_names  # reads docs/runbooks/agents/ui.md, CLAUDE.md, AGENTS.md, pact/ui-change-guide.md, pact/templates
+tests/pact/test_agent_ui_workflow_docs.py::test_agent_ui_workflow_defines_taste_and_viz_contracts  # reads docs/runbooks/agents/ui.md, CLAUDE.md, AGENTS.md, pact/ui-change-guide.md, pact/templates
+tests/pact/test_agent_ui_workflow_docs.py::test_agent_ui_workflow_is_the_canonical_entry_point  # reads docs/runbooks/agents/ui.md, CLAUDE.md, AGENTS.md, pact/ui-change-guide.md, pact/templates
+tests/pact/test_agent_ui_workflow_docs.py::test_agent_ui_workflow_preserves_visual_gates  # reads docs/runbooks/agents/ui.md, CLAUDE.md, AGENTS.md, pact/ui-change-guide.md, pact/templates
+tests/pact/test_agent_ui_workflow_docs.py::test_agent_ui_workflow_routes_tools_under_okg_design_authority  # reads docs/runbooks/agents/ui.md, CLAUDE.md, AGENTS.md, pact/ui-change-guide.md, pact/templates
+tests/pact/test_agent_ui_workflow_docs.py::test_ui_template_requires_quality_gate_and_feedback_artifacts  # reads docs/runbooks/agents/ui.md, CLAUDE.md, AGENTS.md, pact/ui-change-guide.md, pact/templates
+tests/pact/test_agent_workflow_scenarios.py::test_coordination_runbook_keeps_safety_boundaries_concise  # reads docs/runbooks/agents/coordination.md
+tests/pact/test_doc_holes.py::test_bootstrap_has_one_canonical_home  # reads CLAUDE.md and docs/runbooks/agents/okg-usage.md
+tests/pact/test_envelope_consumers.py::test_installed_skill_copies_match_the_bundle  # reads .agents/ and .claude/ skill copies
+tests/substrate/cli/test_doctor_source_health.py::test_matrix_runbook_commands_are_real  # reads docs/runbooks/quality/source-test-matrix.md
+tests/docs/test_documentation_publications.py::test_ci_builds_and_packages_one_site_bundle  # reads .github/workflows/docs-site.yml
+tests/substrate/library/agent_runtimes/test_coordination_ssh_server.py::test_blocking_ci_step_resists_omission_and_weakening  # reads .github/workflows/test.yml
+tests/bench/test_one_tree.py::test_inspect_backend_resolves_runner_from_the_package  # agent-memory benchmark excluded
+tests/bench/test_one_tree.py::test_run_sh_launcher_uses_package_paths  # agent-memory benchmark excluded
+tests/substrate/distributions/test_lifecycle_receipts.py::test_the_readable_example_inventory_reproduces_its_declared_digest  # partner (Archi/CERN) fixture excluded
+
+# --- Found by the 2026-10-19 release proof on dev bb06c452e8 ----------------
+tests/substrate/db/test_wal_settings.py::test_drift_check_names_a_missing_or_changed_setting  # reads deployments/okg-workspace/docker-compose.okg-workspace.dogfood.yaml
+tests/substrate/db/test_wal_settings.py::test_rendered_dogfood_compose_matches_the_tracked_descriptor  # tracked okg-workspace compose descriptor
+tests/substrate/db/test_wal_settings.py::test_static_compose_carries_the_wal_settings[deployments/okg-workspace/  # private deployment compose (one param each)
+tests/substrate/test_postgres_initdb_preload.py::test_static_compose_names_its_database_when_it_preloads_pg_cron[deployments/okg-workspace/  # private deployment compose (one param each)
+tests/substrate/db/test_timescaledb_workers.py::test_the_image_default_and_the_ops_environments_agree  # reads ops/environments/, which does not ship
+tests/substrate/nomos/test_read_filter_read_class.py::test_okg_workspace_shaped_rows_under_its_real_baseline_bundle  # okg-workspace baseline bundle
+tests/substrate/mcp/test_tool_surface_budget.py::test_a_declared_surface_matches_its_exact_baseline[okg-workspace  # pins okg-workspace's real surface (one param each)
+tests/substrate/mcp/test_tool_surface_budget.py::test_the_declared_surface_registers_what_dev_registered  # measures okg-workspace's real surface
+tests/substrate/mcp/test_capability_probe.py::test_an_agent_surface_instructions_file_gets_the_lines  # loads okg-ci's real manifest and instructions
+tests/docs/test_docs_task_navigation.py::test_ci_and_quality_runbooks_are_off_the_site  # docs/runbooks/ci/ and quality/ do not ship, so documentation.yaml has nothing to list
+
+# --- Found by the v0.2.0 release-commit proof (98e7e266e2), 2026-10-19 -------
+tests/substrate/test_deployment_views_helper.py::test_helper_imports_deployment_views_and_restores_state  # imports deployments/okg-workspace/views, which does not ship

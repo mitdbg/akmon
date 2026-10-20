@@ -1,0 +1,168 @@
+id: https://palimpzest.mit.edu/okg/modules/code
+name: code
+title: "Code — symbols, imports, call graph"
+description: Code-symbol ontology — function / class / import /
+  call-graph nodes derived from source files. Loaded by deployments
+  alongside `extraction` to make codebase structure a graph.
+  Per `add-code-symbol-extraction` (2026-04-26).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  code: https://palimpzest.mit.edu/okg/modules/code/
+default_range: string
+imports:
+- linkml:types
+classes:
+
+  CodeSymbol:
+    description: A defined identifier in a source file —
+      function, class, method, or module-level constant.
+      Identity is `symbol:<repo>:<path>:<qualified_name>`.
+      When a symbol moves files, its node_id changes; the
+      OKG retracts the old node and emits a new one (the
+      `discovery_crawl` profile semantics).
+    class_uri: code:CodeSymbol
+    attributes:
+      symbol_id:
+        required: true
+        description: Conventionally `symbol:<repo>:<path>:<qname>`.
+      language:
+        required: true
+        description: Source language (`python`, `javascript`, ...).
+      kind:
+        required: true
+        description: SymbolKind enum (function, class, method,
+          module_const, parameter).
+      name:
+        required: true
+        description: Local identifier (the leaf of qualified_name).
+      qualified_name:
+        required: true
+        description: Dotted path from module root (e.g.
+          `Class.method`).
+      signature:
+        description: Best-effort signature — parameter list for
+          callables, base classes for classes; empty when
+          unavailable.
+      docstring:
+        description: Docstring body or empty.
+      span_start:
+        range: integer
+        description: 1-indexed start line of the definition.
+      span_end:
+        range: integer
+        description: 1-indexed end line of the definition.
+      citation_label:
+        description: Source-supplied citation label — `<repo>/<path>` of the
+          defining file. Per `source-supplied-search-citations`.
+      citation_url:
+        description: Source-supplied citation URL — browser view of the
+          defining file at the immutable ingested commit. Absent when no
+          truthful link exists; never guessed. Per
+          `source-supplied-search-citations`.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: qualified_name,signature,docstring
+
+  CodeImport:
+    description: An import statement. Identity is
+      `import:<sha256(repo|path|module|name|alias|kind|line)
+      [:16]>`.
+    class_uri: code:CodeImport
+    attributes:
+      import_id:
+        required: true
+      module:
+        required: true
+        description: Imported module path (`os.path`).
+      name:
+        description: Imported name when known (`join` from
+          `from os.path import join`).
+      alias:
+        description: Local rebind (the `J` in `... as J`).
+      kind:
+        required: true
+        description: ImportKind enum (import, from_import,
+          relative_import).
+      language:
+        required: true
+      resolved_to_path:
+        description: Repo-relative path the import resolves to,
+          when the extractor can resolve it (relative imports
+          + same-package modules; LSP-only otherwise). Null
+          for unresolved third-party imports.
+      span_start:
+        range: integer
+      span_end:
+        range: integer
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: module,name
+
+  CodeReference:
+    description: A within-file or cross-file call/use
+      reference. Identity is `reference:<sha256(...)>`. The
+      `resolution_kind` flags resolution quality so callers
+      can branch on certainty.
+    class_uri: code:CodeReference
+    attributes:
+      reference_id:
+        required: true
+      caller_qname:
+        description: Qualified name of the enclosing symbol;
+          empty for module-scope calls.
+      callee_name:
+        required: true
+        description: Literal token at the call site. NOT
+          necessarily a resolved qualified name.
+      resolution_kind:
+        required: true
+        description: ResolutionKind enum (within_file,
+          cross_file_lsp, unresolved).
+      span_start:
+        range: integer
+      span_end:
+        range: integer
+      language:
+        required: true
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_searchable_text_fields: callee_name
+
+  EdgeNarrowings:
+    description: Intra-module edge narrowings for the code
+      module. Cross-module narrowings (e.g. `document
+      contains code_symbol`) live in deployment bridges so
+      the dependency on `extraction` is opt-in per
+      deployment.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      symbol_member_of_symbol:
+        description: A method belongs to its class (or any
+          nested-symbol parent).
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: CodeSymbol
+          dst_subtypes: CodeSymbol
+      symbol_calls_symbol:
+        description: One symbol calls / uses another.
+        annotations:
+          edge_archetype: calls
+          src_subtypes: CodeSymbol
+          dst_subtypes: CodeSymbol

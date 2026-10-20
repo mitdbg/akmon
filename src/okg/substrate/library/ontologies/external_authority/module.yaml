@@ -1,0 +1,6 @@
+name: external_authority
+version: 1.0.0
+description: External tool authorities (LLM providers, MCP servers, live tools)
+  with capability profiles.
+provides:
+  subtypes_file: schema.yaml

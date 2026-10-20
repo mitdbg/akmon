@@ -1,0 +1,81 @@
+name: synthetic-corpus-smoke
+description: >
+  Smoke deployment of the KG-first synthetic corpus benchmark (PACT
+  kg-first-synthetic-corpus, req.synth.run). The corpus is RENDERED, not
+  checked in: `okg bench synth` generates clean and corrupted corpora from
+  the frozen Synthea world under src/okg/bench/synth/world_smoke/, ingests
+  them via the deterministic ClaimCorpusSource pattern (H1 = patient
+  identity; per-kind labels; extraction-side numeric unit canonicalization
+  so unit-equivalent benign twins do not flag), publishes real generations,
+  and scores detection against construction-time gold. Functional predicate
+  policies make cardinality violations flow through the same
+  contested-bucket surface. Derived-value and structural corruption classes
+  have NO detector lane here yet (internal_only recall scores honest
+  misses; their detector lanes are a recorded deferred item).
+
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+postgres:
+  dsn: ${OKG_DSN}
+  database: okg_synthetic_corpus_smoke
+
+modules:
+  - extraction
+  - consistency
+
+enrichers: []
+
+nomos:
+  rollout:
+    status: deferred
+    owner:
+      name: consistency
+      contact: consistency-team@example.com
+    review_by: "2027-01-01"
+
+maintained_derivations:
+  registry: synthetic_corpus_smoke_derivations:registry
+
+ir_consistency_checks:
+  - name: synthetic_corpus_smoke_contested_bucket_ir
+    check_id: synthetic-corpus-smoke.ir.claim_state.contested_bucket.v1
+    predicate_family: claim_state_resolution_consistency
+    confidence_type: deterministic_boolean
+    program_ref: synthetic_corpus_smoke_checks.contested_bucket_program
+    surfaces:
+      claim_projection_rows:
+        binding: okg.claim_projection
+        kind: live
+
+# The rendered corpus is ingested by the runner through the ClaimCorpusSource
+# wrapper (okg.bench.synth.runner) with per-world functional policies; no
+# registry-driven ingest entry is declared (source_registry.yaml holds the
+# empty sources map — a top-level sources: key is not a manifest field).
+
+# The declared agent surface (issue #2067). Migrated from the frozen
+# legacy path with no change in behaviour: `served` is exactly what
+# `okg mcp-serve --allow-writes` registered before the block existed, so no
+# launch loses a tool. A read-only launch still registers the seven read
+# operators; the write gate stays the launch operator's. No response budget
+# and no chat projection are declared, so both keep the substrate defaults.
+agent_surface:
+  served:
+    - inspect
+    - search
+    - expand
+    - filter
+    - map
+    - aggregate
+    - query
+    - record
+    - propose
+    - list_sources
+    - add_source
+    - remove_source
+    - source_status
+    - discover_sources
+    - propose_setup
+    - commit_setup
+    - connector_route_status
+    - connector_ingest_batch

@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "okg.fullname" . }}-runtime
+  labels:
+    {{- include "okg.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime
+spec:
+  clusterIP: None
+  selector:
+    {{- include "okg.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "okg.fullname" . }}-mcp
+  labels:
+    {{- include "okg.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "okg.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime
+  ports:
+    - name: mcp
+      port: {{ .Values.mcp.port }}
+      targetPort: mcp
+      protocol: TCP

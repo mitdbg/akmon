@@ -1,0 +1,19 @@
+# Easy preset: high redundancy, blatant corruption, low benign variation.
+preset_name: easy
+seed: "easy-749-1"
+world_path: world_smoke
+redundancy:
+  renderings_per_fact_min: 3
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 3, magnitude: 0.5, visibility_corrupted: 1}
+    cardinality_violation: {count: 1, visibility_corrupted: 1}
+    polarity_flip: {count: 1, visibility_corrupted: 1}
+benign_variation:
+  unit_rescale_rate: 0.05
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+materialize_pdf: false

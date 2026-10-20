@@ -1,0 +1,20 @@
+# academic_researcher ↔ extraction cross-link rules.
+#
+# Per `refine-academic-pi-with-comms-and-calendar`: only the
+# RecommendationLetter narrowing remains here. The
+# `meeting_has_document` rule moved to
+# `calendar/cross_links/calendar_x_extraction.yaml` as
+# `calendar_event_has_document` after Meeting was migrated
+# to calendar.CalendarEvent.
+
+rules:
+  - id: recommendation_letter_has_document
+    src:
+      subtype: recommendation_letter
+      field: draft_document_ref
+    dst:
+      subtype: document
+      field: document_id
+    matcher: exact
+    edge: has_document
+    bidirectional: false

@@ -1,0 +1,16 @@
+invariants:
+  - name: catalog_version_consistent
+    severity: error
+    scope: cross
+    sql: |
+      -- Every published graph_generations row must reference an
+      -- applied catalog_version. If a cv was rolled back without
+      -- retracting the generations that pinned it, readers would
+      -- see subtypes from a cv that's no longer applied — a
+      -- silent integrity break.
+      SELECT g.generation_id, g.catalog_version_id, c.status
+        FROM okg.graph_generations g
+        LEFT JOIN okg.catalog_versions c
+          ON c.catalog_version_id = g.catalog_version_id
+       WHERE g.status = 'published'
+         AND (c.status IS NULL OR c.status <> 'applied')

@@ -1,0 +1,243 @@
+# Communications ontology module.
+#
+# Per `refine-academic-pi-with-comms-and-calendar`: Email +
+# EmailThread + ChatChannel + ChatMessage. The substrate's
+# OAuth library + redaction layer back the source connectors
+# (gmail_api, slack_api) shipped alongside this module.
+#
+# Design notes:
+# - body_doc_ref is OPTIONAL — labels-only / metadata-only
+#   emails don't bloat Document storage.
+# - snippet is 200 chars max (indexing without full body).
+# - ChatChannel.platform enum allows {slack, discord, teams,
+#   irc, matrix} — future Discord/Teams ingest reuses this
+#   subtype.
+
+id: https://palimpzest.mit.edu/okg/modules/communications
+name: communications
+title: "Communications — email + chat surfaces"
+description: |-
+  Email + chat (Slack / Discord / Teams) ingest surface for
+  a deployment. Strict allowlist filtering source-side; PII
+  redaction policy applied at emit time per substrate convention.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  comms: https://palimpzest.mit.edu/okg/modules/communications/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+
+  Email:
+    description: |-
+      A single email message. Sourced from `gmail_api` (Gmail
+      v1 API with strict label-allowlist). The substrate
+      OAuth library handles token storage + refresh; the
+      redaction layer truncates oversized bodies.
+
+      Identity is `email:<provider>:<external-id>` (e.g.,
+      `email:gmail:185c3a...`). Threading: `thread_ref` points
+      at the EmailThread; `in_reply_to_ref` points at the
+      parent Email (if any).
+    class_uri: comms:Email
+    attributes:
+      email_id:
+        required: true
+        description: |-
+          Stable identity; recommended prefix
+          `email:<provider>:<external-id>`.
+      subject:
+        required: true
+        description: Email subject; searchable.
+      sender_ref:
+        required: true
+        description: Person ref of the sender.
+      sender_domain:
+        description: |-
+          Lowercase domain from the sender email address. Preserved
+          even when PII hashing redacts the local-part/display name,
+          so organization-level grouping can stay grounded without
+          carrying raw addresses.
+      recipients_refs:
+        multivalued: true
+        description: "List of Person refs (To header)."
+      recipients_domains:
+        multivalued: true
+        description: Lowercase domains from To recipients.
+      cc_refs:
+        multivalued: true
+        description: "List of Person refs (CC header)."
+      cc_domains:
+        multivalued: true
+        description: Lowercase domains from CC recipients.
+      thread_ref:
+        description: EmailThread ref this email belongs to.
+      date:
+        required: true
+        description: ISO datetime the email was sent.
+      labels:
+        multivalued: true
+        description: |-
+          Gmail-style labels (inbox / sent / starred /
+          operator-custom). Allowlist-filtered: only emails
+          carrying ≥1 allowlisted label are ingested.
+      snippet:
+        description: |-
+          First ~200 chars of the body for indexing without
+          storing the full body. Always populated.
+      body_doc_ref:
+        description: |-
+          OPTIONAL extraction.Document ref carrying the full
+          (possibly truncated) body. NULL for labels-only
+          ingest, which keeps Document storage bounded.
+      in_reply_to_ref:
+        description: Parent Email ref (threading).
+      external_ref:
+        description: Provider-side message ID (Gmail message_id).
+    annotations:
+      archetype: event
+      transient: 'false'
+      okg_alias_fields: email_id,external_ref
+      okg_searchable_text_fields: subject,snippet,labels,sender_domain,recipients_domains,cc_domains
+      okg_created_at_from: date
+
+  EmailThread:
+    description: |-
+      Conversation thread aggregating Emails. Identity is
+      `thread:<provider>:<external-id>`.
+    class_uri: comms:EmailThread
+    attributes:
+      thread_id:
+        required: true
+      subject:
+        required: true
+        description: Latest subject (threads can re-subject).
+      first_date:
+        required: true
+      latest_date:
+        required: true
+      participants_refs:
+        multivalued: true
+      participants_domains:
+        multivalued: true
+        description: |-
+          Lowercase sender/recipient email domains observed across
+          messages in the thread. Does not expose raw addresses.
+      message_count:
+        required: true
+        range: integer
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: thread_id
+      okg_searchable_text_fields: subject,participants_domains
+
+  ChatChannel:
+    description: |-
+      A Slack / Discord / Teams channel. Source: `slack_api`
+      (Slack v1) for v1; future Discord / Teams connectors
+      land additional source adapters but emit the same
+      subtype.
+
+      Identity is `chat_channel:<platform>:<external-id>`.
+      Channel allowlist enforced source-side — only operator-
+      configured channels emit nodes.
+    class_uri: comms:ChatChannel
+    attributes:
+      channel_id:
+        required: true
+      platform:
+        required: true
+        description: |-
+          Enum {slack, discord, teams, irc, matrix}.
+      name:
+        required: true
+      members_refs:
+        multivalued: true
+        description: List of Person refs (current members).
+      archived_at:
+        description: ISO datetime if archived; NULL otherwise.
+      external_ref:
+        description: Provider-side channel ID.
+    annotations:
+      archetype: actor
+      transient: 'false'
+      okg_alias_fields: channel_id,external_ref
+      okg_searchable_text_fields: name,platform
+
+  ChatMessage:
+    description: |-
+      Single chat message in a ChatChannel. Threading: Slack
+      threads via `thread_ref` (parent message). Mentions
+      land as `mentions_refs`.
+    class_uri: comms:ChatMessage
+    attributes:
+      message_id:
+        required: true
+      channel_ref:
+        required: true
+        description: ChatChannel this message lives in.
+      sender_ref:
+        required: true
+      ts:
+        required: true
+        description: ISO datetime.
+      body_doc_ref:
+        description: |-
+          OPTIONAL extraction.Document ref carrying the
+          message body. Truncated if > 50KB.
+      thread_ref:
+        description: Parent ChatMessage in a thread (Slack reply).
+      mentions_refs:
+        multivalued: true
+        description: Person refs mentioned via @username.
+      reactions_count:
+        range: integer
+      external_ref:
+        description: Provider-side message ts (Slack ts).
+    annotations:
+      archetype: event
+      transient: 'false'
+      okg_alias_fields: message_id,external_ref
+      okg_searchable_text_fields: ts
+      okg_created_at_from: ts
+
+  EdgeNarrowings:
+    description: |-
+      Intra-module narrowings.
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        contains: contains
+        replies_to: references
+        authored: references
+        received: references
+        cc_on: references
+        sent: references
+        has_member: references
+        mentions: references
+        thread_about: references
+    attributes:
+
+      email_thread_contains_email:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: EmailThread
+          dst_subtypes: Email
+
+      chat_channel_contains_chat_message:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: ChatChannel
+          dst_subtypes: ChatMessage
+
+      chat_message_replies_to_chat_message:
+        annotations:
+          edge_archetype: replies_to
+          src_subtypes: ChatMessage
+          dst_subtypes: ChatMessage

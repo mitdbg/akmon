@@ -1,0 +1,26 @@
+id: https://acme/ops-okg
+name: acme_ops
+description: Acme on-call knowledge graph classes.
+
+includes:
+  - okg.ontology.service
+  - okg.ontology.incident
+  - okg.ontology.document
+  - okg.ontology.repo
+
+classes:
+  AcmeRepo:
+    is_a: Repo
+    attributes:
+      gitlab_project_id: { range: integer }
+
+  Issue:
+    is_a: Thing
+    attributes:
+      title:  { range: string }
+      state:  { range: string }
+      text:   { range: string }
+
+slots:
+  mentions: { multivalued: true, range: Thing }
+  in_repo:  { range: Repo }

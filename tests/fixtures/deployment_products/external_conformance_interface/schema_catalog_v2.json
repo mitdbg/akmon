@@ -1,0 +1,2400 @@
+{
+  "schema_version": "okg.external_distribution_conformance.schema_catalog/v2",
+  "protocol": "okg.external_distribution_conformance/v2",
+  "schema_digest": "sha256:13dd7b4cf8e4d5e9b8a0ffeea42e259835e8499f6545ca8331260aeaa05317ca",
+  "schemas": {
+    "request": {
+      "$defs": {
+        "CompatibilityMetadata": {
+          "additionalProperties": false,
+          "description": "Wave 1 compatibility declarations; asset-DAG semantics are Wave 2.",
+          "properties": {
+            "contract_version": {
+              "const": "v1",
+              "default": "v1",
+              "title": "Contract Version",
+              "type": "string"
+            },
+            "api_version": {
+              "const": "okg.deployment_product.api/v1",
+              "default": "okg.deployment_product.api/v1",
+              "title": "Api Version",
+              "type": "string"
+            },
+            "contract_versions": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Contract Versions",
+              "type": "array"
+            },
+            "capabilities": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Capabilities",
+              "type": "array"
+            }
+          },
+          "title": "CompatibilityMetadata",
+          "type": "object"
+        },
+        "ConformanceAdmission": {
+          "additionalProperties": false,
+          "properties": {
+            "extension_boundary_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Extension Boundary Digest",
+              "type": "string"
+            },
+            "package_admission_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Package Admission Digest",
+              "type": "string"
+            },
+            "capability_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Capability Digest",
+              "type": "string"
+            },
+            "resource_policy_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Resource Policy Digest",
+              "type": "string"
+            }
+          },
+          "required": [
+            "extension_boundary_digest",
+            "package_admission_digest",
+            "capability_digest",
+            "resource_policy_digest"
+          ],
+          "title": "ConformanceAdmission",
+          "type": "object"
+        },
+        "ConformanceArtifactIdentityV2": {
+          "additionalProperties": false,
+          "properties": {
+            "package_schema": {
+              "enum": [
+                "okg.deployment_product.distribution_package/v1",
+                "okg.deployment_product.distribution_package/v2"
+              ],
+              "title": "Package Schema",
+              "type": "string"
+            },
+            "media_type": {
+              "const": "application/octet-stream",
+              "title": "Media Type",
+              "type": "string"
+            },
+            "digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Digest",
+              "type": "string"
+            }
+          },
+          "required": [
+            "package_schema",
+            "media_type",
+            "digest"
+          ],
+          "title": "ConformanceArtifactIdentityV2",
+          "type": "object"
+        },
+        "ConformanceCase": {
+          "additionalProperties": false,
+          "properties": {
+            "case_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Case Id",
+              "type": "string"
+            },
+            "claim_profile": {
+              "enum": [
+                "contract",
+                "ci_fixture",
+                "external_release_distribution_lifecycle"
+              ],
+              "title": "Claim Profile",
+              "type": "string"
+            },
+            "requested_arms": {
+              "items": {
+                "enum": [
+                  "contract",
+                  "artifact_materialization",
+                  "first_publish",
+                  "readback_health",
+                  "idempotent_reapply",
+                  "update_rollback_recovery",
+                  "legacy_authority"
+                ],
+                "type": "string"
+              },
+              "title": "Requested Arms",
+              "type": "array"
+            }
+          },
+          "required": [
+            "case_id",
+            "claim_profile",
+            "requested_arms"
+          ],
+          "title": "ConformanceCase",
+          "type": "object"
+        },
+        "ConformanceCompatibilityV2": {
+          "additionalProperties": false,
+          "properties": {
+            "product_contract_api": {
+              "const": "okg.deployment_product.api/v1",
+              "title": "Product Contract Api",
+              "type": "string"
+            },
+            "harness_protocol": {
+              "const": "okg.external_distribution_conformance/v2",
+              "title": "Harness Protocol",
+              "type": "string"
+            }
+          },
+          "required": [
+            "product_contract_api",
+            "harness_protocol"
+          ],
+          "title": "ConformanceCompatibilityV2",
+          "type": "object"
+        },
+        "ConformanceDefinitionReference": {
+          "additionalProperties": false,
+          "properties": {
+            "definition_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Definition Id",
+              "type": "string"
+            },
+            "definition_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Definition Digest",
+              "type": "string"
+            }
+          },
+          "required": [
+            "definition_id",
+            "definition_digest"
+          ],
+          "title": "ConformanceDefinitionReference",
+          "type": "object"
+        },
+        "ConformanceExpectations": {
+          "additionalProperties": false,
+          "properties": {
+            "signals": {
+              "items": {
+                "$ref": "#/$defs/ConformanceExpectedSignal"
+              },
+              "minItems": 1,
+              "title": "Signals",
+              "type": "array"
+            }
+          },
+          "required": [
+            "signals"
+          ],
+          "title": "ConformanceExpectations",
+          "type": "object"
+        },
+        "ConformanceExpectedSignal": {
+          "additionalProperties": false,
+          "properties": {
+            "signal_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Signal Id",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "source_count",
+                "node_count",
+                "edge_count",
+                "subtype_count",
+                "view",
+                "invariant",
+                "interface",
+                "readiness"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "target": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Target",
+              "type": "string"
+            },
+            "minimum_count": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Minimum Count"
+            },
+            "expected_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Expected Digest"
+            }
+          },
+          "required": [
+            "signal_id",
+            "kind",
+            "target"
+          ],
+          "title": "ConformanceExpectedSignal",
+          "type": "object"
+        },
+        "ConformanceInputReference": {
+          "additionalProperties": false,
+          "properties": {
+            "input_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Input Id",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "fixture",
+                "snapshot",
+                "connection"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Digest",
+              "type": "string"
+            },
+            "media_type": {
+              "pattern": "^application/[a-z0-9][a-z0-9.+-]{0,126}$",
+              "title": "Media Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "input_id",
+            "kind",
+            "digest",
+            "media_type"
+          ],
+          "title": "ConformanceInputReference",
+          "type": "object"
+        },
+        "ConformanceInputsV2": {
+          "additionalProperties": false,
+          "properties": {
+            "inputs": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/ConformanceInputReference"
+              },
+              "title": "Inputs",
+              "type": "array"
+            },
+            "secret_references": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/OpaqueSecretReference"
+              },
+              "title": "Secret References",
+              "type": "array"
+            },
+            "optional_credential_bindings": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/ConformanceOptionalCredentialBindingV2"
+              },
+              "title": "Optional Credential Bindings",
+              "type": "array"
+            },
+            "sealed_releases": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/ConformanceSealedReleaseInput"
+              },
+              "title": "Sealed Releases",
+              "type": "array"
+            },
+            "legacy_input_inventory": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ConformanceLegacyInputInventory"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "title": "ConformanceInputsV2",
+          "type": "object"
+        },
+        "ConformanceLegacyInputInventory": {
+          "additionalProperties": false,
+          "description": "Complete consumer declaration consumed later by the Wave 7 harness arm.",
+          "properties": {
+            "inventory_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Inventory Id",
+              "type": "string"
+            },
+            "inventory_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Inventory Digest",
+              "type": "string"
+            },
+            "media_type": {
+              "const": "application/json",
+              "title": "Media Type",
+              "type": "string"
+            },
+            "entry_count": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Entry Count",
+              "type": "integer"
+            },
+            "empty": {
+              "title": "Empty",
+              "type": "boolean"
+            },
+            "complete": {
+              "const": true,
+              "title": "Complete",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "inventory_id",
+            "inventory_digest",
+            "media_type",
+            "entry_count",
+            "empty",
+            "complete"
+          ],
+          "title": "ConformanceLegacyInputInventory",
+          "type": "object"
+        },
+        "ConformanceOptionalCredentialBindingV2": {
+          "additionalProperties": false,
+          "properties": {
+            "binding_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Binding Id",
+              "type": "string"
+            },
+            "binding_kind": {
+              "enum": [
+                "source",
+                "tool"
+              ],
+              "title": "Binding Kind",
+              "type": "string"
+            },
+            "declaration_ref": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Declaration Ref",
+              "type": "string"
+            },
+            "declaration_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Declaration Digest",
+              "type": "string"
+            },
+            "provider_connection_ref": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Provider Connection Ref"
+            },
+            "provider_connection_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Provider Connection Digest"
+            },
+            "credential_reference": {
+              "pattern": "^secretref:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "title": "Credential Reference",
+              "type": "string"
+            },
+            "readiness_policy": {
+              "const": "deferred",
+              "title": "Readiness Policy",
+              "type": "string"
+            },
+            "credential_mode": {
+              "const": "noninteractive",
+              "title": "Credential Mode",
+              "type": "string"
+            }
+          },
+          "required": [
+            "binding_id",
+            "binding_kind",
+            "declaration_ref",
+            "declaration_digest",
+            "credential_reference",
+            "readiness_policy",
+            "credential_mode"
+          ],
+          "title": "ConformanceOptionalCredentialBindingV2",
+          "type": "object"
+        },
+        "ConformanceSealedReleaseInput": {
+          "additionalProperties": false,
+          "description": "Consumer-supplied immutable input for the recovery arm; never a path.",
+          "properties": {
+            "role": {
+              "enum": [
+                "baseline",
+                "candidate"
+              ],
+              "title": "Role",
+              "type": "string"
+            },
+            "schema_version": {
+              "const": "okg.sealed_release/v1",
+              "title": "Schema Version",
+              "type": "string"
+            },
+            "artifact_id": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Artifact Id",
+              "type": "string"
+            },
+            "input_id": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Input Id",
+              "type": "string"
+            },
+            "definition_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Definition Digest",
+              "type": "string"
+            },
+            "distribution_release_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Distribution Release Digest",
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "schema_version",
+            "artifact_id",
+            "input_id",
+            "definition_digest",
+            "distribution_release_digest"
+          ],
+          "title": "ConformanceSealedReleaseInput",
+          "type": "object"
+        },
+        "ConformanceSelection": {
+          "additionalProperties": false,
+          "properties": {
+            "distribution_release": {
+              "$ref": "#/$defs/DistributionRelease"
+            },
+            "bundles": {
+              "items": {
+                "$ref": "#/$defs/ProductBundle"
+              },
+              "minItems": 1,
+              "title": "Bundles",
+              "type": "array"
+            },
+            "definition": {
+              "$ref": "#/$defs/ConformanceDefinitionReference"
+            }
+          },
+          "required": [
+            "distribution_release",
+            "bundles",
+            "definition"
+          ],
+          "title": "ConformanceSelection",
+          "type": "object"
+        },
+        "ConformanceSubjectV2": {
+          "additionalProperties": false,
+          "properties": {
+            "subject_kind": {
+              "enum": [
+                "hermetic_fixture",
+                "external_release"
+              ],
+              "title": "Subject Kind",
+              "type": "string"
+            },
+            "distribution_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Distribution Id",
+              "type": "string"
+            },
+            "distribution_version": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$",
+              "title": "Distribution Version",
+              "type": "string"
+            },
+            "release_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Release Digest",
+              "type": "string"
+            },
+            "artifact": {
+              "$ref": "#/$defs/ConformanceArtifactIdentityV2"
+            },
+            "source_revision": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{40}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Source Revision"
+            }
+          },
+          "required": [
+            "subject_kind",
+            "distribution_id",
+            "distribution_version",
+            "release_digest",
+            "artifact"
+          ],
+          "title": "ConformanceSubjectV2",
+          "type": "object"
+        },
+        "DistributionRelease": {
+          "additionalProperties": false,
+          "description": "Immutable distribution inputs shared by embedded and external products.",
+          "properties": {
+            "contract_version": {
+              "const": "v1",
+              "default": "v1",
+              "title": "Contract Version",
+              "type": "string"
+            },
+            "api_version": {
+              "const": "okg.deployment_product.api/v1",
+              "default": "okg.deployment_product.api/v1",
+              "title": "Api Version",
+              "type": "string"
+            },
+            "schema_version": {
+              "const": "okg.deployment_product.distribution_release/v1",
+              "default": "okg.deployment_product.distribution_release/v1",
+              "title": "Schema Version",
+              "type": "string"
+            },
+            "distribution_id": {
+              "title": "Distribution Id",
+              "type": "string"
+            },
+            "version": {
+              "title": "Version",
+              "type": "string"
+            },
+            "origin": {
+              "default": "embedded",
+              "enum": [
+                "embedded",
+                "external"
+              ],
+              "title": "Origin",
+              "type": "string"
+            },
+            "release_digest": {
+              "title": "Release Digest",
+              "type": "string"
+            },
+            "owner": {
+              "default": "distribution",
+              "title": "Owner",
+              "type": "string"
+            },
+            "assets": {
+              "items": {
+                "$ref": "#/$defs/OwnerQualifiedReference"
+              },
+              "title": "Assets",
+              "type": "array"
+            },
+            "bundle_ids": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Bundle Ids",
+              "type": "array"
+            },
+            "compatibility": {
+              "$ref": "#/$defs/CompatibilityMetadata"
+            }
+          },
+          "required": [
+            "distribution_id",
+            "version",
+            "release_digest"
+          ],
+          "title": "DistributionRelease",
+          "type": "object"
+        },
+        "OpaqueSecretReference": {
+          "additionalProperties": false,
+          "properties": {
+            "reference": {
+              "pattern": "^secretref:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "title": "Reference",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reference"
+          ],
+          "title": "OpaqueSecretReference",
+          "type": "object"
+        },
+        "OwnerQualifiedReference": {
+          "additionalProperties": false,
+          "description": "A stable reference whose owner is explicit and never inferred by path.",
+          "properties": {
+            "contract_version": {
+              "const": "v1",
+              "default": "v1",
+              "title": "Contract Version",
+              "type": "string"
+            },
+            "api_version": {
+              "const": "okg.deployment_product.api/v1",
+              "default": "okg.deployment_product.api/v1",
+              "title": "Api Version",
+              "type": "string"
+            },
+            "owner": {
+              "title": "Owner",
+              "type": "string"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "kind": {
+              "default": "asset",
+              "title": "Kind",
+              "type": "string"
+            },
+            "version": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Version"
+            },
+            "digest": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Digest"
+            }
+          },
+          "required": [
+            "owner",
+            "id"
+          ],
+          "title": "OwnerQualifiedReference",
+          "type": "object"
+        },
+        "ProductBundle": {
+          "additionalProperties": false,
+          "description": "A tested, named selection of assets within one distribution release.",
+          "properties": {
+            "contract_version": {
+              "const": "v1",
+              "default": "v1",
+              "title": "Contract Version",
+              "type": "string"
+            },
+            "api_version": {
+              "const": "okg.deployment_product.api/v1",
+              "default": "okg.deployment_product.api/v1",
+              "title": "Api Version",
+              "type": "string"
+            },
+            "schema_version": {
+              "const": "okg.deployment_product.product_bundle/v1",
+              "default": "okg.deployment_product.product_bundle/v1",
+              "title": "Schema Version",
+              "type": "string"
+            },
+            "bundle_id": {
+              "title": "Bundle Id",
+              "type": "string"
+            },
+            "version": {
+              "title": "Version",
+              "type": "string"
+            },
+            "distribution_id": {
+              "title": "Distribution Id",
+              "type": "string"
+            },
+            "distribution_version": {
+              "title": "Distribution Version",
+              "type": "string"
+            },
+            "owner": {
+              "default": "distribution",
+              "title": "Owner",
+              "type": "string"
+            },
+            "bundle_digest": {
+              "title": "Bundle Digest",
+              "type": "string"
+            },
+            "assets": {
+              "items": {
+                "$ref": "#/$defs/OwnerQualifiedReference"
+              },
+              "title": "Assets",
+              "type": "array"
+            },
+            "requires_bundle_ids": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Requires Bundle Ids",
+              "type": "array"
+            },
+            "conflicts_with_bundle_ids": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Conflicts With Bundle Ids",
+              "type": "array"
+            },
+            "compatibility": {
+              "$ref": "#/$defs/CompatibilityMetadata"
+            }
+          },
+          "required": [
+            "bundle_id",
+            "version",
+            "distribution_id",
+            "distribution_version",
+            "bundle_digest"
+          ],
+          "title": "ProductBundle",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "okg.external_distribution_conformance.request/v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "request_id": {
+          "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/ConformanceSubjectV2"
+        },
+        "selection": {
+          "$ref": "#/$defs/ConformanceSelection"
+        },
+        "case": {
+          "$ref": "#/$defs/ConformanceCase"
+        },
+        "expectations": {
+          "$ref": "#/$defs/ConformanceExpectations"
+        },
+        "inputs": {
+          "$ref": "#/$defs/ConformanceInputsV2"
+        },
+        "admission": {
+          "$ref": "#/$defs/ConformanceAdmission"
+        },
+        "compatibility": {
+          "$ref": "#/$defs/ConformanceCompatibilityV2"
+        }
+      },
+      "required": [
+        "schema_version",
+        "request_id",
+        "subject",
+        "selection",
+        "case",
+        "expectations",
+        "inputs",
+        "admission",
+        "compatibility"
+      ],
+      "title": "ExternalDistributionConformanceRequestV2",
+      "type": "object",
+      "$id": "okg.external_distribution_conformance.request/v2",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "x-okg-semantic-validation": {
+        "required": true,
+        "authority": "okg.external_distribution_conformance/v2",
+        "rules": [
+          "subject-release-selection-binding",
+          "distribution-package-v1-v2-transport-binding",
+          "closed-profile-mandatory-arms",
+          "canonical-set-ordering",
+          "deferred-credential-binding-and-operator-absence",
+          "baseline-candidate-sealed-release-binding",
+          "declared-legacy-inventory-binding"
+        ]
+      }
+    },
+    "receipt": {
+      "$defs": {
+        "ConformanceArmResult": {
+          "additionalProperties": false,
+          "properties": {
+            "arm": {
+              "enum": [
+                "contract",
+                "artifact_materialization",
+                "first_publish",
+                "readback_health",
+                "idempotent_reapply",
+                "update_rollback_recovery",
+                "legacy_authority"
+              ],
+              "title": "Arm",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "pass",
+                "fail",
+                "blocked"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "mutation": {
+              "enum": [
+                "none",
+                "read_only",
+                "mutating"
+              ],
+              "title": "Mutation",
+              "type": "string"
+            },
+            "retry_classification": {
+              "enum": [
+                "never",
+                "safe",
+                "unsafe",
+                "not_applicable"
+              ],
+              "title": "Retry Classification",
+              "type": "string"
+            },
+            "diagnostic_codes": {
+              "default": [],
+              "items": {
+                "enum": [
+                  "conformance_admission_digest_mismatch",
+                  "conformance_artifact_digest_mismatch",
+                  "conformance_bundle_digest_mismatch",
+                  "conformance_claim_scope_invalid",
+                  "conformance_dependency_wave5_lifecycle_unavailable",
+                  "conformance_dependency_wave6_package_unavailable",
+                  "conformance_dependency_wave7_migration_unavailable",
+                  "conformance_declared_optional_credential_unavailable",
+                  "conformance_definition_digest_mismatch",
+                  "conformance_distribution_declared_asset_missing",
+                  "conformance_external_acknowledgement_pending",
+                  "conformance_release_digest_mismatch",
+                  "conformance_request_digest_mismatch",
+                  "conformance_runtime_environment_unavailable",
+                  "conformance_schema_unsupported",
+                  "conformance_secret_reference_invalid",
+                  "conformance_signal_evidence_mismatch"
+                ],
+                "type": "string"
+              },
+              "title": "Diagnostic Codes",
+              "type": "array"
+            }
+          },
+          "required": [
+            "arm",
+            "status",
+            "mutation",
+            "retry_classification"
+          ],
+          "title": "ConformanceArmResult",
+          "type": "object"
+        },
+        "ConformanceArtifactIdentityV2": {
+          "additionalProperties": false,
+          "properties": {
+            "package_schema": {
+              "enum": [
+                "okg.deployment_product.distribution_package/v1",
+                "okg.deployment_product.distribution_package/v2"
+              ],
+              "title": "Package Schema",
+              "type": "string"
+            },
+            "media_type": {
+              "const": "application/octet-stream",
+              "title": "Media Type",
+              "type": "string"
+            },
+            "digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Digest",
+              "type": "string"
+            }
+          },
+          "required": [
+            "package_schema",
+            "media_type",
+            "digest"
+          ],
+          "title": "ConformanceArtifactIdentityV2",
+          "type": "object"
+        },
+        "ConformanceAuthority": {
+          "additionalProperties": false,
+          "properties": {
+            "observed_artifact_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Observed Artifact Digest"
+            },
+            "release_manifest_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Release Manifest Digest"
+            },
+            "release_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Release Digest"
+            },
+            "bundle_identities": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/ConformanceObservedBundleIdentity"
+              },
+              "title": "Bundle Identities",
+              "type": "array"
+            },
+            "extension_boundary_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Extension Boundary Digest",
+              "type": "string"
+            },
+            "package_admission_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Package Admission Digest",
+              "type": "string"
+            },
+            "capability_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Capability Digest",
+              "type": "string"
+            },
+            "resource_policy_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Resource Policy Digest",
+              "type": "string"
+            },
+            "definition_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Definition Digest"
+            },
+            "lock_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Lock Digest"
+            },
+            "composition_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Composition Digest"
+            },
+            "plan_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plan Digest"
+            },
+            "sealed_release_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Sealed Release Digest"
+            },
+            "applied_instance_id": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Applied Instance Id"
+            }
+          },
+          "required": [
+            "extension_boundary_digest",
+            "package_admission_digest",
+            "capability_digest",
+            "resource_policy_digest"
+          ],
+          "title": "ConformanceAuthority",
+          "type": "object"
+        },
+        "ConformanceClaim": {
+          "additionalProperties": false,
+          "properties": {
+            "profile": {
+              "enum": [
+                "contract",
+                "ci_fixture",
+                "external_release_distribution_lifecycle"
+              ],
+              "title": "Profile",
+              "type": "string"
+            },
+            "subject_kind": {
+              "enum": [
+                "hermetic_fixture",
+                "external_release"
+              ],
+              "title": "Subject Kind",
+              "type": "string"
+            },
+            "requested_arms": {
+              "items": {
+                "enum": [
+                  "contract",
+                  "artifact_materialization",
+                  "first_publish",
+                  "readback_health",
+                  "idempotent_reapply",
+                  "update_rollback_recovery",
+                  "legacy_authority"
+                ],
+                "type": "string"
+              },
+              "title": "Requested Arms",
+              "type": "array"
+            },
+            "completed_arms": {
+              "items": {
+                "enum": [
+                  "contract",
+                  "artifact_materialization",
+                  "first_publish",
+                  "readback_health",
+                  "idempotent_reapply",
+                  "update_rollback_recovery",
+                  "legacy_authority"
+                ],
+                "type": "string"
+              },
+              "title": "Completed Arms",
+              "type": "array"
+            },
+            "satisfied": {
+              "title": "Satisfied",
+              "type": "boolean"
+            },
+            "scope": {
+              "enum": [
+                "contract",
+                "ci_fixture",
+                "distribution_lifecycle"
+              ],
+              "title": "Scope",
+              "type": "string"
+            },
+            "external_evidence_origin": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ConformanceExternalEvidenceOrigin"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "profile",
+            "subject_kind",
+            "requested_arms",
+            "completed_arms",
+            "satisfied",
+            "scope"
+          ],
+          "title": "ConformanceClaim",
+          "type": "object"
+        },
+        "ConformanceDeclaredAssetMissingEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "asset_ref": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Asset Ref",
+              "type": "string"
+            },
+            "asset_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Asset Digest",
+              "type": "string"
+            },
+            "declared_in_manifest": {
+              "const": true,
+              "title": "Declared In Manifest",
+              "type": "boolean"
+            },
+            "observed_in_artifact": {
+              "const": false,
+              "title": "Observed In Artifact",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "asset_ref",
+            "asset_digest",
+            "declared_in_manifest",
+            "observed_in_artifact"
+          ],
+          "title": "ConformanceDeclaredAssetMissingEvidence",
+          "type": "object"
+        },
+        "ConformanceDiagnosticV2": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": [
+                "conformance_admission_digest_mismatch",
+                "conformance_artifact_digest_mismatch",
+                "conformance_bundle_digest_mismatch",
+                "conformance_claim_scope_invalid",
+                "conformance_dependency_wave5_lifecycle_unavailable",
+                "conformance_dependency_wave6_package_unavailable",
+                "conformance_dependency_wave7_migration_unavailable",
+                "conformance_declared_optional_credential_unavailable",
+                "conformance_definition_digest_mismatch",
+                "conformance_distribution_declared_asset_missing",
+                "conformance_external_acknowledgement_pending",
+                "conformance_release_digest_mismatch",
+                "conformance_request_digest_mismatch",
+                "conformance_runtime_environment_unavailable",
+                "conformance_schema_unsupported",
+                "conformance_secret_reference_invalid",
+                "conformance_signal_evidence_mismatch"
+              ],
+              "title": "Code",
+              "type": "string"
+            },
+            "arm": {
+              "enum": [
+                "contract",
+                "artifact_materialization",
+                "first_publish",
+                "readback_health",
+                "idempotent_reapply",
+                "update_rollback_recovery",
+                "legacy_authority"
+              ],
+              "title": "Arm",
+              "type": "string"
+            },
+            "phase": {
+              "enum": [
+                "validation",
+                "materialization",
+                "apply",
+                "readback",
+                "reapply",
+                "recovery",
+                "migration"
+              ],
+              "title": "Phase",
+              "type": "string"
+            },
+            "reference": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Reference",
+              "type": "string"
+            },
+            "expected": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9_.:@+-]{1,160}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Expected"
+            },
+            "observed": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9_.:@+-]{1,160}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Observed"
+            },
+            "owner": {
+              "enum": [
+                "consumer",
+                "distribution",
+                "harness",
+                "operator",
+                "system"
+              ],
+              "title": "Owner",
+              "type": "string"
+            },
+            "retry_classification": {
+              "enum": [
+                "never",
+                "safe",
+                "unsafe",
+                "not_applicable"
+              ],
+              "title": "Retry Classification",
+              "type": "string"
+            },
+            "safe_next_action": {
+              "enum": [
+                "obtain_external_acknowledgement",
+                "provide_optional_credential",
+                "provide_runtime_environment",
+                "publish_wave5_lifecycle_output",
+                "publish_wave6_package_output",
+                "publish_wave7_migration_output",
+                "replace_artifact",
+                "revise_request"
+              ],
+              "title": "Safe Next Action",
+              "type": "string"
+            },
+            "optional_credential": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ConformanceOptionalCredentialUnavailableEvidenceV2"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "declared_asset": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ConformanceDeclaredAssetMissingEvidence"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "code",
+            "arm",
+            "phase",
+            "reference",
+            "owner",
+            "retry_classification",
+            "safe_next_action"
+          ],
+          "title": "ConformanceDiagnosticV2",
+          "type": "object"
+        },
+        "ConformanceEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "publish": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ConformancePublishEvidence"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "signals": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/ConformanceSignalEvidence"
+              },
+              "title": "Signals",
+              "type": "array"
+            },
+            "readback": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/ConformanceReadbackEvidence"
+              },
+              "title": "Readback",
+              "type": "array"
+            },
+            "readiness": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ConformanceReadinessEvidence"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "materialization": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ConformanceMaterializationEvidence"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "reapply": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ConformanceReapplyEvidence"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "recovery": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ConformanceRecoveryEvidence"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "legacy_authority": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ConformanceLegacyAuthorityEvidence"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "title": "ConformanceEvidence",
+          "type": "object"
+        },
+        "ConformanceExternalEvidenceOrigin": {
+          "additionalProperties": false,
+          "properties": {
+            "consumer_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:/-]{0,159}$",
+              "title": "Consumer Id",
+              "type": "string"
+            },
+            "review_reference": {
+              "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[1-9][0-9]*#issuecomment-[1-9][0-9]*$",
+              "title": "Review Reference",
+              "type": "string"
+            },
+            "acknowledged_interface_revision": {
+              "pattern": "^[0-9a-f]{8,40}$",
+              "title": "Acknowledged Interface Revision",
+              "type": "string"
+            },
+            "acknowledged_schema_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Acknowledged Schema Digest",
+              "type": "string"
+            },
+            "source_revision": {
+              "pattern": "^[0-9a-f]{40}$",
+              "title": "Source Revision",
+              "type": "string"
+            },
+            "acknowledgement_status": {
+              "enum": [
+                "historical",
+                "current"
+              ],
+              "title": "Acknowledgement Status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "consumer_id",
+            "review_reference",
+            "acknowledged_interface_revision",
+            "acknowledged_schema_digest",
+            "source_revision",
+            "acknowledgement_status"
+          ],
+          "title": "ConformanceExternalEvidenceOrigin",
+          "type": "object"
+        },
+        "ConformanceHarnessIdentityV2": {
+          "additionalProperties": false,
+          "properties": {
+            "okg_revision": {
+              "pattern": "^[0-9a-f]{40}$",
+              "title": "Okg Revision",
+              "type": "string"
+            },
+            "package_version": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$",
+              "title": "Package Version",
+              "type": "string"
+            },
+            "harness_protocol": {
+              "const": "okg.external_distribution_conformance/v2",
+              "title": "Harness Protocol",
+              "type": "string"
+            },
+            "product_contract_api": {
+              "const": "okg.deployment_product.api/v1",
+              "title": "Product Contract Api",
+              "type": "string"
+            }
+          },
+          "required": [
+            "okg_revision",
+            "package_version",
+            "harness_protocol",
+            "product_contract_api"
+          ],
+          "title": "ConformanceHarnessIdentityV2",
+          "type": "object"
+        },
+        "ConformanceLegacyAuthorityEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "audit_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Audit Digest",
+              "type": "string"
+            },
+            "declared_inventory_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Declared Inventory Digest",
+              "type": "string"
+            },
+            "declared_inventory_entry_count": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Declared Inventory Entry Count",
+              "type": "integer"
+            },
+            "declared_inputs": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Declared Inputs",
+              "type": "integer"
+            },
+            "migrated_inputs": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Migrated Inputs",
+              "type": "integer"
+            },
+            "refused_inputs": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Refused Inputs",
+              "type": "integer"
+            },
+            "unresolved_inputs": {
+              "const": 0,
+              "title": "Unresolved Inputs",
+              "type": "integer"
+            },
+            "fallback_authority_absent": {
+              "const": true,
+              "title": "Fallback Authority Absent",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "audit_digest",
+            "declared_inventory_digest",
+            "declared_inventory_entry_count",
+            "declared_inputs",
+            "migrated_inputs",
+            "refused_inputs",
+            "unresolved_inputs",
+            "fallback_authority_absent"
+          ],
+          "title": "ConformanceLegacyAuthorityEvidence",
+          "type": "object"
+        },
+        "ConformanceMaterializationEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "materialization_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Materialization Digest",
+              "type": "string"
+            },
+            "checkout_independent": {
+              "const": true,
+              "title": "Checkout Independent",
+              "type": "boolean"
+            },
+            "selected_assets_verified": {
+              "const": true,
+              "title": "Selected Assets Verified",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "materialization_digest",
+            "checkout_independent",
+            "selected_assets_verified"
+          ],
+          "title": "ConformanceMaterializationEvidence",
+          "type": "object"
+        },
+        "ConformanceObservedBundleIdentity": {
+          "additionalProperties": false,
+          "properties": {
+            "bundle_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Bundle Id",
+              "type": "string"
+            },
+            "version": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$",
+              "title": "Version",
+              "type": "string"
+            },
+            "digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Digest",
+              "type": "string"
+            }
+          },
+          "required": [
+            "bundle_id",
+            "version",
+            "digest"
+          ],
+          "title": "ConformanceObservedBundleIdentity",
+          "type": "object"
+        },
+        "ConformanceOptionalCredentialUnavailableEvidenceV2": {
+          "additionalProperties": false,
+          "properties": {
+            "binding_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Binding Id",
+              "type": "string"
+            },
+            "declaration_ref": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Declaration Ref",
+              "type": "string"
+            },
+            "declaration_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Declaration Digest",
+              "type": "string"
+            },
+            "provider_connection_ref": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Provider Connection Ref"
+            },
+            "provider_connection_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Provider Connection Digest"
+            },
+            "credential_reference": {
+              "pattern": "^secretref:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "title": "Credential Reference",
+              "type": "string"
+            },
+            "operator_reference_supplied": {
+              "const": false,
+              "title": "Operator Reference Supplied",
+              "type": "boolean"
+            },
+            "missing_tooling": {
+              "const": false,
+              "title": "Missing Tooling",
+              "type": "boolean"
+            },
+            "missing_packaged_asset": {
+              "const": false,
+              "title": "Missing Packaged Asset",
+              "type": "boolean"
+            },
+            "missing_dependency": {
+              "const": false,
+              "title": "Missing Dependency",
+              "type": "boolean"
+            },
+            "permission_denied": {
+              "const": false,
+              "title": "Permission Denied",
+              "type": "boolean"
+            },
+            "required_cache_unproduced": {
+              "const": false,
+              "title": "Required Cache Unproduced",
+              "type": "boolean"
+            },
+            "reference_invalid": {
+              "const": false,
+              "title": "Reference Invalid",
+              "type": "boolean"
+            },
+            "authentication_failed": {
+              "const": false,
+              "title": "Authentication Failed",
+              "type": "boolean"
+            },
+            "totp_required": {
+              "const": false,
+              "title": "Totp Required",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "binding_id",
+            "declaration_ref",
+            "declaration_digest",
+            "credential_reference",
+            "operator_reference_supplied",
+            "missing_tooling",
+            "missing_packaged_asset",
+            "missing_dependency",
+            "permission_denied",
+            "required_cache_unproduced",
+            "reference_invalid",
+            "authentication_failed",
+            "totp_required"
+          ],
+          "title": "ConformanceOptionalCredentialUnavailableEvidenceV2",
+          "type": "object"
+        },
+        "ConformancePublishEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "generation_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Generation Id",
+              "type": "string"
+            },
+            "generation_status": {
+              "const": "published",
+              "title": "Generation Status",
+              "type": "string"
+            },
+            "definition_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Definition Digest",
+              "type": "string"
+            },
+            "lock_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Lock Digest",
+              "type": "string"
+            },
+            "composition_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Composition Digest",
+              "type": "string"
+            },
+            "plan_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Plan Digest",
+              "type": "string"
+            },
+            "sealed_release_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Sealed Release Digest",
+              "type": "string"
+            },
+            "applied_instance_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Applied Instance Id",
+              "type": "string"
+            },
+            "nodes_live_delta": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "title": "Nodes Live Delta",
+              "type": "integer"
+            },
+            "edges_live_delta": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "title": "Edges Live Delta",
+              "type": "integer"
+            },
+            "source_deltas": {
+              "items": {
+                "$ref": "#/$defs/ConformanceSourceDelta"
+              },
+              "title": "Source Deltas",
+              "type": "array"
+            }
+          },
+          "required": [
+            "generation_id",
+            "generation_status",
+            "definition_digest",
+            "lock_digest",
+            "composition_digest",
+            "plan_digest",
+            "sealed_release_digest",
+            "applied_instance_id",
+            "nodes_live_delta",
+            "edges_live_delta",
+            "source_deltas"
+          ],
+          "title": "ConformancePublishEvidence",
+          "type": "object"
+        },
+        "ConformanceReadbackEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "check_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Check Id",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "search",
+                "trace",
+                "status",
+                "interface",
+                "view",
+                "invariant"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "generation_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Generation Id",
+              "type": "string"
+            },
+            "result_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Result Digest",
+              "type": "string"
+            },
+            "positive": {
+              "title": "Positive",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "check_id",
+            "kind",
+            "generation_id",
+            "result_digest",
+            "positive"
+          ],
+          "title": "ConformanceReadbackEvidence",
+          "type": "object"
+        },
+        "ConformanceReadinessEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "ready": {
+              "title": "Ready",
+              "type": "boolean"
+            },
+            "doctor": {
+              "enum": [
+                "clean",
+                "failed",
+                "unavailable"
+              ],
+              "title": "Doctor",
+              "type": "string"
+            },
+            "queue_depth": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Queue Depth",
+              "type": "integer"
+            },
+            "dlq_depth": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Dlq Depth",
+              "type": "integer"
+            },
+            "mcp_graph_read": {
+              "title": "Mcp Graph Read",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ready",
+            "doctor",
+            "queue_depth",
+            "dlq_depth",
+            "mcp_graph_read"
+          ],
+          "title": "ConformanceReadinessEvidence",
+          "type": "object"
+        },
+        "ConformanceReapplyEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "generation_id_before": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Generation Id Before",
+              "type": "string"
+            },
+            "generation_id_after": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Generation Id After",
+              "type": "string"
+            },
+            "lock_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Lock Digest",
+              "type": "string"
+            },
+            "plan_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Plan Digest",
+              "type": "string"
+            },
+            "nodes_live_delta": {
+              "const": 0,
+              "title": "Nodes Live Delta",
+              "type": "integer"
+            },
+            "edges_live_delta": {
+              "const": 0,
+              "title": "Edges Live Delta",
+              "type": "integer"
+            },
+            "generations_created_delta": {
+              "const": 0,
+              "title": "Generations Created Delta",
+              "type": "integer"
+            },
+            "active_generation_pointer_changes": {
+              "const": 0,
+              "title": "Active Generation Pointer Changes",
+              "type": "integer"
+            },
+            "source_deltas": {
+              "items": {
+                "$ref": "#/$defs/ConformanceSourceDelta"
+              },
+              "title": "Source Deltas",
+              "type": "array"
+            }
+          },
+          "required": [
+            "generation_id_before",
+            "generation_id_after",
+            "lock_digest",
+            "plan_digest",
+            "nodes_live_delta",
+            "edges_live_delta",
+            "generations_created_delta",
+            "active_generation_pointer_changes",
+            "source_deltas"
+          ],
+          "title": "ConformanceReapplyEvidence",
+          "type": "object"
+        },
+        "ConformanceRecoveryEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "last_known_good_generation_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Last Known Good Generation Id",
+              "type": "string"
+            },
+            "restored_generation_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Restored Generation Id",
+              "type": "string"
+            },
+            "interruption_recovered": {
+              "const": true,
+              "title": "Interruption Recovered",
+              "type": "boolean"
+            },
+            "rollback_verified": {
+              "const": true,
+              "title": "Rollback Verified",
+              "type": "boolean"
+            },
+            "digest_fences_verified": {
+              "const": true,
+              "title": "Digest Fences Verified",
+              "type": "boolean"
+            },
+            "lock_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Lock Digest",
+              "type": "string"
+            },
+            "plan_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Plan Digest",
+              "type": "string"
+            },
+            "baseline_sealed_release_artifact_id": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Baseline Sealed Release Artifact Id",
+              "type": "string"
+            },
+            "candidate_sealed_release_artifact_id": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Candidate Sealed Release Artifact Id",
+              "type": "string"
+            },
+            "restored_sealed_release_artifact_id": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Restored Sealed Release Artifact Id",
+              "type": "string"
+            },
+            "result_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Result Digest",
+              "type": "string"
+            }
+          },
+          "required": [
+            "last_known_good_generation_id",
+            "restored_generation_id",
+            "interruption_recovered",
+            "rollback_verified",
+            "digest_fences_verified",
+            "lock_digest",
+            "plan_digest",
+            "baseline_sealed_release_artifact_id",
+            "candidate_sealed_release_artifact_id",
+            "restored_sealed_release_artifact_id",
+            "result_digest"
+          ],
+          "title": "ConformanceRecoveryEvidence",
+          "type": "object"
+        },
+        "ConformanceSignalEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "signal_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Signal Id",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "source_count",
+                "node_count",
+                "edge_count",
+                "subtype_count",
+                "view",
+                "invariant",
+                "interface",
+                "readiness"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "target": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Target",
+              "type": "string"
+            },
+            "observed_count": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Observed Count"
+            },
+            "result_digest": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Result Digest"
+            },
+            "positive": {
+              "title": "Positive",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "signal_id",
+            "kind",
+            "target",
+            "positive"
+          ],
+          "title": "ConformanceSignalEvidence",
+          "type": "object"
+        },
+        "ConformanceSourceDelta": {
+          "additionalProperties": false,
+          "properties": {
+            "source_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Source Id",
+              "type": "string"
+            },
+            "delta": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "title": "Delta",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "source_id",
+            "delta"
+          ],
+          "title": "ConformanceSourceDelta",
+          "type": "object"
+        },
+        "ConformanceSubjectV2": {
+          "additionalProperties": false,
+          "properties": {
+            "subject_kind": {
+              "enum": [
+                "hermetic_fixture",
+                "external_release"
+              ],
+              "title": "Subject Kind",
+              "type": "string"
+            },
+            "distribution_id": {
+              "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+              "title": "Distribution Id",
+              "type": "string"
+            },
+            "distribution_version": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$",
+              "title": "Distribution Version",
+              "type": "string"
+            },
+            "release_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Release Digest",
+              "type": "string"
+            },
+            "artifact": {
+              "$ref": "#/$defs/ConformanceArtifactIdentityV2"
+            },
+            "source_revision": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{40}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Source Revision"
+            }
+          },
+          "required": [
+            "subject_kind",
+            "distribution_id",
+            "distribution_version",
+            "release_digest",
+            "artifact"
+          ],
+          "title": "ConformanceSubjectV2",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "okg.external_distribution_conformance.receipt/v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "receipt_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Receipt Digest",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "pass",
+            "fail",
+            "blocked"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "harness": {
+          "$ref": "#/$defs/ConformanceHarnessIdentityV2"
+        },
+        "subject": {
+          "$ref": "#/$defs/ConformanceSubjectV2"
+        },
+        "authority": {
+          "$ref": "#/$defs/ConformanceAuthority"
+        },
+        "arms": {
+          "items": {
+            "$ref": "#/$defs/ConformanceArmResult"
+          },
+          "title": "Arms",
+          "type": "array"
+        },
+        "claim": {
+          "$ref": "#/$defs/ConformanceClaim"
+        },
+        "evidence": {
+          "$ref": "#/$defs/ConformanceEvidence"
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/ConformanceDiagnosticV2"
+          },
+          "title": "Diagnostics",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "receipt_digest",
+        "request_digest",
+        "verdict",
+        "harness",
+        "subject",
+        "authority",
+        "arms",
+        "claim",
+        "evidence",
+        "diagnostics"
+      ],
+      "title": "ExternalDistributionConformanceReceiptV2",
+      "type": "object",
+      "$id": "okg.external_distribution_conformance.receipt/v2",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "x-okg-semantic-validation": {
+        "required": true,
+        "authority": "okg.external_distribution_conformance/v2",
+        "rules": [
+          "request-and-receipt-digest-binding",
+          "exact-requested-arm-coverage",
+          "fail-over-blocked-over-pass",
+          "arm-specific-mutation-retry-and-proof",
+          "distribution-package-v1-v2-transport-binding",
+          "observed-artifact-release-bundle-binding",
+          "definition-lock-plan-proof-binding",
+          "generation-bound-readback",
+          "requested-signal-proof-coverage",
+          "code-profiled-optional-credential-diagnostic",
+          "distribution-declared-asset-fails-not-blocks",
+          "trusted-external-review-authority-binding",
+          "consumer-acknowledgement-revision-and-schema-binding"
+        ]
+      }
+    }
+  }
+}

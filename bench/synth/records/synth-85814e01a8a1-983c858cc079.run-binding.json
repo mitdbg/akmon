@@ -1,0 +1,527 @@
+{
+ "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T192350640740Z:b8b6bab6dc45",
+ "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T194705409503Z:5366f2928ee1",
+ "deployment": "synthetic-corpus-smoke",
+ "extraction_cost": {
+  "calls": 214,
+  "completion_tokens": 740985,
+  "cost_usd": 1.948664,
+  "off_vocabulary": 1,
+  "prompt_tokens": 327709,
+  "reasoning_share": 0.622,
+  "reasoning_tokens": 460529
+ },
+ "extraction_failed_documents": [
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__clinic_note.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__clinic_note.md",
+   "phase": "clean",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__discharge_summary.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__discharge_summary.md",
+   "phase": "clean",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__referral_letter.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__referral_letter.md",
+   "phase": "clean",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "valle770_norma469_in\u00e9s791__discharge_summary.md: quote for 'Age Years' occurs 4 times across 2 sections (['Patient Norma469 In\u00e9s791 Valle770 > Medications', 'Patient Norma469 In\u00e9s791 Valle770 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '3'",
+   "doc": "valle770_norma469_in\u00e9s791__discharge_summary.md",
+   "phase": "clean",
+   "quote": "3",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "valle770_norma469_in\u00e9s791__referral_letter.md: quote for 'Age Years' occurs 4 times across 2 sections (['Patient Norma469 In\u00e9s791 Valle770 > Medications', 'Patient Norma469 In\u00e9s791 Valle770 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '3'",
+   "doc": "valle770_norma469_in\u00e9s791__referral_letter.md",
+   "phase": "clean",
+   "quote": "3",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__referral_letter.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attempts": 3,
+   "cause": "model output is not valid JSON (Expecting value: line 1 column 2 (char 1)): '{\\n  \"Record Reference\": \"4875da92-b98e-7f3f-5f5c-5c344eddea44\",\\n  \"Total Cholesterol\": \"172.8 mg/dL\",\\n  \"Hemoglobin A1c\": \"3.7 %\",\\n  \"Medication Ferrous\": \"ferrous sulfate 325 MG Oral Tablet\",\\n  \"Medi'",
+   "doc": "dicki44_brian582_donald774__referral_letter.md",
+   "error_type": "LlmExtractionError",
+   "phase": "corrupted",
+   "scope": "document"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Age Years' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Record Reference",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Record Reference' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Care Provider",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Care Provider' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Birthdate",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Birthdate' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Body Weight",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Body Weight' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Body Mass Index",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Body Mass Index' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Body Height",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Body Height' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Total Cholesterol",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Total Cholesterol' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Only Received Primary School Education Finding",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Only Received Primary School Education Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Stress Finding",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Stress Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Hyperlipidemia Disorder",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Hyperlipidemia Disorder' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Chronic Sinusitis Disorder",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Chronic Sinusitis Disorder' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Malignant Neoplasm Of Breast Disorder",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Malignant Neoplasm Of Breast Disorder' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Body Mass Index 30 Obesity Finding",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Body Mass Index 30 Obesity Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Localized Primary Osteoarthritis Of The Hand Disorder",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Localized Primary Osteoarthritis Of The Hand Disorder' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Past Pregnancy History Of Miscarriage Situation",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Past Pregnancy History Of Miscarriage Situation' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition History Of Tubal Ligation Situation",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition History Of Tubal Ligation Situation' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Ischemic Heart Disease Disorder",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Ischemic Heart Disease Disorder' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Abnormal Findings Diagnostic Imaging Heart Coronary Circulat Finding",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Abnormal Findings Diagnostic Imaging Heart Coronary Circulat Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition History Of Coronary Artery Bypass Grafting Situation",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition History Of Coronary Artery Bypass Grafting Situation' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Medication Review Due Situation",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Medication Review Due Situation' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Part Time Employment Finding",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Condition Part Time Employment Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Medication Nitroglycerin",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Medication Nitroglycerin' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Medication Simvastatin",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Medication Simvastatin' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Medication Clopidogrel",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Medication Clopidogrel' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Medication 24",
+   "cause": "lueilwitz711_naida467_siobhan540__discharge_summary.md: quote for 'Medication 24' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "lueilwitz711_naida467_siobhan540__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Record Reference",
+   "cause": "mueller846_joshua658__discharge_summary.md: quote for 'Record Reference' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "mueller846_joshua658__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Risk Activity Involvement Finding",
+   "cause": "mueller846_joshua658__discharge_summary.md: quote for 'Condition Risk Activity Involvement Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "mueller846_joshua658__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Medication Review Due Situation",
+   "cause": "mueller846_joshua658__discharge_summary.md: quote for 'Condition Medication Review Due Situation' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "mueller846_joshua658__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Received Higher Education Finding",
+   "cause": "mueller846_joshua658__discharge_summary.md: quote for 'Condition Received Higher Education Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "mueller846_joshua658__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Chronic Sinusitis Disorder",
+   "cause": "mueller846_joshua658__discharge_summary.md: quote for 'Condition Chronic Sinusitis Disorder' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "mueller846_joshua658__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Record Reference",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Record Reference' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Total Cholesterol",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Total Cholesterol' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Hemoglobin A1c",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Hemoglobin A1c' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Metabolic Syndrome X Disorder",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Metabolic Syndrome X Disorder' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Anemia Disorder",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Anemia Disorder' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Part Time Employment Finding",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Part Time Employment Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Medication Review Due Situation",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Medication Review Due Situation' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition History Of Tubal Ligation Situation",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition History Of Tubal Ligation Situation' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Past Pregnancy History Of Miscarriage Situation",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Past Pregnancy History Of Miscarriage Situation' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Chronic Sinusitis Disorder",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Chronic Sinusitis Disorder' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Limited Social Contact Finding",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Limited Social Contact Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Stress Finding",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Stress Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Body Mass Index 30 Obesity Finding",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Body Mass Index 30 Obesity Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Essential Hypertension Disorder",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Essential Hypertension Disorder' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Received Higher Education Finding",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Received Higher Education Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Prediabetes Finding",
+   "cause": "paucek755_margarite168_leslie90__clinic_note.md: quote for 'Condition Prediabetes Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "paucek755_margarite168_leslie90__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Birthdate",
+   "cause": "quitzon246_cruz300_kyle55__medication_list.md: quote for 'Birthdate' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "quitzon246_cruz300_kyle55__medication_list.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Medication Verapamil",
+   "cause": "robledo967_jos\u00e9_mar\u00eda211__medication_list.md: quote for 'Medication Verapamil' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "robledo967_jos\u00e9_mar\u00eda211__medication_list.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Medication Warfarin",
+   "cause": "robledo967_jos\u00e9_mar\u00eda211__medication_list.md: quote for 'Medication Warfarin' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "robledo967_jos\u00e9_mar\u00eda211__medication_list.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Medication Digoxin",
+   "cause": "robledo967_jos\u00e9_mar\u00eda211__medication_list.md: quote for 'Medication Digoxin' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "robledo967_jos\u00e9_mar\u00eda211__medication_list.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Medication 60",
+   "cause": "robledo967_jos\u00e9_mar\u00eda211__medication_list.md: quote for 'Medication 60' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "robledo967_jos\u00e9_mar\u00eda211__medication_list.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Medication Albuterol",
+   "cause": "robledo967_jos\u00e9_mar\u00eda211__medication_list.md: quote for 'Medication Albuterol' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "robledo967_jos\u00e9_mar\u00eda211__medication_list.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "valle770_norma469_in\u00e9s791__discharge_summary.md: quote for 'Age Years' occurs 3 times across 2 sections (['Patient Norma469 In\u00e9s791 Valle770 > Medications', 'Patient Norma469 In\u00e9s791 Valle770 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '3'",
+   "doc": "valle770_norma469_in\u00e9s791__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "3",
+   "scope": "fact"
+  },
+  {
+   "attempts": 3,
+   "cause": "no JSON array in model output: '{\\n  \"Record Reference\": \"4e1f9f31-fb4f-fd71-a45f-fb30d70b5241\",\\n  \"Total Cholesterol\": \"184.9 mg/dL\",\\n  \"Condition Full Time Employment Finding\": \"active\",\\n  \"Condition Limited Social Contact Finding\"'",
+   "doc": "white193_abbie917_lashunda872__referral_letter.md",
+   "error_type": "LlmExtractionError",
+   "phase": "corrupted",
+   "scope": "document"
+  }
+ ],
+ "extractor": "llm",
+ "ledger": [
+  {
+   "latency_ms": 1247537.5319580198,
+   "stage": "clean_publish"
+  },
+  {
+   "latency_ms": 1393646.5127500123,
+   "stage": "corrupted_publish"
+  }
+ ],
+ "schema": "okg.synth.run-binding.v1",
+ "surviving_conflict_floor": 30,
+ "surviving_conflict_floor_passed": true,
+ "surviving_conflict_realized": 124
+}

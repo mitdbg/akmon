@@ -1,0 +1,28 @@
+# gmail_api — Gmail v1 API with strict label allowlist.
+# Requires `gmail_labels` to be configured; the source refuses
+# to run without an allowlist (no wholesale inbox ingest).
+
+gmail_api:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.gmail_api
+  class: GmailApiSource
+  ownership_id: ${deployment_name}.gmail_api
+  source_class: mutable_api
+  record_identity_kind: remote_id
+  record_identity_fields: [message_id]
+  source_revision_kind: version_token
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    deployment_name: ${deployment_name}
+    gmail_labels: ${gmail_labels}
+    pii_mode: ${pii_mode}
+    max_body_kb: 50
+
+  # Untrusted-origin content: held on the quarantine branch until an
+  # operator approves it via `okg admission decide` (PACT
+  # make-admission-review-load-bearing).
+  admission_policy:
+    trust_label: untrusted
+    admission_mode: review
+    output_scope_summary: "email bodies/subjects are third-party-authored and attacker-deliverable"

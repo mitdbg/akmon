@@ -1,0 +1,6 @@
+name: xbrl
+version: 1.0.0
+description: 'EDGAR/XBRL filings: filing document sets parsed into
+  filings, concepts, and reported facts with calculation arcs.'
+provides:
+  subtypes_file: schema.yaml

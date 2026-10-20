@@ -1,0 +1,30 @@
+# Cross-link rule: methodology → concepts.
+#
+# Per `extend-substrate-concepts-as-universal-hub`: a MethodCard
+# whose frontmatter declares `embodies_concept: <name>` gets an
+# `embodies` edge into the named Concept. Resolution is exact
+# match against `Concept.name` (the canonical alias key declared
+# in `concepts/schema.yaml`'s `okg_alias_fields: name`).
+#
+# Declared, not inferred (umbrella D5): MethodCard's
+# `embodies_concept` attribute is populated by the methodology
+# source adapter reading the frontmatter line; no fuzzy semantic
+# match. A typo in the frontmatter (e.g. `embodiess_concept:`)
+# leaves `embodies_concept` empty on the node and emits no edge.
+#
+# Resolution requires the `concepts` and `methodology` modules to
+# both be composed by the deployment. Without `concepts`, no
+# Concept rows exist and the linker emits zero edges (not an
+# error).
+
+rules:
+  - id: methodcard_embodies_concept
+    src:
+      subtype: method_card
+      field: embodies_concept
+    dst:
+      subtype: concept
+      field: name
+    matcher: exact
+    edge: embodies
+    bidirectional: false

@@ -1,0 +1,37 @@
+{
+ "_recorded": "Recorded 2026-09-28 from Open WebUI 0.11.0 (okg-openwebui-compat@sha256:e0b1f475fd05...) serving a real okg graph over MCP with a local qwen3.8:27B model (issue #2907). Scrubbed for the public mirror: the deployment and source names, session ids, the user id and query text are replaced; the structure, ids of vendor items and result shapes are as recorded. The answer to POST /api/chat/completions with stream false, the graph tool server in tool_ids and no chat: the tool call comes back unexecuted (finish_reason tool_calls, no sources).",
+ "answer": {
+  "id": "chatcmpl-797",
+  "object": "chat.completion",
+  "created": 1790641461,
+  "model": "qwen3.8:27B",
+  "system_fingerprint": "fp_ollama",
+  "choices": [
+   {
+    "index": 0,
+    "message": {
+     "role": "assistant",
+     "content": "I'll look at the graph's declared schema to see what record kinds it holds.",
+     "reasoning": "The user is asking what kinds of records (subtypes/schemas) this graph holds. I should inspect the graph's schema/coverage. Let me try `okg-example-kb_inspect` with target kind \"graph\" and maybe view (schema introspection). The description says \"view is the allowed schema introspection path\". Let me try inspect with target={kind:\"view\"} or graph. Let me start with inspect target kind graph.",
+     "tool_calls": [
+      {
+       "id": "call_tebvn4lv",
+       "index": 0,
+       "type": "function",
+       "function": {
+        "name": "okg-example-kb_inspect",
+        "arguments": "{\"target\":{\"kind\":\"graph\"}}"
+       }
+      }
+     ]
+    },
+    "finish_reason": "tool_calls"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 3412,
+   "completion_tokens": 153,
+   "total_tokens": 3565
+  }
+ }
+}

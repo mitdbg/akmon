@@ -1,0 +1,35 @@
+# Cross-link rules: agent_memory -> git_graph.
+rules:
+  - id: agent_records_reference_git_context
+    src:
+      subtype:
+        - agent_claim
+        - agent_observation
+        - agent_experiment
+        - verification_result
+        - agent_decision
+      field: code_refs
+    dst:
+      subtype:
+        - source_file
+        - git_commit
+      field: node_id
+    matcher: exact
+    edge: references
+    bidirectional: false
+  # `actor_ref` — a git author (`author:<email>`) that produced the record.
+  - id: agent_records_reference_actor_git_author
+    src:
+      subtype:
+        - agent_claim
+        - agent_observation
+        - agent_experiment
+        - verification_result
+        - agent_decision
+      field: actor_ref
+    dst:
+      subtype: git_author
+      field: node_id
+    matcher: exact
+    edge: references
+    bidirectional: false

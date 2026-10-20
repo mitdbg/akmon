@@ -1,0 +1,18 @@
+{{- if .Values.postgresql.internal.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "okg.fullname" . }}-postgres
+  labels:
+    {{- include "okg.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "okg.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: {{ .Values.postgresql.port }}
+      targetPort: postgres
+{{- end }}

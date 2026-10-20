@@ -1,0 +1,104 @@
+assets:
+  - owner: scholarship
+    id: papers
+    kind: ontology
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+    schema: okg.deployment_product.asset.ontology/v1
+    merge_identity: scholarship-papers
+    merge_rule: refuse
+    compatibility:
+      semantic:
+        module_id: scholarship:papers
+        subtypes:
+          Paper:
+            attributes:
+              doi: {type: string, required: true}
+              title: {type: string}
+            identity:
+              fields: [doi]
+              cardinality: one
+          Artifact:
+            attributes: [title]
+  - owner: library
+    id: works
+    kind: ontology
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+    schema: okg.deployment_product.asset.ontology/v1
+    merge_identity: library-works
+    merge_rule: refuse
+    compatibility:
+      semantic:
+        module_id: library:works
+        subtypes:
+          Work:
+            attributes: [title]
+  - owner: scholarship
+    id: library-bridge
+    kind: bridge
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+    schema: okg.deployment_product.asset.bridge/v1
+    merge_identity: scholarship-library-bridge
+    merge_rule: refuse
+    compatibility:
+      semantic:
+        endpoint_modules: [scholarship:papers, library:works]
+        narrowings:
+          - parent: Paper
+            edge: references
+            child: Work
+            cardinality: many
+  - owner: scholarship
+    id: paper-aliases
+    kind: alias
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    schema: okg.deployment_product.asset.alias/v1
+    merge_identity: scholarship-paper-aliases
+    merge_rule: refuse
+    compatibility:
+      semantic:
+        aliases:
+          - id: paper-doi-alias
+            alias: paper-doi
+            canonical: paper
+            scope: global
+  - owner: scholarship
+    id: runtime-source
+    kind: source
+    plane: ingestion-projection
+    version: v1
+    digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+    schema: okg.deployment_product.asset.source/v1
+    merge_identity: scholarship-runtime-source
+    merge_rule: refuse
+    compatibility:
+      executable: true
+  - owner: operator
+    id: paper-dashboard
+    kind: dashboard
+    plane: views-read-models
+    version: v1
+    digest: sha256:6666666666666666666666666666666666666666666666666666666666666666
+    schema: okg.deployment_product.asset.dashboard/v1
+    merge_identity: paper-dashboard
+    merge_rule: refuse
+    compatibility:
+      executable: true
+  - owner: operator
+    id: publish-policy
+    kind: policy
+    plane: operations-governance
+    version: v1
+    digest: sha256:7777777777777777777777777777777777777777777777777777777777777777
+    schema: okg.deployment_product.asset.policy/v1
+    merge_identity: publish-policy
+    merge_rule: refuse
+    compatibility:
+      declarative: true

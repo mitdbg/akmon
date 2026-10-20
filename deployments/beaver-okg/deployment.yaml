@@ -1,0 +1,112 @@
+# beaver-okg — an OKG over the BEAVER warehouses (dw / neutron / nova).
+#
+# The schema graph (database/table/column + contains/references) is built by the
+# reusable RelationalSchemaSource (substrate library) via the BEAVER-specific
+# BeaverSchemaSource glue, introspecting the loaded `beaver-mysql` container.
+# Subtypes + narrowings come from the in-tree `dataset` ontology module.
+#
+# Isolated in its own database (BEAVER_OKG_DSN) so it does not share a catalog
+# with okg-workspace. Join-key and domain-knowledge enrichers (later A tasks)
+# extend this graph.
+
+name: beaver-okg
+description: OKG over the BEAVER warehouses (dw/neutron/nova) for text-to-SQL.
+
+release:
+  channel: dev
+
+postgres:
+  dsn: ${BEAVER_OKG_DSN}
+
+nomos:
+  runtime_enforcement: audit
+  deployment_posture:
+    deployment_class: org_operational_private
+    read_principals:
+      - human_operator
+      - okg_service
+      - mcp_client
+    write_principals:
+      - human_operator
+      - okg_service
+      - source_adapter
+    mcp_write_default: review
+    export_policy: internal_only
+    secret_handling: secret_ref_required
+    live_call_default: review
+    allowed_source_sensitivities:
+      - internal
+      - private
+    allowed_data_classifications:
+      - internal
+      - private
+    allowed_exportability:
+      - internal
+      - no_export
+    privacy_obligations:
+      - audit
+      - review
+      - secret_ref_required
+    readiness_profiles:
+      - org-private
+  source_policy_defaults:
+    by_source_class:
+      reference_catalog:
+        store_raw: true
+        sensitivity: private
+        data_classification: private
+        credential_ref_policy: none
+        live_call_allowed: false
+        exportability: no_export
+        retention: source_defined
+        provenance: declared
+        privacy_obligations:
+          - audit
+          - no_export
+
+runtime:
+  enabled: false
+
+embeddings:
+  enabled: false
+  reason: schema graph first; retrieval/packet embedding comes later (task.okg.packet).
+
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+# `dataset` provides Schema/Table/Column/Value subtypes + contains/references
+# narrowings (Value + column->contains->value added for domain-enrich).
+modules:
+  - dataset
+
+enrichers:
+  # Instance-overlap join inference -> derived `references` edges (the join graph
+  # FK constraints + name-matching miss; dw has zero declared FKs).
+  - class: beaver_okg.enrichers.BeaverJoinEnricher
+
+# The declared agent surface (issue #2067). Migrated from the frozen
+# legacy path with no change in behaviour: `served` is exactly what
+# `okg mcp-serve --allow-writes` registered before the block existed, so no
+# launch loses a tool. A read-only launch still registers the seven read
+# operators; the write gate stays the launch operator's. No response budget
+# and no chat projection are declared, so both keep the substrate defaults.
+agent_surface:
+  served:
+    - inspect
+    - search
+    - expand
+    - filter
+    - map
+    - aggregate
+    - query
+    - record
+    - propose
+    - list_sources
+    - add_source
+    - remove_source
+    - source_status
+    - discover_sources
+    - propose_setup
+    - commit_setup
+    - connector_route_status
+    - connector_ingest_batch

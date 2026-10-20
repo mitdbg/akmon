@@ -1,0 +1,7 @@
+name: concepts
+version: 1.0.0
+description: Concept subtype — universal hub for tag-based linking across
+  modules. Composes with reasoning, code_graph, methodology, experimental
+  via their extends.concepts blocks.
+provides:
+  subtypes_file: schema.yaml

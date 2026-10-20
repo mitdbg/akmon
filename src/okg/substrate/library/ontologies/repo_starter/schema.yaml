@@ -1,0 +1,96 @@
+id: https://palimpzest.mit.edu/okg/modules/repo_starter
+name: repo_starter
+title: "Repo (starter) — generic repos, branches, commits, PRs"
+description: |-
+  Starter ontology for source-code repositories — a
+  lightweight alternative to the full `git_graph` module
+  for templates that want to reference repos without the
+  full git introspection surface. Subtypes are
+  intentionally bare (`repo`, `branch`, `commit`,
+  `pull_request`) and DO NOT collide with `git_graph`'s
+  prefixed names (`git_branch`, `git_commit`, etc.).
+  Promoted from the legacy `okg.ontology.repo` fragment
+  (per `unify-ontology-systems`, 2026-04-26).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  rs: https://palimpzest.mit.edu/okg/modules/repo_starter/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Repo:
+    description: A version-controlled source repository (GitHub/GitLab/etc.).
+    class_uri: rs:Repo
+    attributes:
+      repo_id:
+        required: true
+      slug:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Branch:
+    description: A named ref inside a repo.
+    class_uri: rs:Branch
+    attributes:
+      branch_id:
+        required: true
+      name:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Commit:
+    description: A single commit identified by its hash.
+    class_uri: rs:Commit
+    attributes:
+      commit_sha:
+        required: true
+      message:
+    annotations:
+      okg_title_from: message
+      archetype: process
+      okg_searchable_text_fields: message
+      transient: 'false'
+  PullRequest:
+    description: A proposed change set (GitHub PR / GitLab MR).
+    class_uri: rs:PullRequest
+    attributes:
+      pr_id:
+        required: true
+      title:
+      body:
+    annotations:
+      archetype: artifact
+      okg_searchable_text_fields: title,body
+      transient: 'false'
+  EdgeNarrowings:
+    description: Intra-module + cross-module narrowings for repo_starter.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      repo_has_branch:
+        annotations:
+          edge_archetype: has_branch
+          src_subtypes: Repo
+          dst_subtypes: Branch
+      branch_has_head:
+        annotations:
+          edge_archetype: has_head
+          src_subtypes: Branch
+          dst_subtypes: Commit
+      repo_has_pull_request:
+        annotations:
+          edge_archetype: has_pull_request
+          src_subtypes: Repo
+          dst_subtypes: PullRequest
+      pull_request_targets_branch:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: PullRequest
+          dst_subtypes: Branch
+      pull_request_authored_by_person:
+        description: Cross-module to person.
+        annotations:
+          edge_archetype: authored_by
+          src_subtypes: PullRequest
+          dst_subtypes: Person

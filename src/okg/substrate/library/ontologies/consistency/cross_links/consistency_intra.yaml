@@ -1,0 +1,9 @@
+# consistency intra-module cross-link rules.
+#
+# The narrowing SLOTS (correction_corrects_claim, finding_involves_claim,
+# finding_constrained_by_policy) live in schema.yaml's EdgeNarrowings block.
+# This file documents the rule-slot referenced from the module manifest and
+# reserves the path for future declarative resolver rules; today the tier
+# derivations emit full src+dst pairs at projection, so no deferred
+# resolution is needed.
+rules: []

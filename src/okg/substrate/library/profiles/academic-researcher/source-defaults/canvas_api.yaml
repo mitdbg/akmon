@@ -1,0 +1,22 @@
+# canvas_api — Canvas LMS REST API with strict course allowlist.
+# Requires `canvas_courses`; refuses to run without an allowlist.
+# Token: instructor self-serve token via OKG_CANVAS_TOKEN env var
+# (Account -> Settings -> New Access Token); no admin registration.
+
+canvas_api:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.canvas_api
+  class: CanvasApiSource
+  ownership_id: ${deployment_name}.canvas_api
+  source_class: mutable_api
+  record_identity_kind: remote_id
+  record_identity_fields: [course_id]
+  source_revision_kind: version_token
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    deployment_name: ${deployment_name}
+    canvas_base_url: ${canvas_base_url}
+    canvas_courses: ${canvas_courses}
+    pii_mode: ${pii_mode}
+    max_body_kb: 50

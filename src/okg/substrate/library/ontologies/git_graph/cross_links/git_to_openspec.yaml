@@ -1,0 +1,17 @@
+# Cross-link rules: git_graph → openspec.
+#
+# Per `declarative-cross-source-linker` (2026-04-26): match
+# commits whose message_subject leads with a known
+# open_spec_change slug ("<slug>:" or "<slug> " prefix, or
+# the bare slug). Replaces the hand-rolled CommitChangeLinker.
+rules:
+  - id: commit_message_subject_starts_with_change_slug
+    src:
+      subtype: git_commit
+      field: message_subject
+    dst:
+      subtype: open_spec_change
+      field: change_id
+    matcher: subject_prefix
+    edge: references
+    bidirectional: true

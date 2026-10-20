@@ -1,0 +1,140 @@
+name: kubernetes-smoke
+description: >
+  Tiny runtime-enabled deployment used only to prove the Kubernetes packaging
+  against an empty database. It ingests the small set of PACT changes in
+  pactfixture/ and publishes a real non-empty Chronos generation without
+  external credentials.
+
+# The runtime image bakes this deployment at /opt/okg/deployments, outside any
+# Git checkout, so it declares standalone release authority: each generation
+# records that no repository revision backs it. Inside a Git checkout (a
+# development tree, or the chart's repository sync) the declaration changes
+# nothing and the ordinary repository provenance checks still apply.
+release:
+  channel: dev
+  kind: standalone
+
+postgres:
+  dsn: ${OKG_DSN}
+  # The Helm chart's default postgresql.database, so a default install's MCP
+  # sidecar, which refuses a DSN for any other database, starts unchanged.
+  database: okg
+
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+modules:
+  - git_graph
+  - openspec
+
+enrichers: []
+
+embeddings:
+  enabled: false
+  reason: deterministic Kubernetes deployment proof does not use semantic search
+
+runtime:
+  enabled: true
+  smoke_sources:
+    - pact
+  smoke_reset_cursor: true
+  dbos_pool_size: 2
+  okg_read_pool_size: 5
+  okg_write_pool_size: 2
+  concurrency:
+    ingest.source_layer: 1
+    gate.invariants: 1
+    llm.telemetry: 1
+  dbos_schema: dbos
+  bypass_pgbouncer: false
+  sdk_version: "1.0"
+  workflows: []
+  schedules:
+    okg_publisher_cycle: "*/30 * * * * *"
+    okg_substrate_doctor: "*/30 * * * * *"
+  source_sync:
+    watch:
+      enabled: false
+    poll:
+      enabled: false
+      slow_when_watch_active: false
+      backstop_dependent_fanout: none
+    webhook:
+      enabled: false
+
+host_storage:
+  warn_available_pct: 15
+  blocker_available_pct: 6
+
+nomos:
+  runtime_enforcement: off
+  deployment_posture:
+    deployment_class: public_reference_demo
+    read_principals:
+      - human_operator
+      - okg_service
+      - mcp_client
+    write_principals:
+      - okg_service
+      - source_adapter
+    mcp_write_default: deny
+    export_policy: public_allowed
+    secret_handling: no_secrets
+    live_call_default: deny
+    allowed_source_sensitivities:
+      - public
+    allowed_data_classifications:
+      - public
+    allowed_exportability:
+      - public
+    privacy_obligations:
+      - audit
+    readiness_profiles:
+      - smoke
+  source_policy_defaults:
+    by_source_class:
+      discovery_crawl:
+        store_raw: true
+        sensitivity: public
+        data_classification: public
+        credential_ref_policy: none
+        live_call_allowed: false
+        exportability: public
+        retention: normal
+        provenance: local_filesystem
+        privacy_obligations:
+          - audit
+  rollout:
+    status: deferred
+    reason: disposable packaging proof with no external API or retained graph
+    owner:
+      name: deployment-runtime
+      contact: deployment-runtime@okg.example
+    review_by: "2027-01-01"
+
+# The declared agent surface (issue #2067). Migrated from the frozen
+# legacy path with no change in behaviour: `served` is exactly what
+# `okg mcp-serve --allow-writes` registered before the block existed, so no
+# launch loses a tool. A read-only launch still registers the seven read
+# operators; the write gate stays the launch operator's. No response budget
+# and no chat projection are declared, so both keep the substrate defaults.
+agent_surface:
+  served:
+    - inspect
+    - search
+    - expand
+    - filter
+    - map
+    - aggregate
+    - query
+    - record
+    - propose
+    - list_sources
+    - add_source
+    - remove_source
+    - source_status
+    - discover_sources
+    - propose_setup
+    - commit_setup
+    - connector_route_status
+    - connector_ingest_batch

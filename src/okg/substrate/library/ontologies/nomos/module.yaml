@@ -1,0 +1,5 @@
+name: nomos
+version: 1.0.0
+description: Nomos policy, configuration, identity, and decision authority graph.
+provides:
+  subtypes_file: schema.yaml

@@ -1,0 +1,5 @@
+api_version: okg.postgres-capacity/v1
+max_worker_processes: 32
+max_parallel_workers: 8
+timescaledb_max_background_workers: 8
+timescaledb_job_worker_reserve: 4

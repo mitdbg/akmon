@@ -1,0 +1,286 @@
+/* --- Explore: the search box as the page, the rail, Scholar's rows ------ */
+
+/* The landing: the box centred under the title, 640 by 44, the icon, the
+ * `/` hint; the counts and the searchable-types line under it. */
+.okg-console__header--search { margin-bottom: 8px; }
+
+/* Left-aligned, like every other view. The landing was the one page in the
+ * console that centred itself, so moving to it slid the eye to the middle of
+ * the window and back again on the next click. */
+.okg-console__searchbox {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  margin: 28px 0 12px;
+}
+
+.okg-console__searchbox-field {
+  display: flex;
+  align-items: center;
+  width: 640px;
+  max-width: 100%;
+  height: 44px;
+  padding: 0 12px 0 14px;
+  border: 1px solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-bg);
+  box-sizing: border-box;
+}
+
+.okg-console__searchbox-field:focus-within {
+  border-color: var(--okg-color-accent);
+  box-shadow: var(--okg-focus-ring);
+}
+
+.okg-console__searchbox-icon { color: var(--okg-color-muted); font-size: 16px; margin-right: 10px; }
+
+.okg-console__searchbox-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  font: inherit;
+  font-size: 16px;
+  color: var(--okg-color-text);
+}
+
+.okg-console__searchbox-input::placeholder { color: var(--okg-color-muted); }
+
+.okg-console__searchbox-input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+.okg-console__searchbox-kbd {
+  font-family: var(--okg-font-mono);
+  font-size: 12px;
+  color: var(--okg-color-muted);
+  padding: 1px 6px;
+  border: 1px solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-sm);
+}
+
+.okg-console__landing-line { margin: 0; line-height: 1.7; max-width: var(--okg-prose, 78ch); }
+
+/* The `?`: a 22 px ring beside the box; the panel opens under it. */
+.okg-console__help { position: relative; display: inline-flex; align-items: center; }
+
+.okg-console__help-button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--okg-color-line);
+  border-radius: 50%;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+  cursor: pointer;
+}
+
+.okg-console__help-button[aria-expanded="true"] { color: var(--okg-color-text); border-color: var(--okg-color-text); }
+
+.okg-console__help-panel {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: 5;
+  width: 380px;
+  padding: 12px 14px;
+  border: 1px solid var(--okg-color-line);
+  border-radius: var(--okg-radius-md);
+  background: var(--okg-color-bg);
+  box-shadow: var(--okg-shadow-drawer);
+  font-size: 13px;
+  text-align: left;
+}
+
+.okg-console__help-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+
+.okg-console__help-list {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.okg-console__help-list dt { white-space: nowrap; }
+.okg-console__help-list dd { margin: 0; color: var(--okg-color-muted); }
+.okg-console__help-note { margin: 10px 0 0; color: var(--okg-color-muted); }
+
+/* The results: a 200 px rail and the column. */
+.okg-console__results-page {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 32px;
+  margin-top: 20px;
+}
+
+.okg-console__rail { font-size: 13px; }
+
+.okg-console__rail-section + .okg-console__rail-section { margin-top: 20px; }
+
+.okg-console__rail-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__rail-list { list-style: none; margin: 0; padding: 0; }
+
+/* The interactive option is a <button>, so the browser's button chrome --
+   its border, background, centred text and its own font -- is cleared and
+   the row keeps the proportions it had as an anchor. */
+.okg-console__rail-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  color: var(--okg-color-text);
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+}
+
+.okg-console button.okg-console__rail-option { cursor: pointer; }
+
+.okg-console .okg-console__rail-option { color: var(--okg-color-text); }
+
+.okg-console .okg-console__rail-option:hover { text-decoration: none; }
+
+.okg-console .okg-console__rail-option:hover .okg-console__rail-label { text-decoration: underline; }
+
+.okg-console__rail-option[data-selected="true"] .okg-console__rail-label { font-weight: 600; }
+
+.okg-console__rail-option--inert { color: var(--okg-color-muted); }
+
+.okg-console__rail-mark { color: var(--okg-color-muted); font-size: 12px; }
+
+.okg-console__rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.okg-console__rail-count { color: var(--okg-color-muted); font-variant-numeric: tabular-nums; }
+
+.okg-console__rail-more, .okg-console__rail-note { margin: 4px 0 0; font-size: 12px; color: var(--okg-color-muted); }
+
+.okg-console__about { margin: 0 0 12px; font-size: 13px; color: var(--okg-color-muted); }
+
+/* Profile types this version lacks (issue #2545): one muted line under the
+ * count, the names behind the disclosure. */
+.okg-console__skipped-types { margin: -4px 0 12px; font-size: 13px; color: var(--okg-color-muted); }
+.okg-console__skipped-types > summary { cursor: pointer; }
+.okg-console__skipped-types > p { margin: 4px 0 0; overflow-wrap: anywhere; }
+
+/* Rows 16 px apart, no hairlines. */
+.okg-console__result-list .okg-console__result {
+  display: block;
+  padding: 0;
+  border-top: 0;
+}
+
+.okg-console__result-list .okg-console__result + .okg-console__result { margin-top: 16px; }
+
+.okg-console__result-list .okg-console__result[data-focused="true"] {
+  background: var(--okg-color-surface-muted);
+  box-shadow: -8px 0 0 var(--okg-color-surface-muted), 8px 0 0 var(--okg-color-surface-muted);
+}
+
+/* A result is titled by what the SOURCE calls it, which is usually a path --
+ * "examplecorpus/fixtures/integrated/question_paths.yaml" -- and a path is one
+ * word to a line breaker. At 390 that title measured 401 px in a 358 px column
+ * and took the whole page sideways with it. It breaks at the column edge
+ * instead. The snippet under it already had this rule at narrow widths; the
+ * title needs it at every width, because the column is what is narrow and a
+ * long enough path overflows a wide one too. */
+.okg-console .okg-console__result-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--okg-color-link);
+  overflow-wrap: anywhere;
+}
+
+.okg-console__result-list .okg-console__result-meta {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+  white-space: normal;
+}
+
+.okg-console__result-list .okg-console__result-snippet {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--okg-color-text);
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.okg-console__result-actions { margin: 4px 0 0; font-size: 13px; color: var(--okg-color-muted); }
+
+.okg-console__result-actions .okg-console__copy--text { margin-left: 0; }
+
+.okg-console__result-actions .okg-icon { font-size: 11px; }
+
+.okg-console__broaden { margin-top: 8px; }
+
+/* Numbered pages at the bottom, with the note on where they come from. */
+.okg-console__pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-top: 24px;
+  font-size: 13px;
+}
+
+.okg-console__page-current { font-weight: 600; }
+
+.okg-console__page-gap { color: var(--okg-color-muted); }
+
+.okg-console__pages-note { color: var(--okg-color-muted); font-size: 12px; margin-left: auto; }
+
+/* --- a document's group ------------------------------------------------- */
+
+/* Consecutive chunks of one document are one entry: the file name once, at the
+ * weight of a result title, with the positions under it. */
+.okg-console__resultgroup { list-style: none; margin: 0 0 20px; }
+
+.okg-console__resultgroup-head {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--okg-color-strong);
+}
+
+.okg-console__resultgroup-count {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--okg-color-muted);
+}
+
+/* The rule down the left is what says these rows belong to the name above
+ * them; indenting alone reads as an accident at 390. */
+.okg-console__resultgroup-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+  border-left: 1px solid var(--okg-color-line-soft);
+}
+
+/* Inside a group the title is "chunk 3": a position, not a heading, so it is
+ * set at the meta size and the snippet under it carries the weight. */
+.okg-console__result[data-grouped="true"] { margin-bottom: 12px; }
+
+.okg-console__result[data-grouped="true"] .okg-console__result-title {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+/* No rail, no rail column. */
+.okg-console__results-page[data-rail="false"] { grid-template-columns: minmax(0, 1fr); }

@@ -1,0 +1,80 @@
+# Profile: workspace-graph
+#
+# Turnkey repository-centered Workspace Graph. This is the preferred
+# setup surface for codebase, change-management, test/evidence, and
+# agent-trace context. The legacy `workspace-graph` template alias
+# remains only for compatibility.
+
+name: workspace-graph
+version: 0.1.0
+classification: reusable
+description: |
+  Repository-centered Workspace Graph for coding agents. Indexes one
+  software workspace with git files/history, code structure, package
+  manifests, OpenSpec, PACT, test and quality evidence, Codex sessions,
+  and local compute environment facts.
+
+init_questions:
+  - id: deployment_name
+    prompt: deployment name (also used as the deployments/<name>/ dir)
+    type: slug
+    required: true
+    description: |
+      Slug for the deployment directory and graph identity.
+
+  - id: postgres_dsn
+    prompt: Postgres DSN (postgresql://...)
+    type: string
+    required: true
+    description: |
+      Substrate Postgres DSN. Each Workspace Graph deployment should
+      own its own database.
+
+  - id: repo_root
+    prompt: repository root to index
+    type: path
+    required: true
+    description: |
+      Absolute or relative path to the top-level git worktree this
+      graph should index.
+
+  - id: since
+    prompt: agent session lookback window
+    type: string
+    required: false
+    default: all
+    description: |
+      Lookback window for agent/session sources. The default is unbounded so
+      Codex session reconciliation can prove a complete RecordSet; bounded
+      windows intentionally cannot claim deletion-by-absence authority.
+
+  - id: mcp_port
+    prompt: local visualization/MCP companion port
+    type: integer
+    required: false
+    default: 18770
+    description: |
+      Default local port recorded in the scaffolded deployment's viz
+      block. Operators can edit deployment.yaml later.
+
+  - id: codex_sessions_root
+    prompt: Codex sessions root
+    type: path
+    required: false
+    default: ~/.codex/sessions
+    description: |
+      Root containing Codex JSONL session logs.
+
+  - id: codex_archived_sessions_root
+    prompt: archived Codex sessions root
+    type: path
+    required: false
+    default: ~/.codex/archived_sessions
+    description: |
+      Root containing archived Codex JSONL session logs.
+
+modules: modules.yaml
+source_defaults: source-defaults/
+invariants: invariants.yaml
+dashboards: dashboards/
+deployment_defaults: deployment-defaults.yaml

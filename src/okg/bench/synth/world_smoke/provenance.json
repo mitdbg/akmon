@@ -1,0 +1,14 @@
+{
+ "generator": "synthea",
+ "generator_jar_sha256": "410bc0c41810a5ad194ac654e87ac535ba93a79f4504a8e1bac544c167bfdb8e",
+ "generator_release_tag": "master-branch-latest (rolling; jar sha256 is the pin)",
+ "seed": 749202607,
+ "clinician_seed": 749202607,
+ "reference_date": "2026-07-01",
+ "population": 8,
+ "args": "-s 749202607 -cs 749202607 -r 20260701 -p 8 --exporter.fhir.export=true --exporter.hospital.fhir.export=false --exporter.practitioner.fhir.export=false --exporter.years_of_history=8 Massachusetts",
+ "fresh_seed_attestation": "generated locally from the recorded seed on 2026-07-17; not a public sample dataset",
+ "pruning_transform": "kept resourceTypes AllergyIntolerance,Condition,MedicationRequest,Observation,Patient,Practitioner; dropped narrative 'text' fields; minified with sorted keys",
+ "raw_export_digest": "9f9684fe6135358e7ac673d57cd65cc5b8a3e6610346066c892e54df04d031c6",
+ "pruned_export_digest": "afa693e0933933e975c5feb5521cff6ed8647a6af635a128d033fbaa69cc67dc"
+}

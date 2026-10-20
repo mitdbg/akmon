@@ -1,0 +1,72 @@
+{
+  "schema": "okg.operator_ui.bundle_budgets.v1",
+  "dist": ".tmp/operator-ui-dist",
+  "measured": {
+    "date": "2026-09-16",
+    "pact": "operator-ui-remove-four-views",
+    "note": "Ceilings carried from the retired performance-readiness verifier's bundle arm. The JavaScript ceiling is the one PACT operator-ui-search-view held Ant Design out of the entry to stay under; it is deliberately NOT lowered to the post-deletion measurement, so removing four views does not silently set a new floor for step 3's rebuild."
+  },
+  "lazy_gzip_bytes": {
+    "explore_js": {
+      "dist": ".tmp/operator-ui-dist-design",
+      "build": "npm run operator-ui:build:design",
+      "entries": [
+        "src/operator-ui/console/viewers/PdfViewer.tsx",
+        "src/operator-ui/console/viewers/MarkdownViewer.tsx",
+        "src/operator-ui/console/viewers/CodeViewer.tsx"
+      ],
+      "already_paid_by": [
+        "index.html",
+        "src/operator-ui/design-harness/DesignHarness.tsx"
+      ],
+      "ceiling": 262144,
+      "measured": {
+        "date": "2026-09-19",
+        "pact": "operator-ui-redesign-mocks",
+        "note": "The three Content-tab viewers together, less what the entry and the console's views already load: pdf.js 6.3.289 (about 129 KB gzip), react-markdown 10 with remark-gfm and rehype-sanitize (about 42 KB), shiki 4 core with the raw JavaScript engine (about 30 KB; each grammar is its own chunk, 0.4 to 24 KB, loaded per language). Measured 205,304 gzip bytes; the ceiling is 256 KiB, about 25 per cent of headroom for a pdf.js minor release, and it is paid only when a record's Content tab renders, never on the first load."
+      }
+    },
+    "pdf_worker": {
+      "dist": ".tmp/operator-ui-dist-design",
+      "build": "npm run operator-ui:build:design",
+      "asset": "pdf.worker.min",
+      "ceiling": 409600,
+      "measured": {
+        "date": "2026-09-19",
+        "pact": "operator-ui-redesign-mocks",
+        "note": "pdf.js's worker, shipped as its own asset from this bundle rather than a CDN; loaded once by the PDF viewer in a worker thread. Measured 373,554 gzip bytes; the ceiling is 400 KiB."
+      }
+    },
+    "console_js": {
+      "dist": ".tmp/operator-ui-dist",
+      "build": "npm run operator-ui:build",
+      "entries": [
+        "src/operator-ui/routes/console/ConsoleRoute.tsx"
+      ],
+      "already_paid_by": [
+        "index.html"
+      ],
+      "ceiling": 196608,
+      "measured": {
+        "date": "2026-09-27",
+        "pact": "console-graph-views",
+        "note": "Measured 71,575 gzip bytes over the PRODUCTION build: 1,226 more than the 70,349 this branch measured at its base (origin/dev 5636d9e148) before the change, in the same session and the same way. The 1,226 is the fifth nav entry, the Graph route switch and the top bar record picker (console/components/RecordPicker.tsx), which lists matching records under the box on Graph. The Graph view itself is NOT in this figure: ConsoleRoute imports it lazily, and d3-force, d3-zoom, d3-drag and d3-transition come with it in their own chunk, 40,968 gzip bytes of JavaScript and 5,012 of CSS, paid only when an operator opens #console/graph. The ceiling stays 192 KiB and was not raised; it is about 36 per cent used. The 62,815 of 2026-09-22 below had already drifted to 70,349 on dev before this change; that drift is not this change.",
+        "previous": {
+          "date": "2026-09-22",
+          "pact": "operator-console-live-explore",
+          "note": "The console shell and all four views -- Home, Updates, Sources and Explore -- loaded only when an operator opens #console. Measured 62,815 gzip bytes over the PRODUCTION build at this head, less what index.html already loads. It was 61,706 before the top bar's chat control moved into the right-hand group: stating the four chat-site states rather than rendering nothing for three of them means the bar reads app/deployments.ts, and 1,109 bytes is that module and the deployment theme helper it imports. This figure is re-measured at the merge of dev into this branch, so the 1,109 is the two heads' difference and not a controlled before-and-after. This head is the merge of the Sources branch (which carries Home, Updates and the attempt page) into Explore, so it is the first figure for the whole console. The comparison that matters is against the Sources branch's own head, which recorded 180,023 for the same shell WITHOUT Explore: 118,317 bytes came out while a fourth view went in. What came out was Ant Design. The console used six of its components -- Tag.CheckableTag, Segmented, Select, Input, Tooltip and the ConfigProvider/App pair -- and eight icons, and each carried antd itself plus @rc-component/select, form, trigger, virtual-list, input, motion, dialog, notification and util, @ant-design/cssinjs, icons-svg, fast-color and colors, and stylis. Every one is the browser's own element now -- a button, a <select>, an <input type=search>, a title attribute -- with the console's own CSS, which it already carried for every other control, and the nine icons are inline SVG in console/components/icons.tsx. components/noAntd.test.ts is the guard, and it fails on the import rather than here after the chunk has grown. The ceiling stays 192 KiB and was NOT raised; it is about 32 per cent used. The four document viewers are not in this figure at all: no route serves PDF, HTML, Markdown or code bytes (#2121), so they are reachable only from the design harness, which is what explore_js and pdf_worker keep measuring."
+        }
+      }
+    }
+  },
+  "entry_gzip_bytes": {
+    "home_js": {
+      "extension": ".js",
+      "ceiling": 153600
+    },
+    "home_css": {
+      "extension": ".css",
+      "ceiling": 40960
+    }
+  }
+}

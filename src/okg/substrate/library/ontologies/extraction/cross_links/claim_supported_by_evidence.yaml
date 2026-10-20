@@ -1,0 +1,21 @@
+# Cross-link rule slot: claim → supported_by → evidence (intra-extraction).
+#
+# Per `extend-substrate-extraction-with-claim-evidence-extractors`
+# (A2 of the evolve-memex-to-ai-scientist-substrate umbrella):
+# the `(Claim, supported_by, Evidence)` triple is emitted by the
+# LLM-driven `EvidenceExtractor` (see
+# `src/okg/substrate/library/enrichers/extraction/evidence_extractor.py`),
+# NOT by the substrate's DeclarativeLinker. The rules list below is
+# intentionally empty — this file exists to (a) document the rule
+# slot name `claim_supported_by_evidence_from_extractor` referenced
+# in the spec's Cross-Link Rule Files Requirement and (b) reserve
+# the file path for any future pattern-driven rule that wants to
+# augment the LLM-driven path (e.g. deterministic fallback when an
+# `evidence_extractor` confidence is below the floor but the
+# operator wants the edge anyway).
+#
+# Narrowing slot lives in the `extraction` ontology module's
+# EdgeNarrowings (`claim_supported_by_evidence`).
+# Direction convention: src = the supported party (Claim), dst =
+# the supporter (Evidence) — matches `agent_memory` precedent.
+rules: []

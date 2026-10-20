@@ -1,0 +1,1049 @@
+sources:
+  git-files:
+    module: okg.substrate.library.sources.git_graph_files
+    class: GitFilesSource
+    ownership_id: "{{ deployment_name }}.git-files"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+      include_untracked: true
+      exclude_globs: &repo_excludes
+        - "__pycache__/**"
+        - "**/__pycache__/**"
+        - ".venv/**"
+        - "**/.venv/**"
+        - "node_modules/**"
+        - "**/node_modules/**"
+        - ".git/**"
+        - "**/.git/**"
+        - ".mypy_cache/**"
+        - "**/.mypy_cache/**"
+        - ".pytest_cache/**"
+        - "**/.pytest_cache/**"
+        - ".claude/**"
+        - "**/.claude/worktrees/**"
+        - "data/**"
+        - "bench/deployments-generated/**"
+        - "**/bench/deployments-generated/**"
+        - ".scratch/**"
+        - ".tmp/**"
+        - ".artifacts/**"
+        - "memories/**"
+        - "**/*.pyc"
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    admission_policy:
+      producer_id: "{{ deployment_name }}.git-files"
+      producer_kind: source
+      trust_label: repo-local-trusted
+      admission_mode: fast_track
+      authority_scope:
+        source_family: okg_workspace_repo
+        path_globs:
+          - "**/*"
+      allowed_record_kinds:
+        - node
+        - edge
+      output_signature:
+        nodes:
+          - subtype: source_file
+            id_prefix: "file:{{ deployment_name }}:"
+            attrs:
+              repo: "{{ deployment_name }}"
+            clause_id: okg_workspace.git_files.source_file
+          - subtype: git_branch
+            id_prefix: "branch:{{ deployment_name }}:"
+            attrs:
+              repo: "{{ deployment_name }}"
+            clause_id: okg_workspace.git_files.git_branch
+        edges:
+          # GitFilesSource emits file->branch membership (git_graph module's
+          # `file_member_of_branch` narrowing). Must be declared or admission
+          # rejects the batch with producer_record_kind_not_allowed.
+          - src_subtype: source_file
+            edge_type: member_of
+            dst_subtype: git_branch
+            src_id_prefix: "file:{{ deployment_name }}:"
+            dst_id_prefix: "branch:{{ deployment_name }}:"
+            clause_id: okg_workspace.git_files.file_member_of_branch
+      policy_clauses:
+        - id: okg_workspace.git_files.source_file
+          effect: allow
+          record_kind: node
+          subtype: source_file
+        - id: okg_workspace.git_files.git_branch
+          effect: allow
+          record_kind: node
+          subtype: git_branch
+        - id: okg_workspace.git_files.file_member_of_branch
+          effect: allow
+          record_kind: edge
+          triple: [source_file, member_of, git_branch]
+      output_scope_summary:
+        nodes:
+          - source_file
+          - git_branch
+        edges:
+          - source_file member_of git_branch
+        scope: "Working tree files from the Workspace Graph repository"
+    sync: &repo_tree_sync
+      watch:
+        roots: ["__OKG_REPO_ROOT__"]
+        include_globs: ["**/*"]
+        exclude_globs: *repo_excludes
+      triggers: [fs_event, manual, reconcile]
+      default_event_mode: scope_complete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      scoped_delete_mode: scope_complete
+      scoped_delete_dependent_fanout: closure
+      cheap_probe: content_hash
+
+  code-structure:
+    module: okg.substrate.library.sources.code_graph
+    class: CodeStructureSource
+    ownership_id: "{{ deployment_name }}.code-structure"
+    predecessor_source: "{{ deployment_name }}.git-files"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+      include_exts: [".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"]
+      exclude_globs: *repo_excludes
+      max_files: 5000
+      max_bytes_per_file: 1000000
+      git_frontier_skip: true
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    admission_policy:
+      producer_id: "{{ deployment_name }}.code-structure"
+      producer_kind: source
+      trust_label: repo-local-trusted
+      admission_mode: fast_track
+      authority_scope:
+        source_family: okg_workspace_repo
+        path_globs:
+          - "**/*.py"
+          - "**/*.js"
+          - "**/*.jsx"
+          - "**/*.ts"
+          - "**/*.tsx"
+          - "**/*.go"
+          - "**/*.rs"
+          - "**/*.c"
+          - "**/*.cc"
+          - "**/*.cpp"
+          - "**/*.h"
+          - "**/*.hpp"
+      allowed_record_kinds:
+        - node
+        - edge
+      output_signature:
+        nodes:
+          - subtype: code_symbol
+            id_prefix: "symbol:{{ deployment_name }}:"
+            attrs:
+              repo: "{{ deployment_name }}"
+            clause_id: okg_workspace.code_structure.code_symbol
+          - subtype: code_import
+            id_prefix: "import:"
+            attrs:
+              repo: "{{ deployment_name }}"
+            clause_id: okg_workspace.code_structure.code_import
+          - subtype: code_reference
+            id_prefix: "reference:"
+            attrs:
+              repo: "{{ deployment_name }}"
+            clause_id: okg_workspace.code_structure.code_reference
+        edges:
+          - src_subtype: source_file
+            edge_type: contains
+            dst_subtype: code_symbol
+            src_id_prefix: "file:{{ deployment_name }}:"
+            dst_id_prefix: "symbol:{{ deployment_name }}:"
+            clause_id: okg_workspace.code_structure.file_contains_symbol
+          - src_subtype: source_file
+            edge_type: contains
+            dst_subtype: code_import
+            src_id_prefix: "file:{{ deployment_name }}:"
+            dst_id_prefix: "import:"
+            clause_id: okg_workspace.code_structure.file_contains_import
+          - src_subtype: source_file
+            edge_type: contains
+            dst_subtype: code_reference
+            src_id_prefix: "file:{{ deployment_name }}:"
+            dst_id_prefix: "reference:"
+            clause_id: okg_workspace.code_structure.file_contains_reference
+          - src_subtype: code_symbol
+            edge_type: member_of
+            dst_subtype: code_symbol
+            src_id_prefix: "symbol:{{ deployment_name }}:"
+            dst_id_prefix: "symbol:{{ deployment_name }}:"
+            clause_id: okg_workspace.code_structure.symbol_member_of_symbol
+          - src_subtype: code_reference
+            edge_type: references
+            dst_subtype: code_symbol
+            src_id_prefix: "reference:"
+            dst_id_prefix: "symbol:{{ deployment_name }}:"
+            clause_id: okg_workspace.code_structure.reference_references_symbol
+          - src_subtype: code_symbol
+            edge_type: calls
+            dst_subtype: code_symbol
+            src_id_prefix: "symbol:{{ deployment_name }}:"
+            dst_id_prefix: "symbol:{{ deployment_name }}:"
+            clause_id: okg_workspace.code_structure.symbol_calls_symbol
+      policy_clauses:
+        - id: okg_workspace.code_structure.code_symbol
+          effect: allow
+          record_kind: node
+          subtype: code_symbol
+        - id: okg_workspace.code_structure.code_import
+          effect: allow
+          record_kind: node
+          subtype: code_import
+        - id: okg_workspace.code_structure.code_reference
+          effect: allow
+          record_kind: node
+          subtype: code_reference
+        - id: okg_workspace.code_structure.file_contains_symbol
+          effect: allow
+          record_kind: edge
+          triple: [source_file, contains, code_symbol]
+        - id: okg_workspace.code_structure.file_contains_import
+          effect: allow
+          record_kind: edge
+          triple: [source_file, contains, code_import]
+        - id: okg_workspace.code_structure.file_contains_reference
+          effect: allow
+          record_kind: edge
+          triple: [source_file, contains, code_reference]
+        - id: okg_workspace.code_structure.symbol_member_of_symbol
+          effect: allow
+          record_kind: edge
+          triple: [code_symbol, member_of, code_symbol]
+        - id: okg_workspace.code_structure.reference_references_symbol
+          effect: allow
+          record_kind: edge
+          triple: [code_reference, references, code_symbol]
+        - id: okg_workspace.code_structure.symbol_calls_symbol
+          effect: allow
+          record_kind: edge
+          triple: [code_symbol, calls, code_symbol]
+      output_scope_summary:
+        nodes:
+          - code_symbol
+          - code_import
+          - code_reference
+        edges:
+          - source_file contains code_symbol
+          - source_file contains code_import
+          - source_file contains code_reference
+          - code_symbol member_of code_symbol
+          - code_reference references code_symbol
+          - code_symbol calls code_symbol
+        scope: "Static code structure extracted from tracked okg-workspace source files"
+    sync: *repo_tree_sync
+
+  package-manifests:
+    module: okg.substrate.library.sources.code_graph
+    class: PackageManifestSource
+    ownership_id: "{{ deployment_name }}.package-manifests"
+    predecessor_source: "{{ deployment_name }}.git-files"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    admission_policy:
+      producer_id: "{{ deployment_name }}.package-manifests"
+      producer_kind: source
+      trust_label: repo-local-trusted
+      admission_mode: fast_track
+      authority_scope:
+        source_family: okg_workspace_repo
+        path_globs:
+          - "pyproject.toml"
+          - "uv.lock"
+          - "package.json"
+          - "package-lock.json"
+          - "pnpm-lock.yaml"
+          - "yarn.lock"
+          - "requirements*.txt"
+          - "Cargo.toml"
+          - "Cargo.lock"
+          - "go.mod"
+          - "go.sum"
+      allowed_record_kinds:
+        - node
+        - edge
+      output_signature:
+        nodes:
+          - subtype: package_manifest
+            id_prefix: "manifest:{{ deployment_name }}:"
+            attrs:
+              repo: "{{ deployment_name }}"
+            clause_id: okg_workspace.package_manifests.manifest
+          - subtype: dependency_package
+            id_prefix: "dep:"
+            clause_id: okg_workspace.package_manifests.dependency
+        edges:
+          - src_subtype: source_file
+            edge_type: contains
+            dst_subtype: package_manifest
+            src_id_prefix: "file:{{ deployment_name }}:"
+            dst_id_prefix: "manifest:{{ deployment_name }}:"
+            clause_id: okg_workspace.package_manifests.file_contains_manifest
+          - src_subtype: package_manifest
+            edge_type: contains
+            dst_subtype: dependency_package
+            src_id_prefix: "manifest:{{ deployment_name }}:"
+            dst_id_prefix: "dep:"
+            clause_id: okg_workspace.package_manifests.manifest_contains_dependency
+      policy_clauses:
+        - id: okg_workspace.package_manifests.manifest
+          effect: allow
+          record_kind: node
+          subtype: package_manifest
+        - id: okg_workspace.package_manifests.dependency
+          effect: allow
+          record_kind: node
+          subtype: dependency_package
+        - id: okg_workspace.package_manifests.file_contains_manifest
+          effect: allow
+          record_kind: edge
+          triple: [source_file, contains, package_manifest]
+        - id: okg_workspace.package_manifests.manifest_contains_dependency
+          effect: allow
+          record_kind: edge
+          triple: [package_manifest, contains, dependency_package]
+      output_scope_summary:
+        nodes:
+          - package_manifest
+          - dependency_package
+        edges:
+          - source_file contains package_manifest
+          - package_manifest contains dependency_package
+        scope: "Package manifests and dependency declarations from tracked okg-workspace files"
+    sync:
+      watch:
+        roots: ["__OKG_REPO_ROOT__"]
+        include_globs:
+          - "pyproject.toml"
+          - "uv.lock"
+          - "package.json"
+          - "package-lock.json"
+          - "pnpm-lock.yaml"
+          - "yarn.lock"
+          - "requirements*.txt"
+          - "Cargo.toml"
+          - "Cargo.lock"
+          - "go.mod"
+          - "go.sum"
+        exclude_globs: ["**/.git/**", "**/node_modules/**"]
+      triggers: [fs_event, manual, reconcile]
+      default_event_mode: scope_complete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: content_hash
+
+  interfaces:
+    module: okg.substrate.library.sources.code_graph
+    class: InterfaceSource
+    ownership_id: "{{ deployment_name }}.interfaces"
+    predecessor_source:
+      - "{{ deployment_name }}.git-files"
+      - "{{ deployment_name }}.code-structure"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+      include_exts: [".py"]
+      exclude_globs: *repo_excludes
+      max_files: 5000
+      max_bytes_per_file: 1000000
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    admission_policy:
+      producer_id: "{{ deployment_name }}.interfaces"
+      producer_kind: source
+      trust_label: repo-local-trusted
+      admission_mode: fast_track
+      authority_scope:
+        source_family: okg_workspace_repo
+        path_globs:
+          - "**/*.py"
+      allowed_record_kinds:
+        - node
+        - edge
+      output_signature:
+        nodes:
+          - subtype: interface_endpoint
+            id_prefix: "endpoint:{{ deployment_name }}:"
+            attrs:
+              repo: "{{ deployment_name }}"
+            clause_id: okg_workspace.interfaces.endpoint
+        edges:
+          - src_subtype: interface_endpoint
+            edge_type: routes_to
+            dst_subtype: code_symbol
+            src_id_prefix: "endpoint:{{ deployment_name }}:"
+            dst_id_prefix: "symbol:{{ deployment_name }}:"
+            clause_id: okg_workspace.interfaces.endpoint_routes_to_symbol
+      policy_clauses:
+        - id: okg_workspace.interfaces.endpoint
+          effect: allow
+          record_kind: node
+          subtype: interface_endpoint
+        - id: okg_workspace.interfaces.endpoint_routes_to_symbol
+          effect: allow
+          record_kind: edge
+          triple: [interface_endpoint, routes_to, code_symbol]
+      output_scope_summary:
+        nodes:
+          - interface_endpoint
+        edges:
+          - interface_endpoint routes_to code_symbol
+        scope: "HTTP, MCP, and CLI endpoints discovered from okg-workspace Python source"
+    sync: *repo_tree_sync
+
+  code-data-flow:
+    module: okg.substrate.library.sources.code_graph
+    class: CodeDataFlowSource
+    ownership_id: "{{ deployment_name }}.code-data-flow"
+    predecessor_source: "{{ deployment_name }}.git-files"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+      include_exts: [".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"]
+      exclude_globs: *repo_excludes
+      max_files: 5000
+      max_bytes_per_file: 1000000
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync: *repo_tree_sync
+
+  semgrep-data-flow:
+    module: okg.substrate.library.sources.code_graph
+    class: SemgrepDataFlowSource
+    ownership_id: "{{ deployment_name }}.semgrep-data-flow"
+    predecessor_source: "{{ deployment_name }}.git-files"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+      artifact_paths: []
+      artifact_globs:
+        - reports/**/*semgrep*.json
+        - .artifacts/**/*semgrep*.json
+      max_artifacts: 100
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, observation_id]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["__OKG_REPO_ROOT__"]
+        include_globs:
+          - "reports/**/*semgrep*.json"
+          - ".artifacts/**/*semgrep*.json"
+        exclude_globs: ["**/.git/**"]
+      triggers: [fs_event, manual, reconcile]
+      default_event_mode: scope_complete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: content_hash
+
+  codeql-data-flow:
+    module: okg.substrate.library.sources.code_graph
+    class: CodeQLDataFlowSource
+    ownership_id: "{{ deployment_name }}.codeql-data-flow"
+    predecessor_source: "{{ deployment_name }}.git-files"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+      artifact_paths: []
+      artifact_globs:
+        - reports/**/*codeql*.sarif
+        - reports/**/*codeql*.json
+        - reports/**/*codeql*.csv
+        - .artifacts/**/*codeql*.sarif
+        - .artifacts/**/*codeql*.json
+        - .artifacts/**/*codeql*.csv
+      max_artifacts: 100
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, observation_id]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["__OKG_REPO_ROOT__"]
+        include_globs:
+          - "reports/**/*codeql*.sarif"
+          - "reports/**/*codeql*.json"
+          - "reports/**/*codeql*.csv"
+          - ".artifacts/**/*codeql*.sarif"
+          - ".artifacts/**/*codeql*.json"
+          - ".artifacts/**/*codeql*.csv"
+        exclude_globs: ["**/.git/**"]
+      triggers: [fs_event, manual, reconcile]
+      default_event_mode: scope_complete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: content_hash
+
+  test-reports:
+    module: okg.substrate.library.sources.test_reports
+    class: TestReportSource
+    ownership_id: "{{ deployment_name }}.test-reports"
+    predecessor_source: "{{ deployment_name }}.git-files"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+      report_dirs: []
+      artifact_globs:
+        - reports/**/*junit*.xml
+        - reports/**/*pytest*.xml
+        - .artifacts/**/*junit*.xml
+        - .artifacts/**/*pytest*.xml
+      coverage_globs:
+        - reports/**/coverage.xml
+        - reports/**/coverage.json
+        - .artifacts/**/coverage.xml
+        - .artifacts/**/coverage.json
+      max_artifacts: 200
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["__OKG_REPO_ROOT__"]
+        include_globs:
+          - "reports/**/*junit*.xml"
+          - "reports/**/*pytest*.xml"
+          - ".artifacts/**/*junit*.xml"
+          - ".artifacts/**/*pytest*.xml"
+          - "reports/**/coverage.xml"
+          - "reports/**/coverage.json"
+          - ".artifacts/**/coverage.xml"
+          - ".artifacts/**/coverage.json"
+        exclude_globs: ["**/.git/**"]
+      triggers: [fs_event, manual, reconcile]
+      default_event_mode: scope_incomplete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      scoped_delete_mode: scope_complete
+      scoped_delete_dependent_fanout: none
+      cheap_probe: content_hash
+      scope:
+        accepts: [path]
+        unsupported_fallback: scope_complete
+      dependents:
+        on_event: none
+        on_reconcile: closure
+      compaction:
+        window_seconds: 30
+        max_events: 250
+        max_scope_keys: 250
+
+  security-analysis:
+    module: okg.substrate.library.sources.security_analysis
+    class: SecurityAnalysisSource
+    ownership_id: "{{ deployment_name }}.security-analysis"
+    predecessor_source: "{{ deployment_name }}.git-files"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+      artifact_paths: []
+      artifact_globs:
+        - reports/**/*semgrep*.json
+        - reports/**/*quality*.json
+        - reports/**/*quality*.sarif
+        - reports/**/*code-quality*.json
+        - reports/**/*codeql*.sarif
+        - reports/**/*bandit*.json
+        - reports/**/*gitleaks*.json
+        - reports/**/*pip-audit*.json
+        - reports/**/*osv*.json
+        - reports/**/*trivy*.json
+        - reports/**/*bom*.json
+        - .artifacts/**/*semgrep*.json
+        - .artifacts/**/*quality*.json
+        - .artifacts/**/*quality*.sarif
+        - .artifacts/**/*code-quality*.json
+        - .artifacts/**/*codeql*.sarif
+        - .artifacts/**/*bandit*.json
+        - .artifacts/**/*gitleaks*.json
+        - .artifacts/**/*pip-audit*.json
+        - .artifacts/**/*osv*.json
+        - .artifacts/**/*trivy*.json
+        - .artifacts/**/*bom*.json
+      max_artifacts: 200
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, artifact]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["__OKG_REPO_ROOT__"]
+        include_globs:
+          - "reports/**/*semgrep*.json"
+          - "reports/**/*quality*.json"
+          - "reports/**/*quality*.sarif"
+          - "reports/**/*code-quality*.json"
+          - "reports/**/*codeql*.sarif"
+          - "reports/**/*bandit*.json"
+          - "reports/**/*gitleaks*.json"
+          - "reports/**/*pip-audit*.json"
+          - "reports/**/*osv*.json"
+          - "reports/**/*trivy*.json"
+          - "reports/**/*bom*.json"
+          - ".artifacts/**/*semgrep*.json"
+          - ".artifacts/**/*quality*.json"
+          - ".artifacts/**/*quality*.sarif"
+          - ".artifacts/**/*code-quality*.json"
+          - ".artifacts/**/*codeql*.sarif"
+          - ".artifacts/**/*bandit*.json"
+          - ".artifacts/**/*gitleaks*.json"
+          - ".artifacts/**/*pip-audit*.json"
+          - ".artifacts/**/*osv*.json"
+          - ".artifacts/**/*trivy*.json"
+          - ".artifacts/**/*bom*.json"
+        exclude_globs: ["**/.git/**"]
+      triggers: [fs_event, manual, reconcile]
+      default_event_mode: scope_incomplete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      scoped_delete_mode: scope_complete
+      scoped_delete_dependent_fanout: none
+      cheap_probe: content_hash
+      scope:
+        accepts: [path]
+        unsupported_fallback: scope_complete
+      dependents:
+        on_event: none
+        on_reconcile: closure
+      compaction:
+        window_seconds: 30
+        max_events: 250
+        max_scope_keys: 250
+
+  profile-measurements:
+    module: okg.substrate.library.sources.profile_measurements
+    class: ProfileMeasurementSource
+    ownership_id: "{{ deployment_name }}.profile-measurements"
+    predecessor_source:
+      - "{{ deployment_name }}.git-files"
+      # {{ if openspec_enabled }}
+      - "{{ deployment_name }}.openspec"
+      # {{ endif openspec_enabled }}
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+      artifact_paths: []
+      artifact_globs:
+        - profiles/{{ deployment_name }}/*/profile.json
+        - .artifacts/profiles/{{ deployment_name }}/*/profile.json
+      benchmark_paths: []
+      benchmark_globs:
+        - reports/**/*benchmark*.json
+        - .artifacts/**/*benchmark*.json
+      performance_budgets: []
+      # {{ if openspec_enabled }}
+      openspec_roots:
+        - "{{ openspec_root }}"
+      # {{ endif openspec_enabled }}
+      max_artifacts: 200
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, artifact]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["__OKG_REPO_ROOT__"]
+        include_globs:
+          - "profiles/{{ deployment_name }}/*/profile.json"
+          - ".artifacts/profiles/{{ deployment_name }}/*/profile.json"
+          - "reports/**/*benchmark*.json"
+          - ".artifacts/**/*benchmark*.json"
+        exclude_globs: ["**/.git/**"]
+      triggers: [fs_event, manual, reconcile]
+      default_event_mode: scope_incomplete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: content_hash
+      scope:
+        accepts: [path]
+        unsupported_fallback: scope_complete
+      dependents:
+        on_event: direct
+        on_reconcile: closure
+      compaction:
+        window_seconds: 30
+        max_events: 250
+        max_scope_keys: 250
+
+  codex-sessions:
+    module: okg.substrate.library.sources.codex_sessions
+    class: CodexSessionsSource
+    ownership_id: "{{ deployment_name }}.codex-sessions"
+    predecessor_source: "{{ deployment_name }}.git-files"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+      codex_sessions_root: ~/.codex/sessions
+      archived_sessions_root: ~/.codex/archived_sessions
+      cwd_filter:
+        - "{{ repo_root }}"
+      since: "{{ since }}"
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, node_id]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: [~/.codex/sessions, ~/.codex/archived_sessions]
+        include_globs: ["**/*.jsonl"]
+        exclude_globs: ["**/.DS_Store"]
+      triggers: [fs_event, manual, reconcile]
+      default_event_mode: scope_incomplete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      scoped_delete_mode: scope_complete
+      scoped_delete_dependent_fanout: none
+      cheap_probe: content_hash
+      scope:
+        accepts: [path]
+        unsupported_fallback: scope_complete
+      dependents:
+        on_event: none
+        on_reconcile: closure
+      compaction:
+        window_seconds: 30
+        max_events: 250
+        max_scope_keys: 250
+
+  doc-corpus:
+    module: okg.substrate.library.sources.doc_corpus
+    class: DocCorpusSource
+    ownership_id: "{{ deployment_name }}.doc-corpus"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+      extractors_dir: "{{ deployment_dir }}"
+      include_globs: &doc_corpus_include
+        # Prose.
+        - "**/*.md"
+        - "**/*.txt"
+        - "**/*.rst"
+        # Structured configuration.
+        - "**/*.json"
+        - "**/*.yaml"
+        - "**/*.yml"
+        - "**/*.toml"
+        # Source. Only `**/*.py` was here before, so a graph over a polyglot
+        # repository listed every file and could not search one word inside
+        # any of the non-Python ones: `FROM`, `apk`, `bash` and `golang` all
+        # returned nothing on a graph whose Dockerfile, shell script and
+        # go.mod were right there. Every extension below is one `git-files`
+        # already labels with a language, and one this template's
+        # extractors.yaml has a parser for (directly or through the
+        # `extension_to_format` routes below).
+        - "**/*.py"
+        - "**/*.pyx"
+        - "**/*.ts"
+        - "**/*.tsx"
+        - "**/*.js"
+        - "**/*.jsx"
+        - "**/*.go"
+        - "**/*.rs"
+        - "**/*.rb"
+        - "**/*.java"
+        - "**/*.kt"
+        - "**/*.c"
+        - "**/*.h"
+        - "**/*.cc"
+        - "**/*.cpp"
+        - "**/*.hpp"
+        - "**/*.sh"
+        - "**/*.bash"
+        - "**/*.sql"
+        - "**/*.proto"
+        # Build and deploy files: templates, container and make recipes, CI
+        # pipelines. Most have no telling extension, so each is routed by
+        # file name in `extension_to_format` below (#2671).
+        - "**/*.j2"
+        - "**/*.tpl"
+        - "**/*.tmpl"
+        - "**/Dockerfile"
+        - "**/Dockerfile.*"
+        - "**/*.dockerfile"
+        - "**/Containerfile"
+        - "**/Makefile"
+        - "**/makefile"
+        - "**/GNUmakefile"
+        - "**/*.mk"
+        - "**/Jenkinsfile"
+      # Route every code extension that has no dedicated parser to the plain
+      # text one, so its bytes are stored verbatim. Without this, a glob can
+      # match a file, produce a `document` node, and store NOTHING: the format
+      # dispatch knows only `.py` among source extensions, and the tree-sitter
+      # parsers for go/rust/js/ts/cpp need per-language grammars that are an
+      # optional install. Measured on a real repository: adding the globs
+      # alone gave a shell script and a Go file a document each and zero
+      # chunks; with this mapping they carry their source.
+      #
+      # `.py` is deliberately absent -- it already routes to the Python AST
+      # parser, which needs no extra install and extracts symbols too. A
+      # deployment that installs the polyglot grammars can override any entry
+      # here with `code_go`, `code_rust` and friends to get the same for those.
+      #
+      # A key that does not start with "." is a pattern on the file NAME
+      # (`Dockerfile.*` matches `Dockerfile.prod`), checked before suffixes.
+      extension_to_format: &doc_corpus_routes
+        ".pyx": "text"
+        ".ts": "text"
+        ".tsx": "text"
+        ".js": "text"
+        ".jsx": "text"
+        ".go": "text"
+        ".rs": "text"
+        ".rb": "text"
+        ".java": "text"
+        ".kt": "text"
+        ".c": "text"
+        ".h": "text"
+        ".cc": "text"
+        ".cpp": "text"
+        ".hpp": "text"
+        ".sh": "text"
+        ".bash": "text"
+        ".sql": "text"
+        ".proto": "text"
+        ".j2": "text"
+        ".tpl": "text"
+        ".tmpl": "text"
+        ".dockerfile": "text"
+        ".mk": "text"
+        "Dockerfile": "text"
+        "Dockerfile.*": "text"
+        "Containerfile": "text"
+        "Makefile": "text"
+        "makefile": "text"
+        "GNUmakefile": "text"
+        "Jenkinsfile": "text"
+      # Deliberately NOT `*repo_excludes`: this source stores file CONTENTS,
+      # so it must exclude more than the source that stores file identity. A
+      # path listed below is still a `source_file` node carrying its path,
+      # size and language -- the graph knows the file exists -- but its bytes
+      # are never stored and never indexed.
+      #
+      # This is NOT a secret scanner. The substrate has no ingest-time
+      # credential detection at all, so a key committed under an ordinary name
+      # reaches the graph AND its search index, where it becomes findable
+      # rather than merely present. A deployment whose repository is private,
+      # or whose graph readers are not its committers, must narrow
+      # `include_globs` or drop this source.
+      exclude_globs:
+        # Paths whose contents ARE credentials.
+        - "**/.env"
+        - "**/.env.*"
+        - "**/*.pem"
+        - "**/*.key"
+        - "**/*.p12"
+        - "**/*.pfx"
+        - "**/*.keystore"
+        - "**/*.jks"
+        - "**/id_rsa*"
+        - "**/id_ed25519*"
+        - "**/secrets/**"
+        - "**/secret/**"
+        - "**/credentials/**"
+        - "**/*credentials*"
+        - "**/*.secret"
+        - "**/.npmrc"
+        - "**/.pypirc"
+        - "**/.netrc"
+        - "**/kubeconfig"
+        - "**/*.kubeconfig"
+        # Everything the identity source skips, for the same reasons.
+        - "__pycache__/**"
+        - "**/__pycache__/**"
+        - ".venv/**"
+        - "**/.venv/**"
+        - "node_modules/**"
+        - "**/node_modules/**"
+        - ".git/**"
+        - "**/.git/**"
+        - ".mypy_cache/**"
+        - "**/.mypy_cache/**"
+        - ".pytest_cache/**"
+        - "**/.pytest_cache/**"
+        - ".claude/**"
+        - "**/.claude/worktrees/**"
+        - "data/**"
+        - "bench/deployments-generated/**"
+        - "**/bench/deployments-generated/**"
+        - ".scratch/**"
+        - ".tmp/**"
+        - ".artifacts/**"
+        - "memories/**"
+        - "**/*.pyc"
+      # Counted over git-tracked files after the globs (oversize files count).
+      # 3,000 refused ordinary repositories: this one has 11,615 tracked files
+      # under the include globs above (2026-09-23). 25,000 matches the
+      # DocCorpusSource default and still refuses a runaway corpus.
+      max_files: 25000
+      # A larger file is recorded as an `oversize` document (no text read)
+      # and counted, not fatal.
+      max_bytes_per_file: 5242880
+      # A file whose structured parse fails -- a Python 2 script, a Helm or
+      # Jinja template saved as `.yaml` -- is stored as plain text with a
+      # `text_fallback:<format>` warning instead of `parse_failed` and no
+      # text. A `code_repos` block that expands `doc-corpus` inherits this.
+      text_fallback: true
+      git_frontier_skip: true
+      predecessor_source: "{{ deployment_name }}.git-files"
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+
+  # {{ if notes_root }}
+  notes-doc-corpus:
+    module: okg.substrate.library.sources.doc_corpus
+    class: DocCorpusSource
+    ownership_id: "{{ deployment_name }}.notes-doc-corpus"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ notes_root }}"
+      extractors_dir: "{{ deployment_dir }}"
+      include_globs: *doc_corpus_include
+      # Same routes as the doc-corpus block: without them a matched file with
+      # no parser becomes a document that stores no text.
+      extension_to_format: *doc_corpus_routes
+      exclude_globs:
+        - "**/__pycache__/**"
+        - "**/.venv/**"
+        - "**/node_modules/**"
+        - "**/.git/**"
+        - "**/*.pyc"
+      max_files: 3000
+      max_bytes_per_file: 5242880
+      # A notes directory is often not a git checkout. Where git does see
+      # it, doc-corpus still reads only files git tracks.
+      non_git_walk: true
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+
+  # {{ endif notes_root }}
+  # {{ if openspec_enabled }}
+  openspec:
+    module: okg.substrate.library.sources.openspec
+    class: OpenSpecSource
+    ownership_id: "{{ deployment_name }}.openspec"
+    params:
+      repo: "{{ deployment_name }}"
+      openspec_root: "{{ openspec_root }}"
+      include_archived: true
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, node_id]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["__OKG_REPO_ROOT__/openspec"]
+        include_globs: ["**/*"]
+        exclude_globs: ["**/__pycache__/**", "**/*.pyc"]
+      triggers: [fs_event, manual, reconcile]
+      default_event_mode: scope_complete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: content_hash
+
+  # {{ endif openspec_enabled }}
+  git-history:
+    module: okg.substrate.library.sources.git_graph_history
+    class: GitHistorySource
+    ownership_id: "{{ deployment_name }}.git-history"
+    params:
+      repo: "{{ deployment_name }}"
+      repo_root: "{{ repo_root }}"
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, node_id]
+    source_revision_kind: version_token
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["__OKG_REPO_ROOT__"]
+        include_globs: [".git/HEAD", ".git/refs/**", ".git/packed-refs"]
+        exclude_globs: []
+      triggers: [git_ref_change, manual, reconcile]
+      default_event_mode: cursor
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: git_refs
+      scope:
+        accepts: [path]
+        unsupported_fallback: scope_complete
+
+  compute-env-local:
+    module: okg.substrate.library.sources.compute_env_local
+    class: LocalEnvSource
+    ownership_id: "{{ deployment_name }}.compute-env-local"
+    params:
+      repo: "{{ deployment_name }}"
+    source_class: reference_catalog
+    record_identity_kind: domain_key
+    record_identity_fields: [repo, node_id]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      # LocalEnvSource probes host/runtime/MCP state as one current
+      # environment snapshot. There is no safe path key that represents a
+      # partial machine probe, so it stays poll/manual/reconcile only.
+      triggers: [poll, manual, reconcile]
+      default_event_mode: scope_complete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: ttl

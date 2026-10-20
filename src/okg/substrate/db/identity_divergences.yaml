@@ -1,0 +1,284 @@
+# Registered identity-convention divergences.
+#
+# `okg schema quality`'s identity section (scripts/check_schema_identity.py)
+# enforces the three v1.0 identity conventions from
+# docs/reference/database-schema.md §4:
+#
+#   * generation refs  -- no ordinal-typed generation reference in the granted
+#                         surface (pg_depend-closed from okg_mcp)
+#   * branch naming    -- every column named `branch_id` has okg.branches.branch_id's
+#                         type; chronos TEXT ids are named `chronos_branch_id`
+#   * deployment scope -- no user table carries a column literally named `deployment`
+#
+# Every row below is a divergence that EXISTS TODAY, is not yet converged, and
+# is owned by a named PACT. The gate is therefore a FREEZE gate, not an
+# aspiration: a divergence that is not listed here reds the build, so no new
+# table can mint a fourth convention while these are being retired. Removing a
+# row is how a convergence lane proves it landed --- the gate then refuses to
+# let the divergence come back.
+#
+# A row must carry `owner` (the PACT that retires it) and `reason` (why it did
+# not converge in schema-identity-convergence). Silence is a gate failure.
+
+version: 1
+
+generation_refs:
+  # --- granted surface (the requirement's own scope) ---
+  - relation: okg.graph_generations
+    column: generation_id
+    owner: db-schema-freeze-readiness
+    reason: >-
+      The generation catalog's own key, not a reference to another row --- this
+      is the ordinal's declaration site. D2 renames it to `ordinal` and moves
+      okg_mcp behind a TEXT-ref view; that rename touches every publisher and
+      console read path and belongs to the v1.0 re-baseline, not here.
+  - relation: okg.v_consistency_observations
+    column: latest_generation_id
+    owner: schema-canonical-read-path
+    reason: >-
+      The granted projection of okg.observation_current.latest_generation_id;
+      converges with its base column (below).
+  - relation: okg.observation_current
+    column: latest_generation_id
+    owner: schema-canonical-read-path
+    reason: >-
+      Reaches the granted surface through okg.v_consistency_observations. The
+      column is consumed as an ORDER (`latest_generation_id <= %(gen)s` in
+      consistency/gates.py, equivalence.py, equivalence_differ.py), and a TEXT
+      checkpoint ref has no total order across eras, so retyping it without a
+      generation-ordering source would substitute lexicographic for causal
+      order --- a silent wrong answer rather than a loud failure.
+
+  # --- not granted; listed so the freeze surface is complete ---
+  - relation: okg.branches
+    column: base_generation_id
+    owner: db-schema-freeze-readiness
+    reason: Graph-core fork lineage; converges with graph_generations' own key.
+  - relation: okg.compacted_generations
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: >-
+      Deliberately the numeric compatibility token --- migrations 0010/0011
+      exist precisely to look tombstones up by it without casting a native
+      Chronos checkpoint id to bigint.
+  - relation: okg.consistency_candidates
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.consistency_candidate_coverage
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.consistency_gate_results
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.observation_events
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.derived_artifact_runs
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.derived_output_manifests
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: >-
+      Ordinal-comparison family, and additionally joined to
+      okg.graph_generations.generation_id by derived_artifacts/read_views.py
+      --- so it cannot converge before the catalog's own key does. (This reason
+      also named the SQL function okg._native_view_visible_at. That function
+      lived in schema.sql's narrowings section, which the chronos cutover
+      stripped at migrate time, so no deployment has had it since; it is now
+      absent from the file too. The remaining Python join is what keeps the
+      divergence open.)
+  - relation: okg.derived_output_lineage_envelopes
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.derived_dirty_rule_runs
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.derived_dirty_scopes
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.derived_dirty_rule_audits
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.derived_schedule_plans
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.derived_run_dependency_bindings
+    column: upstream_target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.lens_putback_requests
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.lens_overlay_log
+    column: target_generation_id
+    owner: schema-canonical-read-path
+    reason: Ordinal-comparison family; see okg.observation_current above.
+  - relation: okg.enricher_progress
+    column: generation_id
+    owner: schema-canonical-read-path
+    reason: Projection-pipeline watermark; carries the compat ordinal.
+  - relation: okg.projection_pending
+    column: generation_id
+    owner: schema-canonical-read-path
+    reason: Projection-pipeline watermark; carries the compat ordinal.
+  - relation: okg.post_publish_projection_status
+    column: generation_id
+    owner: schema-canonical-read-path
+    reason: Projection-pipeline watermark; carries the compat ordinal.
+
+generation_functions: []
+  # §5 puts EXECUTE-granted functions in the freeze surface, not just
+  # relations. `column` here would be the offending parameter or return,
+  # exactly as the check renders it.
+  #
+  # Empty, and that is a result rather than an oversight: okg.current_pin()
+  # was the one entry, and `schema-canonical-read-path` converged it. It now
+  # RETURNS text — the Chronos checkpoint ref — because the read path that
+  # forced the bigint is gone: the legacy live complex compared the pin
+  # against BIGINT valid_from_gen columns, and that complex is deleted.
+  # Generation pinning is the Chronos checkout's job; the function reports
+  # the session's pin rather than filtering by it.
+  #
+  # Do not re-add a row here to make a new bigint-returning generation
+  # function pass. The gate is a freeze gate: an unregistered ordinal
+  # generation function in the granted surface reds the build, and that is
+  # the intended answer.
+
+branch_naming:
+  # okg.history_compaction_plans CONVERGED in migration 0026
+  # (schema-identity-convergence) and its row is deleted. What remains is what
+  # MEASUREMENT showed cannot converge while the ordinal chain stands.
+  #
+  # The rule the measurements established: a column can be renamed by a new
+  # ordered migration only if NO APPLIED ordinal names it in an index column
+  # list or in a LANGUAGE sql function body. Every ordered migration replays on
+  # a fresh install AFTER schema.sql (migrate.py:1059 then :1092), and both of
+  # those constructs are name-resolved against the shape that exists at that
+  # moment. An applied ordinal can never be edited (management.py:994), and a
+  # new migration cannot help because it runs LAST. Measured on PG 17.10:
+  #   * CREATE INDEX IF NOT EXISTS resolves its column list BEFORE checking
+  #     whether the index name exists -- an existing index is NOT a no-op.
+  #   * a LANGUAGE sql body is validated at CREATE time; plpgsql is not.
+  - relation: okg.history_generation_pins
+    column: branch_id
+    owner: db-schema-freeze-readiness
+    reason: >-
+      Blocked by applied ordinal 0006_chronos_history_compaction:31-32, which
+      re-creates history_generation_pins_checkpoint_idx naming `branch_id`.
+      Because an index's column list is resolved before its name is checked,
+      renaming this column aborts a FRESH install at ordinal 0006 --- long
+      before migration 0026 could repair it. Its sibling
+      okg.history_compaction_plans converged precisely because no applied
+      ordinal indexes or selects its branch column; 0006 only declares it
+      inside a CREATE TABLE IF NOT EXISTS, which is a real no-op once the table
+      exists. Converges with the re-baseline that retires the ordinal chain.
+  - relation: okg.compacted_generations
+    column: branch_id
+    owner: db-schema-freeze-readiness
+    reason: >-
+      Blocked by durable applied ordinals, measured rather than assumed.
+      Migrations 0009, 0010 and 0011 each re-create
+      okg.compacted_generation_record as LANGUAGE sql with `'branch',
+      branch_id` in the body, and EVERY ordered migration re-executes on a
+      fresh install AFTER schema.sql (migrate.py:1059 then :1092). A LANGUAGE
+      sql body IS name-resolved at CREATE time --- verified on PG 17.10, where
+      the plpgsql equivalent creates cleanly and the sql one raises `column
+      "branch_id" does not exist`. So renaming this column aborts a fresh
+      install at ordinal 0009, before migration 0026 is ever reached to repair
+      it, and an applied ordinal can never be edited (management.py:994).
+      Converges with the re-baseline that retires those ordinals. This is the
+      same durable-ordinal argument okg.attr_index carried until migration
+      0043 dropped it.
+      The two sibling tables in this cluster DID converge, because their only
+      SQL functions (ordinals 0008/0012) are LANGUAGE plpgsql and migration
+      0026 re-issues them as the last writer.
+  - relation: okg.attribute_effective_integrity_receipts
+    column: branch_id
+    owner: db-schema-freeze-readiness
+    reason: >-
+      Blocked by applied ordinal 0013_attribute_integrity_receipts:44-46, which
+      creates attribute_effective_integrity_receipt_scope_idx over
+      (deployment_name, branch_id, namespace, ordinal DESC). Same mechanism as
+      okg.history_generation_pins above: an index's column list is resolved
+      before its name is checked, so the rename aborts a FRESH install at 0013.
+      Secondary, and deliberately NOT claimed as a blocker: a rename also
+      forces one full receipt re-anchor, because attribute_integrity.py:1156
+      builds the hashed receipt body from a hardcoded "branch_id" key and :867
+      hashes pg_attribute.attname over _IDENTITY_RELATIONS (:822) into
+      schema_digest, itself a hashed field of that body. That cost is real but
+      PRECEDENTED and self-healing --- 0015's own header records the same
+      digest invalidation as routine ("every existing receipt already fails the
+      fast path and forces one full re-anchor"), the chain check looks back
+      exactly one link, and the receipt is a proof cache rather than an
+      authority. So the re-anchor is a reason to SEQUENCE the rename with the
+      payload-key rename, not a reason it cannot happen; the ordinal index is
+      the reason it cannot happen here.
+  - relation: okg.attribute_effective_integrity_state
+    column: branch_id
+    owner: db-schema-freeze-readiness
+    reason: >-
+      Renames as one batch with okg.attribute_effective_integrity_receipts
+      above: all three tables are in _IDENTITY_RELATIONS
+      (attribute_integrity.py:822), so renaming any one of them changes
+      schema_digest for all three, and splitting the batch would invalidate the
+      receipt chain twice for no benefit.
+  - relation: okg.attribute_effective_integrity_transitions
+    column: branch_id
+    owner: db-schema-freeze-readiness
+    reason: Same rename batch as okg.attribute_effective_integrity_receipts.
+  - relation: okg.attribute_effective_view_intervals
+    column: branch_id
+    owner: schema-single-source-ddl
+    reason: >-
+      Runtime-ensured only (created by attributes.py, audit F2) --- it has no
+      schema.sql declaration and no ordered migration to carry the rename, so
+      it converges when its DDL moves into the canonical files.
+  - relation: okg.generation_ordinals
+    column: branch_id
+    owner: schema-single-source-ddl
+    reason: >-
+      Runtime-ensured only (created by generation_ordinal.py, audit F2); joined
+      to attribute_effective_view_intervals.branch_id, so the two rename
+      together once both have canonical DDL.
+deployment_scoping:
+  # Ten base tables and the okg.llm_call_stats view CONVERGED in migration 0026
+  # (schema-identity-convergence) and their rows are deleted. okg.verifier_runs
+  # converged a different way --- the dead-weight-retirement lane DELETED the
+  # relation in migration 0025 (PR #1132) rather than renaming its column, which
+  # is exactly the handoff this lane registered --- so its row is gone too. The
+  # three rows that remain are all owned by the views.sql lane.
+  - relation: okg.source_progress
+    owner: schema-canonical-read-path
+    reason: >-
+      HANDOFF, not a deferral for its own sake. This is the ONLY relation in
+      the §4 rename batch that views.sql reads --- okg.v_source_run_diagnostics
+      and okg.v_source_frontier_state reference it about twenty times,
+      including two RETURNS TABLE signatures --- and views.sql is owned by the
+      canonical-read-path lane, which is editing it concurrently. Every other
+      relation in the batch is read by zero views, which is why migration 0026
+      converged ten of the twelve base tables while touching views.sql not at
+      all. Rename the
+      column together with the view bodies in the lane that owns that file.
+  - relation: okg.v_source_frontier_state
+    owner: schema-canonical-read-path
+    reason: >-
+      The `deployment` column here is the split_part-derived `deployment_guess`
+      (views.sql), which v1.0 deletes once source_watermarks carries a real
+      deployment_name column. Owned by the views.sql lane; unchanged here.
+  - relation: okg.v_source_run_diagnostics
+    owner: schema-canonical-read-path
+    reason: >-
+      View projecting okg.source_progress.deployment; converges with its base
+      table, which is handed off immediately above.

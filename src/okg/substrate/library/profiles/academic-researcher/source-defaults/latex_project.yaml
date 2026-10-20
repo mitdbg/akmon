@@ -1,0 +1,24 @@
+# Optional project-semantic source. Enable with latex_project_doc_corpus and
+# copy the identical project_manifest mapping into bib_references.
+latex_project:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.scholarly.latex_project
+  class: LatexProjectSource
+  ownership_id: ${deployment_name}.latex_project
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [project_id, source_path]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    source_root: ${papers_dir}
+    project_manifest:
+      repository_authority: ${deployment_name}.papers
+      projects:
+        - project_dir: .
+      include_generated_paths: []
+      generated_dirs: []
+    predecessor_sources:
+      - ${deployment_name}.latex_project_doc_corpus
+      - ${deployment_name}.bib_references

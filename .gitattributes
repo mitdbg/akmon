@@ -1,0 +1,4 @@
+# Git attributes of the public mirror (the development repository's own file
+# names paths that do not ship).
+*.pdf binary
+*.png binary

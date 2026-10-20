@@ -1,0 +1,22 @@
+rules:
+  - id: calendar_event_at_organization
+    src:
+      subtype: calendar_event
+      field: event_id
+    dst:
+      subtype: organization
+      field: organization_id
+    matcher: exact
+    edge: at
+    bidirectional: false
+
+  - id: calendar_event_presents_paper
+    src:
+      subtype: calendar_event
+      field: event_id
+    dst:
+      subtype: paper
+      field: paper_id
+    matcher: exact
+    edge: presents
+    bidirectional: false

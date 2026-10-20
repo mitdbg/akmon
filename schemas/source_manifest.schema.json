@@ -1,0 +1,504 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://okg.invalid/schemas/source_manifest.schema.json",
+  "title": "OKG source manifest, version okg.source/v1",
+  "description": "One YAML file that says where a source's records are -- local files or a JSON API -- and what each kind of record looks like. `okg deployment add-source <deployment> <name> --manifest <file>` previews it; `--apply` saves it, creates the types, imports and publishes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest",
+    "types"
+  ],
+  "properties": {
+    "manifest": {
+      "const": "okg.source/v1",
+      "description": "The manifest format version."
+    },
+    "description": {
+      "type": "string",
+      "description": "What this source holds, in plain words."
+    },
+    "connections": {
+      "type": "object",
+      "description": "Named connections that several HTTP reads share: a base_url and auth.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "base_url"
+        ],
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The start of every URL read through this connection."
+          },
+          "auth": {
+            "$ref": "#/$defs/auth"
+          }
+        }
+      }
+    },
+    "read": {
+      "$ref": "#/$defs/read",
+      "description": "Where the records of the one top-level type without its own read: come from."
+    },
+    "types": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/type"
+      },
+      "description": "The record types, keyed by a new snake_case type name."
+    },
+    "deletion": {
+      "enum": [
+        "missing_from_full_read",
+        "never"
+      ],
+      "description": "missing_from_full_read (default): a record absent from a complete read is removed. never: records are never removed."
+    },
+    "max_deleted_fraction": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "The share of the source's earlier records one run may remove. A run that would remove more applies its records and removes nothing. Default 0.5 when any read is HTTP; no limit for file-only sources."
+    }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A dotted path into one record; `.` is the record itself."
+    },
+    "template": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Text with `{path}` placeholders, for example `{key}` or `PROJ-{id}`."
+    },
+    "field_type": {
+      "enum": [
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "date",
+        "datetime",
+        "list"
+      ]
+    },
+    "type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/path",
+          "description": "Read a nested object, or each item of a nested list, of every top-level record as records of this type."
+        },
+        "key": {
+          "$ref": "#/$defs/template"
+        },
+        "title": {
+          "$ref": "#/$defs/path"
+        },
+        "text": {
+          "$ref": "#/$defs/path"
+        },
+        "dates": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "created": {
+              "$ref": "#/$defs/path"
+            },
+            "modified": {
+              "$ref": "#/$defs/path"
+            },
+            "published": {
+              "$ref": "#/$defs/path"
+            },
+            "resolved": {
+              "$ref": "#/$defs/path"
+            },
+            "effective": {
+              "$ref": "#/$defs/path"
+            }
+          }
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/path"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "from"
+                ],
+                "properties": {
+                  "from": {
+                    "$ref": "#/$defs/path"
+                  },
+                  "type": {
+                    "$ref": "#/$defs/field_type"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "links": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "to",
+              "key"
+            ],
+            "properties": {
+              "to": {
+                "type": "string",
+                "minLength": 1
+              },
+              "key": {
+                "$ref": "#/$defs/template"
+              },
+              "each": {
+                "$ref": "#/$defs/path"
+              }
+            }
+          }
+        },
+        "read": {
+          "$ref": "#/$defs/read",
+          "description": "This top-level type's own read. A source may have several."
+        },
+        "parent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "For a nested type when the source has several top-level types: whose records hold it."
+        },
+        "changes_when": {
+          "$ref": "#/$defs/path",
+          "description": "A field whose value changes whenever the record does, such as updated_at. The record's revision is that value."
+        }
+      }
+    },
+    "files_read": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files"
+      ],
+      "properties": {
+        "files": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A glob naming the input files. A relative glob is resolved against the manifest's folder and saved as an absolute path."
+        },
+        "format": {
+          "enum": [
+            "json",
+            "jsonl",
+            "csv",
+            "yaml"
+          ],
+          "description": "The file format. Default: from the file extension (.json, .jsonl or .ndjson, .csv, .yaml or .yml)."
+        },
+        "records": {
+          "$ref": "#/$defs/records",
+          "description": "JSON and YAML only: the dotted path to the list of records in each file, or \"*\" for each value of an object. Default: the file itself."
+        }
+      },
+      "description": "Local files: a glob, the format and where the records sit."
+    },
+    "records": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A dotted path to the list of records, or \"*\": each value of a JSON object is one record and its name is {_key}."
+    },
+    "env_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The NAME of an environment variable, never its value."
+    },
+    "auth": {
+      "description": "How an HTTP read authenticates. Every value names an environment variable.",
+      "oneOf": [
+        {
+          "const": "none"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bearer"
+          ],
+          "properties": {
+            "bearer": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "token"
+              ],
+              "properties": {
+                "token": {
+                  "$ref": "#/$defs/env_name"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "header"
+          ],
+          "properties": {
+            "header": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "value"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9-]+$",
+                  "description": "The header name, for example X-Api-Key."
+                },
+                "value": {
+                  "$ref": "#/$defs/env_name"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "basic"
+          ],
+          "properties": {
+            "basic": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "user",
+                "password"
+              ],
+              "properties": {
+                "user": {
+                  "$ref": "#/$defs/env_name"
+                },
+                "password": {
+                  "$ref": "#/$defs/env_name"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "client_certificate"
+          ],
+          "properties": {
+            "client_certificate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "cert",
+                "key"
+              ],
+              "properties": {
+                "cert": {
+                  "$ref": "#/$defs/env_name"
+                },
+                "key": {
+                  "$ref": "#/$defs/env_name"
+                },
+                "ca_dir": {
+                  "$ref": "#/$defs/env_name"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "paging": {
+      "description": "How to fetch every page. Paging stops on an empty page or a missing next value.",
+      "oneOf": [
+        {
+          "enum": [
+            "none",
+            "link_header"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "offset"
+          ],
+          "properties": {
+            "offset": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "offset_param",
+                "limit_param",
+                "size"
+              ],
+              "properties": {
+                "offset_param": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "limit_param": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "page"
+          ],
+          "properties": {
+            "page": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "page_param",
+                "size_param",
+                "size"
+              ],
+              "properties": {
+                "page_param": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "size_param": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "first": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cursor"
+          ],
+          "properties": {
+            "cursor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "param",
+                "next"
+              ],
+              "properties": {
+                "param": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "next": {
+                  "$ref": "#/$defs/path"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "http_read": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A JSON API read with GET: connection: plus path:, or a whole url:.",
+      "properties": {
+        "connection": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Joined to the connection's base_url."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "auth": {
+          "$ref": "#/$defs/auth"
+        },
+        "records": {
+          "$ref": "#/$defs/records"
+        },
+        "paging": {
+          "$ref": "#/$defs/paging"
+        },
+        "max_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Default 1000; a read that reaches it is incomplete."
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "url"
+          ]
+        },
+        {
+          "required": [
+            "connection",
+            "path"
+          ]
+        }
+      ]
+    },
+    "read": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/files_read"
+        },
+        {
+          "$ref": "#/$defs/http_read"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,37 @@
+# Bridge: extraction ↔ git_graph (bench deployment).
+#
+# Minimal version of okg-workspace's extraction_to_git_files.yaml.
+# Only declares the single narrowing the bench's doc-corpus source
+# emits: `Document derived_from SourceFile` (provenance back-link).
+# No EntityMention / OpenSpecChange / DataAsset narrowings — the
+# bench doesn't load those modules.
+
+id: https://okg.bench/bridges/extraction_to_git_files
+name: bench_extraction_bridge
+title: "Bridge — extraction ↔ git_graph (bench)"
+description: >-
+  Cross-module narrowing for doc-corpus → git-files:
+  document derived_from source_file.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://okg.bench/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+  EdgeNarrowings:
+    description: Cross-module bridge for the bench doc-corpus adapter.
+    annotations:
+      okg_edge_narrowings: "true"
+    attributes:
+      document_derived_from_source_file:
+        description: A parsed Document derives from its
+          filesystem source_file (provenance back-link).
+        annotations:
+          edge_archetype: derived_from
+          src_subtypes: "Document"
+          dst_subtypes: "SourceFile"

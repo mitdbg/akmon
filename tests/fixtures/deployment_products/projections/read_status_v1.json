@@ -1,0 +1,15 @@
+{
+  "schema_version": "okg.deployment_product.read_status/v1",
+  "contract_version": "v1",
+  "api_version": "okg.deployment_product.api/v1",
+  "operation_id": "up-reference",
+  "deployment_id": "acme-prod",
+  "plan_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "state": "planned",
+  "phase": "preflight",
+  "progress_percent": 0,
+  "blockers": [],
+  "next_actions": [],
+  "mutation_classification": "read_only",
+  "safe_to_retry": true
+}

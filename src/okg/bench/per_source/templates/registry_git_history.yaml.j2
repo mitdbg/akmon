@@ -1,0 +1,26 @@
+sources:
+  git-history:
+    module: okg.substrate.library.sources.git_graph_history
+    class: GitHistorySource
+    ownership_id: {{ deployment }}.git-history
+    params:
+      repo: tinydb
+      repo_root: {{ repo_root }}
+      include_remotes: false
+
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, commit_sha]
+    source_revision_kind: version_token
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["{{ repo_root }}/.git"]
+        include_globs: ["HEAD", "refs/**", "packed-refs"]
+        exclude_globs: []
+      triggers: [git_ref_change, manual, reconcile]
+      default_event_mode: scope_complete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: git_refs

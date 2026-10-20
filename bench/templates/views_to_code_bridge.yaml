@@ -1,0 +1,40 @@
+# Bridge: views -> code graph (bench)
+#
+# The `file_symbols` view cites the `source_file` nodes it summarizes, so the
+# native view publisher projects `view_cites_node` edges View -> SourceFile.
+# The substrate `views` module intentionally leaves concrete cite-target
+# narrowings to the deployment (citation targets vary by domain), so declare
+# View -> SourceFile here. Without it the transform consistency gate
+# (`no_dangling+narrowing`) rejects the edges and blocks every publish.
+id: https://palimpzest.mit.edu/okg/deployments/bench/bridges/views_to_code
+name: bench_view_citations_bridge
+title: "Bridge - bench view citations"
+description: View citation narrowings for bench code-graph views.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+  EdgeNarrowings:
+    description: View citation narrowings for the bench file_symbols view.
+    annotations:
+      okg_edge_narrowings: "true"
+    attributes:
+      view_cites_source_file:
+        description: A materialized View cites a source file it summarizes.
+        annotations:
+          edge_archetype: view_cites_node
+          src_subtypes: "View"
+          dst_subtypes: "SourceFile"
+      view_cites_code_symbol:
+        description: A materialized View cites a code symbol it summarizes.
+        annotations:
+          edge_archetype: view_cites_node
+          src_subtypes: "View"
+          dst_subtypes: "CodeSymbol"

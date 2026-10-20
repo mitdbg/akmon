@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://palimpzest.mit.edu/okg/schemas/linker_config.schema.json",
+  "title": "OKG linker_config.yaml",
+  "description": "Routing from (entity_type, src_subtype) to (edge_type, dst_template).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "includes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^okg\\.linker_routes\\.[a-z_][a-z0-9_]*$"
+      },
+      "description": "Library route fragments to include."
+    },
+    "routes": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/route"},
+      "description": "Per-entity-type route. Keyed by entity_type the extractor emits."
+    }
+  },
+  "$defs": {
+    "route": {
+      "oneOf": [
+        {"$ref": "#/$defs/simple_route"},
+        {"$ref": "#/$defs/by_src_subtype"}
+      ]
+    },
+    "simple_route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edge_type", "dst_template"],
+      "properties": {
+        "edge_type": {"type": "string"},
+        "dst_template": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Template of allowed substitution fields: {resolved}, {value}, {type}, {src}. Exactly one layer of enforcement: this schema's regex is authoritative. Literal { and } are not expressible (there is no escape form). Any {field} outside the closed set is rejected at schema validation time with the matching rejection at catalog-load time; the loader does not re-parse.",
+          "pattern": "^([^{}]|\\{(resolved|value|type|src)\\})+$"
+        },
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "on_miss": {"$ref": "#/$defs/on_miss"}
+      }
+    },
+    "on_miss": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpoint_id", "subtype", "key_attr"],
+      "description": "Keep a link whose target is not loaded. On a resolver miss the edge goes to a node at endpoint_id, marked load_state not_loaded, and the retry row keeps waiting for the real record. Off unless a route declares it. The endpoint registers no alias.",
+      "properties": {
+        "endpoint_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The target's real id. Only {value} may be substituted.",
+          "pattern": "^([^{}]|\\{value\\})+$"
+        },
+        "subtype": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "key_attr": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["attr", "regex"],
+          "properties": {
+            "attr": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+            "regex": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Matched against the key; its first group is the scope value."
+            }
+          }
+        }
+      }
+    },
+    "by_src_subtype": {
+      "type": "object",
+      "description": "Route depends on the src node's subtype. Keys are snake_case live subtype names, PascalCase class names, or `_default`; values are simple routes.",
+      "minProperties": 1,
+      "patternProperties": {
+        "^([A-Z][A-Za-z0-9_]*|[a-z][a-z0-9_]*|_default)$": {"$ref": "#/$defs/simple_route"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

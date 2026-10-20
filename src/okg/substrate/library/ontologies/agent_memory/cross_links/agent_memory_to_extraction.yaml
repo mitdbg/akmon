@@ -1,0 +1,20 @@
+# Cross-link rules: agent_memory -> extraction document graph.
+rules:
+  - id: agent_records_reference_documents
+    src:
+      subtype:
+        - agent_claim
+        - agent_observation
+        - agent_experiment
+        - verification_result
+        - agent_decision
+      field: reference_refs
+    dst:
+      subtype:
+        - document
+        - document_chunk
+        - entity_mention
+      field: node_id
+    matcher: exact
+    edge: references
+    bidirectional: false

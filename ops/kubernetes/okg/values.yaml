@@ -1,0 +1,230 @@
+nameOverride: ""
+fullnameOverride: ""
+
+okg:
+  # Required. The deployment must exist in the immutable OKG runtime image.
+  deployment: ""
+  # Set this when deployment.yaml uses a deployment-specific DSN variable such
+  # as OKG_CI_DSN. OKG_DSN is always populated as the generic CLI authority.
+  deploymentDsnEnv: OKG_DSN
+  readinessProfile: general
+  runtimeNomosSubject: okg_service
+  mcpNomosSubject: mcp_client
+  repoRoot: /opt/okg
+  environmentDataRoot: /var/lib/okg
+
+images:
+  okg:
+    # Required in this source chart: build the image from this source
+    # (docs/operate/deployments/kubernetes.md) and set <your-registry>/okg.
+    # The released chart, oci://ghcr.io/mitdbg/charts/akmon, sets the
+    # published AKMON image instead.
+    repository: ""
+    # Set a tag or a digest, not both. A released chart (Chart.yaml annotation
+    # okg.mitdbg.io/released: "true") pulls the image tagged with its
+    # appVersion when both are empty; a source checkout refuses to render.
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  pullSecrets: []
+
+secrets:
+  # Required. The chart never accepts or creates cleartext credentials.
+  existingSecret: ""
+  postgresPasswordKey: postgres-password
+  externalDsnKey: okg-dsn
+  mcpDsnKey: mcp-dsn
+  mcpPasswordKey: mcp-password
+  extraEnv: []
+  # - name: GH_TOKEN
+  #   key: github-token
+  #   targets: [worker]
+
+# Plain (non-secret) environment variables, scoped to named containers like
+# secrets.extraEnv. Never put a credential here: values render into the pod
+# spec in clear text. Names the chart sets itself are refused. Kubernetes
+# expands $(VAR) in a value when VAR is set earlier in the same container's env.
+extraEnv: []
+# - name: ARCHI_DATA_ROOT
+#   value: /var/lib/okg
+#   targets: [bootstrap, worker, mcp]
+
+# Private Git hosts that sources clone from (code_repos, git sources). Empty
+# turns it off. Each host gets a Git credential helper, configured through
+# GIT_CONFIG_COUNT/KEY/VALUE, that prints the token from an environment
+# variable fed by secrets.existingSecret: the token never appears in a URL,
+# the source registry, a values file, the command line or a log. Only the
+# bootstrap and worker containers, which clone and fetch, receive it.
+gitCredentials:
+  hosts: []
+  # - host: gitlab.example.org
+  #   username: oauth2             # GitLab: any non-empty name + read_repository token
+  #   secretKey: gitlab-token      # key in secrets.existingSecret
+  # - host: github.com
+  #   username: x-access-token     # GitHub: fine-grained token, Contents: read
+  #   secretKey: github-token
+
+bootstrap:
+  enabled: true
+  publishOnce: true
+  include: []
+  sourceWorkers: 1
+  requireApprovalRevision: false
+  approvedRevision: ""
+
+postgresql:
+  internal:
+    enabled: true
+  image:
+    # Required in this source chart: build the image from this source
+    # (docs/operate/deployments/kubernetes.md) and set <your-registry>/okg-postgres.
+    # The released chart, oci://ghcr.io/mitdbg/charts/akmon, sets the
+    # published AKMON image instead.
+    repository: ""
+    # Set a tag or a digest, not both, as for images.okg: a released chart
+    # pulls the image tagged with its appVersion when both are empty; a source
+    # checkout refuses to render.
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  database: okg
+  port: 5432
+  storage:
+    size: 50Gi
+    storageClassName: ""
+  shmSizeLimit: 1Gi
+  settings:
+    maxConnections: 100
+    maxWorkerProcesses: 16
+    timescaledbMaxBackgroundWorkers: 4
+    # Postgres sizes its shared lock table as
+    # max_locks_per_transaction * (max_connections + max_prepared_transactions).
+    # At the initdb default of 64 that is 6400 slots, and a catalog apply takes
+    # a lock per relation it touches: the nightly Kubernetes lifecycle proof for
+    # okg-workspace failed catalog_version 9 during alias_seeding with
+    # `out of shared memory / You might need to increase
+    # "max_locks_per_transaction"` (run 33513581450). 1024 matches what the
+    # dogfood compose profile already runs
+    # (deployments/okg-workspace/docker-compose.okg-workspace.dogfood.yaml)
+    # and costs shared memory only.
+    maxLocksPerTransaction: 1024
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+
+runtime:
+  terminationGracePeriodSeconds: 45
+  probes:
+    startup:
+      periodSeconds: 30
+      timeoutSeconds: 60
+      failureThreshold: 30
+    readiness:
+      periodSeconds: 60
+      timeoutSeconds: 60
+      failureThreshold: 3
+  storage:
+    size: 20Gi
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+
+worker:
+  secretMounts: []
+
+repositorySync:
+  # Enable when deployment sources require Git metadata. The selected revision
+  # is checked out onto the runtime PVC before bootstrap; .git is never baked
+  # into the immutable runtime image.
+  enabled: false
+  url: ""
+  revision: ""
+  authSecretKey: ""
+  authUsername: x-access-token
+
+mcp:
+  enabled: true
+  # The included Postgres path changes provision's okg_mcp role from NOLOGIN
+  # to a passworded least-privilege login after grants are applied.
+  manageRole: true
+  port: 8100
+  allowedHosts: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+tests:
+  # Annotations on the proof pod. The default makes it a `helm test` hook.
+  # Argo CD never runs `helm test`; to run the proof after every sync, set
+  #   argocd.argoproj.io/hook: PostSync
+  #   argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+  # and set the two helm.sh keys to null to drop them. The chart refuses a
+  # proof pod with neither a Helm nor an Argo CD hook annotation, because it
+  # would otherwise be created as an ordinary pod on every install, and a hook
+  # value that is not a Helm or Argo CD hook type.
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation
+  # Helm proof pods run alongside the steady-state runtime, so size them
+  # independently instead of inheriting the runtime workload's reservation.
+  readiness:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "4"
+        memory: 4Gi
+  mcp:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+mirror:
+  enabled: false
+  command: ["python"]
+  args: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+serviceAccount:
+  create: true
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+networkPolicy:
+  enabled: true
+
+# Off by default: the runtime is a single replica, so a minAvailable: 1 budget
+# blocks every voluntary eviction, including a node drain, until someone
+# deletes the budget. Turn it on only where blocking drains is the intent.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

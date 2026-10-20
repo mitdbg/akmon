@@ -1,0 +1,20 @@
+apiVersion: v2
+name: okg
+description: Deploy one Operational Knowledge Graph on Kubernetes
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/mitdbg/akmon
+sources:
+  - https://github.com/mitdbg/akmon
+maintainers:
+  - name: MIT DSG Semantic Management Lab
+annotations:
+  # "false" in a source checkout: no runtime or Postgres image is published for
+  # this appVersion, so each image needs a tag or a digest (images.okg and
+  # postgresql.image). The release packaging sets "true" in the chart it
+  # publishes, and only then do both images default to the appVersion tag: the
+  # runtime image to ghcr.io/mitdbg/akmon:<appVersion>, and the Postgres image to
+  # its repository's <appVersion> tag.
+  okg.mitdbg.io/released: "false"

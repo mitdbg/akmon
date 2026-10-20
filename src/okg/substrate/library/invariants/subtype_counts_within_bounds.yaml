@@ -1,0 +1,23 @@
+invariants:
+  - name: subtype_counts_within_bounds
+    severity: warn
+    scope: cross
+    sql: |
+      -- Chronos-native graph reads expose a pinned current checkout
+      -- through okg.v_nodes. The former generic 10x growth check
+      -- depended on retired bitemporal history, so this library
+      -- preset is now a conservative current-view upper-bound guard.
+      -- Deployments with known corpus sizes should ship tighter
+      -- subtype-specific floors/ceilings in their own invariants.
+      WITH bounds AS (
+        SELECT 1000000::bigint AS max_expected
+      ),
+      counts AS (
+        SELECT subtype, count(*)::bigint AS current_count
+          FROM okg.v_nodes
+         GROUP BY subtype
+      )
+      SELECT c.subtype, c.current_count, b.max_expected
+        FROM counts c
+        CROSS JOIN bounds b
+       WHERE c.current_count > b.max_expected

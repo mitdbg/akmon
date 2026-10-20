@@ -1,0 +1,84 @@
+# Modules loaded by the academic-researcher profile.
+#
+# Per `refine-academic-pi-with-comms-and-calendar`: ships
+# the former cs-researcher profile's full module set (merged
+# into this profile on 2026-09-23) PLUS the two new modules
+# (`communications`, `calendar`). Trimming the substrate-ops
+# modules (coordination, ci, quality_evidence, agent_memory,
+# personas) is blocked today because the substrate's `concepts`
+# / `reasoning` / `openspec` modules declare hard-validated
+# EdgeNarrowings against subtypes in those modules. Moving
+# those narrowings into cross-link rule files (so they
+# silently skip when targets are unloaded) is tracked as a
+# follow-up cleanup proposal.
+#
+# academic_researcher.Meeting is removed; its functionality moved
+# to calendar.CalendarEvent. The personas module ships but
+# the academic-researcher skill bundle does not register /review-as
+# or /review-panel skills against this deployment.
+
+modules:
+  # Shared infrastructure
+  - extraction
+  - concepts
+  - person
+  - views
+
+  # Reasoning core
+  - reasoning
+
+  # Codified wisdom + empirics
+  - methodology
+  - experimental
+
+  # Scholarly literature
+  - scholarly
+
+  # Coordination (intra-narrowings reference TestReport from `ci`
+  # and VerificationResult from `quality_evidence`).
+  - coordination
+  - ci
+  - quality_evidence
+
+  # Bookkeeping
+  - bookkeeping
+
+  # Agent session traces
+  - agent_sessions
+
+  # agent_sessions narrowings reference RemoteHost from compute_env.
+  - compute_env
+  - agent_memory
+
+  # Dataset references
+  - dataset
+
+  # Operator's repo (history + structural)
+  - git_graph
+  - code_graph
+
+  # OpenSpec proposals + specs
+  - openspec
+
+  # External repos the operator depends on
+  - external_repos
+
+  # Persona registry + Critique subtype (shipped but
+  # academic-researcher skill bundle doesn't expose /review-as).
+  - personas
+
+  # NEW: communications module — Email, EmailThread,
+  # ChatChannel, ChatMessage. Sources: gmail_api (Tier C),
+  # slack_api (Tier C).
+  - communications
+
+  # NEW: calendar module — CalendarEvent, CalendarFeed.
+  # Sources: calendar_ics (Tier A), notes_dir (Tier A),
+  # google_calendar_api (Tier C), apple_calendar_local (Tier C).
+  - calendar
+
+  # Lab-management subtypes (Advisee, Lab, Grant, Deadline,
+  # Committee, Review, Course, TalkEngagement,
+  # RecommendationLetter, ActionItem). Meeting REMOVED;
+  # see calendar.CalendarEvent.
+  - academic_researcher

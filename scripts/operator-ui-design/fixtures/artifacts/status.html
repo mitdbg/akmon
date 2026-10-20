@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Deployment status</title>
+<script src="https://cdn.invalid/analytics.js"></script>
+<style>
+  body { font: 15px/1.5 Georgia, serif; margin: 32px; color: #1c1c1c; }
+  h1 { font-size: 24px; }
+  table { border-collapse: collapse; }
+  td, th { border: 1px solid #bbb; padding: 4px 10px; text-align: left; }
+  #script-ran { color: #b00; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Deployment status</h1>
+<p>This page is rebuilt after every published version.</p>
+<table>
+  <tr><th>Producer</th><th>State</th></tr>
+  <tr><td>source-07-git</td><td>updated</td></tr>
+  <tr><td>semantic-linker</td><td>updated</td></tr>
+  <tr><td>contributor-graph</td><td>failed</td></tr>
+</table>
+<p id="script-ran" hidden>A script ran inside this frame.</p>
+<script>
+  document.getElementById("script-ran").hidden = false;
+  document.title = "SCRIPT RAN";
+</script>
+</body>
+</html>

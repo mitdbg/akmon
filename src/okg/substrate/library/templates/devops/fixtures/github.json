@@ -1,0 +1,17 @@
+{
+  "nodes": [
+    {"node_id": "repo:example/demo", "subtype": "repo",
+     "attrs": {"name": "example/demo", "text": "Example demo repository."}},
+    {"node_id": "pr:example/demo#1", "subtype": "pull_request",
+     "attrs": {"number": 1, "text": "Draft PR #1 body."}},
+    {"node_id": "person:alice", "subtype": "person",
+     "ownership_mode": "substitute",
+     "attrs": {"name": "alice"}}
+  ],
+  "edges": [
+    {"src": "repo:example/demo", "dst": "pr:example/demo#1",
+     "edge_type": "has_pull_request"},
+    {"src": "pr:example/demo#1", "dst": "person:alice",
+     "edge_type": "authored_by"}
+  ]
+}

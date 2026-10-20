@@ -1,0 +1,159 @@
+id: https://palimpzest.mit.edu/okg/modules/legal
+name: legal
+title: Legal Graph — statute passages, their hierarchy, and jurisdictions
+description: |-
+  Statute passages ingested from operator-frozen local slices of a
+  statute passage pool (the reglab/housing_qa statutes.tsv shape) via
+  the statute_corpus source. Three subtypes: StatutePassage,
+  StatuteSection, Jurisdiction.
+
+  This module previously declared that it "emits no edges — passages are
+  a flat reference corpus; retrieval structure is the benchmark's to
+  measure, not the ontology's to presuppose". That doctrine is
+  OVERTURNED by `okg-corpus-design` ("INGESTING IS NOT PRESUPPOSING").
+  The pool ships a hierarchy trail in its `path` column and a scoping
+  code in its `state` column; reading them is ingesting the source, not
+  presupposing an answer. Inventing structure the publisher does not
+  assert — a similarity edge between two passages, say — would be
+  presupposing, and stays out. A corpus that drops publisher-carried
+  structure is incomplete, not neutral: the flat version could not
+  express "state X's law" as anything but a string filter, and could not
+  reach a governing parent section at all.
+
+  Five narrowings cover exactly the edges the source emits: a passage
+  is part_of its deepest section, a section is part_of its parent
+  section, passages and root sections are in_jurisdiction of a
+  jurisdiction, and a passage cross_references another passage it cites
+  (derived from the citation column and the passage text).
+
+  Per `okg-bench-domain-adapters` (2026-07-27) and `okg-corpus-legal`
+  (2026-07-28).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  legal: https://palimpzest.mit.edu/okg/modules/legal/
+default_range: string
+imports:
+- linkml:types
+classes:
+  StatutePassage:
+    description: |-
+      One statute passage from a frozen statute-pool slice.
+      Conventionally node id statute_passage:<repo>:<idx> — the pool's
+      integer idx is the natural key the benchmark's statute_idx
+      labels reference.
+    class_uri: legal:StatutePassage
+    attributes:
+      statute_idx:
+        required: true
+        range: integer
+        description: "The pool's integer passage index (the retrieval label key)."
+      citation:
+        required: true
+        description: "The passage's legal citation string, e.g. Wis. Stat. § 704.17."
+      state:
+        required: true
+        description: "Two-letter state code the passage belongs to."
+      header_path:
+        description: |-
+          The pool's header path for the passage (title / chapter /
+          section breadcrumb) verbatim; may be empty in the upstream
+          dump. The trail is PROMOTED into StatuteSection nodes, not
+          moved — this attribute keeps the released string.
+      text:
+        required: true
+        description: Passage text, truncated to 4000 chars at ingest.
+      truncated:
+        range: boolean
+        description: True when the ingested text was truncated at 4000 chars.
+      unresolved_references:
+        multivalued: true
+        description: |-
+          Citation strings found in this passage's text whose target
+          passage is NOT in the built slice. They are kept here — never
+          as a stub passage node (which would enter the retrieval
+          candidate pool the benchmark scores) and never as a dangling
+          edge (which would block the publish), per `okg-corpus-design`.
+          Empty when every reference resolved.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  StatuteSection:
+    description: |-
+      One node of a statute hierarchy: one DISTINCT PREFIX of a
+      passage's released `path` trail (for "Title 34 > Chapter 03 >
+      Landlord and Tenant" the prefixes are "Title 34", "Title 34 >
+      Chapter 03", and the whole trail). Conventionally node id
+      statute_section:<repo>:<state>:<digest of the trail prefix> — the
+      identity is (state, trail prefix) and NEVER the label, so
+      Alaska's "Title 34" and Wisconsin's "Title 34" are distinct
+      nodes rather than one merged section spanning two states' law.
+    class_uri: legal:StatuteSection
+    attributes:
+      label:
+        required: true
+        description: The last segment of this section's trail.
+      depth:
+        required: true
+        range: integer
+        description: |-
+          0-based position in the trail; a root section (the first
+          segment, e.g. a title) has depth 0.
+      trail:
+        required: true
+        description: The full trail from the root down to this section.
+      state:
+        required: true
+        description: |-
+          Two-letter state code, carried so a section is readable
+          without a traversal; the traversable form is the
+          in_jurisdiction edge from the root section.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Jurisdiction:
+    description: |-
+      One legal jurisdiction — the pool's `state` column promoted from
+      a scoping string to a node, so "state X's law" is a one-hop
+      traversal rather than an attribute filter. Conventionally node id
+      jurisdiction:<repo>:<state>.
+    class_uri: legal:Jurisdiction
+    attributes:
+      code:
+        required: true
+        description: |-
+          Two-letter state code, upper-cased at ingest so one state is
+          one node no matter how the slice cased it.
+    annotations:
+      archetype: resource
+      transient: 'false'
+  EdgeNarrowings:
+    description: Edge narrowings emitted by the legal module.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      statute_passage_part_of_statute_section:
+        annotations:
+          edge_archetype: part_of
+          src_subtypes: StatutePassage
+          dst_subtypes: StatuteSection
+      statute_section_part_of_statute_section:
+        annotations:
+          edge_archetype: part_of
+          src_subtypes: StatuteSection
+          dst_subtypes: StatuteSection
+      statute_passage_in_jurisdiction_jurisdiction:
+        annotations:
+          edge_archetype: in_jurisdiction
+          src_subtypes: StatutePassage
+          dst_subtypes: Jurisdiction
+      statute_section_in_jurisdiction_jurisdiction:
+        annotations:
+          edge_archetype: in_jurisdiction
+          src_subtypes: StatuteSection
+          dst_subtypes: Jurisdiction
+      statute_passage_cross_references_statute_passage:
+        annotations:
+          edge_archetype: cross_references
+          src_subtypes: StatutePassage
+          dst_subtypes: StatutePassage

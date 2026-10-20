@@ -1,0 +1,39 @@
+# Profile: minimal
+#
+# What `okg install` builds when no `--profile` is given (issue #3414,
+# Jason 2026-10-05 `default A`). The primary user is a team building its
+# own domain graph: it starts from an empty, published graph and grows it
+# with `okg deployment add-source` and its own ontology modules, rather
+# than inheriting a domain someone else chose.
+#
+# The profile declares no source defaults on purpose. The first publish is
+# an empty generation, and the install names `okg deployment add-source` as
+# the next step. A profile that declares source defaults and renders an
+# empty registry is still refused as a broken scaffold.
+
+name: minimal
+version: 0.1.0
+classification: reusable
+description: |
+  Empty starter graph for a team building its own domain graph. Publishes
+  an empty first version; add sources with `okg deployment add-source` and
+  ontology modules as the graph grows. Nomos runtime enforcement is off.
+
+init_questions:
+  - id: deployment_name
+    prompt: deployment name (also used as the deployments/<name>/ dir)
+    type: slug
+    required: true
+    description: |
+      Slug for the deployment directory and graph identity.
+
+  - id: postgres_dsn
+    prompt: Postgres DSN (postgresql://...)
+    type: string
+    required: true
+    description: |
+      Substrate Postgres DSN. Each deployment should own its own database.
+
+modules: modules.yaml
+invariants: invariants.yaml
+deployment_defaults: deployment-defaults.yaml

@@ -1,0 +1,631 @@
+id: https://palimpzest.mit.edu/okg/modules/ci
+name: ci
+title: CI / Test Results — JUnit XML + forge workflow runs
+description: |-
+  Test results and CI workflow runs sourced from JUnit XML
+  drops or forge CIs (GitHub Actions / GitLab CI). Four
+  subtypes: TestRun, TestCase, CiWorkflow, CiJob. Cross-module
+  narrowings to git_graph (commits) and source_file resolve
+  when those modules are co-loaded.
+
+  Per `add-ci-test-source-adapter` (2026-04-26).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  ci: https://palimpzest.mit.edu/okg/modules/ci/
+default_range: string
+imports:
+- linkml:types
+classes:
+  TestRun:
+    description: |-
+      One run of a test suite (e.g. one `pytest` invocation
+      producing a JUnit XML drop, or one CI workflow run).
+    class_uri: ci:TestRun
+    attributes:
+      run_id:
+        required: true
+        description: "Conventionally test-run:<source>:<timestamp-or-uuid>."
+      suite_name:
+        description: "e.g. pytest, jest, go-test, junit."
+      n_passed:
+        range: integer
+      n_failed:
+        range: integer
+      n_skipped:
+        range: integer
+      duration_s:
+        range: float
+      started_at:
+        range: datetime
+      finished_at:
+        range: datetime
+      sha:
+        description: "Commit SHA the suite ran against (when known)."
+    annotations:
+      archetype: process
+      transient: 'false'
+  TestCase:
+    description: |-
+      One test case within a TestRun. Failures carry a message
+      + stack trace excerpt.
+    class_uri: ci:TestCase
+    attributes:
+      case_id:
+        required: true
+        description: "Conventionally test-case:<run-id>:<classname>:<name>."
+      classname:
+        description: "Test class / module path."
+      name:
+        required: true
+      status:
+        required: true
+        description: "passed | failed | skipped | error."
+      duration_s:
+        range: float
+      message:
+        description: "Failure message (status='failed'/'error')."
+      file:
+        description: "Source file path the test lives in."
+    annotations:
+      archetype: artifact
+      transient: 'false'
+
+  TestReport:
+    description: One raw test artifact such as JUnit XML, pytest JSON, coverage XML/JSON, TAP, or a CI-produced report file.
+    class_uri: ci:TestReport
+    attributes:
+      report_id:
+        required: true
+      repo:
+        required: true
+      path:
+        required: true
+      format:
+        required: true
+      suite_name:
+        required: true
+      observed_at:
+        range: datetime
+      created_at:
+        range: datetime
+      mtime:
+        range: datetime
+      artifact_hash:
+      sha:
+      text:
+    annotations:
+      okg_path_from: path
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: report_id,path,suite_name
+      okg_searchable_text_fields: path,suite_name,format,text
+
+  CoverageReport:
+    description: A coverage artifact with file and line coverage summaries.
+    class_uri: ci:CoverageReport
+    attributes:
+      coverage_id:
+        required: true
+      repo:
+        required: true
+      path:
+        required: true
+      format:
+        required: true
+      line_rate:
+        range: float
+      branch_rate:
+        range: float
+      covered_lines:
+      missing_lines:
+      observed_at:
+        range: datetime
+      created_at:
+        range: datetime
+      mtime:
+        range: datetime
+      artifact_hash:
+      sha:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: coverage_id,path
+      okg_searchable_text_fields: path,format,text
+
+  BenchMeasurement:
+    description: |-
+      A single run-level performance measurement from an OKG-internals bench
+      sweep: one node per (config-cell, metric) for a CI run, attributed to the
+      run's head commit (head_sha). Enables regression queries -- aggregate
+      `value` over `head_sha` for a given `cell` + `metric_name`.
+    class_uri: ci:BenchMeasurement
+    attributes:
+      measurement_id:
+        required: true
+      repo:
+        required: true
+      run_id:
+      cell:
+        required: true
+      config_axis:
+      axis_value:
+      metric_name:
+        required: true
+      value:
+        required: true
+        range: float
+      unit:
+      head_sha:
+      observed_at:
+        range: datetime
+      created_at:
+        range: datetime
+      mtime:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: measurement_id
+      okg_searchable_text_fields: cell,metric_name,config_axis
+
+  RuntimeEvent:
+    description: A failure, error, warning, crash, or runtime observation extracted from a test report, log, or local run.
+    class_uri: ci:RuntimeEvent
+    attributes:
+      event_id:
+        required: true
+      repo:
+        required: true
+      kind:
+        required: true
+      status:
+        required: true
+      message:
+        required: true
+      duration_s:
+        range: float
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: event_id,kind,status
+      okg_searchable_text_fields: kind,status,message,text
+
+  StackFrame:
+    description: One source location inside a runtime failure stack trace.
+    class_uri: ci:StackFrame
+    attributes:
+      frame_id:
+        required: true
+      repo:
+        required: true
+      path:
+        required: true
+      line:
+        range: integer
+        required: true
+      index:
+        range: integer
+        required: true
+      function:
+      column:
+        range: integer
+      excerpt:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: frame_id,path,function
+      okg_searchable_text_fields: path,function,excerpt,text
+
+  CiWorkflow:
+    description: |-
+      A CI workflow run (GitHub Actions / GitLab CI). Carries
+      conclusion + URL; per-job detail lives in CiJob nodes.
+    class_uri: ci:CiWorkflow
+    attributes:
+      workflow_id:
+        required: true
+      run_id:
+        range: integer
+      run_attempt:
+        range: integer
+      name:
+        required: true
+      display_title:
+      status:
+      conclusion:
+        description: "success | failure | cancelled | skipped."
+      event:
+      head_branch:
+      sha:
+      url:
+      created_at:
+        range: datetime
+      updated_at:
+        range: datetime
+      artifact:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      gate:
+      policy_scope:
+    annotations:
+      archetype: process
+      transient: 'false'
+  CiJob:
+    description: |-
+      One job inside a CiWorkflow. Pass/fail granularity for
+      pipeline stages.
+    class_uri: ci:CiJob
+    attributes:
+      job_id:
+        required: true
+      workflow_id:
+        required: true
+      github_job_id:
+        range: integer
+      run_id:
+        range: integer
+      run_attempt:
+        range: integer
+      name:
+        required: true
+      conclusion:
+      duration_s:
+        range: float
+      status:
+      exit_code:
+        range: integer
+      command:
+      command_label:
+      gate:
+      gate_id:
+      policy_scope:
+      sha:
+      artifact:
+      path:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      created_at:
+        range: datetime
+      started_at:
+        range: datetime
+      finished_at:
+        range: datetime
+      url:
+      runner_id:
+        range: integer
+      runner_name:
+      runner_group_name:
+      labels:
+      mtime:
+        range: datetime
+      stdout_tail:
+      stderr_tail:
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+
+  CiCheckRun:
+    description: A forge check-run record for a CI job or workflow status.
+    class_uri: ci:CiCheckRun
+    attributes:
+      check_run_id:
+        required: true
+        range: integer
+      repo:
+        required: true
+      name:
+        required: true
+      status:
+        required: true
+      conclusion:
+      head_sha:
+      started_at:
+        range: datetime
+      completed_at:
+        range: datetime
+      url:
+      html_url:
+      details_url:
+      app_slug:
+      workflow_run_id:
+        range: integer
+      job_id:
+        range: integer
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: check_run_id,name,html_url
+      okg_searchable_text_fields: name,status,conclusion,text
+
+  CiArtifact:
+    description: GitHub Actions artifact metadata, not raw artifact contents.
+    class_uri: ci:CiArtifact
+    attributes:
+      artifact_id:
+        required: true
+        range: integer
+      repo:
+        required: true
+      run_id:
+        range: integer
+      job_id:
+        range: integer
+      name:
+        required: true
+      path:
+      size_in_bytes:
+        range: integer
+      archive_download_url:
+      url:
+      expired:
+        range: boolean
+      expires_at:
+        range: datetime
+      artifact_hash:
+      content_kind:
+      observed_at:
+        range: datetime
+      created_at:
+        range: datetime
+      updated_at:
+        range: datetime
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: artifact_id,name,path
+      okg_searchable_text_fields: name,content_kind,text
+
+  CiRunner:
+    description: A registered self-hosted runner inventory snapshot.
+    class_uri: ci:CiRunner
+    attributes:
+      runner_id:
+        required: true
+        range: integer
+      runner_name:
+        required: true
+      scope:
+        required: true
+      scope_value:
+      runner_group_id:
+        range: integer
+      runner_group_name:
+      os:
+      arch:
+      status:
+      busy:
+        range: boolean
+      ephemeral:
+        range: boolean
+      labels:
+      provider:
+      pool:
+      image_id:
+      version:
+      observed_at:
+        range: datetime
+      text:
+    annotations:
+      archetype: resource
+      transient: 'false'
+      okg_alias_fields: runner_id,runner_name
+      okg_searchable_text_fields: runner_name,os,status,provider,pool,text
+
+  CiRunnerEvent:
+    description: Runner lifecycle or heartbeat event emitted by a runner controller.
+    class_uri: ci:CiRunnerEvent
+    attributes:
+      event_id:
+        required: true
+      runner_id:
+        required: true
+      runner_name:
+      run_id:
+        range: integer
+      job_id:
+        range: integer
+      event:
+        required: true
+      status:
+        required: true
+      provider:
+      server_id:
+      image_id:
+      observed_at:
+        range: datetime
+      cleanup:
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: event_id,runner_id,runner_name
+      okg_searchable_text_fields: event,status,runner_name,provider,text
+  EdgeNarrowings:
+    description: Edge narrowings emitted by the ci module.
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        verified_by: references
+        points_to: references
+        produces: references
+    attributes:
+      test_report_contains_test_run:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: TestReport
+          dst_subtypes: TestRun
+      test_report_contains_test_case:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: TestReport
+          dst_subtypes: TestCase
+      test_report_contains_runtime_event:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: TestReport
+          dst_subtypes: RuntimeEvent
+      test_run_contains_test_case:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: TestRun
+          dst_subtypes: TestCase
+      runtime_event_contains_stack_frame:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: RuntimeEvent
+          dst_subtypes: StackFrame
+      coverage_report_references_source_file:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CoverageReport
+          dst_subtypes: SourceFile
+      coverage_report_references_code_symbol:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CoverageReport
+          dst_subtypes: CodeSymbol
+      runtime_event_references_test_case:
+        annotations:
+          edge_archetype: references
+          src_subtypes: RuntimeEvent
+          dst_subtypes: TestCase
+      runtime_event_references_code_symbol:
+        annotations:
+          edge_archetype: references
+          src_subtypes: RuntimeEvent
+          dst_subtypes: CodeSymbol
+      stack_frame_points_to_source_file:
+        annotations:
+          edge_archetype: points_to
+          src_subtypes: StackFrame
+          dst_subtypes: SourceFile
+      stack_frame_points_to_code_symbol:
+        annotations:
+          edge_archetype: points_to
+          src_subtypes: StackFrame
+          dst_subtypes: CodeSymbol
+      acceptance_criterion_verified_by_test_case:
+        annotations:
+          edge_archetype: verified_by
+          src_subtypes: AcceptanceCriterion
+          dst_subtypes: TestCase
+      acceptance_criterion_verified_by_test_report:
+        annotations:
+          edge_archetype: verified_by
+          src_subtypes: AcceptanceCriterion
+          dst_subtypes: TestReport
+      ci_workflow_contains_ci_job:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: CiWorkflow
+          dst_subtypes: CiJob
+      repo_contains_ci_workflow:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Repo
+          dst_subtypes: CiWorkflow
+          optional_when_subtypes_missing: 'true'
+      repo_contains_ci_runner:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Repo
+          dst_subtypes: CiRunner
+          optional_when_subtypes_missing: 'true'
+      ci_workflow_references_pull_request:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CiWorkflow
+          dst_subtypes: PullRequest
+          optional_when_subtypes_missing: 'true'
+      ci_workflow_references_ci_check_run:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CiWorkflow
+          dst_subtypes: CiCheckRun
+      ci_job_references_ci_check_run:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CiJob
+          dst_subtypes: CiCheckRun
+      ci_job_references_ci_runner:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CiJob
+          dst_subtypes: CiRunner
+      ci_job_produces_ci_artifact:
+        annotations:
+          edge_archetype: produces
+          src_subtypes: CiJob
+          dst_subtypes: CiArtifact
+      ci_artifact_references_ci_workflow:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CiArtifact
+          dst_subtypes: CiWorkflow
+      ci_artifact_references_ci_job:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CiArtifact
+          dst_subtypes: CiJob
+      test_report_references_ci_artifact:
+        annotations:
+          edge_archetype: references
+          src_subtypes: TestReport
+          dst_subtypes: CiArtifact
+      coverage_report_references_ci_artifact:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CoverageReport
+          dst_subtypes: CiArtifact
+      ci_runner_event_references_ci_runner:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CiRunnerEvent
+          dst_subtypes: CiRunner
+      ci_runner_event_references_ci_job:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CiRunnerEvent
+          dst_subtypes: CiJob
+      test_run_affects_git_commit:
+        description: |-
+          Test result is for a specific commit (sha attr).
+          Cross-module to git_graph.
+        annotations:
+          edge_archetype: affects
+          src_subtypes: TestRun
+          dst_subtypes: GitCommit
+      bench_measurement_affects_git_commit:
+        description: |-
+          A benchmark measurement is for a specific commit (head_sha attr).
+          Cross-module to git_graph.
+        annotations:
+          edge_archetype: affects
+          src_subtypes: BenchMeasurement
+          dst_subtypes: GitCommit
+      test_case_references_source_file:
+        description: |-
+          Test case lives in or covers a tracked source file.
+          Cross-module to git_graph.
+        annotations:
+          edge_archetype: references
+          src_subtypes: TestCase
+          dst_subtypes: SourceFile
+      ci_workflow_affects_git_commit:
+        description: |-
+          Workflow ran against this commit. Cross-module to
+          git_graph.
+        annotations:
+          edge_archetype: affects
+          src_subtypes: CiWorkflow
+          dst_subtypes: GitCommit

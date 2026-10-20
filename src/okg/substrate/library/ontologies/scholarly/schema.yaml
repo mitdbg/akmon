@@ -1,0 +1,754 @@
+# Scholarly ontology module.
+#
+# Lifted from `deployments/memex/schemas/nodes.yaml` per
+# `lift-scholarly-sources-to-substrate-library` (a child of the
+# `expand-memex-to-personal-okg` umbrella). Behaviorally identical
+# to the pre-lift memex declarations: same subtype names, same
+# attribute shapes, same archetype assignments. Existing memex
+# `nodes_live` rows remain valid after catalog reload because this
+# module declares the same subtype identities.
+#
+# Scope of this module:
+#   - Subtypes: Paper, Venue, Conference, ConferenceEdition,
+#     Organization, Software, Benchmark.
+#   - Intra-module narrowings: paper cites paper, conference
+#     contains conference_edition.
+#   - Cross-shared narrowings emitted from scholarly subtypes into
+#     substrate `person` / `dataset` modules: paper authored_by
+#     person, paper published_in conference_edition, conference
+#     published_by organization, person affiliated_with
+#     organization, paper mentions software / benchmark / dataset.
+#
+# Out of module: `Person` (substrate `person` module),
+# `Dataset` (substrate `dataset` module), `Concept` (substrate
+# `concepts` module). Memex corpus-specific subtypes
+# (`FoundationalWork`, `LaureateLecture`, `Award`, etc.) remain in
+# `deployments/memex/schemas/nodes.yaml`. Cross-shared narrowings
+# from memex corpus subtypes to scholarly subtypes (e.g.
+# `LaureateLecture authored_by Person`,
+# `FoundationalWork references Paper`) remain in the deployment
+# bridge `deployments/memex/schemas/bridges/memex_narrowings.yaml`.
+#
+# The Pattern A cross-link rule `Paper produces Observation` is
+# declared in the spec contract but its YAML rule file at
+# `library/ontologies/reasoning/cross_links/reasoning_to_scholarly.yaml`
+# (owned by the reasoning module via its `extends.scholarly` block)
+# is intentionally empty (`rules: []`). Active emission requires
+# both the substrate reasoning module to be composed AND an
+# emitting enricher to be registered; both are in flight under
+# separate Wave A / Wave B children of the umbrella.
+
+id: https://palimpzest.mit.edu/okg/modules/scholarly
+name: scholarly
+title: "Scholarly — papers, venues, conferences, organizations, software, benchmarks"
+description: |-
+  Substrate-shipped ontology module for the scholarly publishing
+  graph. Papers, their venues / conferences / conference editions,
+  publishing organizations, and the software / benchmark
+  mention-anchors that papers cite. Lifted from
+  `deployments/memex/` per
+  `lift-scholarly-sources-to-substrate-library`.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  schol: https://palimpzest.mit.edu/okg/modules/scholarly/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+
+  Paper:
+    description: Scholarly paper. Canonical identity is `paper_id`; cross-source identity resolution uses title, doi, and arxiv_id aliases.
+    class_uri: schol:Paper
+    attributes:
+      paper_id:
+        required: true
+      title:
+      year:
+      doi:
+      arxiv_id:
+      bib_entry_type:
+      cite_key_ref:
+      bib_keys:
+        multivalued: true
+      bib_key_refs:
+        multivalued: true
+      abstract:
+      pdf_url:
+      body_text:
+      openalex_id:
+      s2_id:
+      citation_count:
+      influential_citation_count:
+      match_confidence:
+      text:
+    annotations:
+      okg_title_from: title
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: title,doi,arxiv_id
+      okg_searchable_text_fields: title,abstract,body_text
+
+  Venue:
+    description: Publication or lecture venue (journal, conference series proxy, or lecture-host body).
+    class_uri: schol:Venue
+    attributes:
+      venue_id:
+        required: true
+      name:
+        required: true
+      kind:
+      venue_aliases:
+        multivalued: true
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: name
+      okg_searchable_text_fields: name
+
+  Conference:
+    description: Scholarly conference series.
+    class_uri: schol:Conference
+    attributes:
+      conference_id:
+        required: true
+      name:
+        required: true
+      acronym:
+      venue_aliases:
+        multivalued: true
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: name,acronym
+      okg_searchable_text_fields: name,acronym
+
+  ConferenceEdition:
+    description: Year-specific edition of a conference (e.g. ICML 2024).
+    class_uri: schol:ConferenceEdition
+    attributes:
+      edition_id:
+        required: true
+      conference_id:
+      year:
+      name:
+      location:
+      venue_aliases:
+        multivalued: true
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: name,edition_id
+      okg_searchable_text_fields: name,location
+
+  Organization:
+    description: >-
+      Institution, award body, lab, university, publisher, or other
+      organization participating in the scholarly graph. The `kind`
+      attribute is a free-form discriminator; the academic_researcher module
+      documents a vocabulary (institution | department | lab |
+      funding_agency | industry_partner | venue_host) and the
+      `parent_org` attribute carries a self-reference so the
+      affiliation graph can model CSAIL → MIT, LNS → MIT Physics →
+      MIT, etc.
+    class_uri: schol:Organization
+    attributes:
+      organization_id:
+        required: true
+      name:
+        required: true
+      kind:
+        description: |-
+          Free-form discriminator. The academic_researcher profile uses the
+          vocabulary {institution, department, lab, funding_agency,
+          industry_partner, venue_host}. Existing rows load with
+          NULL kind unchanged.
+      parent_org:
+        description: |-
+          Optional self-reference to the parent Organization (e.g.,
+          CSAIL → MIT). Added by `add-academic-pi-ontology-module`
+          to model the institution → department → lab affiliation
+          graph. Existing rows load with NULL parent_org unchanged.
+      url:
+      text:
+    annotations:
+      archetype: actor
+      transient: "false"
+      okg_alias_fields: name
+      okg_searchable_text_fields: name
+
+  Software:
+    description: Software artifact mentioned by papers (curated entity anchor).
+    class_uri: schol:Software
+    attributes:
+      software_id:
+        required: true
+      name:
+      url:
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: name
+      okg_searchable_text_fields: name
+
+  Benchmark:
+    description: Benchmark or evaluation suite mentioned by papers (curated entity anchor).
+    class_uri: schol:Benchmark
+    attributes:
+      benchmark_id:
+        required: true
+      name:
+      url:
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: name
+      okg_searchable_text_fields: name
+
+  # ------------------------------------------------------------------
+  # Paper anatomy subtypes (per `extend-substrate-scholarly-with-paper-anatomy`,
+  # umbrella `evolve-memex-to-ai-scientist-substrate` A1).
+  #
+  # Structural decomposition of a Paper into typed parts. Emitted by
+  # deterministic enrichers (latex_structural, pdf_structural) with
+  # provenance: derived_deterministic. Semantic content (claim,
+  # evidence, hypothesis extraction from a paragraph's text) is A2's
+  # scope and lives in the extraction / reasoning modules.
+  # ------------------------------------------------------------------
+
+  PaperSection:
+    description: >-
+      One section of a Paper (e.g. §1 Introduction, §4.2 Evaluation).
+      Identified by `paper_section_id`; queried via path (`§3.2`)
+      and ordinal within parent. Recursive nesting via
+      `parent_section_ref` + the `paper_section_contains_paper_section`
+      narrowing.
+    class_uri: schol:PaperSection
+    attributes:
+      paper_section_id:
+        required: true
+      paper_ref:
+        required: true
+        description: Alias of the owning Paper (paper_id / doi / arxiv_id).
+      path:
+        required: true
+        description: Dotted section path like `§3.2.1`, addressable from MCP.
+      ordinal:
+        required: true
+        range: integer
+        description: Ordinal within parent section (0-indexed).
+      parent_section_ref:
+        description: paper_section_id of the parent section; absent for top-level.
+      title:
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: paper_section_id
+      okg_searchable_text_fields: title,text,path
+
+  Paragraph:
+    description: >-
+      One paragraph inside a PaperSection. Carries the paragraph's
+      verbatim text and an optional `chunk_id` reference to the
+      corresponding `extraction.DocumentChunk` when the BM25 /
+      embedding pipeline produced one (D4 in the proposal's
+      design.md). Order within section is `ordinal`.
+    class_uri: schol:Paragraph
+    attributes:
+      paragraph_id:
+        required: true
+      parent_section_ref:
+        required: true
+        description: paper_section_id of the containing PaperSection.
+      ordinal:
+        required: true
+        range: integer
+      text:
+        required: true
+      chunk_id:
+        description: Optional DocumentChunk.chunk_id reference (D4).
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: paragraph_id
+      okg_searchable_text_fields: text
+
+  Figure:
+    description: >-
+      Figure block inside a PaperSection. Caption is the searchable
+      surface; `image_uri` points at extracted graphics when
+      available; `kind` is a coarse classifier in
+      {plot, system-diagram, schema, screenshot}.
+    class_uri: schol:Figure
+    attributes:
+      figure_id:
+        required: true
+      parent_section_ref:
+        required: true
+      label:
+        required: true
+        description: LaTeX-style label (`fig:foo`) or generated slug for PDFs.
+      ordinal:
+        required: true
+        range: integer
+      caption:
+      image_uri:
+        description: Local path / URI of extracted image asset, when available.
+      kind:
+        description: Enum {plot, system-diagram, schema, screenshot}; free-form for unknown.
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: figure_id,label
+      okg_searchable_text_fields: caption,label,kind
+
+  Table:
+    description: >-
+      Table block inside a PaperSection. `cells` is JSON-encoded
+      row/column data when extractable; `caption` is the searchable
+      surface.
+    class_uri: schol:Table
+    attributes:
+      table_id:
+        required: true
+      parent_section_ref:
+        required: true
+      label:
+        required: true
+      ordinal:
+        required: true
+        range: integer
+      caption:
+      cells:
+        description: JSON-serialized table contents (rows x cols).
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: table_id,label
+      okg_searchable_text_fields: caption,label
+
+  Algorithm:
+    description: >-
+      Algorithm block (pseudocode-bearing) inside a PaperSection.
+      `pseudocode` is captured verbatim; pretty-printing is a
+      downstream view-surface concern.
+    class_uri: schol:Algorithm
+    attributes:
+      algorithm_id:
+        required: true
+      parent_section_ref:
+        required: true
+      label:
+        required: true
+      ordinal:
+        required: true
+        range: integer
+      caption:
+      pseudocode:
+        description: Verbatim algorithm body between `\begin{algorithm}` markers.
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: algorithm_id,label
+      okg_searchable_text_fields: caption,label,pseudocode
+
+  Equation:
+    description: >-
+      Equation block inside a PaperSection. `latex_source` carries
+      the raw LaTeX of the equation body. PDF path does not emit
+      Equation nodes today (out of scope until Nougat-class
+      extractors mature; design.md Q1).
+    class_uri: schol:Equation
+    attributes:
+      equation_id:
+        required: true
+      parent_section_ref:
+        required: true
+      label:
+        required: true
+      ordinal:
+        required: true
+        range: integer
+      latex_source:
+        description: Raw LaTeX between `\begin{equation}` / `\[` markers.
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: equation_id,label
+      okg_searchable_text_fields: latex_source,label
+
+  Theorem:
+    description: >-
+      Theorem-like block inside a PaperSection. `kind` distinguishes
+      {theorem, lemma, proposition, definition, corollary};
+      `statement` is the body. Proofs (if present) attach via the
+      `theorem_proved_by_proof` narrowing.
+    class_uri: schol:Theorem
+    attributes:
+      theorem_id:
+        required: true
+      parent_section_ref:
+        required: true
+      label:
+        required: true
+      kind:
+        required: true
+        description: Enum {theorem, lemma, proposition, definition, corollary}.
+      statement:
+        required: true
+      ordinal:
+        range: integer
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: theorem_id,label
+      okg_searchable_text_fields: statement,label,kind
+
+  Proof:
+    description: >-
+      Proof of a Theorem-like block. Links to its Theorem via
+      `proves_theorem_ref` and the `theorem_proved_by_proof`
+      narrowing.
+    class_uri: schol:Proof
+    attributes:
+      proof_id:
+        required: true
+      proves_theorem_ref:
+        required: true
+        description: theorem_id of the Theorem this proof proves.
+      text:
+        required: true
+      ordinal:
+        range: integer
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: proof_id
+      okg_searchable_text_fields: text
+
+  Citation:
+    description: >-
+      A typed citation occurrence inside a leaf (Paragraph,
+      Theorem, Figure, Table). `cited_paper_ref` is the canonical
+      alias of the cited Paper when resolvable; the
+      `citation_cites_paper` cross-link rule emits a typed edge
+      to the Paper when its node exists in nodes_live. `context_text`
+      is the surrounding sentence / phrase so the citation's
+      semantic context survives.
+    class_uri: schol:Citation
+    attributes:
+      citation_id:
+        required: true
+      citing_section_ref:
+        required: true
+        description: paper_section_id of the leaf's enclosing section.
+      context_text:
+        required: true
+        description: Surrounding sentence carrying the cite anchor.
+      cited_paper_ref:
+        description: Canonical alias of the cited Paper (paper_id / doi / arxiv_id); unresolved when the target isn't yet in nodes_live.
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: citation_id
+      okg_searchable_text_fields: context_text
+
+  EdgeNarrowings:
+    description: >-
+      Intra-module + cross-shared narrowings for the scholarly
+      module. Narrowings whose `src_subtypes` is a scholarly
+      subtype live here. Narrowings emanating from memex corpus
+      subtypes (FoundationalWork, LaureateLecture, etc.) that
+      target scholarly subtypes remain in the deployment bridge
+      at `deployments/memex/schemas/bridges/memex_narrowings.yaml`.
+    annotations:
+      okg_edge_narrowings: "true"
+    attributes:
+
+      paper_cites_paper:
+        annotations:
+          edge_archetype: cites
+          src_subtypes: Paper
+          dst_subtypes: Paper
+
+      paper_same_as_paper:
+        annotations:
+          edge_archetype: same_as
+          src_subtypes: Paper
+          dst_subtypes: Paper
+
+      paper_authored_by_person:
+        annotations:
+          edge_archetype: authored_by
+          src_subtypes: Paper
+          dst_subtypes: Person
+
+      paper_published_in_conference_edition:
+        annotations:
+          edge_archetype: published_in
+          src_subtypes: Paper
+          dst_subtypes: ConferenceEdition,Venue
+
+      conference_contains_conference_edition:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Conference
+          dst_subtypes: ConferenceEdition
+
+      conference_edition_member_of_conference:
+        description: Inverse of conference_contains_conference_edition.
+          Bibliographic sources (BibReferencesSource per A4) emit
+          this direction when seeing a paper's venue + year pair —
+          the ConferenceEdition declares membership in its Conference
+          rather than the Conference declaring containment of its
+          editions. Both directions admit, parallel to
+          paper_published_in_conference_edition.
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: ConferenceEdition
+          dst_subtypes: Conference
+
+      conference_published_by_organization:
+        annotations:
+          edge_archetype: published_by
+          src_subtypes: Conference,ConferenceEdition,Venue
+          dst_subtypes: Organization
+
+      person_affiliated_with_organization:
+        annotations:
+          edge_archetype: affiliated_with
+          src_subtypes: Person
+          dst_subtypes: Organization
+
+      paper_mentions_software:
+        annotations:
+          edge_archetype: mentions
+          src_subtypes: Paper
+          dst_subtypes: Software
+
+      paper_mentions_benchmark:
+        annotations:
+          edge_archetype: mentions
+          src_subtypes: Paper
+          dst_subtypes: Benchmark
+
+      paper_mentions_dataset:
+        annotations:
+          edge_archetype: mentions
+          src_subtypes: Paper
+          dst_subtypes: Dataset
+
+      # ----------------------------------------------------------------
+      # Paper anatomy narrowings (S-A1-R4).
+      # ----------------------------------------------------------------
+
+      paper_contains_paper_section:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Paper
+          dst_subtypes: PaperSection
+
+      paper_section_contains_paper_section:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PaperSection
+          dst_subtypes: PaperSection
+
+      paper_section_contains_paragraph:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PaperSection
+          dst_subtypes: Paragraph
+
+      paper_section_contains_figure:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PaperSection
+          dst_subtypes: Figure
+
+      paper_section_contains_table:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PaperSection
+          dst_subtypes: Table
+
+      paper_section_contains_algorithm:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PaperSection
+          dst_subtypes: Algorithm
+
+      paper_section_contains_equation:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PaperSection
+          dst_subtypes: Equation
+
+      paper_section_contains_theorem:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PaperSection
+          dst_subtypes: Theorem
+
+      # Theorem ↔ Proof. The spec preferred edge archetype
+      # `proved_by` (Theorem proved_by Proof). `proved_by` is not
+      # in the D7 shortlist; the impl uses `contains` instead
+      # (Theorem contains Proof — the proof sits as a structural
+      # child of the theorem block). Findings file
+      # `2026-05-18-theorem-proved-by-archetype.md` documents the
+      # decision for the umbrella up-pass.
+      theorem_proved_by_proof:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Theorem
+          dst_subtypes: Proof
+
+      paragraph_contains_citation:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Paragraph
+          dst_subtypes: Citation
+
+      # Per dogfood-canary follow-up (2026-05-18): A2 claim_extractor
+      # emits paragraph -contains-> claim / theorem -states-> claim
+      # / table -states-> claim. These triples reference the
+      # extraction module's Claim subtype — cross-module narrowings
+      # owned by the SCHOLARLY side (the side whose Paragraph /
+      # Theorem / Table the edge originates from), per umbrella D6.
+      paragraph_contains_claim:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Paragraph
+          dst_subtypes: Claim
+          optional_when_subtypes_missing: 'true'
+
+      theorem_states_claim:
+        annotations:
+          edge_archetype: states
+          src_subtypes: Theorem
+          dst_subtypes: Claim
+          optional_when_subtypes_missing: 'true'
+
+      table_states_claim:
+        annotations:
+          edge_archetype: states
+          src_subtypes: Table
+          dst_subtypes: Claim
+          optional_when_subtypes_missing: 'true'
+
+      # Per dogfood-canary follow-up (2026-05-18): A2
+      # evidence_extractor emits evidence -cites-> {citation, theorem,
+      # table, figure}. Same cross-module ownership convention — the
+      # scholarly side owns the four `cites` targets.
+      evidence_cites_citation:
+        annotations:
+          edge_archetype: cites
+          src_subtypes: Evidence
+          dst_subtypes: Citation
+          optional_when_subtypes_missing: 'true'
+
+      evidence_cites_theorem:
+        annotations:
+          edge_archetype: cites
+          src_subtypes: Evidence
+          dst_subtypes: Theorem
+          optional_when_subtypes_missing: 'true'
+
+      evidence_cites_table:
+        annotations:
+          edge_archetype: cites
+          src_subtypes: Evidence
+          dst_subtypes: Table
+          optional_when_subtypes_missing: 'true'
+
+      evidence_cites_figure:
+        annotations:
+          edge_archetype: cites
+          src_subtypes: Evidence
+          dst_subtypes: Figure
+          optional_when_subtypes_missing: 'true'
+
+      theorem_contains_citation:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Theorem
+          dst_subtypes: Citation
+
+      figure_contains_citation:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Figure
+          dst_subtypes: Citation
+
+      table_contains_citation:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Table
+          dst_subtypes: Citation
+
+      citation_cites_paper:
+        annotations:
+          edge_archetype: cites
+          src_subtypes: Citation
+          dst_subtypes: Paper
+
+      # LaTeX-project bridges. These are optional for deployments that compose
+      # scholarly without the extraction module, but become strict legal
+      # narrowings whenever both endpoint subtypes are present.
+      paper_derived_from_document:
+        annotations:
+          edge_archetype: derived_from
+          src_subtypes: Paper
+          dst_subtypes: Document
+          optional_when_subtypes_missing: 'true'
+
+      paper_references_document:
+        annotations:
+          edge_archetype: references
+          src_subtypes: Paper
+          dst_subtypes: Document
+          optional_when_subtypes_missing: 'true'
+
+      paper_references_visual_artifact:
+        annotations:
+          edge_archetype: references
+          src_subtypes: Paper
+          dst_subtypes: VisualArtifact
+          optional_when_subtypes_missing: 'true'
+
+      paper_section_contains_document_chunk:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PaperSection
+          dst_subtypes: DocumentChunk
+          optional_when_subtypes_missing: 'true'
+
+      paper_section_contains_citation:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PaperSection
+          dst_subtypes: Citation
+
+      document_contains_citation:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Document
+          dst_subtypes: Citation
+          optional_when_subtypes_missing: 'true'
+
+      citation_references_document_chunk:
+        annotations:
+          edge_archetype: references
+          src_subtypes: Citation
+          dst_subtypes: DocumentChunk
+          optional_when_subtypes_missing: 'true'

@@ -1,0 +1,5 @@
+name: views
+version: 1.0.0
+description: View + ViewDefinition subtypes for materialized-view nodes (viz-materialized-view-nodes).
+provides:
+  subtypes_file: schema.yaml

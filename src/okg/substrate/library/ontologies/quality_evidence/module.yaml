@@ -1,0 +1,7 @@
+name: quality_evidence
+version: 1.0.0
+description: 'Quality scanner evidence: SBOM artifacts, vulnerability findings,
+  security findings, secret findings, benchmark measurements, profile runs,
+  performance budgets.'
+provides:
+  subtypes_file: schema.yaml

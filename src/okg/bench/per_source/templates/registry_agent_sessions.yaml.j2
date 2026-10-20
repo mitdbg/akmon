@@ -1,0 +1,28 @@
+sources:
+  agent-sessions:
+    module: okg.substrate.library.sources.agent_sessions
+    class: AgentSessionsSource
+    ownership_id: {{ deployment }}.agent-sessions
+    params:
+      repo: tinydb
+      claude_projects_root: ~/.claude/projects
+      cwd_filter: ["{{ repo_root }}"]
+      since: 90d
+      capture_tool_use_events: [Edit, Write, Bash]
+
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, node_id]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["~/.claude/projects"]
+        include_globs: ["**/*.jsonl"]
+        exclude_globs: []
+      triggers: [fs_event, manual, reconcile]
+      default_event_mode: scope_complete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: stat_tree

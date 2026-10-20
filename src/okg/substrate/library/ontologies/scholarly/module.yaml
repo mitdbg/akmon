@@ -1,0 +1,10 @@
+name: scholarly
+version: 1.0.0
+description: Papers, persons, venues, citations, conferences, and structural
+  anatomy (sections, figures, equations) from external scholarly sources (DBLP,
+  OpenAlex, INSPIRE, OpenReview, arxiv, bib_references, latex_structural).
+provides:
+  subtypes_file: schema.yaml
+  intra_cross_link_rules:
+  - cross_links/scholarly_intra.yaml
+  - cross_links/conference_edition_member_of_conference.yaml

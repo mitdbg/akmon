@@ -1,0 +1,20 @@
+{
+  "captured_at": "2026-08-13",
+  "server_command": "okg mcp-serve --deployment okg-ci --transport streamable-http --host 127.0.0.1 --port 38100",
+  "client_command": "search({\"query\":\"deep_links\",\"method\":\"lexical\",\"limit\":1})",
+  "capture_command": "search({\"query\":\"deep_links\",\"method\":\"lexical\",\"limit\":1})",
+  "deployment": "okg-ci",
+  "transport": "streamable-http",
+  "pinned_generation_id": "okg:okg-ci:branch:default:gen:20260810T165215699896Z:5da2c495ff5b",
+  "generation_id": "okg:okg-ci:branch:default:gen:20260810T165215699896Z:5da2c495ff5b",
+  "results": [
+    {
+      "node_id": "pact-verification:docs-site-organization:evidence:ev.manual.req-docs-site-plain-language.20260619T062145040475Z",
+      "subtype": "verification_step",
+      "provenance": {
+        "source": "okg-ci.pact",
+        "trust": "trusted"
+      }
+    }
+  ]
+}

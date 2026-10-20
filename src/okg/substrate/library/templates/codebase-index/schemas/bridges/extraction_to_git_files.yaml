@@ -1,0 +1,67 @@
+# Bridge: extraction <-> git_graph
+#
+# Permits cross-module edges emitted by the doc-corpus adapter when it
+# parses files discovered by git-files. The extraction module owns the
+# Document / DocumentChunk / EntityMention subtypes; git_graph owns
+# SourceFile; this bridge declares the cross-module provenance and
+# mention narrowings for okg-workspace template instances.
+
+id: https://palimpzest.mit.edu/okg/templates/okg_workspace/bridges/extraction_to_git_files
+name: okg_workspace_template_extraction_bridge
+title: "Bridge - extraction <-> git_graph + openspec"
+description: >-
+  Cross-module narrowings for okg-workspace template doc-corpus
+  provenance and mention resolution.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  okg_workspace_template: https://palimpzest.mit.edu/okg/templates/okg_workspace/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+  EdgeNarrowings:
+    description: Cross-module bridges for okg-workspace template extraction.
+    annotations:
+      okg_edge_narrowings: "true"
+    attributes:
+      document_derived_from_source_file:
+        description: A parsed Document derives from its filesystem source file.
+        annotations:
+          edge_archetype: derived_from
+          src_subtypes: Document
+          dst_subtypes: SourceFile
+      entity_mention_mentions_open_spec_change:
+        description: A mention whose value resolves to an OpenSpec change links to that change.
+        annotations:
+          edge_archetype: mentions
+          src_subtypes: EntityMention
+          dst_subtypes: OpenSpecChange
+      entity_mention_references_open_spec_change:
+        description: Transitional references edge for existing mention-link emitters.
+        annotations:
+          edge_archetype: references
+          src_subtypes: EntityMention
+          dst_subtypes: OpenSpecChange
+      open_spec_change_references_entity_mention:
+        description: Transitional reverse references edge for existing mention-link emitters.
+        annotations:
+          edge_archetype: references
+          src_subtypes: OpenSpecChange
+          dst_subtypes: EntityMention
+      entity_mention_references_data_asset:
+        description: Mentions can resolve to deterministic data/config touchpoints.
+        annotations:
+          edge_archetype: references
+          src_subtypes: EntityMention
+          dst_subtypes: DataAsset
+      data_asset_references_entity_mention:
+        description: Reverse references edge for data/config mention resolution.
+        annotations:
+          edge_archetype: references
+          src_subtypes: DataAsset
+          dst_subtypes: EntityMention

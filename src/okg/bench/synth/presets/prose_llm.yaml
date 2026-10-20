@@ -1,0 +1,59 @@
+# Prose capstone preset: the frozen prose-scale world, rendered as narrative,
+# extracted by the LLM lane, published, and scored end to end. This is the lane
+# detection and repair exist to face — an imperfect extractor between renderer
+# and engine — so it declares a surviving-conflict floor and the runner asserts
+# the realized count meets it (req.attrib.llm-lane).
+#
+# SIZING ARITHMETIC (shown, never hand-waved):
+#   - Measured per-CLAIM extraction survival s = 0.4615 (structured A=1.0 vs
+#     prose A=0.4615, same world/seed/model — the pact's measured value).
+#   - At k=3 a cross_doc site has 1 corrupted + 2 clean renderings, so its
+#     CONFLICT survives iff the corrupted claim survives AND >=1 clean does:
+#         per_conflict = s * (1 - (1-s)^2) = 0.4615 * (1 - 0.5385^2) = 0.3277.
+#   - Declared floor = 30; the 1.5x margin needs EXPECTED surviving >= 45.
+#   - This allocation injects 147 corruptions; at scale.patients=24 and
+#     visibility_corrupted=1, the planner realizes 142 as cross_doc (conflict-
+#     bearing) and 5 digit_transposition sites as world_knowledge (out-of-range
+#     transpositions). Expected surviving = 142 * 0.3277 = 46.5 >= 45  (1.55x). OK
+#
+# POOL MARGIN (both margins must hold — the world must EXPRESS the budget):
+#   at scale.patients=24 the disjoint-eligible pools are numeric 78, medications
+#   51, derived 47, birthdate 24, care_provider 17, allergies 16 -> disjoint max
+#   233 > 147 injected (1.58x). Per pool: numeric users 38+10+8+10=66 <= 78;
+#   medication users 20+15=35 <= 51; derived 15 <= 47; birthdate 9 <= 24;
+#   care_provider 9 <= 17; allergies 13 <= 16. The planner fails closed if any
+#   pool is overrun, so these bounds are load-bearing, not decorative.
+#
+# scale.patients=24 is the CHEAPEST count clearing both margins: LLM cost is
+# patients x genres x 2 (clean + corrupted) ~= 24 x 4 x 2 ~= 192 calls; the
+# injected count is free of cost (it does not change the document set). A larger
+# count (up to the frozen 42) only widens the pool margin at higher cost.
+preset_name: prose_llm
+seed: "prose-749-1"
+world_path: world_prose
+redundancy:
+  renderings_per_fact_min: 3
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 38, magnitude: 0.2, visibility_corrupted: 1}
+    digit_transposition: {count: 10, visibility_corrupted: 1}
+    unit_conversion_error: {count: 8, visibility_corrupted: 1}
+    label_value_mismatch: {count: 10, visibility_corrupted: 1}
+    entity_swap: {count: 20, visibility_corrupted: 1}
+    dangling_entity: {count: 15, visibility_corrupted: 1}
+    derived_value: {count: 15, magnitude: 0.3, visibility_corrupted: 1}
+    broken_reference: {count: 9, visibility_corrupted: 1}
+    cardinality_violation: {count: 9, visibility_corrupted: 1}
+    polarity_flip: {count: 13, visibility_corrupted: 1}
+benign_variation:
+  unit_rescale_rate: 0.4
+scale:
+  patients: 24
+  max_facts_per_patient: 40
+realism:
+  render_mode: prose
+  extractor: llm
+clean_fp_ceiling: 0
+surviving_conflict_floor: 30
+materialize_pdf: false

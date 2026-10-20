@@ -1,0 +1,12 @@
+invariants:
+  - name: no_orphan_edges
+    severity: error
+    scope: cross
+    sql: |
+      SELECT e.edge_id, e.src, e.dst, e.edge_type
+        FROM okg.v_edges e
+        LEFT JOIN okg.v_nodes ns
+          ON ns.node_id = e.src
+        LEFT JOIN okg.v_nodes nd
+          ON nd.node_id = e.dst
+       WHERE ns.node_id IS NULL OR nd.node_id IS NULL

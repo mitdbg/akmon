@@ -1,0 +1,11 @@
+synth PAIRED effect  (prose minus structured, metric extraction/recall)
+  design: 3 seed-matched pairs; the arms differ in realism and nothing else.
+  per-seed pairs:
+    seed=prose-749-1      prose=0.8959  structured=0.8871  delta=0.0088
+    seed=prose-749-2      prose=0.9168  structured=0.8979  delta=0.0189
+    seed=prose-749-3      prose=0.9121  structured=0.8851  delta=0.0270
+    paired delta                   min 0.0088  mean 0.0183  max 0.0270  range 0.0183  sd 0.0091
+    standard error            0.0053
+    t (df=2)                  3.4570   critical 95% 4.303
+    verdict                    NOT separated from zero at 95%
+  caveat: n=3 paired seeds. The 95% interval at df=2 is wide; a 'separated' verdict here means the paired differences agreed in sign and size relative to their own scatter, not that the effect size is precisely estimated. Seeds re-draw inside ONE frozen world, so this generalizes across draws of that world and not across corpora.

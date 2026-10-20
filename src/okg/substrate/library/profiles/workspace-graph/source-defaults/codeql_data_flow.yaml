@@ -1,0 +1,26 @@
+codeql_data_flow:
+  module: okg.substrate.library.sources.code_graph
+  class: CodeQLDataFlowSource
+  ownership_id: ${deployment_name}.codeql_data_flow
+  predecessor_source: ${deployment_name}.git_files
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [repo, observation_id]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    repo: ${deployment_name}
+    repo_root: ${repo_root}
+    artifact_paths: []
+    artifact_globs:
+      - reports/**/*codeql*.sarif
+      - reports/**/*codeql*.json
+      - reports/**/*codeql*.csv
+      - .artifacts/**/*codeql*.sarif
+      - .artifacts/**/*codeql*.json
+      - .artifacts/**/*codeql*.csv
+    max_artifacts: 100
+  # No poll: this reader's change probe cannot vouch for an unchanged read, so
+  # a poll would re-run it, and every source after git_files, on every tick.
+  # It is re-read whenever git_files changes, and by `okg ingest`.

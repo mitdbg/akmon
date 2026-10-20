@@ -1,0 +1,374 @@
+{
+ "derived_value_rows": [
+  {
+   "_seed": "tax-a",
+   "_setting": "default",
+   "bucket": "body_mass_index:patient_brock407_ken316_kuhn96",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:bb737332-c978-0d0c-bae3-4c2949b0c1da:observation:body_mass_index:body_mass_index",
+   "failure_category": "repaired_by_majority",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 2,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "repaired"
+  },
+  {
+   "_seed": "tax-a",
+   "_setting": "default",
+   "bucket": "body_mass_index:patient_kam191_emerita401_wuckert783",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:fb9f9f10-2e08-ee4c-98c2-8da9dc80eb5b:observation:body_mass_index:body_mass_index",
+   "failure_category": "tie_abstained",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 1,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "detected_only"
+  },
+  {
+   "_seed": "tax-b",
+   "_setting": "default",
+   "bucket": "body_mass_index:patient_margret280_sherell789_daniel959",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:6abab92c-0c8d-bd9f-1af5-30523ba0f62a:observation:body_mass_index:body_mass_index",
+   "failure_category": "repaired_by_majority",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 2,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "repaired"
+  },
+  {
+   "_seed": "tax-b",
+   "_setting": "default",
+   "bucket": "body_mass_index:patient_katia630_guillermina633_berge125",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:802ddb9d-95cc-ad6d-2640-68accd789001:observation:body_mass_index:body_mass_index",
+   "failure_category": "repaired_by_majority",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 2,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "repaired"
+  },
+  {
+   "_seed": "tax-c",
+   "_setting": "default",
+   "bucket": "age_years:patient_margret280_sherell789_daniel959",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:6abab92c-0c8d-bd9f-1af5-30523ba0f62a:age_years:age_years",
+   "failure_category": "tie_abstained",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 1,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "detected_only"
+  },
+  {
+   "_seed": "tax-c",
+   "_setting": "default",
+   "bucket": "body_mass_index:patient_domenica436_sharen57_barrows492",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:856dbd2c-ad83-6b16-81e8-ddd098d72018:observation:body_mass_index:body_mass_index",
+   "failure_category": "repaired_by_majority",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 2,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "repaired"
+  },
+  {
+   "_seed": "tax-d",
+   "_setting": "default",
+   "bucket": "age_years:patient_deeann517_nader710",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:0083bc74-ec1c-5420-101d-4b1cd771b3ab:age_years:age_years",
+   "failure_category": "tie_abstained",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 1,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "detected_only"
+  },
+  {
+   "_seed": "tax-d",
+   "_setting": "default",
+   "bucket": "age_years:patient_domenica436_sharen57_barrows492",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:856dbd2c-ad83-6b16-81e8-ddd098d72018:age_years:age_years",
+   "failure_category": "repaired_by_majority",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 2,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "repaired"
+  },
+  {
+   "_seed": "tax-e",
+   "_setting": "default",
+   "bucket": "body_mass_index:patient_deeann517_nader710",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:0083bc74-ec1c-5420-101d-4b1cd771b3ab:observation:body_mass_index:body_mass_index",
+   "failure_category": "repaired_by_majority",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 2,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "repaired"
+  },
+  {
+   "_seed": "tax-e",
+   "_setting": "default",
+   "bucket": "age_years:patient_karen597_marlen929_rogahn59",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:bbe827a7-8012-27ff-9f12-082f111cfddc:age_years:age_years",
+   "failure_category": "repaired_by_majority",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 2,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "repaired"
+  },
+  {
+   "_seed": "tax-a",
+   "_setting": "smoke",
+   "bucket": "age_years:patient_karen597_marlen929_rogahn59",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:bbe827a7-8012-27ff-9f12-082f111cfddc:age_years:age_years",
+   "failure_category": "repaired_by_majority",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 2,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "repaired"
+  },
+  {
+   "_seed": "tax-b",
+   "_setting": "smoke",
+   "bucket": "body_mass_index:patient_brock407_ken316_kuhn96",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:bb737332-c978-0d0c-bae3-4c2949b0c1da:observation:body_mass_index:body_mass_index",
+   "failure_category": "tie_abstained",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 1,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "detected_only"
+  },
+  {
+   "_seed": "tax-c",
+   "_setting": "smoke",
+   "bucket": "age_years:patient_margret280_sherell789_daniel959",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:6abab92c-0c8d-bd9f-1af5-30523ba0f62a:age_years:age_years",
+   "failure_category": "tie_abstained",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 1,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "detected_only"
+  },
+  {
+   "_seed": "tax-d",
+   "_setting": "smoke",
+   "bucket": "age_years:patient_karen597_marlen929_rogahn59",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:bbe827a7-8012-27ff-9f12-082f111cfddc:age_years:age_years",
+   "failure_category": "no_contradiction_available",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "internal_only",
+   "realized_vote": {
+    "clean": 0,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "not_detected"
+  },
+  {
+   "_seed": "tax-e",
+   "_setting": "smoke",
+   "bucket": "body_mass_index:patient_brock407_ken316_kuhn96",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:bb737332-c978-0d0c-bae3-4c2949b0c1da:observation:body_mass_index:body_mass_index",
+   "failure_category": "no_contradiction_available",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "internal_only",
+   "realized_vote": {
+    "clean": 0,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "not_detected"
+  },
+  {
+   "_seed": "tax-a",
+   "_setting": "priced_history",
+   "bucket": "body_mass_index:patient_merideth332_leola603_dickinson688",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:ba0e0550-87dc-cfbc-0cd9-177f22a79bcc:observation:body_mass_index:body_mass_index",
+   "failure_category": "repaired_by_majority",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 2,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "repaired"
+  },
+  {
+   "_seed": "tax-b",
+   "_setting": "priced_history",
+   "bucket": "age_years:patient_merideth332_leola603_dickinson688",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:ba0e0550-87dc-cfbc-0cd9-177f22a79bcc:age_years:age_years",
+   "failure_category": "tie_abstained",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 1,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "detected_only"
+  },
+  {
+   "_seed": "tax-c",
+   "_setting": "priced_history",
+   "bucket": "age_years:patient_karen597_marlen929_rogahn59",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:bbe827a7-8012-27ff-9f12-082f111cfddc:age_years:age_years",
+   "failure_category": "tie_abstained",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 1,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "detected_only"
+  },
+  {
+   "_seed": "tax-d",
+   "_setting": "priced_history",
+   "bucket": "age_years:patient_margret280_sherell789_daniel959",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:6abab92c-0c8d-bd9f-1af5-30523ba0f62a:age_years:age_years",
+   "failure_category": "tie_abstained",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 1,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "detected_only"
+  },
+  {
+   "_seed": "tax-e",
+   "_setting": "priced_history",
+   "bucket": "age_years:patient_merideth332_leola603_dickinson688",
+   "constraint_kind": "functional",
+   "corruption_class": "derived_value",
+   "corruption_id": "corr:derived_value:fact:ba0e0550-87dc-cfbc-0cd9-177f22a79bcc:age_years:age_years",
+   "failure_category": "repaired_by_majority",
+   "layer": "kg_fork",
+   "mandatory": false,
+   "partition": "cross_doc",
+   "realized_vote": {
+    "clean": 2,
+    "corrupted": 1,
+    "other": 0
+   },
+   "state": "repaired"
+  }
+ ],
+ "evaluation_summary": {
+  "classified": 442,
+  "graded": 442,
+  "multiple_matches": 0,
+  "rate": 1.0,
+  "unclassified": 0,
+  "unclassified_evidence": []
+ },
+ "note": "The derived-value rows from the scaled taxonomy run (442 graded errors over 8 settings x 5 seeds). This is the subset test_derived_repair asserts on. The full 442-row classification and the five-criteria evaluation are summarised in scaled-taxonomy-run.md and are regenerated by the scaled run; committing all of them would have put 8,000 lines of data nothing reads into review.",
+ "source_run": "8 settings x 5 seeds, 34 completed runs, 442 graded errors"
+}

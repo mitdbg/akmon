@@ -1,0 +1,71 @@
+# Cross-link rules: bookkeeping ↔ openspec.
+#
+# Per umbrella `expand-memex-to-personal-okg` (cross-shared
+# spoke-to-spoke exceptions, D6 + D11): the substrate `openspec`
+# module carries per-proposal Goal / Risk / Stakeholder; the
+# substrate `bookkeeping` module carries per-Project
+# ProjectGoal / ProjectRisk / ProjectStakeholder. Four bridge
+# rules:
+#
+#   - OpenSpecChange member_of Project (via `project:`
+#     frontmatter, read by the substrate openspec source
+#     adapter — extension owned by add-substrate-reasoning-module).
+#   - openspec.Goal contributes_to ProjectGoal.
+#   - openspec.Risk contributes_to ProjectRisk.
+#   - openspec.Stakeholder identifies_as ProjectStakeholder.
+#
+# The `contributes_to` and `identifies_as` archetypes are
+# introduced by add-substrate-bookkeeping-module per umbrella D7.
+#
+# Matcher choice: `exact`. Each openspec subtype is assumed to
+# carry an attribute that names the target bookkeeping slug
+# (e.g. openspec.Goal.contributes_to_project_goal: "goal:foo"
+# matches ProjectGoal.project_goal_id "goal:foo"). The openspec
+# source adapter extension populates these fields from proposal
+# frontmatter (lands in add-substrate-reasoning-module's scope);
+# until then, the matcher produces zero edges and the narrowing
+# stays declared.
+rules:
+  - id: openspecchange_member_of_project
+    src:
+      subtype: open_spec_change
+      field: project_slug
+    dst:
+      subtype: project
+      field: slug
+    matcher: exact
+    edge: member_of
+    bidirectional: false
+
+  - id: openspec_goal_contributes_to_project_goal
+    src:
+      subtype: goal
+      field: contributes_to_project_goal
+    dst:
+      subtype: project_goal
+      field: project_goal_id
+    matcher: exact
+    edge: contributes_to
+    bidirectional: false
+
+  - id: openspec_risk_contributes_to_project_risk
+    src:
+      subtype: risk
+      field: contributes_to_project_risk
+    dst:
+      subtype: project_risk
+      field: project_risk_id
+    matcher: exact
+    edge: contributes_to
+    bidirectional: false
+
+  - id: openspec_stakeholder_identifies_as_project_stakeholder
+    src:
+      subtype: stakeholder
+      field: identifies_as_project_stakeholder
+    dst:
+      subtype: project_stakeholder
+      field: project_stakeholder_id
+    matcher: exact
+    edge: identifies_as
+    bidirectional: false

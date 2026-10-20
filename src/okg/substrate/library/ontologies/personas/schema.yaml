@@ -1,0 +1,129 @@
+id: https://palimpzest.mit.edu/okg/modules/personas
+name: personas
+title: "Personas — canonical reviewer registry for `review_as` MCP"
+description: |
+  Substrate-shipped ontology module for the persona registry consumed
+  by the `review_as` substrate MCP primitive. Per
+  `add-substrate-pre-join-mcp-framework` D4 / S-A7-R6: personas are
+  first-class graph nodes (not config rows) so a `Persona authored
+  Critique` provenance edge is queryable.
+
+  The substrate library seeds canonical personas (for example vonNeumann and
+  Dijkstra) from a substrate-shipped
+  source adapter that reads `src/okg/substrate/library/personas/*.yaml`
+  and emits one NodeFact per seed at MCP server bootstrap.
+
+  Deployments register additional personas via
+  `deployment.yaml`'s `personas_dir:` key (per S-A7-R7); the
+  substrate adapter walks the configured directory and emits
+  deployment-shipped personas with the same dedup discipline.
+
+  Persona system prompts are stored as filesystem paths
+  (`system_prompt_ref`) rather than node attrs because they are
+  large (400-600 lines) and would inflate `attrs.jsonb` + the BM25
+  index. R2 in the proposal's risks documents the freshness
+  guarantee: every `review_as` invocation re-hashes the file and
+  emits a new Persona NodeFact when the hash changes.
+
+  Lifecycle: stable. Additive-only changes post-ship.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  pers: https://palimpzest.mit.edu/okg/modules/personas/
+
+default_range: string
+
+imports:
+- linkml:types
+
+classes:
+  Persona:
+    description: |
+      A reviewer identity with a system prompt + a default pre-join
+      tool to assemble the target neighborhood. Canonical personas
+      ship in substrate library; deployments add more via
+      `personas_dir`.
+    class_uri: pers:Persona
+    attributes:
+      persona_id:
+        required: true
+        description: Alias `persona:<slug>`.
+      slug:
+        required: true
+        description: Lowercase kebab-case slug. Unique across the
+          canonical + deployment-registered set; collisions fail loud
+          at MCP server bootstrap (per S-A7-R7).
+      name:
+        required: true
+        description: Display name (e.g. "Edsger W. Dijkstra").
+      description:
+        required: true
+        description: One-paragraph identity / discipline summary. Drives
+          the embedding.
+      system_prompt_ref:
+        required: true
+        description: |
+          Filesystem path to the persona's system prompt. The
+          substrate's `review_as` MCP tool reads this file at
+          invocation. Substrate-shipped personas point inside the
+          substrate library tree
+          (`src/okg/substrate/library/personas/prompts/<slug>.md`).
+          Deployment-registered personas may point anywhere reachable
+          from the MCP server process.
+      system_prompt_content_hash:
+        description: |
+          sha256 of the file at emit time. R2 mitigation: every
+          `review_as` invocation re-hashes the file; on mismatch the
+          substrate emits a new Persona NodeFact carrying the new
+          hash before emitting the Critique. Bitemporal queries
+          recover historical prompts.
+      pre_join_tool_for_input:
+        required: true
+        description: |
+          Default pre-join MCP tool name the substrate invokes to
+          assemble the target node's neighborhood before the LLM
+          call. Deployments wire this to one of their declared
+          pre-join tools or a substrate-shipped default.
+      default_request_type:
+        required: true
+        description: |
+          Enum-flavored text from the review-as conventions:
+          `research idea | paper review | methods review | code
+          review | design review | novelty defense | systems
+          positioning | design-doc gate | other`.
+      lifecycle_stage:
+        description: |
+          `stable | experimental | retired`. A retired Persona node
+          is queryable but `review_as` rejects calls against it.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: actor
+      transient: 'false'
+      okg_alias_fields: persona_id,slug,name
+      okg_searchable_text_fields: name,description,default_request_type
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  EdgeNarrowings:
+    description: |
+      Intra-module + cross-module narrowings for personas.
+
+      `persona_authored_critique` is the optional provenance edge
+      that lets the graph carry "persona X authored critique Y"
+      without storing the persona slug in attrs alone. Emitted by
+      `review_as` when the deployment composes both `personas` and
+      `extraction` modules; silently skipped when `Critique` isn't
+      in the catalog (substrate's standard cross-module dormancy).
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      persona_authored_critique:
+        description: A Persona authored a Critique via `review_as`.
+        annotations:
+          edge_archetype: authored
+          src_subtypes: Persona
+          dst_subtypes: Critique

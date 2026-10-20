@@ -1,0 +1,20 @@
+{
+  "schema": "okg.deployment_up.phase_contract.v1",
+  "contract_version": 1,
+  "phases": [
+    "preflight",
+    "backup",
+    "stop_services",
+    "sync_code",
+    "dependency_sync",
+    "migrate",
+    "catalog_apply",
+    "nomos_baseline",
+    "generation_recovery",
+    "attribute_read_model",
+    "restart_services",
+    "source_convergence",
+    "smoke_publish",
+    "readiness"
+  ]
+}

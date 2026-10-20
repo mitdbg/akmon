@@ -1,0 +1,40 @@
+# Golden-path-lane-only Postgres override (PACT gate-repo-deploy-golden-path).
+#
+# RCA precedent (issue #445 Pillar 2): the first-run golden-path lane is a HARD
+# gate, but the CI Postgres is reached through Docker's bridge port-forward
+# (docker-proxy), which is flaky on the OpenStack self-hosted runners -- the
+# proxy ACCEPTS the TCP connection (a naive port check passes) but stalls
+# forwarding the login traffic, so the database connect hangs and times out.
+# The shared DB lanes survive this by tolerating the timeouts; a hard gate
+# cannot.
+#
+# Host networking puts Postgres directly on the host's loopback (no
+# docker-proxy, no bridge), bypassing the broken layer. A distinct container
+# name + port keep it from colliding with the bridge `okg-pg` other lanes use
+# on the same runner pool. (It also avoided the operator UI audit lane's
+# `okg-audit-pg` on 5544; that lane and its compose file left in issue #1924.)
+# The lane runs compose with `-p okg-golden`: a DISTINCT compose project means
+# a DISTINCT data volume (`okg-golden_okg_pgdata`), never the shared
+# `okg-pg_okg_pgdata` -- two Postgres mounting one data dir on a shared persistent
+# runner would corrupt it (different ports do NOT protect the data dir).
+services:
+  db:
+    container_name: okg-golden-pg
+    network_mode: host
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=timescaledb,pg_cron,pg_textsearch
+      - -c
+      - cron.database_name=okg
+      - -c
+      - max_connections=100
+      - -c
+      # TimescaleDB worker slots; see ops/pg/docker-compose.yaml (issue #3143).
+      - max_worker_processes=32
+      - -c
+      - listen_addresses=127.0.0.1
+      - -c
+      - port=5545
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d okg -h 127.0.0.1 -p 5545"]

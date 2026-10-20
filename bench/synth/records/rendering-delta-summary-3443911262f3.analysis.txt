@@ -1,0 +1,23 @@
+synth RENDERING-DELTA summary  (metric extraction/recall, prose minus structured)
+  design: 3 seed-matched pairs (one prose draw and one structured draw per seed), plus 3 repeated decodes of seed prose-749-1's prose arm on a byte-identical corpus.
+  seeds: prose-749-1, prose-749-2, prose-749-3
+
+  WITHIN-SEED DECODE NOISE (byte-identical corpus, seed prose-749-1, n=3):
+    min 83.03  max 89.59  range 6.56 points  sd 3.61 points
+
+  PAIRED EFFECT, once per choice of the repeated prose draw:
+    taking synth-a482ca353494-0cbdc7786f17
+      per-seed deltas (points): prose-749-1=+0.20  prose-749-2=+1.89  prose-749-3=+2.70
+      mean +1.60  sd 1.28  t +2.172 against critical 4.303  -> NOT separated from zero at 95%
+    taking synth-a482ca353494-da2d7488d4d5
+      per-seed deltas (points): prose-749-1=-5.68  prose-749-2=+1.89  prose-749-3=+2.70
+      mean -0.36  sd 4.62  t -0.135 against critical 4.303  -> NOT separated from zero at 95%
+    taking synth-a482ca353494-fdd6851ccf96
+      per-seed deltas (points): prose-749-1=+0.88  prose-749-2=+1.89  prose-749-3=+2.70
+      mean +1.83  sd 0.91  t +3.457 against critical 4.303  -> NOT separated from zero at 95%
+
+  RESULT: the delta is NOT separated from zero under ANY choice of the repeated draw. It is not an effect; it must not be quoted as a point figure.
+
+  measured extraction cost:
+    prose        $11.2010
+    structured   $5.7027

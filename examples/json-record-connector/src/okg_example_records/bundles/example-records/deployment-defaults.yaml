@@ -1,0 +1,43 @@
+runtime:
+  enabled: false
+nomos:
+  # `enforce` means the policy engine decides every read and write rather than
+  # only recording what it would have decided. An installed deployment must
+  # enforce: the install's own verification read is refused otherwise.
+  runtime_enforcement: enforce
+  deployment_posture:
+    # What kind of deployment this is. It sets the defaults every other field
+    # is checked against; a private single-operator graph is the narrowest.
+    deployment_class: personal_okg
+    # Who may read, and who may write. `okg_service` is the deployment's own
+    # runtime; `source_adapter` is this connector when it publishes.
+    read_principals: [human_operator, okg_service]
+    write_principals: [human_operator, okg_service, source_adapter]
+    # What an MCP client may do without a human in the loop. `review` means a
+    # write is held for a person rather than applied.
+    mcp_write_default: review
+    # Nothing leaves this deployment. A personal graph is required to say so;
+    # a wider class may say `internal_only` instead.
+    export_policy: no_export
+    # Credentials are named, never inlined. This connector needs none, but the
+    # posture still refuses a source that would embed one.
+    secret_handling: secret_ref_required
+    # This connector reads a local file and makes no outbound call; a source
+    # that wanted one would be held for review.
+    live_call_default: review
+    # The bands a source in this deployment may declare. A source claiming
+    # anything more sensitive than `private` is refused at admission.
+    allowed_source_sensitivities: [local_private, internal, private]
+    allowed_data_classifications: [internal, private]
+    allowed_exportability: [no_export]
+    # What the deployment promises to do with what it stores. `audit` records
+    # every decision; `review` holds anything the policy does not allow
+    # outright.
+    privacy_obligations: [audit, review, no_export]
+    readiness_profiles: [org-private]
+  rollout:
+    status: deferred
+    owner:
+      name: example-author
+      contact: example@example.invalid
+    review_by: "2027-01-01"

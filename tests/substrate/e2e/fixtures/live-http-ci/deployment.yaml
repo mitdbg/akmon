@@ -1,0 +1,275 @@
+name: live-http-ci
+description: >
+  A TEST FIXTURE, not a shipped deployment. It exists so hosted CI can
+  exercise the live-relation path end to end against a REAL third-party HTTP
+  service rather than a stub (issue #2164, PACT laptop-monitor-live-example,
+  Sprint 20 charter #2008).
+
+  The service is Glances in web-server mode, which the test starts and stops
+  itself; it is a pinned dev dependency, never a runtime one. It was chosen
+  because it differs from OpenSearch -- the system the HTTP adapter was
+  written against -- in every place that matters: GET instead of POST, no
+  request body at all, and a top-level JSON array instead of an object rooted
+  at `hits.hits`. A "generic" adapter proved only against the system it was
+  written for is not proved, and pointing it at this one found three refusals
+  that no stub would have.
+
+  The graph stores almost nothing: one `machine` node and its runtimes. The
+  per-core figures and the process table are read at call time, through the
+  two live relations declared in `schemas/`, gated by the Nomos bundle beside
+  this file, sampled, and returned beside the pinned graph rows.
+
+  Nothing here is user-facing. `tests/substrate/e2e/test_live_relation_ci_walk
+  .py` copies this tree into a temporary directory, rewrites the name, the
+  DSN and the Glances port it just bound, and runs the walk.
+
+release:
+  channel: dev
+
+postgres:
+  dsn: ${OKG_DSN}
+  database: okg_live_http_ci
+
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+modules:
+  # The only module. `Machine` is the node, and `Machine` is where the two
+  # live relations are declared. Nothing else in the walk needs a subtype:
+  # the agent searches for the machine, inspects it, and expands along a
+  # relation. It never records, so `agent_memory` is not composed and
+  # `record` is not served.
+  - compute_env
+  # THE NARROWING CLOSURE OF compute_env, not features of this deployment.
+  # `compute_env` declares `machine_executes_session`, whose endpoint is
+  # `AgentSession` in `agent_sessions`; `agent_sessions` in turn declares
+  # narrowings onto `source_file` (git_graph) and openspec's change nodes. An
+  # unknown narrowing endpoint is refused by name at catalog compose
+  # (`bridge_subtype_unknown`) rather than skipped, so the closure is
+  # composed or the deployment does not start. Nothing in the walk touches a
+  # node from any of the three; the source registry admits `machine` and
+  # `runtime` and nothing else, so none of them can be populated either.
+  - agent_sessions
+  - git_graph
+  - openspec
+
+enrichers: []
+
+embeddings:
+  enabled: false
+  reason: >
+    the walk reaches one node by its hostname and then asks it a question;
+    there is nothing here to be semantically similar TO, and an embedding
+    provider would add a credential this example deliberately does not have
+
+host_storage:
+  warn_available_pct: 15
+  blocker_available_pct: 6
+
+nomos:
+  # `audit` evaluates and records every decision without refusing one. This
+  # is the RUNTIME posture and it does NOT reach the live gate:
+  # `nomos_external_probe.json` beside this file is compiled directly by
+  # `build_live_gate`, denies by default, and any non-allow effect there stops
+  # the adapter call outright.
+  runtime_enforcement: audit
+  deployment_posture:
+    # `personal_okg`, not `public_reference_demo`. The OpenSearch reference
+    # reads a seeded container whose contents are public fixtures. This one
+    # reads the HOST IT RUNS ON: a process table carries program names,
+    # command lines and usernames. Nothing here is exportable and the class
+    # says so rather than leaving it to a reader's judgement.
+    deployment_class: personal_okg
+    read_principals:
+      - human_operator
+      - okg_service
+      - mcp_client
+    write_principals:
+      - okg_service
+      - source_adapter
+    # The walk is read-only: search, inspect, expand. Nothing is recorded, so
+    # nothing needs a write path, and `deny` is the honest default rather
+    # than a `review` nobody exercises.
+    mcp_write_default: deny
+    export_policy: no_export
+    # Required by the `personal_okg` class. There is no secret in this
+    # deployment -- Glances is unauthenticated on loopback and the binding
+    # carries no `auth_header` and no `secret_refs` -- so this declares the
+    # rule that WOULD apply, not a credential that exists.
+    secret_handling: secret_ref_required
+    # Stays `deny`, and the live gate never reads it: it reads
+    # `nomos_external_probe.json`, which allows exactly
+    # `external.host.read_telemetry` for `service:okg-runtime` on `machine`
+    # for the two named relations and denies everything else by default.
+    live_call_default: deny
+    allowed_source_sensitivities:
+      - local_private
+    allowed_data_classifications:
+      - private
+    allowed_exportability:
+      - no_export
+    privacy_obligations:
+      - no_export
+      - audit
+    readiness_profiles:
+      - smoke
+  source_policy_defaults:
+    by_source_class:
+      reference_catalog:
+        # Hostname, OS release, architecture and runtime versions. Local and
+        # private, never exported.
+        store_raw: true
+        sensitivity: local_private
+        data_classification: private
+        credential_ref_policy: none
+        # The SOURCE makes no live call. The live relations belong to the
+        # `machine` subtype and are gated by the bundle, not by this block.
+        live_call_allowed: false
+        exportability: no_export
+        retention: normal
+        provenance: local_filesystem
+        privacy_obligations:
+          - no_export
+          - audit
+  rollout:
+    status: deferred
+    reason: >
+      a CI fixture: a Glances process and a throwaway database that exist
+      for the length of one test and are torn down with it. It is never
+      deployed and never operated
+    owner:
+      name: agent-surface
+      contact: agent-surface@okg.example
+    review_by: "2027-01-01"
+
+agent_surface:
+  # Four tools, and no more. `served` bounds every launch of this deployment,
+  # so a fifth tool here would be one this example does not need and cannot
+  # justify. `record` is absent deliberately: the walk answers a question, it
+  # does not write a finding, and a write tool nobody uses is surface an
+  # agent pays for on every session.
+  served:
+    - search
+    - inspect
+    - expand
+    - list_sources
+
+  # Half the substrate's 64 KiB default, and enforced. Declaring only a
+  # ceiling lowers the default to it, so a call that omits `max_bytes` is
+  # served at 32 KiB. This was `ceiling: 65536` until issue #2156: the tool
+  # schema used to publish a 65,536 default that the MCP SDK filled into every
+  # call, so any lower ceiling refused every call that omitted `max_bytes`.
+  # 32 KiB, not 16 KiB: the walk's `top_processes` rows share this one
+  # budget with the graph rows beside them, and rows that do not fit come
+  # back as a prefix (issue #2141).
+  response_bytes:
+    ceiling: 32768
+
+  # The two relations this deployment's own `schemas/machine_live_relations
+  # .yaml` declares on `machine` (issue #2164, req.lmle.relations), bound to
+  # the Glances web server the test starts.
+  #
+  # THE PORT BELOW IS A PLACEHOLDER -- Glances' own default. The CI walk
+  # binds a FREE loopback port and rewrites `base_url` and `allowed_hosts` in
+  # its staged copy, because two of these tests on one runner must not race
+  # for a fixed port. The committed value is what the hermetic tests pin, so
+  # the shape of the binding is still reviewed here.
+  #
+  # The DECLARATION -- what may be asked -- and the BINDING -- which system
+  # answers and how the request is shaped -- are still two separate things,
+  # and the split matters even when both live in this directory: the binding
+  # cannot raise a relation's `principal_mode`, and the declaration cannot
+  # name a host.
+  #
+  # The declaration is deployment-local rather than in `compute_env` because
+  # `Machine` is a shared subtype. okg-workspace, okg-ci and okg-ci-dev
+  # all enrol it and none of them runs a Glances; a library-level
+  # declaration would have `inspect` advertise these relations there too, and
+  # an agent would be told it can ask any machine for its process table.
+  #
+  # NEITHER BINDING HAS A `body`, AND NEITHER RELATION HAS AN ARGUMENT. That
+  # is the shape this example exists to exercise: the adapter's other
+  # deployment sends a POST with a slotted JSON document, and the two share
+  # no code path beyond the adapter itself. A GET that declared an argument
+  # would be refused at load -- a GET has no body and query-string arguments
+  # are not supported yet -- so the bound on each answer is operator config
+  # in two places a caller cannot raise: the literal `top/5` in the path
+  # below, and `max_rows`.
+  live_bindings:
+    cpu_per_core:
+      kind: http
+      config:
+        # Glances' own default web-server port. Loopback is a non-global
+        # address, so it is opted into by name, and the port is exact: an
+        # allowlist entry of a bare `127.0.0.1` would authorise every other
+        # service on the same host.
+        base_url: http://127.0.0.1:61208
+        allowed_hosts: ["127.0.0.1:61208"]
+        allow_non_global: true
+        method: GET
+        path: /api/4/percpu
+        # A TOP-LEVEL JSON ARRAY. This is the shape the OpenSearch reference
+        # never exercised, and the reason `rows_path` had to learn to name
+        # the document root (#2100).
+        rows_path: "."
+        # One row per logical core. 128 is a generous ceiling for a runner
+        # and still a bound: an answer is cut by count rather than growing
+        # with whatever the upstream returns.
+        max_rows: 128
+        # A percpu row is fifteen scalars. 256 KiB is far more than this
+        # endpoint can produce and far less than the 8 MiB default, so a
+        # response that grew unrecognisably is refused rather than read.
+        max_response_bytes: 262144
+      # Glances is loopback-bound and unauthenticated. There is no credential
+      # in this repository, so there is no `auth_header` and nothing to
+      # resolve.
+      secret_refs: []
+
+    top_processes:
+      kind: http
+      config:
+        base_url: http://127.0.0.1:61208
+        allowed_hosts: ["127.0.0.1:61208"]
+        allow_non_global: true
+        method: GET
+        # The LIMIT LIVES IN THE PATH, as an operator literal. No slot may
+        # appear in a path and a GET may declare no argument, so this is the
+        # only place a bound can be expressed -- and being unable to raise it
+        # is exactly what is wanted from a caller. It plays the same role
+        # `terminate_after` plays in the OpenSearch bodies: it bounds the
+        # work on the SERVER, which `deadline_seconds` cannot.
+        #
+        # `top/N` returns Glances' CURRENT sort, and Glances defaults to
+        # `auto` -- CPU when a core is loaded, memory otherwise. Start it
+        # with `--sort-processes cpu_percent` (see README.md) so that
+        # "top processes" means top by CPU every time. The live walk asserts
+        # the server reports that sort key back.
+        # FIVE, not twenty. What the caller sees is the shaped payload, and
+        # until issue #2171 a shaped payload over 16 KiB degraded from rows to
+        # a digest whatever the caller's budget. It is now cut to the prefix
+        # that fits the response budget instead. Measured on this
+        # a 12-core host: twenty rows are 36,576 bytes raw and 57,109 fenced, so
+        # agent asking "what is my machine doing" got a sha256 instead of a
+        # process list. `cmdline` is 72% of that and varies by kilobytes
+        # between processes, so a count chosen near the cap would degrade or
+        # not depending on which programs happened to be busy. Five rows are
+        # 4,480 raw and leave room for a pathological command line.
+        path: /api/4/processlist/top/5
+        rows_path: "."
+        # The command line is NOT kept. On a CI pod the busiest process is
+        # the lane's own pytest, whose argv lists ~200 test files (10,948
+        # bytes); five such rows measured 34,409 bytes and degraded to a
+        # digest in 3 of 4 dev runs on 2026-09-24. Naming the kept keys
+        # bounds a row by this binding rather than by whatever is busy.
+        # No `username`: Glances fills it from a cache and omits the key for a
+        # process that exited before the cache lookup, which would fail the
+        # whole call as `response_unusable`. These six are set every cycle.
+        row_fields: [pid, name, cpu_percent, memory_percent, num_threads, status]
+        # The server already cut the list to five. This is the independent
+        # cut on our side, so a server that stopped honouring the path bound
+        # is still bounded here.
+        max_rows: 8
+        # A process row carries a command line, which can be long. 1 MiB
+        # bounds twenty of them with room to spare.
+        max_response_bytes: 1048576
+      secret_refs: []

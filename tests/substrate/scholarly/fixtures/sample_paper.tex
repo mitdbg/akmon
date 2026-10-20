@@ -1,0 +1,65 @@
+\documentclass{article}
+\title{A Tiny Sample Paper for Anatomy Decomposition Tests}
+\author{Test Author}
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+This is the introduction. It cites \cite{foo23} and \cite{bar22}
+as motivation.
+
+A second paragraph in the introduction. It cites \cite{baz21}.
+
+\section{Background}
+
+Background body text.
+
+\subsection{Bitemporal Storage}
+
+A subsection about bitemporal storage.
+We rely on the prior work of \cite{snodgrass95}.
+
+\begin{equation}
+\label{eqn:basic}
+y = mx + b
+\end{equation}
+
+\begin{theorem}
+\label{thm:halting}
+For every Turing machine $M$ and input $w$, the question of
+whether $M$ halts on $w$ is undecidable.
+\end{theorem}
+
+\begin{proof}
+By diagonalization. Suppose for contradiction that a decider $H$
+exists. See \cite{turing36}.
+\end{proof}
+
+\section{Method}
+
+\begin{figure}
+\label{fig:arch}
+\caption{Architecture diagram of the system.}
+\end{figure}
+
+\begin{table}
+\label{tbl:perf}
+\caption{Performance comparison across benchmarks.}
+\end{table}
+
+\begin{algorithm}
+\label{alg:probe}
+\caption{Probe routine.}
+\textbf{Input:} dataset $D$, threshold $\tau$.
+\textbf{Output:} accept / reject.
+For each $x \in D$, evaluate $f(x)$; return accept iff
+$\sum f(x) \geq \tau$.
+\end{algorithm}
+
+\section{Conclusion}
+
+We have shown that anatomy decomposition works. Future work in
+\cite{future26}.
+
+\end{document}

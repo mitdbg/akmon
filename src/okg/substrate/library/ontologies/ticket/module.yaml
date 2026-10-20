@@ -1,0 +1,6 @@
+name: ticket
+version: 1.0.0
+description: 'Ticketing subtypes: ticket, comment, epic. For Jira/Linear-shaped
+  issue-tracking sources.'
+provides:
+  subtypes_file: schema.yaml

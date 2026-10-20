@@ -1,0 +1,583 @@
+[project]
+name = "okg"
+version = "0.2.0"
+description = "AKMON (okg): Operational Knowledge Graph — build, query, and traverse typed knowledge graphs from diverse data sources"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+keywords = ["knowledge-graph", "graph", "ingestion", "mcp", "ontology"]
+authors = [
+    {name = "Jason Mohoney", email = "mohoney@mit.edu"},
+]
+license = "MIT"
+license-files = ["LICENSE", "NOTICE*"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = [
+    "pydantic>=2.13.4",
+    "pyyaml>=6.0.3",
+    "requests>=2.34.2",
+    "PyJWT[crypto]>=2.13",
+    "python-dotenv>=1.2.2",
+    "rank_bm25>=0.2.2",
+    # Substrate (okg.substrate.*) dependencies — required at top level
+    # per phase-0 decision A2. The old pipeline does not import these,
+    # but a `pip install .` must succeed without extras.
+    "psycopg[binary]>=3.3.4",
+    "psycopg_pool>=3.3.1",
+    # In-process git access for substrate source adapters. Per
+    # `add-pygit2-in-process-git-helpers` (2026-05-12): the
+    # GitFilesSource/GitHistorySource hot path used to fork+exec
+    # `git` 8+ times per commit (~120 ms wasted on macOS). pygit2
+    # binds libgit2 and runs the same reads in-process in <10 ms
+    # total. Pre-built wheels exist for current Python on
+    # macOS/Linux/Windows; no Rust/build toolchain required.
+    "pygit2>=1.19.3,<2",
+    "pgvector>=0.5.0",
+    "jsonschema>=4.26.0",
+    "ijson>=3.5.1",  # streaming JSON parse for GraphSnapshot bootstrap
+    # RFC 5545 parsing + recurrence expansion for the calendar_ics
+    # source. Per `fix-calendar-ics-rrule` (2026-06): the prior
+    # regex VEVENT scanner never expanded RRULEs, silently
+    # under-emitting recurring events (lab meetings, office hours).
+    # icalendar parses; dateutil.rrule expands (EXDATE, COUNT/UNTIL,
+    # DST-crossing rules). dateutil was already transitive; pinned
+    # here because the source imports it directly.
+    "icalendar>=7.2.0",
+    "python-dateutil>=2.9.0.post0",
+    # Chronos-backed OKG graph storage is vendored under
+    # src/chronos_core from mitdbg/chronos commit 5d73c55.
+    # Chronos graph storage imports sqlglot for SQL relation rewriting.
+    # OKG loads chronos-core in-process for branch/checkpoint-backed graph
+    # reads and writes, so the dependency must be present in the OKG env too.
+    # sqlglot (MIT) is also the parser behind the SQL safety checks
+    # (src/okg/substrate/postgres_sql.py), cross-checked there by a lexer
+    # written from PostgreSQL's scanner rules. It replaced pglast, which is
+    # GPL-3.0-or-later (PACT sql-safety-without-pglast).
+    "sqlglot>=30.12.0",
+    # OpenTelemetry (docs/reference/observability.md). The prometheus exporter
+    # is the default shipped surface; the SDK is required; OTLP is
+    # an optional alternate exporter operators can enable.
+    "opentelemetry-api>=1.43.0",
+    "opentelemetry-sdk>=1.43.0",
+    "opentelemetry-exporter-prometheus>=0.64b0",
+    # DBOS — durable workflow runtime composed as the substrate's
+    # runtime layer per `rebuild-substrate-on-dbos`. The [otel]
+    # extra adds workflow → step → transaction-shaped spans on top
+    # of OKG's existing OpenTelemetry surface. Transitively pulls
+    # in sqlalchemy>=2.0.43, websockets, typer-slim; OKG SQL inside
+    # @DBOS.transaction goes through the injected SQLAlchemy session
+    # via session.execute(text(...)) — see sdk-design.md Decision 9.
+    # Capped below 3: DBOS 3 dropped `DBOSClient(database_url=...)`
+    # and `dbos migrate --db-url`, which okg still calls, so an
+    # unlocked pip install broke `okg deployment apply --apply` and
+    # `okg runtime bootstrap`. Lift the cap only with a port to DBOS 3.
+    "dbos[otel]>=2.26.0,<3",
+    # Views layer (okg.views.*) — LLM dispatch + retry for the
+    # generated-fragment synthesis path. Pinned broadly; the
+    # LLMClient wrapper in okg.views.execution is thin enough
+    # that swapping provider libraries is a one-file change if
+    # needed (see add-incremental-views design §5).
+    "litellm>=1.92.0",
+    "tenacity>=9.1.4",
+    # OS keychain backend for OAuth token storage. Per
+    # `streamline-academic-pi-install`: the academic-researcher profile's
+    # OAuth flow (Gmail / Google Calendar / Slack) stores access +
+    # refresh tokens via the platform keychain (macOS Keychain,
+    # Linux Secret Service, Windows Credential Manager). Declaring
+    # `keyring` as a hard dep removes the prior silent fallback to
+    # a plaintext `~/.config/okg/oauth_tokens.json`.
+    "keyring>=25.7.0",
+    # Substrate extraction library (okg.substrate.library.extraction.*)
+    # Document parsing
+    "pypdf>=6.14.2",
+    "pdfplumber>=0.11.10",
+    "pillow>=12.3.0",
+    "lxml>=6.1.1",
+    "selectolax>=0.4.10",
+    "markdown-it-py>=4.2.0",
+    "python-frontmatter>=1.3.0",
+    "tree-sitter>=0.26.0",
+    "nbformat>=5.10.4",
+    "python-docx>=1.2.0",
+    "openpyxl>=3.1.5",
+    # Chunking + baseline NER
+    "semantic-text-splitter>=0.32.0",
+    # spacy 3.8 is the first release with numpy-2 ABI compat.
+    "spacy>=3.8.14,<4",
+    # Linking helpers (off-substrate fallback only)
+    "rapidfuzz>=3.14.5",
+    # Dates
+    "dateparser>=1.4.1",
+    # Deployment-supplied entity-resolution filters execute with a hard
+    # timeout; stdlib re has no execution budget.
+    "regex>=2026.6.28",
+    # Normalization
+    "ftfy>=6.3.1",
+    # Filesystem-driven source sync (`okg watch`).
+    "watchdog>=6.0",
+    # Citations
+    # bibtexparser is dual-licensed LGPLv3 / BSD; we elect BSD.
+    "bibtexparser>=1.4.4,<2",
+    "crossref-commons>=0.0.7",
+    # MCP transport (Claude Desktop / Codex / any MCP client →
+    # `okg mcp-serve` over stdio). Per dogfood F-9: this was
+    # previously an optional extra, but the academic-researcher install
+    # writes a Claude Desktop entry pointing at `okg mcp-serve`
+    # — without `mcp` in the default env, that entry's subprocess
+    # crashes with "MCP SDK not available." Promoting to a hard
+    # dep so a default `okg install` produces a working MCP
+    # surface.
+    #
+    # Upper-bounded at <2. `mcp` 2.0.0 removed the `mcp.server.fastmcp`
+    # package, which `src/okg/substrate/mcp/` imports directly. The old
+    # unbounded `mcp>=1.28.1` therefore declared a compatibility that does
+    # not exist: any fresh resolve (a clean CI runner, or an end user's
+    # `pip install okg`) picked up 2.0.0 and every MCP import raised
+    # `ModuleNotFoundError: No module named 'mcp.server.fastmcp'`. Lift the
+    # bound only together with a port to the 2.x server API.
+    "mcp>=1.28.1,<2",
+    # The environment supervisor always launches the operator UI from the
+    # core-only sealed runtime. These are direct imports of okg.viz, so they
+    # cannot be confined to the optional viz/developer dependency groups.
+    "fastapi>=0.139.0",
+    "uvicorn>=0.51.0",
+    "msgpack>=1.2.1",
+    # TOML writer for codex CLI config (~/.codex/config.toml). Per
+    # `dead-simple-install` (2026-05-21): the agent-runtime registry
+    # needs to upsert MCP server blocks into TOML config files
+    # without clobbering the rest of the operator's config. tomllib
+    # (stdlib, Python 3.11+) reads; tomli_w writes. Tiny pure-Python
+    # package, same author as tomllib.
+    "tomli_w>=1.2.0",
+    # JUnit/coverage and XML SBOM sources are part of the first-party
+    # substrate runtime. Sealed releases install core dependencies only, so
+    # the hardened XML parser cannot live exclusively in quality/dev extras.
+    "defusedxml>=0.7.1",
+    # The code-structure source is enabled in the workspace graph and sealed
+    # releases install core dependencies only. Keep its multi-language parser
+    # available in the immutable runtime, not only in the developer extra.
+    "tree-sitter-language-pack==1.17.0",
+    # Poros exchange protocol signatures. Ed25519 key generation,
+    # signing, and verification use cryptography's hazmat primitives;
+    # HPKE paths fail closed until a vetted HPKE backend is added.
+    "cryptography>=49.0.0",
+]
+
+[project.optional-dependencies]
+# Optional neural zero-shot NER. GLiNER pulls torch transitively, so keep it
+# out of the default install used by CI and lightweight deployments.
+nlp = [
+    "gliner>=0.2.27",
+]
+# Inline figure-region detection for the vision/captioning path
+# (`captioning.figure_detection: true`). DocLayout-YOLO (AGPL-3.0) pulls torch
+# transitively, so it is gated as an extra — non-vision deployments don't pay
+# the cost, and the AGPL posture is contained to deployments that opt in.
+# `pymupdf` renders pages for the detector and crops the detected boxes.
+# `huggingface_hub` resolves the pinned default weights and is imported
+# directly by figure_detector._resolve_weights (doclayout-yolo pulls it
+# transitively, but we depend on it directly, so declare it directly).
+vision = [
+    "doclayout-yolo>=0.0.3",
+    "huggingface_hub>=0.20",
+    "pymupdf>=1.28.0",
+]
+# Free-text PII detection for the graph-anonymization at-rest transform
+# (add-graph-anonymization). Presidio pulls spaCy + a model; pair with the
+# `nlp` extra to plug GLiNER in as a recognizer. Gated as an extra so the
+# default install and CI stay lightweight; absence makes the not-store-raw
+# free-text path HOLD, never silently skip detection.
+privacy = [
+    "presidio-analyzer>=2.2",
+]
+# Commit-replay benchmark harness deps (see `bench/`). Optional;
+# only needed when running the harness, not the substrate.
+# inspect-ai deliberately NOT declared here: every resolvable inspect-ai
+# needs aioboto3>=13, which okg[mailbox] pins against — declaring it makes
+# [bench]+[mailbox] unsatisfiable. The agent-memory runner injects it at
+# invocation time (`uv run --with inspect_ai ...`, see
+# bench/agent_memory/run.sh) and raises a loud hint otherwise.
+bench = [
+    "matplotlib>=3.11.0",
+    "jinja2>=3.1.6",
+    "pyyaml>=6.0.3",
+]
+embeddings = [
+    # Production embedding backend for deployments that set
+    # `embeddings.backend: sentence-transformers:<model>`. Pulls torch
+    # transitively (~250MB), gated as an extra so non-semantic
+    # deployments don't pay the cost.
+    "sentence-transformers>=5.6.0",
+]
+postgres = [
+    "psycopg[binary]>=3.3.4",
+    "psycopg_pool>=3.3.1",
+]
+mcp = [
+    # `mcp` is now a hard dep (see [project].dependencies) per
+    # dogfood F-9. This extra is kept as a no-op for back-compat
+    # with `pip install .[mcp]` / `uv sync --extra mcp` callers.
+]
+cern = [
+    "cern-sso-python>=0.4",
+    "jira>=3.10.5",
+    "requests-kerberos>=0.15",
+]
+af_pubs = [
+    # `curl_cffi` impersonates Chrome's TLS fingerprint so the
+    # Akamai-protected e-Publishing product index serves requests
+    # we'd otherwise have to drive with a headless browser.
+    "curl_cffi>=0.15.0",
+    # `pypdfium2` (Apache-2.0, PDFium-backed) is the body-text
+    # extractor for af_pubs PDFs. ~50x faster than pypdf on the
+    # 50-200 page AFI corpus (45ms/pub vs 1-3s/pub). Substrate's
+    # extraction library still ships pypdf for cross-deployment use.
+    "pypdfium2>=5.11.0",
+    # `pdfplumber` (MIT) is the layout-aware table extractor.
+    # Pure Python; the parse phase parallelizes via
+    # ProcessPoolExecutor since pdfplumber is CPU-bound and
+    # GIL-bound on the per-page Python work. Already a transitive
+    # dep of the substrate extraction library.
+    # `pymupdf` (AGPL-3) is the line+bbox extractor backing
+    # `_structure.extract_text_index`. Per the
+    # `replace-pdfplumber-with-pymupdf` proposal, we keep
+    # pdfplumber for tables (40% better detection) but move
+    # line/bbox to fitz (~9x faster, geometrically equivalent).
+    # AGPL posture documented in
+    # `deployments/af_pubs/docs/dependencies.md`.
+    "pymupdf>=1.28.0",
+]
+code = [
+    # `add-treesitter-code-extractor` (2026-04-26): tree-sitter
+    # grammars for JS/TS/Go/Rust/C++. Deployments not extracting code
+    # symbols don't pay the install cost.
+    # 1.6.3 currently lacks macOS ARM wheels; keep this extra usable for
+    # okg-workspace on developer laptops until a later release restores
+    # platform coverage.
+    # `add-okg-workspace-coding-agent-context`: dialect-tolerant SQL
+    # parsing for deterministic table/view touchpoint extraction from
+    # SQL literals across dialects.
+    "sqlglot>=30.12.0",
+]
+quality = [
+    # Typed SARIF 2.1.0 parsing for Semgrep, CodeQL, Bandit, Trivy,
+    # Gitleaks, and any other SARIF-producing scanner artifacts.
+    "sarif-pydantic>=0.6.2",
+    # Package URL normalization across ecosystems for dependency
+    # vulnerability and SBOM evidence.
+    "packageurl-python>=0.17.6",
+]
+twiki = [
+    # deployments/cms/reports/twiki_index — static site generator over
+    # ingested documentation_page nodes.
+    "jinja2>=3.1.6",
+    "markdown-it-py>=4.2.0",
+    "markitdown>=0.1.6",
+]
+mailbox = [
+    # Optional Poros mailbox HTTP/client and provider adapters. Core
+    # substrate imports stay free of provider SDK hard dependencies.
+    "fastapi>=0.139.0",
+    "uvicorn>=0.51.0",
+    "httpx>=0.28.1",
+    "boto3>=1.43.46",
+    "python-swiftclient>=4.10.0",
+]
+viz = [
+    # src/okg/viz — interactive graph visualization HTTP surface
+    # mounted alongside the MCP server. The direct runtime imports are core
+    # dependencies because supervised sealed releases always launch this UI.
+    "jinja2>=3.1.6",
+    "sse-starlette>=3.4.5",
+    "httpx>=0.28.1",  # viz test client
+]
+dev = [
+    "linkml>=1.11.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.15.21",
+    # Match .dockerignore glob and negation rules in container-context tests.
+    "pathspec>=1.1.1",
+    # Merge-blocking CI policy tests parse declared version ranges
+    # (tests/ci/test_ci_locked_install.py). It was already present as a
+    # transitive of the test tooling; declare it so a gating test does not
+    # rest on someone else's dependency.
+    "packaging>=25.0",
+    # MCP server integration tests exercise FastMCP registration and
+    # tracing; keep runtime MCP optional, but include it in dev/test envs.
+    # Upper bound mirrors [project].dependencies: 2.0.0 dropped
+    # `mcp.server.fastmcp`.
+    "mcp>=1.28.1,<2",
+    # Runtime API tests exercise FastAPI routers without requiring
+    # callers to install the full viz extra.
+    "fastapi>=0.139.0",
+    "httpx>=0.28.1",
+    # Viz router tests import okg.viz.endpoints, whose default wire format
+    # uses msgpack. Keep broad `--extra dev` test collection self-contained.
+    "msgpack>=1.2.1",
+    # Property-based testing of pure substrate functions
+    # (parsers, slug normalizers, alias cascade, bitemporal
+    # predicates). Per `add-mutation-and-property-testing`.
+    "hypothesis>=6.156.6",
+    # Mutation testing — captures the gap between "code executed
+    # by tests" and "code asserted by tests". First run takes
+    # ~30 min on the substrate; subsequent runs are incremental.
+    "mutmut>=3.6.0",
+    # The live-relation CI test (issue #2164) needs a REAL third-party HTTP
+    # service to point the generic adapter at, and starts one itself:
+    # Glances in web-server mode on loopback. It is the second system the
+    # adapter has ever been aimed at and the only one whose shape differs
+    # from OpenSearch's in every place that matters — GET, no request body,
+    # a top-level JSON array — so without it the "generic" claim rests on
+    # the one system the adapter was written against.
+    #
+    # Pinned exactly. This is a fixture: the test asserts on the field names
+    # `/api/4/percpu` and `/api/4/processlist/top/5` return, and a minor
+    # release that renamed one would be a red lane nobody could explain from
+    # this repository's own diff. The `web` extra pulls FastAPI and uvicorn,
+    # both of which the dev extra already carries.
+    #
+    # TEST-ONLY. It must never reach [project].dependencies: the substrate
+    # does not import glances, and an operator installing okg should not
+    # acquire a system monitor.
+    "glances[web]==4.5.6",
+]
+docs = [
+    # Internal documentation site. Keep this Python-first so docs builds do
+    # not require Node or a second package manager.
+    "mkdocs>=1.6.1",
+    "pymdown-extensions>=10.16",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.rst", "*.md", "*.j2", "*.yaml", "*.json", "*.sql"]
+"okg.substrate.db" = [
+    "*.sql",
+    "migrations/*.sql",
+    "migrations/*.yaml",
+    "sql/*.sql",
+]
+"okg.substrate.runtime" = ["sql/*.sql"]
+"okg.substrate.library.extraction.code" = ["queries/*.scm"]
+"okg.substrate.library.ontologies.reasoning.derived_artifacts" = [
+    "queries/*.sql",
+    "templates/*.j2",
+]
+# The `okg pact install` agent skills bundle lives in non-package subdirs
+# (pact/skills/<skill>/SKILL.md); the bare `*.md` glob above does not recurse
+# into them, so include the bundle explicitly for the pact package.
+"okg.substrate.pact" = ["skills/**/*"]
+# The PACT bench corpus is data beside `okg.substrate.pact.bench`, not a
+# package; `okg pact bench` reads it from the installed tree.
+"okg.substrate.pact.bench" = ["corpus/*.yaml"]
+# Library refs (`okg.<kind>.<name>`) are resolved from the installed
+# `okg/substrate/library` tree by `library/resolver.py`, and the deployment
+# templates, invariants, and persona prompts all live in non-package
+# subdirectories the bare globs above do not reach.
+# `templates/**/*` cannot match a leading-dot name, and the empty
+# `codebase-index/schemas/` directory is tracked through a `.gitkeep`.
+"okg.substrate.library" = [
+    "invariants/*.yaml",
+    "templates/**/*",
+    "templates/**/.gitkeep",
+]
+"okg.substrate.library.personas" = ["prompts/*.md"]
+# `academic_researcher` is a regular package (issue #1969), so its modules
+# ship as code; its classifier prompt is data in a non-package subdirectory.
+"okg.substrate.library.sources.academic_researcher" = ["prompts/*.yaml"]
+# okg.bench data in non-package subdirs (the "*" glob does not recurse):
+# agent-memory deployment profiles + the per-source render templates.
+# `web/` holds the benchmark flamegraph viewer's sources, which PACT
+# operator-ui-remove-four-views moved out of the operator UI. It is a data
+# directory, not a package, and the bare `*` glob above reaches neither the
+# subdirectory nor these extensions -- so without this entry the wheel ships
+# none of the eight files and the viewer cannot be built from an install.
+#
+# The glob stays wide ON PURPOSE, `flamegraph.test.tsx` included.
+# tests/substrate/test_wheel_ships_framework_files.py requires EVERY tracked
+# file under src/okg to ship, exempting only the trees in
+# `_UNSHIPPED_FRAMEWORK_TREES` (today just `operator_ui/web/`). Narrowing this
+# to the files the viewer build needs was tried and fails that test with
+# `bench/web/flamegraph.test.tsx` absent from the wheel. Keeping it out would
+# mean declaring a second unshipped tree, a wider change than shipping one
+# 12 KB source file.
+"okg.bench" = ["web/*.tsx", "web/*.ts", "web/*.css"]
+"okg.bench.agent_memory" = ["profiles/*.yaml"]
+"okg.bench.per_source" = ["templates/*.j2"]
+# `world_prose` is the world the shipped `prose_llm` and `capstone` presets
+# name in `world_path`, so it ships with them.
+"okg.bench.synth" = [
+    "presets/*.yaml",
+    "packs/*.yaml",
+    "world_smoke/*.json",
+    "world_prose/*.json",
+]
+
+# Byte-compiled caches are never shipped. `include-package-data = true`
+# plus MANIFEST.in's `recursive-include ... academic-researcher *` otherwise sweeps
+# a gitignored `__pycache__` from a used checkout into the wheel, and
+# `verify_installed_wheel_payload` refuses any payload carrying a `.pyc`
+# (issue #1922). fnmatch's `*` crosses `/`, so these reach any depth.
+[tool.setuptools.exclude-package-data]
+"*" = ["*.pyc", "*.pyo", "*/__pycache__/*", "__pycache__/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Default: exclude `slow` from inner-loop runs. CI runs the
+# full set with `pytest -m "slow or not slow"` (or simply
+# `pytest --override-ini "addopts="`). Inner-loop wall-clock
+# drops ~30% by skipping the worker-crash + pipeline-drain
+# tests.
+#
+# Coverage flags are intentionally NOT here: pytest-cov is a dev-only
+# dependency, so a bare `python -m pytest` (without the dev extra) would
+# fail on `--cov-report` if it lived in always-on addopts. The coverage
+# lane passes `--cov=okg.substrate --cov-report=json:.scratch/coverage.json`
+# explicitly (see tests/qa_lanes.yaml `coverage`), which is what produces
+# the CI ratchet input.
+addopts = [
+    "-m",
+    "not slow",
+]
+markers = [
+    "postgres: requires a running PostgreSQL instance",
+    "slow: tests that take >2s (CLI subprocess, full pipeline builds)",
+    "integration: end-to-end tests requiring deployment fixtures",
+    "dbos_integration: end-to-end tests requiring real Postgres + DBOS runtime (slow; nightly only)",
+    "optional_deployment: requires an optional deployment source tree or fixture set",
+    "serial_db: requires process-global or database-global state and must not run in a parallel DB worker pool",
+    "perf: performance, latency, storage-size, or budget assertion",
+    "browser: requires browser or Playwright runtime",
+    "golden_path: executed workspace-graph quickstart (needs OKG_GOLDEN_PATH_DSN owning a dedicated Postgres database; minutes-long)",
+    "real_worker_audit: opts out of the hermetic dogfood worker-process stub and reads the host's real process table",
+    "token_supply: MCP bearer-credential supply rules (PACT mcp-http-auth); selected by `pytest -k token_supply`",
+    "fail_closed: MCP per-request principal refusals (PACT mcp-principal-mapping); selected by `pytest -k fail_closed`",
+    "live_ablation: minutes-long paper-evidence ablation harness (excluded from the perf lane's timebox; runs via the nightly ablation-live QA lane or on demand)",
+    "chat_live: needs a real Open WebUI container plus two scratch Postgres DSNs (OKG_CHAT_TEST_APP_DSN, OKG_CHAT_TEST_GRAPH_DSN). FAILS rather than skips when unconfigured, so it is excluded from automated lanes and run on demand; a skip here would read as a passed arm",
+    "live_opensearch: needs the real opensearch-reference container (deployments/opensearch-reference/up.sh) plus a scratch Postgres DSN in OKG_TEST_DSN. Lives in tests/live/opensearch/, which is NOT COLLECTED unless OKG_OPENSEARCH_LIVE=1 -- marker exclusion cannot be used, because a row every lane deselects can have no blocking lane owner. Once collected it FAILS rather than skips when the environment is missing; a skip would read as a passed arm",
+]
+
+[tool.ruff]
+extend-exclude = [
+    # Vendored from mitdbg/chronos. Keep OKG lint focused on OKG-owned code.
+    "src/chronos_core",
+]
+
+[tool.ruff.lint]
+# Pin the enforced ruleset explicitly. The "Lint Python" CI step is now BLOCKING
+# (per the enforce-lint-hygiene-gate PACT), so relying on ruff's *implicit*
+# default ruleset is a latent risk: a ruff release could silently add a default
+# rule (red CI on untouched code) or drop one (a weaker gate). This pins exactly
+# today's default — E4/E7/E9 (pycodestyle errors) + F (pyflakes). Widening it to
+# the broader hygiene families is tracked by the PACT's widen-ruleset task.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# These files intentionally import after runtime path or optional-dependency
+# guards.
+"src/okg/substrate/library/extraction/_protocols.py" = ["E402"]
+"src/okg/substrate/library/sources/_git_graph_history_legacy.py" = ["E402"]
+"src/okg/substrate/library/sources/scholarly/dblp.py" = ["E402"]
+"src/okg/substrate/library/templates/codebase-index/server.py" = ["E402"]
+"tests/substrate/viz/test_native_view_reads.py" = ["E402"]
+# Imported fixture is used by pytest through the parameter name.
+"tests/substrate/viz/test_viz_trace_detail.py" = ["F811"]
+# Substrate Postgres fixtures are imported (not pytest_plugins) to avoid a
+# conftest double-registration on whole-tree collection; pytest re-binds them
+# through the test parameter names (F811) and they have no direct use (F401).
+"tests/pytest/test_catalog_fixture_builders.py" = ["F401", "F811"]
+
+[tool.coverage.run]
+# Substrate-only coverage. Other layers (`okg.views`, `okg.viz`)
+# have their own test discipline and are tracked by separate
+# proposals; conflating them in a single number masks substrate
+# regressions. Per `raise-substrate-coverage` D1.
+source = ["okg.substrate"]
+branch = true
+omit = [
+    "src/okg/agent/*",
+    # External-service adapter shells are tested by source-specific
+    # contract/smoke lanes, not by the global substrate coverage floor.
+    "src/okg/substrate/library/sources/academic_researcher/*",
+    "src/okg/substrate/library/sources/mcp_composed/gmail.py",
+    "src/okg/substrate/library/sources/mcp_composed/google_calendar.py",
+    "src/okg/substrate/library/sources/mcp_composed/slack.py",
+    "src/okg/substrate/library/sources/scholarly/arxiv.py",
+    "src/okg/substrate/library/sources/scholarly/openalex.py",
+    "src/okg/substrate/library/sources/scholarly/semantic_scholar.py",
+    # Operational entrypoints are exercised by runtime/deployment smoke
+    # lanes. Keeping them in the global floor turns environment wiring into
+    # a misleading line-coverage denominator.
+    "src/okg/substrate/profiling/artifacts.py",
+    "src/okg/substrate/runtime/dev.py",
+    "src/okg/substrate/runtime/engine.py",
+    "src/okg/substrate/runtime/gates_reevaluate_schedule.py",
+    "src/okg/substrate/runtime/hygiene_workflows.py",
+    "src/okg/substrate/runtime/partition_queue.py",
+    "src/okg/substrate/runtime/recovery_test.py",
+    "src/okg/substrate/runtime/scheduled.py",
+    "src/okg/substrate/runtime/smoke.py",
+    "src/okg/substrate/runtime/worker.py",
+]
+
+[tool.mutmut]
+# Mutation-testing surface: substrate logic only. I/O-heavy paths
+# (CLI subprocess wiring, source-adapter HTTP / git plumbing,
+# schema migration DDL) are excluded — mutation signal there is
+# dominated by environmental factors rather than logic
+# correctness, and inflates run time without producing actionable
+# findings. Per `add-mutation-and-property-testing` D-on-exclude.
+source_paths = ["src/okg/substrate/"]
+paths_to_exclude = [
+    "src/okg/substrate/cli/",
+    "src/okg/substrate/library/sources/",
+    "src/okg/substrate/db/migrate.py",
+]
+runner = "pytest -x -q --no-cov tests/substrate/"
+use_coverage = true
+
+[tool.coverage.report]
+# `fail_under` matches the integer in `tests/.coverage-baseline`.
+# Both must be updated together. CI's "Update coverage baseline"
+# step on main pushes ratchets the baseline file up; this
+# `fail_under` value is updated by the same PR (or by a follow-on
+# automated bump) so local + CI agree on the floor.
+fail_under = 70
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+okg = "okg.substrate.cli.main:console_main"
+okg-bench = "okg.bench.ab.cli:main"
+pact = "pact.cli:main"
+
+[project.urls]
+repository = "https://github.com/mitdbg/akmon"

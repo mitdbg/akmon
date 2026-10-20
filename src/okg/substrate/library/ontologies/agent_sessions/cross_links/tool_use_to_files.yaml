@@ -1,0 +1,24 @@
+# Cross-link rules: tool_use_event → source_file.
+#
+# Per `add-tool-use-event-capture` (2026-04-27): when an opt-in
+# `tool_use_event` carries a `file_path` attr that exact-matches
+# a `source_file` node's `path`, emit an `affects` edge from the
+# event to the file. Composes with the per-session
+# `agent_session affects source_file` rule (already emitted by
+# the source) — both edges coexist, the per-call edge is the
+# finer-grained refinement.
+#
+# The rule is unidirectional: a tool_use_event affects a file;
+# the reverse direction (file affected-by event) is implicit via
+# the existing affects narrowing and not separately materialized.
+rules:
+  - id: tool_use_event_file_path_to_source_file
+    src:
+      subtype: tool_use_event
+      field: file_path
+    dst:
+      subtype: source_file
+      field: path
+    matcher: exact
+    edge: affects
+    bidirectional: false

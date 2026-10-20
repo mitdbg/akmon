@@ -1,0 +1,126 @@
+# PI overview dashboard.
+#
+# At-a-glance status for an academic-researcher deployment: lab snapshot
+# (Advisees by stage), funding snapshot (Grants by status),
+# upcoming deadlines, papers in flight per advisee, current
+# service load.
+#
+# Panels mirror the daily-use questions a PI asks of the lab graph.
+# A YELLOW finding in `okg doctor --deployment <name>` or `okg metrics` typically
+# manifests as an unexpected zero / overdue row in one of these
+# panels.
+
+name: pi-overview
+title: PI Overview
+description: |
+  At-a-glance dashboard for an academic-researcher deployment: advisees
+  by stage, grants by status, upcoming deadlines, papers in flight
+  per advisee, service load (committees + reviews + letters).
+
+panels:
+  - id: advisees_by_stage
+    title: Advisees by stage
+    kind: table
+    description: |
+      Count of active Advisees grouped by role + status. Empty
+      rows (zero active PhDs) indicate either a cold-start
+      (group_webpage_scrape not yet run) or a source-coverage
+      gap.
+    sql: |
+      SELECT
+        attrs->>'role' AS role,
+        attrs->>'status' AS status,
+        count(*) AS n_advisees
+        FROM okg.v_nodes
+       WHERE subtype = 'advisee'
+       GROUP BY 1, 2
+       ORDER BY 1, 2
+
+  - id: grants_by_status
+    title: Grants by status
+    kind: table
+    description: |
+      Active funding snapshot. Status lifecycle covers drafted →
+      submitted → awarded → active → reporting → closed.
+    sql: |
+      SELECT
+        attrs->>'funder' AS funder,
+        attrs->>'status' AS status,
+        count(*) AS n_grants,
+        sum((attrs->>'amount_usd')::numeric) AS total_usd
+        FROM okg.v_nodes
+       WHERE subtype = 'grant'
+       GROUP BY 1, 2
+       ORDER BY 1, 2
+
+  - id: upcoming_deadlines_14d
+    title: Upcoming deadlines (next 14 days)
+    kind: table
+    description: |
+      Unified deadlines across grants, reviews, courses, hand-tagged.
+      Shows what's due in the next 14 days so the operator can
+      plan the week without leaving Claude.
+    sql: |
+      SELECT
+        attrs->>'kind' AS kind,
+        attrs->>'title' AS title,
+        attrs->>'due' AS due,
+        attrs->>'status' AS status
+        FROM okg.v_nodes
+       WHERE subtype = 'deadline'
+         AND attrs->>'status' = 'pending'
+         AND (attrs->>'due')::timestamp
+             BETWEEN now() AND (now() + interval '14 days')
+       ORDER BY (attrs->>'due')::timestamp ASC
+
+  - id: papers_in_flight_per_advisee
+    title: Papers in flight per advisee
+    kind: table
+    description: |
+      Recent papers (last 12 months) authored by current advisees.
+      Surfaces both productive students (many entries) and quiet
+      ones (no entries) — quiet doesn't always mean unproductive
+      but worth a check-in.
+    sql: |
+      WITH advisees AS (
+        SELECT node_id, attrs->>'display_name' AS name
+          FROM okg.v_nodes
+         WHERE subtype = 'advisee'
+           AND attrs->>'status' = 'active'
+      ),
+      paper_edges AS (
+        SELECT e.src AS advisee_id, count(*) AS n_papers
+          FROM okg.v_edges e
+          JOIN okg.v_nodes p ON p.node_id = e.dst
+         WHERE e.edge_type = 'author_of'
+           AND p.subtype = 'paper'
+           AND (p.attrs->>'year')::int
+               >= extract(year from now())::int - 1
+         GROUP BY e.src
+      )
+      SELECT a.name, coalesce(p.n_papers, 0) AS papers_last_12mo
+        FROM advisees a
+        LEFT JOIN paper_edges p ON p.advisee_id = a.node_id
+       ORDER BY coalesce(p.n_papers, 0) DESC, a.name
+
+  - id: service_load
+    title: Service load
+    kind: table
+    description: |
+      Active Committees + open Reviews + pending RecommendationLetters
+      — the three categories the service-load skill surfaces.
+    sql: |
+      SELECT 'committees_active' AS category, count(*) AS n
+        FROM okg.v_nodes
+       WHERE subtype = 'committee'
+         AND attrs->>'status' = 'active'
+       UNION ALL
+      SELECT 'reviews_open', count(*)
+        FROM okg.v_nodes
+       WHERE subtype = 'review'
+         AND attrs->>'status' IN ('assigned', 'drafted')
+       UNION ALL
+      SELECT 'letters_open', count(*)
+        FROM okg.v_nodes
+       WHERE subtype = 'recommendation_letter'
+         AND attrs->>'status' IN ('requested', 'drafted')

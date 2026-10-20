@@ -1,0 +1,23 @@
+# Cross-link rules: agent_memory -> person.
+#
+# Declares the catalog narrowing for the `actor_ref` record field when the actor
+# is a Person node (`person:<pid|slug>`, minted by the scholarly / academic_researcher
+# sources). The linker rule stays harmless when the source attrs carry no
+# actor_ref field; the record operator emits actor_ref as an explicit
+# `references` edge.
+rules:
+  - id: agent_records_reference_actor_person
+    src:
+      subtype:
+        - agent_claim
+        - agent_observation
+        - agent_experiment
+        - verification_result
+        - agent_decision
+      field: actor_ref
+    dst:
+      subtype: person
+      field: node_id
+    matcher: exact
+    edge: references
+    bidirectional: false

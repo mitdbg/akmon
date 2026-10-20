@@ -1,0 +1,79 @@
+# A PRICED corpus that is still corrupted at the end of a long history
+# (PACT concord-row-publication-ready, req.row.priced).
+#
+# WHY THIS PRESET EXISTS. The controlled-fixture row reports a three-mode cost
+# comparison in dollars. Driven from the `smoke` preset it bills every mode
+# $0.00 — honestly, because smoke seals no `cost.action_prices` and every action
+# class defaults to 0.0 — and three identical zeros carry no comparison. The two
+# presets that DO seal prices (cost_weighted, cost_mandatory) plant 5 and 2
+# corruptions, and a 22-update history plants and then unplants all of them, so
+# the final step's live-corruption roster is EMPTY and every detection cell would
+# be vacuous. This preset is the intersection that neither existing preset
+# occupies: smoke's corruption load (11 sites, enough that the plant queue is
+# still being worked at the final update) with a sealed price table.
+#
+# THE CORPUS IS BYTE-IDENTICAL TO SMOKE'S. Same seed, same world, same
+# redundancy / corruption / benign-variation / scale axes. Corpus generation is a
+# function of (seed, world, those axes) — the cost tables are sealed into the
+# manifest and are read only by the scoring layer — so this preset's documents,
+# corruption plan and generated history are the same bytes smoke produces. That
+# is deliberate: the ONLY difference between the unpriced row and the priced row
+# is the sealed economics, so the dollar column cannot be confused with a
+# different run. It also means the final-step live-corruption roster declared in
+# `okg.bench.synth.priced_history` is the roster the smoke history already
+# realizes, not a property this preset has to hope for.
+#
+# ADDING THESE PRICES TO `smoke` ITSELF IS REJECTED (req.row.priced): the cost
+# model is part of the canonical config dump, so it would move smoke's
+# config_digest and regenerate every golden scorecard pinned to it, for a reason
+# unrelated to what those goldens pin.
+#
+# WHERE THE PRICES COME FROM. This is the action price table already SEALED by
+# the two cost presets that `synth-cost-weighted-gold` landed —
+# presets/cost_weighted.yaml and presets/cost_mandatory.yaml declare exactly
+# these five amounts — copied verbatim rather than re-invented, so a dollar
+# figure on this corpus is denominated in the same units as the scorecard's.
+# They are distinct and non-zero across the classes, which is what makes the
+# three-mode totals separate: a mode that skips document steps bills strictly
+# fewer `parse` and `extract_document` actions and evaluates strictly fewer
+# `check` actions, and each of those carries a different price.
+#
+# ERROR COSTS ARE LEFT AT THE DOCUMENTED IDENTITY (default_error_cost 1.0,
+# nothing mandatory) ON PURPOSE. This preset plants ten corruption classes and
+# the repo seals per-class error costs for only four of them; assigning dollars
+# to the other six would be inventing numbers. Under the identity the remaining
+# error cost equals the count of unresolved corruptions, which is a statement
+# this corpus can support. The requirement this preset serves is about ACTION
+# prices.
+preset_name: priced_history
+seed: "smoke-749-1"
+world_path: world_smoke
+redundancy:
+  renderings_per_fact_min: 1
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 2, magnitude: 0.2, visibility_corrupted: 1}
+    entity_swap: {count: 1, visibility_corrupted: 1}
+    cardinality_violation: {count: 1, visibility_corrupted: 1}
+    polarity_flip: {count: 1, visibility_corrupted: 1}
+    derived_value: {count: 1, magnitude: 0.3, visibility_corrupted: 1}
+    digit_transposition: {count: 1}
+    unit_conversion_error: {count: 1}
+    label_value_mismatch: {count: 1}
+    broken_reference: {count: 1}
+    dangling_entity: {count: 1}
+benign_variation:
+  unit_rescale_rate: 0.4
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+cost:
+  action_prices:
+    parse: 0.02
+    extract_document: 0.15
+    check: 0.5
+    correction: 20.0
+    publish: 5.0
+materialize_pdf: false

@@ -1,0 +1,7 @@
+{
+  "nodes": [
+    {"node_id": "confluence:100", "subtype": "document",
+     "attrs": {"title": "Team runbook", "text": "Weekly runbook content."}}
+  ],
+  "edges": []
+}

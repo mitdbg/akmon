@@ -1,0 +1,196 @@
+# Built-in default viz configuration.
+#
+# Every deployment's `viz:` block is MERGED onto this: missing fields
+# fall through to these defaults.  Deployments need not duplicate any
+# of this.  The rewrite-viz proposal (Phase 1) defines the schema.
+
+# Theme colours for canvas chrome (not node colours).
+# 2026 minimal-SaaS palette — cool neutrals + emerald accent.
+# Token names preserved verbatim so deployment overrides still bind.
+theme:
+  background: "#0b0d0f"
+  accent:     "#10b981"
+  fg:         "#e6e8eb"
+  fg_faint:   "#8a9099"
+  border:     "#23262b"
+
+# Default raw layout when no per-node policy matches.
+# Supported: cluster | groups | circular | random | preset | noverlap.
+default_layout: cluster
+
+# Per-subtype tier system (refactor-viz-layout-architecture §3).
+# Visual sizing — degree-modulated, NOT tier-based.
+#
+# The legacy "tiers" abstraction (primary/secondary/infrastructure)
+# produced wildly inconsistent sizes across deployments and is gone.
+# Node sizes are computed as
+#   final = clamp(SIZE_BASE + log(1+degree)*SIZE_LOG_GAIN, 7, 16)
+# in the style compiler. A deployment can pin a per-subtype `size`
+# under `node_types.<name>` to override on a case-by-case basis.
+
+# Legacy pinned root subtype for hierarchy endpoints.
+ontology_root: ""
+
+# Hard top-N labeling cap (degree-ranked). A small positive default
+# keeps sampled canvases readable on first render; selected, hovered,
+# trace-anchor, and synthetic meta nodes restore their labels. Set to
+# 0 from the settings drawer or a deployment override
+# to let sigma's grid-based collision dedup decide instead.
+label_max: 8
+
+# Edge-degree filter: edges whose endpoints are both below this
+# degree are faded into the background to cut visual haze on dense
+# canvases. Set to 0 to disable.
+edge_min_endpoint_degree: 0
+
+# Supernode collapse: components with more than this many nodes of
+# the same subtype get collapsed into a single `[N <subtype>]`
+# badge by the viz-expansion-and-supernodes module.
+supernode_subtype_threshold: 30
+
+# Disconnected-component tucking (refactor-viz-layout-
+# architecture §5). Components with this many nodes or fewer are
+# placed in a left-edge column instead of laid out by the active
+# algorithm. Default 2 (singletons + pairs). Set to 0 to disable.
+tucked_component_max_size: 2
+
+# Per-subtype sequence-ordering attribute used by the legacy
+# hierarchy endpoints. When a subtype carries a natural order — e.g.
+# document chunks ordered by `char_offset`, proposal tasks ordered
+# by `task_number` — declare which attribute holds the order here.
+#
+# Values are attribute names (string keys in `attrs`); the value
+# is parsed as a number if numeric, otherwise lexically. Subtypes
+# not listed get no ordering.
+sequence_attrs: {}
+
+# Hierarchy options for the legacy hierarchy endpoint. The Sigma UI
+# no longer exposes the Map/Overview picker, but deployments may still
+# call /hierarchy/tree directly.
+hierarchy_options:
+  - id: containment
+    label: "By containment"
+    mode: containment
+  - id: subtype
+    label: "By subtype"
+    mode: subtype
+
+# `global_aggregations` was the single-level Group-by menu from the
+# retired Overview/Map UI. Kept here as an empty list for historical
+# deployments that still declare it.
+global_aggregations: []
+
+# Presentation presets.
+# Sigma exposes three outcome-named presets:
+#   cluster  — graphology ForceAtlas2
+#   groups   — graphology circlepack/grouped positions
+#   timeline — deterministic X from step index or time attribute
+#
+# Defaults are opt-in for explore + trace via use_presentation_presets.
+# Older names (force/hierarchy/flow/radial) are normalized in the
+# presentation module for compatibility.
+use_presentation_presets: false
+presentation:
+  explore: cluster
+  trace: timeline
+  ontology: groups
+# ForceAtlas2 cluster preset. These are the defaults exposed in
+# the settings drawer's "Layout (force-directed)" section; users
+# can tune per-deployment and save via the Per-deployment block.
+# Values were calibrated for hub-and-spokes layouts (one node
+# with many leaves) which collapsed to a tight ball under the
+# legacy scalingRatio=10 + gravity=1.
+cluster:
+  iterations: 250
+  scalingRatio: 80
+  gravity: 0.4
+  outboundAttractionDistribution: true
+  adjustSizes: true
+  # forceAtlas2 strictly requires a boolean here. The settings
+  # drawer's "auto" choice resolves to true/false at apply time
+  # based on visible node count; this default is for canvases
+  # loaded before the user touches the drawer.
+  barnesHutOptimize: false
+groups:
+  hierarchyAttributes: [type]
+  center: 0.5
+  scale: 1
+timeline:
+  x_field: step_index
+  x_padding: 40
+  rank_separation: 80
+  jitter: 0
+
+# Per-subtype style rules. The renderer reads only `color` and an
+# optional pinned `size`. (Sigma 2's stock NodeCircleProgram has no
+# `shape`, no per-node label color, no halign/valign; legacy keys
+# like `shape`, `text_valign`, `text_halign`, `label_size`,
+# `text_wrap` are silently ignored. Deployments should not set them.
+# `size_from: degree` is also gone — the global degree-modulated
+# rule applies unless `size` is pinned.)
+node_types:
+  __default__:
+    color: "#607d8b"
+    label: "{label}"
+
+  # Reserved framework tokens. DO NOT remove.
+  __meta__:
+    color: "#1e88e5"
+    size: 12
+    label: "{label}"
+  __remainder__:
+    # Visually distinct: warm ochre to read as "more available"
+    # without colliding with semantic warning orange.
+    color: "#b28704"
+    size: 18
+    label: "{label}"
+  __trace_focus__:
+    color: "#8fd4d4"
+    size: 16
+    label: "{label}"
+  __archetype__:
+    color: "#263044"
+    size: 12
+    label: "{label}"
+
+# Per-edge-type style rules. Renderer reads only `color` and `width`.
+# Legacy keys `line_style` (solid/dashed/dotted) and `arrow` are
+# ignored — sigma's stock edge program draws straight solid edges.
+# Deployments should not set them.
+edge_types:
+  __default__:
+    color: "#7791aa"
+    width: 1.2
+
+  __meta_edge__:
+    color: "#5b8def"
+    width: 1.4
+    label: ""
+  __trace__:
+    color: "#10b981"
+    width: 3
+    z_index: 10
+  __path__:
+    color: "#5b8def"
+    width: 2
+
+# Layout policies run in order.  The runner marks nodes placed by
+# earlier policies as `locked: true` before running the next pass so
+# scoped layouts coexist cleanly with a global fallback.
+layout_policies:
+  - name: fallback
+    layout: cluster
+    scope: "*"
+
+# Supernode threshold (viz-expansion-and-supernodes §4). Nodes whose
+# degree at the pin meets or exceeds this value get the .supernode
+# style class so the user reads asymmetry before expanding. Override
+# per-deployment with `viz.supernode_degree_threshold`.
+supernode_degree_threshold: 100
+
+# Default time-axis field (null = user picks when binding).
+default_time_field: null
+
+# Whether the sidebar's type-filter eye-toggle hides by default
+# (true = use the default_exclude list below; false = show everything).
+default_exclude: []

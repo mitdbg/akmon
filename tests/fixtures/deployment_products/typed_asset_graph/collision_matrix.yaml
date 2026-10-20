@@ -1,0 +1,29 @@
+cases:
+  - id: missing
+    expected_code: missing_reference
+    expected_chain: [test:missing-root, test:missing-child]
+    expected_hint: register the referenced owner-qualified asset
+  - id: cycle
+    expected_code: reference_cycle
+    expected_chain: [cycle:a, cycle:b, cycle:a]
+    expected_hint: remove one reference in the cycle
+  - id: duplicate_digest
+    expected_code: digest_collision
+    expected_chain: []
+    expected_hint: select one content digest for this owner-qualified ID
+  - id: unsupported_version
+    expected_code: unsupported_version
+    expected_chain: [ontology:core-schema]
+    expected_hint: select the compatible asset version
+  - id: unsupported_capability
+    expected_code: unsupported_capability
+    expected_chain: [ontology:core-schema]
+    expected_hint: publish a capability-compatible asset
+  - id: override_type
+    expected_code: override_value_invalid
+    expected_chain: [operator:refresh_seconds]
+    expected_hint: supply a value accepted by the declared slot schema
+  - id: raw_pointer
+    expected_code: raw_document_pointer
+    expected_chain: []
+    expected_hint: use the declared stable slot_id

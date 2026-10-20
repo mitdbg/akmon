@@ -1,0 +1,114 @@
+{
+  "edges": [
+    {
+      "dst": "lifecycle-exec:docs:finding:note-md",
+      "edge_type": "contains",
+      "src": "lifecycle-exec:docs:record:note-md"
+    },
+    {
+      "dst": "doc:lifecycle-exec:docs:note-md",
+      "edge_type": "references",
+      "src": "lifecycle-exec:docs:record:note-md"
+    },
+    {
+      "dst": "lifecycle-exec:docs:record:note-md",
+      "edge_type": "references",
+      "src": "doc:lifecycle-exec:docs:note-md"
+    },
+    {
+      "dst": "chunk:44c80dace564a809",
+      "edge_type": "contains",
+      "src": "doc:lifecycle-exec:docs:note-md"
+    },
+    {
+      "dst": "doc:lifecycle-exec:docs:note-md",
+      "edge_type": "member_of",
+      "src": "chunk:44c80dace564a809"
+    }
+  ],
+  "nodes": [
+    {
+      "attrs": {
+        "raw": {
+          "path": "note.md",
+          "text": "# Lifecycle fixture note\n\nA small committed document for the lifecycle suite.\n",
+          "title": "Lifecycle fixture note"
+        },
+        "record_id": "note.md",
+        "source_id": "lifecycle-exec:docs",
+        "text": "Lifecycle fixture note\n\n# Lifecycle fixture note\n\nA small committed document for the lifecycle suite.",
+        "title": "Lifecycle fixture note"
+      },
+      "node_id": "lifecycle-exec:docs:record:note-md",
+      "source_record_id": {
+        "kind": "record",
+        "record_id": "note.md",
+        "source": "lifecycle-exec:docs"
+      },
+      "source_revision": {
+        "content_sha256": "9eaecc9e3487280417736935a95184587ee3c674542d9cad846b45e058159e62"
+      },
+      "subtype": "lifecycle_exec_record"
+    },
+    {
+      "attrs": {
+        "finding_id": "note.md:shape",
+        "label": "lifecycle-exec:docs sample record",
+        "source_id": "lifecycle-exec:docs",
+        "text": "Lifecycle fixture note\n\n# Lifecycle fixture note\n\nA small committed document for the lifecycle suite."
+      },
+      "node_id": "lifecycle-exec:docs:finding:note-md",
+      "source_record_id": {
+        "kind": "finding",
+        "record_id": "note.md",
+        "source": "lifecycle-exec:docs"
+      },
+      "source_revision": {
+        "content_sha256": "9eaecc9e3487280417736935a95184587ee3c674542d9cad846b45e058159e62"
+      },
+      "subtype": "lifecycle_exec_finding"
+    },
+    {
+      "attrs": {
+        "byte_count": 101,
+        "content_sha256": "44c80dace564a809b53ad3236df0045d84fe97b3cac233db8830e64e614b6222",
+        "doc_id": "doc:lifecycle-exec:docs:note-md",
+        "format": "sample",
+        "path": "note.md",
+        "repo": "lifecycle-exec:docs",
+        "text": "Lifecycle fixture note\n\n# Lifecycle fixture note\n\nA small committed document for the lifecycle suite.",
+        "title": "Lifecycle fixture note"
+      },
+      "node_id": "doc:lifecycle-exec:docs:note-md",
+      "source_record_id": {
+        "kind": "document",
+        "record_id": "note.md",
+        "source": "lifecycle-exec:docs"
+      },
+      "source_revision": {
+        "content_sha256": "44c80dace564a809b53ad3236df0045d84fe97b3cac233db8830e64e614b6222"
+      },
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "char_length": 101,
+        "char_offset": 0,
+        "chunk_id": "chunk:44c80dace564a809",
+        "chunker_name": "bootstrap_sample",
+        "content_sha256": "44c80dace564a809b53ad3236df0045d84fe97b3cac233db8830e64e614b6222",
+        "text": "Lifecycle fixture note\n\n# Lifecycle fixture note\n\nA small committed document for the lifecycle suite."
+      },
+      "node_id": "chunk:44c80dace564a809",
+      "source_record_id": {
+        "kind": "chunk",
+        "record_id": "note.md",
+        "source": "lifecycle-exec:docs"
+      },
+      "source_revision": {
+        "content_sha256": "44c80dace564a809b53ad3236df0045d84fe97b3cac233db8830e64e614b6222"
+      },
+      "subtype": "document_chunk"
+    }
+  ]
+}

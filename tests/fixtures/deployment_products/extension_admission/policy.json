@@ -1,0 +1,24 @@
+{
+  "owner": "fixture-policy",
+  "snapshot_id": "capacity-wave3-1",
+  "budgets": [
+    {"dimension": "cpu", "amount": 1000, "unit": "millicore", "owner": "fixture-policy"},
+    {"dimension": "memory", "amount": 268435456, "unit": "byte", "owner": "fixture-policy"},
+    {"dimension": "concurrency", "amount": 16, "unit": "slot", "owner": "fixture-policy"},
+    {"dimension": "workers", "amount": 4, "unit": "worker", "owner": "fixture-policy"},
+    {"dimension": "storage", "amount": 1048576, "unit": "byte", "owner": "fixture-policy"},
+    {"dimension": "network", "amount": 1048576, "unit": "byte", "owner": "fixture-policy"},
+    {"dimension": "filesystem", "amount": 1048576, "unit": "byte", "owner": "fixture-policy"},
+    {"dimension": "model_spend", "amount": 1000000, "unit": "micro_usd", "owner": "fixture-policy"},
+    {"dimension": "connections", "amount": 8, "unit": "connection", "owner": "fixture-policy"},
+    {"dimension": "credentials", "amount": 8, "unit": "credential", "owner": "fixture-policy"}
+  ],
+  "capabilities": [
+    "filesystem",
+    "graph.output.propose",
+    "network",
+    "provider.metadata.read",
+    "provider.source.read"
+  ],
+  "provider_effects": ["observe", "write"]
+}

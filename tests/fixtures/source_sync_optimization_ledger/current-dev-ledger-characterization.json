@@ -1,0 +1,185 @@
+{
+  "authority": {
+    "base_commit": "dcc84607eca3270aea354b327c8cab741950e111",
+    "command": "okg-heavyweight-lease run -- uv run python .scratch/render_slice3_current_dev_baseline.py",
+    "source_module": "okg.substrate.source_sync_microbench"
+  },
+  "expected": {
+    "canonical_payload_sha256": "ee7662f2489986d05bc6be8b5262687696e192a0a585d9fb0c1c56919f158f37",
+    "enricher_count_metadata": 77,
+    "ledger_schema": "okg.source_sync.microbench.optimization_ledger.v1",
+    "ordered_names": [
+      "agent-sessions",
+      "package-manifests",
+      "",
+      "doc-corpus",
+      "code-data-flow",
+      "ProfileHotspotLinker"
+    ],
+    "priority_ranks": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "relation_key_sha256": "95edc103d15519a0404f0ee446a840847f73ed3da96e1314da5021fcc7ad6daf",
+    "relation_row_count": 6,
+    "relation_rows_schema": "okg.source_sync.microbench.optimization_ledger.rows.v1",
+    "row_count": 6,
+    "source_count_metadata": 99,
+    "status_counts": {
+      "blocked_inventory": 1,
+      "confirm_policy": 1,
+      "needs_benchmark": 2,
+      "needs_full_pipeline_audit": 1,
+      "passing_full_pipeline_benchmark": 1
+    },
+    "wave_counts": {
+      "enricher_wave": 1,
+      "hot_wave": 1,
+      "policy_wave": 1,
+      "supporting_wave": 3
+    }
+  },
+  "fixed_generated_at": "2026-08-16T12:00:00+00:00",
+  "inventory": {
+    "coverage_counts": {
+      "automatic_hot_path": 1,
+      "manual_full_rebuild": 1,
+      "useful_automatic": 3
+    },
+    "deployment": "slice3-characterization",
+    "enricher_count": 77,
+    "enrichers": [
+      {
+        "benchmark_scenarios": [
+          "full-pipeline"
+        ],
+        "blocker": null,
+        "coverage_class": "source_backed_enricher",
+        "name": "ProfileHotspotLinker",
+        "owner": "_enricher:ProfileHotspotLinker",
+        "scope_support_status": "needs_dirty_scope_audit"
+      },
+      null
+    ],
+    "generated_at": "2026-08-16T11:59:00+00:00",
+    "live_state": {
+      "source_progress_loaded": true,
+      "status": "loaded"
+    },
+    "schema": "okg.source_sync.microbench.inventory.v1",
+    "source_count": 99,
+    "sources": [
+      {
+        "benchmark_scenarios": [
+          "source-only",
+          "full-pipeline"
+        ],
+        "blocker": null,
+        "coverage_class": "automatic_hot_path",
+        "cursor_support_status": "incremental_verified",
+        "latest_dedupe_drops_edge": 0,
+        "latest_dedupe_drops_node": 0,
+        "latest_edges_appended": 0,
+        "latest_full_pipeline_changed_graph_rows": 0,
+        "latest_full_pipeline_expected_delta": {
+          "edges_added": 0,
+          "nodes_added": 0
+        },
+        "latest_full_pipeline_expected_delta_source": "harness_declared",
+        "latest_full_pipeline_expected_delta_units": 0.0,
+        "latest_full_pipeline_latency_p95_ms": 825.0,
+        "latest_full_pipeline_no_change_dominant": true,
+        "latest_full_pipeline_observability_gaps": [],
+        "latest_full_pipeline_observability_status": "pass",
+        "latest_full_pipeline_observed_delta_units": 0.0,
+        "latest_full_pipeline_ok": true,
+        "latest_full_pipeline_readiness_impact": "within_budget",
+        "latest_full_pipeline_rows_appended": 0,
+        "latest_full_pipeline_scenario": "no-change",
+        "latest_full_pipeline_source_work_units": 0.0,
+        "latest_full_pipeline_work_amplification_budget": 3.0,
+        "latest_full_pipeline_work_amplification_ratio": null,
+        "latest_nodes_appended": 0,
+        "latest_source_runner_ms": 150.0,
+        "latest_stage_total_ms": 225.0,
+        "owner": "slice3.agent-sessions",
+        "producer_status": "configured",
+        "readiness_required": true,
+        "scope_support_status": "declared",
+        "source_name": "agent-sessions"
+      },
+      {
+        "benchmark_scenarios": [
+          "source-only",
+          "full-pipeline"
+        ],
+        "blocker": "scope_support_missing",
+        "coverage_class": "useful_automatic",
+        "cursor_support_status": "completed_scope_requires_audit",
+        "latest_dedupe_drops_edge": 1,
+        "latest_dedupe_drops_node": 20,
+        "latest_edges_appended": 1,
+        "latest_nodes_appended": 2,
+        "latest_source_facts_emitted": 3,
+        "latest_source_runner_ms": "2400.5",
+        "owner": "slice3.package-manifests",
+        "producer_status": "configured",
+        "readiness_required": false,
+        "scope_support_status": "missing",
+        "source_name": "package-manifests"
+      },
+      {
+        "benchmark_scenarios": [
+          "source-only",
+          "full-pipeline"
+        ],
+        "blocker": null,
+        "coverage_class": "useful_automatic",
+        "cursor_support_status": "completed_scope_requires_audit",
+        "latest_source_runner_ms": null,
+        "owner": "slice3.doc-corpus",
+        "producer_status": "configured",
+        "readiness_required": false,
+        "scope_support_status": "declared",
+        "source_name": "doc-corpus"
+      },
+      {
+        "benchmark_scenarios": [
+          "source-only"
+        ],
+        "blocker": null,
+        "coverage_class": "manual_full_rebuild",
+        "cursor_support_status": "completed_scope_requires_audit",
+        "latest_dedupe_drops_edge": 3103,
+        "latest_dedupe_drops_node": 3124,
+        "latest_edges_appended": 2980,
+        "latest_nodes_appended": 534,
+        "latest_source_runner_ms": 6033.718,
+        "latest_stage_total_ms": 6335.819,
+        "owner": "slice3.code-data-flow",
+        "producer_status": "manual_only",
+        "readiness_required": false,
+        "scope_support_status": "not_declared",
+        "source_name": "code-data-flow"
+      },
+      {
+        "benchmark_scenarios": [],
+        "blocker": null,
+        "coverage_class": "mystery",
+        "latest_edges_appended": null,
+        "latest_nodes_appended": "bad",
+        "latest_source_runner_ms": "not-a-number",
+        "owner": null,
+        "readiness_required": false,
+        "source_name": ""
+      },
+      "skip-non-mapping-source",
+      7
+    ]
+  },
+  "schema": "okg.god_file.slice3.current_dev_characterization.v1"
+}

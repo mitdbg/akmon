@@ -1,0 +1,222 @@
+{
+  "edges": [
+    {
+      "dst": "lifecycle-exec:records:finding:lr-1",
+      "edge_type": "contains",
+      "src": "lifecycle-exec:records:record:lr-1"
+    },
+    {
+      "dst": "doc:lifecycle-exec:records:lr-1",
+      "edge_type": "references",
+      "src": "lifecycle-exec:records:record:lr-1"
+    },
+    {
+      "dst": "lifecycle-exec:records:record:lr-1",
+      "edge_type": "references",
+      "src": "doc:lifecycle-exec:records:lr-1"
+    },
+    {
+      "dst": "chunk:897c6b7e3de67237",
+      "edge_type": "contains",
+      "src": "doc:lifecycle-exec:records:lr-1"
+    },
+    {
+      "dst": "doc:lifecycle-exec:records:lr-1",
+      "edge_type": "member_of",
+      "src": "chunk:897c6b7e3de67237"
+    },
+    {
+      "dst": "lifecycle-exec:records:finding:lr-2",
+      "edge_type": "contains",
+      "src": "lifecycle-exec:records:record:lr-2"
+    },
+    {
+      "dst": "doc:lifecycle-exec:records:lr-2",
+      "edge_type": "references",
+      "src": "lifecycle-exec:records:record:lr-2"
+    },
+    {
+      "dst": "lifecycle-exec:records:record:lr-2",
+      "edge_type": "references",
+      "src": "doc:lifecycle-exec:records:lr-2"
+    },
+    {
+      "dst": "chunk:4001ab44c33410ee",
+      "edge_type": "contains",
+      "src": "doc:lifecycle-exec:records:lr-2"
+    },
+    {
+      "dst": "doc:lifecycle-exec:records:lr-2",
+      "edge_type": "member_of",
+      "src": "chunk:4001ab44c33410ee"
+    }
+  ],
+  "nodes": [
+    {
+      "attrs": {
+        "raw": {
+          "description": "Fixture record for the deployment lifecycle suite.",
+          "id": "LR-1",
+          "summary": "First lifecycle record"
+        },
+        "record_id": "LR-1",
+        "source_id": "lifecycle-exec:records",
+        "text": "First lifecycle record\n\nFixture record for the deployment lifecycle suite.",
+        "title": "First lifecycle record"
+      },
+      "node_id": "lifecycle-exec:records:record:lr-1",
+      "source_record_id": {
+        "kind": "record",
+        "record_id": "LR-1",
+        "source": "lifecycle-exec:records"
+      },
+      "source_revision": {
+        "content_sha256": "844028c69f5fd1167dad9966966caff1e0e7a9136ee6a08742ab30df3afb3d3b"
+      },
+      "subtype": "lifecycle_exec_record"
+    },
+    {
+      "attrs": {
+        "finding_id": "LR-1:shape",
+        "label": "lifecycle-exec:records sample record",
+        "source_id": "lifecycle-exec:records",
+        "text": "First lifecycle record\n\nFixture record for the deployment lifecycle suite."
+      },
+      "node_id": "lifecycle-exec:records:finding:lr-1",
+      "source_record_id": {
+        "kind": "finding",
+        "record_id": "LR-1",
+        "source": "lifecycle-exec:records"
+      },
+      "source_revision": {
+        "content_sha256": "844028c69f5fd1167dad9966966caff1e0e7a9136ee6a08742ab30df3afb3d3b"
+      },
+      "subtype": "lifecycle_exec_finding"
+    },
+    {
+      "attrs": {
+        "byte_count": 74,
+        "content_sha256": "897c6b7e3de6723796f488fc4f2daa18ddbfebe1f9ccf261d49257bbc5e46deb",
+        "doc_id": "doc:lifecycle-exec:records:lr-1",
+        "format": "sample",
+        "path": "LR-1.sample",
+        "repo": "lifecycle-exec:records",
+        "text": "First lifecycle record\n\nFixture record for the deployment lifecycle suite.",
+        "title": "First lifecycle record"
+      },
+      "node_id": "doc:lifecycle-exec:records:lr-1",
+      "source_record_id": {
+        "kind": "document",
+        "record_id": "LR-1",
+        "source": "lifecycle-exec:records"
+      },
+      "source_revision": {
+        "content_sha256": "897c6b7e3de6723796f488fc4f2daa18ddbfebe1f9ccf261d49257bbc5e46deb"
+      },
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "char_length": 74,
+        "char_offset": 0,
+        "chunk_id": "chunk:897c6b7e3de67237",
+        "chunker_name": "bootstrap_sample",
+        "content_sha256": "897c6b7e3de6723796f488fc4f2daa18ddbfebe1f9ccf261d49257bbc5e46deb",
+        "text": "First lifecycle record\n\nFixture record for the deployment lifecycle suite."
+      },
+      "node_id": "chunk:897c6b7e3de67237",
+      "source_record_id": {
+        "kind": "chunk",
+        "record_id": "LR-1",
+        "source": "lifecycle-exec:records"
+      },
+      "source_revision": {
+        "content_sha256": "897c6b7e3de6723796f488fc4f2daa18ddbfebe1f9ccf261d49257bbc5e46deb"
+      },
+      "subtype": "document_chunk"
+    },
+    {
+      "attrs": {
+        "raw": {
+          "description": "Another fixture record.",
+          "id": "LR-2",
+          "summary": "Second lifecycle record"
+        },
+        "record_id": "LR-2",
+        "source_id": "lifecycle-exec:records",
+        "text": "Second lifecycle record\n\nAnother fixture record.",
+        "title": "Second lifecycle record"
+      },
+      "node_id": "lifecycle-exec:records:record:lr-2",
+      "source_record_id": {
+        "kind": "record",
+        "record_id": "LR-2",
+        "source": "lifecycle-exec:records"
+      },
+      "source_revision": {
+        "content_sha256": "4c0313a6acee6e2ebad8136c9191468d05baf2daeede2f24258c1560f0ab0549"
+      },
+      "subtype": "lifecycle_exec_record"
+    },
+    {
+      "attrs": {
+        "finding_id": "LR-2:shape",
+        "label": "lifecycle-exec:records sample record",
+        "source_id": "lifecycle-exec:records",
+        "text": "Second lifecycle record\n\nAnother fixture record."
+      },
+      "node_id": "lifecycle-exec:records:finding:lr-2",
+      "source_record_id": {
+        "kind": "finding",
+        "record_id": "LR-2",
+        "source": "lifecycle-exec:records"
+      },
+      "source_revision": {
+        "content_sha256": "4c0313a6acee6e2ebad8136c9191468d05baf2daeede2f24258c1560f0ab0549"
+      },
+      "subtype": "lifecycle_exec_finding"
+    },
+    {
+      "attrs": {
+        "byte_count": 48,
+        "content_sha256": "4001ab44c33410ee0a9dcc1e2db4f3111c28b61d86fd0578ea4bdc10dcf9a0ec",
+        "doc_id": "doc:lifecycle-exec:records:lr-2",
+        "format": "sample",
+        "path": "LR-2.sample",
+        "repo": "lifecycle-exec:records",
+        "text": "Second lifecycle record\n\nAnother fixture record.",
+        "title": "Second lifecycle record"
+      },
+      "node_id": "doc:lifecycle-exec:records:lr-2",
+      "source_record_id": {
+        "kind": "document",
+        "record_id": "LR-2",
+        "source": "lifecycle-exec:records"
+      },
+      "source_revision": {
+        "content_sha256": "4001ab44c33410ee0a9dcc1e2db4f3111c28b61d86fd0578ea4bdc10dcf9a0ec"
+      },
+      "subtype": "document"
+    },
+    {
+      "attrs": {
+        "char_length": 48,
+        "char_offset": 0,
+        "chunk_id": "chunk:4001ab44c33410ee",
+        "chunker_name": "bootstrap_sample",
+        "content_sha256": "4001ab44c33410ee0a9dcc1e2db4f3111c28b61d86fd0578ea4bdc10dcf9a0ec",
+        "text": "Second lifecycle record\n\nAnother fixture record."
+      },
+      "node_id": "chunk:4001ab44c33410ee",
+      "source_record_id": {
+        "kind": "chunk",
+        "record_id": "LR-2",
+        "source": "lifecycle-exec:records"
+      },
+      "source_revision": {
+        "content_sha256": "4001ab44c33410ee0a9dcc1e2db4f3111c28b61d86fd0578ea4bdc10dcf9a0ec"
+      },
+      "subtype": "document_chunk"
+    }
+  ]
+}

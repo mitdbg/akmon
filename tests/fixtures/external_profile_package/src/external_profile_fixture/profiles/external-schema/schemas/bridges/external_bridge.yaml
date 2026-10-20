@@ -1,0 +1,15 @@
+id: https://example.test/external-profile-fixture/bridges/external
+name: external_profile_fixture_bridge
+title: External profile fixture bridge
+prefixes:
+  linkml: https://w3id.org/linkml/
+  fixture: https://example.test/external-profile-fixture/
+default_range: string
+imports:
+  - linkml:types
+classes:
+  EdgeNarrowings:
+    description: Empty bridge carrier proving nested package materialization.
+    annotations:
+      okg_edge_narrowings: "true"
+    attributes: {}

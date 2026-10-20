@@ -1,0 +1,885 @@
+# Substrate coordination ontology.
+#
+# Lifted from `deployments/okg-workspace/schemas/coordination.yaml`
+# and `deployments/okg-workspace/schemas/bridges/coordination_edges.yaml`
+# per `lift-coordination-to-substrate-library` (Wave A of the
+# `expand-memex-to-personal-okg` umbrella). Thirteen subtypes
+# describing supervised agent execution: work orders, role
+# agents, workspace leases, proofs of work, reviews.
+#
+# Source-of-truth migration: behavior preserved; only schema
+# `id:` and `class_uri:` prefix change (`okg_workspace:` →
+# `coord:`). Existing okg-workspace DB nodes remain valid.
+#
+# Cross-module narrowings to reasoning subtypes (Pattern A:
+# WorkspaceObservation derives_to Observation; Pattern B:
+# WorkOrder addresses Question, Review references Refutation)
+# are NOT declared here. They're owned by the first deployment
+# composing both coordination and reasoning modules (Wave B
+# `memex-compose-personal-okg-deployment`); see this proposal's
+# design.md D3. The rule files live at
+# `library/ontologies/coordination/cross_links/coordination_to_reasoning.yaml`
+# wired via coordination's `module.yaml` `extends.reasoning` block.
+id: https://palimpzest.mit.edu/okg/modules/coordination
+name: coordination
+title: "Coordination — supervised agent execution"
+description: >-
+  Work orders, role-agent assignments, workspace leases,
+  proofs of work, reviews, and merge decisions. Models the
+  supervisor / persistent-worker execution flow. Originally
+  shipped via `add-okg-workspace-coordination-graph`, refined
+  by `refactor-okg-workspace-coordination-contract`; lifted
+  to substrate per `lift-coordination-to-substrate-library`.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  coord: https://palimpzest.mit.edu/okg/modules/coordination/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+  CoordinationOrgUnit:
+    description: Deployment-owned organizational unit used to scope delegated coordination.
+    class_uri: coord:CoordinationOrgUnit
+    attributes:
+      org_unit_id:
+        required: true
+      unit_type:
+        required: true
+      parent_unit_id:
+      display_name:
+        required: true
+      org_unit_state:
+        required: true
+      supervisor_id:
+      default_worker_pool:
+      role_agent_ids:
+      scope_paths:
+      source_work_area_id:
+      project_ref:
+      team_unit_id:
+      notes:
+      config_hash:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: org_unit_id,display_name,unit_type,parent_unit_id,source_work_area_id,project_ref
+      okg_searchable_text_fields: org_unit_id,display_name,unit_type,parent_unit_id,org_unit_state,supervisor_id,default_worker_pool,role_agent_ids,scope_paths,source_work_area_id,project_ref,team_unit_id,notes,text
+
+  CoordinationWorkArea:
+    description: Deployment-owned work area with a bounded scope, owner, and default worker pool.
+    class_uri: coord:CoordinationWorkArea
+    attributes:
+      work_area_id:
+        required: true
+      name:
+      owner:
+        required: true
+      work_area_state:
+        required: true
+      default_worker_pool:
+      scope_paths:
+      notes:
+      config_hash:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: work_area_id,name,owner
+      okg_searchable_text_fields: work_area_id,name,owner,work_area_state,scope_paths,notes,text
+
+  WorkerPool:
+    description: Persistent worker-pool policy snapshot managed by one supervisor.
+    class_uri: coord:WorkerPool
+    attributes:
+      pool_id:
+        required: true
+      name:
+      supervisor:
+        required: true
+      pool_state:
+        required: true
+      work_area_ids:
+      role_agent_ids:
+      workspace_lease_policy:
+      config_hash:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: pool_id,name,supervisor
+      okg_searchable_text_fields: pool_id,name,supervisor,pool_state,work_area_ids,role_agent_ids,workspace_lease_policy,text
+
+  RoleAgent:
+    description: Persistent role identity that can claim work orders under policy.
+    class_uri: coord:RoleAgent
+    attributes:
+      role_agent_id:
+        required: true
+      pool_id:
+        required: true
+      work_area_ids:
+      role:
+        required: true
+      role_agent_state:
+        required: true
+      access_mode:
+        required: true
+      allowed_packet_kinds:
+      last_heartbeat_at:
+        range: datetime
+      context_notes:
+      config_hash:
+      text:
+    annotations:
+      archetype: actor
+      transient: "false"
+      okg_alias_fields: role_agent_id,role,pool_id
+      okg_searchable_text_fields: role_agent_id,pool_id,work_area_ids,role,role_agent_state,access_mode,allowed_packet_kinds,context_notes,text
+
+  WorkGate:
+    description: Machine-checkable gate that supports acceptance criteria for a task bundle.
+    class_uri: coord:WorkGate
+    attributes:
+      gate_id:
+        required: true
+      name:
+        required: true
+      gate_type:
+        required: true
+      work_area_id:
+      bundle_id:
+      acceptance_criterion_ids:
+      required:
+        range: boolean
+      live_check_required:
+        range: boolean
+      execution_modes:
+      command:
+      config_path:
+      gate_state:
+        required: true
+      description:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: gate_id,name,gate_type,work_area_id,bundle_id
+      okg_searchable_text_fields: gate_id,name,gate_type,work_area_id,bundle_id,acceptance_criterion_ids,execution_modes,command,config_path,gate_state,description,text
+
+  GateResult:
+    description: Result of evaluating a work gate for a task bundle or work order.
+    class_uri: coord:GateResult
+    attributes:
+      gate_result_id:
+        required: true
+      gate_id:
+        required: true
+      bundle_id:
+      order_id:
+      status:
+        required: true
+      required:
+        range: boolean
+      evaluated_by:
+      proof_id:
+      evidence_refs:
+      live_check_required:
+        range: boolean
+      skip_authorized_by:
+      created_at:
+        range: datetime
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: gate_result_id,gate_id,bundle_id,order_id,status,proof_id
+      okg_searchable_text_fields: gate_result_id,gate_id,bundle_id,order_id,status,evaluated_by,proof_id,evidence_refs,skip_authorized_by,text
+
+  ProofOfWork:
+    description: Structured evidence that records command context, artifacts, graph status, and git state for delegated work.
+    class_uri: coord:ProofOfWork
+    attributes:
+      proof_id:
+        required: true
+      bundle_id:
+      order_id:
+      agent_id:
+      role_agent_id:
+      work_area_id:
+      command:
+        required: true
+      exit_code:
+        range: integer
+      status:
+        required: true
+      started_at:
+        range: datetime
+      completed_at:
+        range: datetime
+      artifact_path:
+      output_digest:
+      generation_id:
+        range: integer
+      doctor_status:
+      metrics_summary:
+      git_head:
+      dirty_summary:
+      evidence_refs:
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: proof_id,bundle_id,order_id,agent_id,role_agent_id,work_area_id,git_head,status
+      okg_searchable_text_fields: proof_id,bundle_id,order_id,agent_id,role_agent_id,work_area_id,command,status,artifact_path,output_digest,doctor_status,metrics_summary,git_head,dirty_summary,evidence_refs,text
+
+  WorkOrder:
+    description: Supervisor-issued work order for a role agent to claim and advance.
+    class_uri: coord:WorkOrder
+    attributes:
+      order_id:
+        required: true
+      bundle_id:
+        required: true
+      work_area_id:
+        required: true
+      target_role:
+        required: true
+      branch:
+      workspace_lease_id:
+      change_id:
+      task_id:
+      intent_refs:
+      task_refs:
+      bundle_scope:
+      priority:
+      issuer_unit_id:
+      target_unit_id:
+      parent_order_id:
+      execution_mode:
+      report_policy:
+      order_state:
+        required: true
+      created_at:
+        range: datetime
+      claim_by:
+        range: datetime
+      stale_after:
+      instructions:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: order_id,bundle_id,work_area_id,target_role,branch,change_id,task_id,bundle_scope,target_unit_id,execution_mode
+      okg_searchable_text_fields: order_id,bundle_id,work_area_id,target_role,branch,priority,order_state,bundle_scope,intent_refs,task_refs,issuer_unit_id,target_unit_id,parent_order_id,execution_mode,report_policy,instructions,text
+
+  WorkspaceLease:
+    description: Claimed workspace location and observed git/dirty state for coordination.
+    class_uri: coord:WorkspaceLease
+    attributes:
+      workspace_lease_id:
+        required: true
+      repo_root:
+        required: true
+      workspace_path:
+        required: true
+      branch:
+      base_branch:
+      head_commit:
+      workspace_lease_state:
+        required: true
+      last_observed_at:
+        range: datetime
+      dirty_state:
+      tracked_dirty_count:
+        range: integer
+      untracked_count:
+        range: integer
+      ignored_count:
+        range: integer
+      lease_order_id:
+      lease_assignment_id:
+      text:
+    annotations:
+      archetype: resource
+      transient: "false"
+      okg_alias_fields: workspace_lease_id,workspace_path,branch,head_commit
+      okg_searchable_text_fields: workspace_lease_id,repo_root,workspace_path,branch,base_branch,head_commit,workspace_lease_state,dirty_state,text
+
+  WorkspaceObservation:
+    description: Point-in-time workspace observation tied to an assignment and role agent.
+    class_uri: coord:WorkspaceObservation
+    attributes:
+      observation_id:
+        required: true
+      workspace_lease_id:
+        required: true
+      assignment_id:
+        required: true
+      role_agent_id:
+        required: true
+      access_mode:
+      branch:
+      head_commit:
+      observed_at:
+        range: datetime
+        required: true
+      tracked_dirty_paths:
+      untracked_paths:
+      ignored_paths:
+      reader_mutation_paths:
+      stale_after:
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: observation_id,workspace_lease_id,assignment_id,role_agent_id,head_commit
+      okg_searchable_text_fields: observation_id,workspace_lease_id,assignment_id,role_agent_id,access_mode,branch,head_commit,tracked_dirty_paths,reader_mutation_paths,text
+
+  AgentAssignment:
+    description: Current assignment state for one role agent working a supervisor order.
+    class_uri: coord:AgentAssignment
+    attributes:
+      assignment_id:
+        required: true
+      order_id:
+        required: true
+      bundle_id:
+      role_agent_id:
+        required: true
+      work_area_id:
+        required: true
+      owner:
+      branch:
+      workspace_lease_id:
+      workspace_path:
+      access_mode:
+        required: true
+      change_id:
+      task_id:
+      intent_refs:
+      task_refs:
+      bundle_scope:
+      assignment_state:
+        required: true
+      assigned_at:
+        range: datetime
+      updated_at:
+        range: datetime
+      stale_after:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: assignment_id,order_id,bundle_id,role_agent_id,work_area_id,branch,change_id,task_id,bundle_scope
+      okg_searchable_text_fields: assignment_id,order_id,bundle_id,role_agent_id,work_area_id,owner,branch,access_mode,assignment_state,bundle_scope,intent_refs,task_refs,text
+
+  Review:
+    description: Review record that captures a verdict against a handoff.
+    class_uri: coord:Review
+    attributes:
+      review_id:
+        required: true
+      handoff_id:
+        required: true
+      reviewer:
+        required: true
+      role_agent_id:
+      verdict:
+        required: true
+      intent_refs:
+      task_refs:
+      bundle_id:
+      bundle_scope:
+      created_at:
+        range: datetime
+      proof_ids:
+      gate_result_ids:
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: review_id,handoff_id,reviewer,role_agent_id,verdict,bundle_id,bundle_scope
+      okg_searchable_text_fields: review_id,handoff_id,reviewer,role_agent_id,verdict,bundle_id,bundle_scope,intent_refs,task_refs,proof_ids,gate_result_ids,text
+
+  ReviewPacket:
+    is_a: Review
+    description: >-
+      Legacy compatibility subtype for review packets emitted before
+      coordination records were normalized to Review.
+    class_uri: coord:ReviewPacket
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: review_id,handoff_id,reviewer,role_agent_id,verdict,bundle_id,bundle_scope
+      okg_searchable_text_fields: review_id,handoff_id,reviewer,role_agent_id,verdict,bundle_id,bundle_scope,intent_refs,task_refs,proof_ids,gate_result_ids,text
+
+  ReviewFinding:
+    description: Individual review finding that can block, request fixup, or record acceptance.
+    class_uri: coord:ReviewFinding
+    attributes:
+      finding_id:
+        required: true
+      review_id:
+      handoff_id:
+      priority:
+        required: true
+      finding_state:
+        required: true
+      file_path:
+      line:
+        range: integer
+      body:
+        required: true
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: finding_id,review_id,handoff_id,priority,finding_state,file_path
+      okg_searchable_text_fields: finding_id,review_id,handoff_id,priority,finding_state,file_path,body,text
+
+  CoordinationEvent:
+    description: Append-only native coordination transition with expected-revision and idempotency metadata.
+    class_uri: coord:CoordinationEvent
+    attributes:
+      event_id:
+        required: true
+      event_type:
+        required: true
+      event_family:
+        description: "Unified operating-model family: strategos, logistike, pact, or external."
+      change_id:
+        required: true
+      task_id:
+        required: true
+      event_target:
+        description: Normalized PACT target from the common event envelope.
+      event_envelope:
+        description: Common event envelope projected for read-side consumers.
+      actor_id:
+        required: true
+      actor_session_id:
+        required: true
+      role_agent_id:
+      workspace_id:
+      idempotency_key:
+        required: true
+      expected_revision:
+        range: integer
+      resulting_revision:
+        range: integer
+      status:
+        required: true
+      rejection_code:
+      rejection_reason:
+      observed_at:
+        range: datetime
+      payload:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: event_id,event_family,event_type,change_id,task_id,actor_id,actor_session_id,idempotency_key,status
+      okg_searchable_text_fields: event_id,event_family,event_type,change_id,task_id,actor_id,actor_session_id,role_agent_id,workspace_id,status,rejection_code,rejection_reason,text
+
+  CoordinationWorkItem:
+    description: Current native coordination state for one PACT task.
+    class_uri: coord:CoordinationWorkItem
+    attributes:
+      work_item_id:
+        required: true
+      change_id:
+        required: true
+      task_id:
+        required: true
+      revision:
+        range: integer
+      current_authority:
+      active_claim_owner:
+      workspace_id:
+      claim_state:
+      lease_state:
+      lease_fresh:
+        range: boolean
+      blocked:
+        range: boolean
+      blocker_reason:
+      proof_attached:
+        range: boolean
+      proof_refs:
+      review_state:
+      merge_ready:
+        range: boolean
+      supervisor_finalized:
+        range: boolean
+      subagents_rolled_up:
+        range: boolean
+      finalized_state:
+      task_done:
+        range: boolean
+      last_heartbeat_at:
+        range: datetime
+      last_operator_report_kind:
+      updated_at:
+        range: datetime
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: work_item_id,change_id,task_id,active_claim_owner,workspace_id,claim_state
+      okg_searchable_text_fields: work_item_id,change_id,task_id,current_authority,active_claim_owner,workspace_id,claim_state,lease_state,blocker_reason,review_state,finalized_state,last_operator_report_kind,text
+
+  TaskClaim:
+    description: Native claim or release transition for a PACT task.
+    class_uri: coord:TaskClaim
+    attributes:
+      task_claim_id:
+      event_id:
+        required: true
+      event_type:
+        required: true
+      change_id:
+        required: true
+      task_id:
+        required: true
+      actor_id:
+        required: true
+      role_agent_id:
+      workspace_id:
+      expected_revision:
+        range: integer
+      resulting_revision:
+        range: integer
+      status:
+        required: true
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: task_claim_id,event_id,change_id,task_id,role_agent_id,workspace_id,status
+      okg_searchable_text_fields: task_claim_id,event_id,event_type,change_id,task_id,actor_id,role_agent_id,workspace_id,status,text
+
+  HeartbeatEvent:
+    description: Native liveness heartbeat transition for an active PACT task claim.
+    class_uri: coord:HeartbeatEvent
+    attributes:
+      heartbeat_event_id:
+      event_id:
+        required: true
+      change_id:
+        required: true
+      task_id:
+        required: true
+      actor_id:
+      role_agent_id:
+      workspace_id:
+      status:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: heartbeat_event_id,event_id,change_id,task_id,role_agent_id,workspace_id,status
+      okg_searchable_text_fields: heartbeat_event_id,event_id,change_id,task_id,actor_id,role_agent_id,workspace_id,status,text
+
+  BlockerEvent:
+    description: Native blocker open/clear transition for a PACT task.
+    class_uri: coord:BlockerEvent
+    attributes:
+      blocker_event_id:
+      event_id:
+        required: true
+      event_type:
+      change_id:
+        required: true
+      task_id:
+        required: true
+      actor_id:
+      role_agent_id:
+      status:
+      rejection_code:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: blocker_event_id,event_id,event_type,change_id,task_id,role_agent_id,status
+      okg_searchable_text_fields: blocker_event_id,event_id,event_type,change_id,task_id,actor_id,role_agent_id,status,rejection_code,text
+
+  ProofEvent:
+    description: Native proof attachment transition for a PACT task.
+    class_uri: coord:ProofEvent
+    attributes:
+      proof_event_id:
+      event_id:
+        required: true
+      change_id:
+        required: true
+      task_id:
+        required: true
+      actor_id:
+      evidence_refs:
+      status:
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: proof_event_id,event_id,change_id,task_id,status
+      okg_searchable_text_fields: proof_event_id,event_id,change_id,task_id,actor_id,evidence_refs,status,text
+
+  ReviewGate:
+    description: Native review-gate transition for a PACT task.
+    class_uri: coord:ReviewGate
+    attributes:
+      review_gate_id:
+      event_id:
+        required: true
+      change_id:
+        required: true
+      task_id:
+        required: true
+      actor_id:
+      verdict:
+      status:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: review_gate_id,event_id,change_id,task_id,verdict,status
+      okg_searchable_text_fields: review_gate_id,event_id,change_id,task_id,actor_id,verdict,status,text
+
+  MergeGate:
+    description: Native merge-readiness transition for a PACT task.
+    class_uri: coord:MergeGate
+    attributes:
+      merge_gate_id:
+      event_id:
+        required: true
+      change_id:
+        required: true
+      task_id:
+        required: true
+      actor_id:
+      status:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: merge_gate_id,event_id,change_id,task_id,status
+      okg_searchable_text_fields: merge_gate_id,event_id,change_id,task_id,actor_id,status,text
+
+  SupervisorDecision:
+    description: Native supervisor finalization decision for a PACT task.
+    class_uri: coord:SupervisorDecision
+    attributes:
+      supervisor_decision_id:
+      event_id:
+        required: true
+      change_id:
+        required: true
+      task_id:
+        required: true
+      actor_id:
+      final_state:
+      status:
+      text:
+    annotations:
+      archetype: process
+      transient: "false"
+      okg_alias_fields: supervisor_decision_id,event_id,change_id,task_id,final_state,status
+      okg_searchable_text_fields: supervisor_decision_id,event_id,change_id,task_id,actor_id,final_state,status,text
+
+  SubagentRollup:
+    description: Native rollup transition summarizing child/subagent work for a PACT task.
+    class_uri: coord:SubagentRollup
+    attributes:
+      subagent_rollup_id:
+      event_id:
+        required: true
+      change_id:
+        required: true
+      task_id:
+        required: true
+      actor_id:
+      parent_change_id:
+      parent_task_id:
+      status:
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: subagent_rollup_id,event_id,change_id,task_id,parent_change_id,parent_task_id,status
+      okg_searchable_text_fields: subagent_rollup_id,event_id,change_id,task_id,actor_id,parent_change_id,parent_task_id,status,text
+
+  OperatorReport:
+    description: Native operator-report checkpoint or closeout event for a PACT task.
+    class_uri: coord:OperatorReport
+    attributes:
+      operator_report_id:
+      event_id:
+        required: true
+      change_id:
+        required: true
+      task_id:
+        required: true
+      actor_id:
+      report_kind:
+      status:
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: operator_report_id,event_id,change_id,task_id,report_kind,status
+      okg_searchable_text_fields: operator_report_id,event_id,change_id,task_id,actor_id,report_kind,status,text
+
+  EdgeNarrowings:
+    description: >-
+      Intra-module + cross-substrate narrowings for coordination.
+      Lifted verbatim from
+      `deployments/okg-workspace/schemas/bridges/coordination_edges.yaml`.
+      Cross-module narrowings to reasoning subtypes are NOT
+      declared here; they're owned by the first composing
+      deployment (Wave B). See this module's schema.yaml header
+      comment.
+    annotations:
+      okg_edge_narrowings: "true"
+      okg_relation_kind:
+        assigned_to: references
+        affects: references
+        verifies: references
+        supported_by: references
+        targets: references
+    attributes:
+      coordination_work_area_contains_assignment:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: CoordinationWorkArea
+          dst_subtypes: AgentAssignment
+      coordination_org_unit_contains_child:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: CoordinationOrgUnit
+          dst_subtypes: CoordinationOrgUnit
+      coordination_org_unit_references_policy:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CoordinationOrgUnit
+          dst_subtypes: "CoordinationWorkArea,WorkerPool,RoleAgent"
+      worker_pool_contains_role_agent:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: WorkerPool
+          dst_subtypes: RoleAgent
+      work_gate_verifies_acceptance:
+        annotations:
+          edge_archetype: verifies
+          src_subtypes: WorkGate
+          dst_subtypes: AcceptanceCriterion
+      work_gate_references_coordination_context:
+        annotations:
+          edge_archetype: references
+          src_subtypes: WorkGate
+          dst_subtypes: "CoordinationWorkArea,CoordinationOrgUnit"
+      gate_result_references_gate_context:
+        annotations:
+          edge_archetype: references
+          src_subtypes: GateResult
+          dst_subtypes: "WorkGate,WorkOrder,RoleAgent,ProofOfWork"
+      gate_result_supported_by_evidence:
+        annotations:
+          edge_archetype: supported_by
+          src_subtypes: GateResult
+          dst_subtypes: "ProofOfWork,TestReport,VerificationResult,WorkspaceObservation,AgentSession,SubAgentSession,ToolUseEvent,Document,DocumentChunk"
+      proof_of_work_references_coordination_context:
+        annotations:
+          edge_archetype: references
+          src_subtypes: ProofOfWork
+          dst_subtypes: "WorkOrder,AgentAssignment,RoleAgent,CoordinationWorkArea,WorkspaceLease,WorkspaceObservation,GitBranch,GitCommit"
+      proof_of_work_supported_by_evidence:
+        annotations:
+          edge_archetype: supported_by
+          src_subtypes: ProofOfWork
+          dst_subtypes: "TestReport,VerificationResult,AgentSession,SubAgentSession,ToolUseEvent,Document,DocumentChunk"
+      work_order_targets_openspec:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: WorkOrder
+          dst_subtypes: "OpenSpecChange,ProposalTask"
+      work_order_targets_pact:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: WorkOrder
+          dst_subtypes: "PactChange,PactTask"
+      work_order_references_coordination_context:
+        annotations:
+          edge_archetype: references
+          src_subtypes: WorkOrder
+          dst_subtypes: "CoordinationOrgUnit,CoordinationWorkArea,WorkerPool,RoleAgent,WorkspaceLease,GitBranch,WorkOrder"
+      role_agent_assigned_to_agent_assignment:
+        annotations:
+          edge_archetype: assigned_to
+          src_subtypes: RoleAgent
+          dst_subtypes: AgentAssignment
+      agent_assignment_references_order_and_workspace:
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentAssignment
+          dst_subtypes: "WorkOrder,RoleAgent,WorkspaceLease,GitBranch,GitCommit"
+      agent_assignment_targets_openspec:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: AgentAssignment
+          dst_subtypes: "OpenSpecChange,ProposalTask"
+      agent_assignment_targets_pact:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: AgentAssignment
+          dst_subtypes: "PactChange,PactTask"
+      workspace_observation_references_lease_assignment:
+        annotations:
+          edge_archetype: references
+          src_subtypes: WorkspaceObservation
+          dst_subtypes: "WorkspaceLease,AgentAssignment,RoleAgent,GitBranch,GitCommit"
+      review_references_handoff:
+        annotations:
+          edge_archetype: references
+          src_subtypes: Review
+          dst_subtypes: "RoleAgent,AgentAssignment,WorkspaceLease,GitCommit,ProofOfWork,GateResult"
+      review_targets_openspec:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: Review
+          dst_subtypes: "OpenSpecChange,ProposalTask"
+      review_targets_pact:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: Review
+          dst_subtypes: "PactChange,PactTask"
+      review_finding_affects_evidence:
+        annotations:
+          edge_archetype: affects
+          src_subtypes: ReviewFinding
+          dst_subtypes: "Review,ProofOfWork,GateResult,WorkGate,SourceFile,CodeSymbol,OpenSpecChange,ProposalTask,PactChange,PactTask"
+      coordination_native_targets_pact:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: "CoordinationEvent,CoordinationWorkItem,TaskClaim,HeartbeatEvent,BlockerEvent,ProofEvent,ReviewGate,MergeGate,SupervisorDecision,SubagentRollup,OperatorReport"
+          dst_subtypes: "PactChange,PactTask"
+      coordination_event_references_native_state:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CoordinationEvent
+          dst_subtypes: "CoordinationWorkItem,RoleAgent,WorkspaceLease"
+      coordination_native_state_references_context:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CoordinationWorkItem
+          dst_subtypes: "RoleAgent,WorkspaceLease"
+      coordination_native_artifacts_reference_context:
+        annotations:
+          edge_archetype: references
+          src_subtypes: "TaskClaim,HeartbeatEvent,BlockerEvent,ProofEvent,ReviewGate,MergeGate,SupervisorDecision,SubagentRollup,OperatorReport"
+          dst_subtypes: "CoordinationEvent,CoordinationWorkItem,RoleAgent,WorkspaceLease"

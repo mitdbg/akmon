@@ -1,0 +1,172 @@
+/* --- the metric chart ------------------------------------------------- */
+
+/* One chart on both pages: a metric select and a span control on one row,
+ * then the plot. Bars for a daily count, a line with dots for a duration,
+ * blocked and running days as ticks under the axis on every metric. The
+ * geometry is computed in metricsModel.ts in real pixels from a width the
+ * component measures; nothing here sizes the plot. */
+.okg-console__metric { margin-bottom: 16px; }
+
+/* Wrapping, because the row must never be what pushes the page wider than the
+ * viewport. The span control is four buttons in a bordered track now, not Ant
+ * Design's Segmented, and it measures 189 px: on the Updates list at 390 the
+ * metric name, the 16 px gap and the track came to 392 and the whole page
+ * scrolled sideways by two pixels. Shrinking the track to fit would be a
+ * number that works until a font or a fifth span moves it again; letting the
+ * row take a second line is the rule that cannot be off by two. Nothing
+ * changes at any width where the two do fit. */
+.okg-console__metric-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 0 0 8px;
+}
+
+.okg-console__ranges { font-size: 13px; }
+
+/* Borderless, 13 px, and its text starts on the section's left edge: the
+ * control reads as the chart's title, which is what it is. */
+.okg-console .okg-console__metric-select {
+  padding: 0 18px 0 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--okg-color-text);
+  cursor: pointer;
+}
+
+.okg-console__metric-plot { position: relative; }
+
+.okg-console__metric-svg { display: block; overflow: visible; }
+
+.okg-console__metric-empty {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  font-size: 14px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__chart-grid { stroke: var(--okg-color-line-soft); stroke-width: 1; }
+.okg-console__chart-base { stroke: var(--okg-color-line); stroke-width: 1; }
+
+/* 12 px muted, the y labels right-aligned in the gutter and the dates under
+ * the first, middle and last day. */
+.okg-console__axis-label {
+  font-family: var(--okg-font-sans);
+  font-size: 12px;
+  fill: var(--okg-color-muted);
+}
+
+/* Published is the muted green, blocked the failure red stacked on it,
+ * running the info blue; a plain count takes the accent. */
+.okg-console__bar--records,
+.okg-console__bar--relationships { fill: var(--okg-color-accent); opacity: 0.7; }
+.okg-console__bar--published { fill: var(--okg-color-ok); opacity: 0.8; }
+.okg-console__bar--blocked { fill: var(--okg-color-bad); }
+.okg-console__bar--running { fill: var(--okg-color-info); }
+
+.okg-console__line-main {
+  fill: none;
+  stroke: var(--okg-color-accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* The second reading, faint: the longest attempt beside the median. */
+.okg-console__line-faint {
+  fill: none;
+  stroke: var(--okg-color-accent);
+  stroke-width: 1;
+  stroke-opacity: 0.35;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.okg-console__line-dot {
+  fill: var(--okg-color-surface);
+  stroke: var(--okg-color-accent);
+  stroke-width: 1.5;
+}
+
+.okg-console__metric-tick--blocked { fill: var(--okg-color-bad); }
+.okg-console__metric-tick--running { fill: var(--okg-color-info); }
+
+.okg-console__metric-guide { stroke: var(--okg-color-line); stroke-width: 1; }
+
+/* Transparent hit areas, one per day, so the hover lands on a day and not on
+ * a bar that may be 2 px tall. */
+.okg-console__metric-hit { fill: transparent; }
+
+/* The hover tooltip: the date, then the exact values. Absolutely positioned
+ * over the plot, centred on the day's column. */
+.okg-console__metric-tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--okg-color-line);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-surface);
+  font-size: 12px;
+  color: var(--okg-color-text);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.okg-console__metric-tip-day { font-weight: 600; }
+
+/* The key, only where the plot has more than one series. */
+.okg-console__metric-legend {
+  display: flex;
+  gap: 16px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__metric-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.okg-console__legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.okg-console__legend-swatch--published { background: var(--okg-color-ok); opacity: 0.8; }
+.okg-console__legend-swatch--blocked { background: var(--okg-color-bad); }
+.okg-console__legend-swatch--running { background: var(--okg-color-info); }
+
+/* A line's key is a line. */
+.okg-console__legend-swatch[data-form="line"] {
+  width: 14px;
+  height: 0;
+  border-top: 1.5px solid var(--okg-color-accent);
+  border-radius: 0;
+}
+
+.okg-console__legend-swatch--longest[data-form="line"] {
+  border-top-width: 1px;
+  opacity: 0.35;
+}
+
+/* How far back the capped attempts read reaches. A fact, not an apology. */
+.okg-console__chart-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}

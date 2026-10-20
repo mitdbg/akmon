@@ -1,0 +1,17 @@
+# nsf_award_search — public NSF Award Search API. Emits Grant +
+# Person (co-PIs) + Organization (NSF) + derived Deadline.
+
+nsf_award_search:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.academic_researcher.nsf_award_search
+  class: NsfAwardSearchSource
+  ownership_id: ${deployment_name}.nsf_award_search
+  source_class: mutable_api
+  record_identity_kind: remote_id
+  record_identity_fields: [award_id]
+  source_revision_kind: version_token
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    pi_name: ${pi_name}
+    orcid: ${orcid}

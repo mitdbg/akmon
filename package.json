@@ -1,0 +1,57 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench-web:test": "vitest run --config vitest.bench-web.config.ts",
+    "bench-web:typecheck": "tsc --project tsconfig.bench-web.json --noEmit",
+    "operator-ui:bench-flamegraph": "vite build --config vite.bench-flamegraph.config.ts",
+    "operator-ui:bench-flamegraph:smoke": "node bench/smoke_bench_flamegraph_viewer.mjs",
+    "operator-ui:build": "vite build --config vite.operator-ui.config.ts",
+    "operator-ui:build:design": "OKG_OPERATOR_UI_DESIGN_MOCKS=1 vite build --config vite.operator-ui.config.ts",
+    "operator-ui:bundle-budget": "node src/okg/operator_ui/web/audit/bundle-budget.mjs",
+    "operator-ui:dev": "vite --config vite.operator-ui.config.ts --host 127.0.0.1",
+    "operator-ui:layout-check": "node src/okg/operator_ui/web/audit/layout-check.mjs",
+    "operator-ui:preview": "vite preview --config vite.operator-ui.config.ts --host 127.0.0.1",
+    "operator-ui:servers": "bash src/okg/operator_ui/web/audit/start-servers.sh",
+    "operator-ui:servers:stop": "bash src/okg/operator_ui/web/audit/stop-servers.sh",
+    "operator-ui:test": "vitest run --config vitest.operator-ui.config.ts",
+    "operator-ui:typecheck": "node scripts/check_operator_ui_typecheck.mjs"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.3.4",
+    "@shikijs/langs-precompiled": "4.5.0",
+    "antd": "^6.6.4",
+    "d3-drag": "^3.0.0",
+    "d3-flame-graph": "^5.0.0",
+    "d3-force": "^3.0.0",
+    "d3-selection": "^3.0.0",
+    "d3-transition": "^3.0.1",
+    "d3-zoom": "^3.0.0",
+    "pdfjs-dist": "6.3.289",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-markdown": "10.1.0",
+    "rehype-sanitize": "6.0.0",
+    "remark-gfm": "4.0.1",
+    "shiki": "4.5.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/d3-drag": "^3.0.7",
+    "@types/d3-force": "^3.0.10",
+    "@types/d3-selection": "^3.0.12",
+    "@types/d3-transition": "^3.0.9",
+    "@types/d3-zoom": "^3.0.9",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^30.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  }
+}

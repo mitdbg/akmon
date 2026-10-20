@@ -1,0 +1,36 @@
+# search_systems <-> service cross-link rules.
+#
+# One narrowing: Service -[logs_to]-> SearchIndex.
+#
+# `OpenSearchCatalogSource` emits this edge directly from the services
+# declared in the source registry -- OpenSearch cannot know which process
+# wrote to an index, so it is declared, not discovered. The rule below
+# exists to REGISTER the narrowing the emitted edge needs.
+#
+# Its fields are still real, not decoration. The first version matched
+# `service.declared_service_id`, which the `service` module does not
+# declare, so the rule could never have fired in any deployment that ran
+# a linker over it. It now matches `service.service_id` -- a declared
+# attribute -- against `search_index.logged_by_refs`, which holds service
+# NODE ids for exactly that reason. A linker-derived edge is therefore
+# the identical triple between the identical endpoints, not a second,
+# competing one. `tests/.../test_search_systems_schema.py` asserts the
+# two value sets actually meet.
+#
+# The opensearch-reference deployment declares no enrichers, so nothing
+# runs this rule there; registering the narrowing is its whole job in
+# that deployment.
+#
+# Silently skipped when `service` is not loaded.
+
+rules:
+  - id: service_logs_to_search_index
+    src:
+      subtype: service
+      field: service_id
+    dst:
+      subtype: search_index
+      field: logged_by_refs
+    matcher: exact
+    edge: logs_to
+    bidirectional: false

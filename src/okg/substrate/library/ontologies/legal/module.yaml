@@ -1,0 +1,6 @@
+name: legal
+version: 1.0.0
+description: 'Legal: statute passages ingested from operator-frozen
+  statute-pool slices (statute_corpus source).'
+provides:
+  subtypes_file: schema.yaml

@@ -1,0 +1,22 @@
+# Corrections preset (synth-constraint-coverage, task.c.corrections): seconds,
+# LLM-free, structured, deterministic. A few functional corruptions give the
+# operator claims to correct; the two-generation run then retracts one, overrides
+# one back to its clean value, and asserts a fresh claim, and observes the effect
+# on okg.claim_effective. min k 2 keeps the corrupted claims in a real conflict
+# so removed_from_scope is a meaningful attribution, not a lone claim.
+preset_name: corrections
+seed: "corrections-1"
+world_path: world_smoke
+redundancy:
+  renderings_per_fact_min: 2
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 3, magnitude: 0.2, visibility_corrupted: 1}
+benign_variation:
+  unit_rescale_rate: 0.0
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+materialize_pdf: false

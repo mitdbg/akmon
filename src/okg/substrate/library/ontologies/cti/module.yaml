@@ -1,0 +1,6 @@
+name: cti
+version: 1.0.0
+description: 'CTI: NVD CVEs, MITRE CWE weaknesses, ATT&CK techniques and
+  tactics ingested from operator-frozen snapshot corpora.'
+provides:
+  subtypes_file: schema.yaml

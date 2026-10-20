@@ -1,0 +1,29 @@
+# communications ↔ concepts cross-link rules.
+#
+# Mention-extraction enricher (separate from this module)
+# walks Email + ChatMessage bodies + emits `mentions`
+# edges to Concept nodes. The rules below register the
+# narrowing slot so source-emitted edges pass validation.
+
+rules:
+  - id: email_mentions_concept
+    src:
+      subtype: email
+      field: email_id
+    dst:
+      subtype: concept
+      field: concept_id
+    matcher: exact
+    edge: mentions
+    bidirectional: false
+
+  - id: chat_message_mentions_concept
+    src:
+      subtype: chat_message
+      field: message_id
+    dst:
+      subtype: concept
+      field: concept_id
+    matcher: exact
+    edge: mentions
+    bidirectional: false

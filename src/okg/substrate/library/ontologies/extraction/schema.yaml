@@ -1,0 +1,811 @@
+id: https://palimpzest.mit.edu/okg/modules/extraction
+name: extraction
+title: "Extraction — documents, chunks, entity mentions"
+description: Generic extraction-pipeline ontology — every deployment that
+  parses files into searchable text loads this module. Three subtypes
+  (Document, DocumentChunk, EntityMention) and the narrowings that wire
+  them to source-of-truth `source_file` nodes from git_graph (or any
+  other file-backed module). Per `add-doc-corpus-extraction-adapter`
+  (2026-04-25).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  extr: https://palimpzest.mit.edu/okg/modules/extraction/
+default_range: string
+imports:
+- linkml:types
+classes:
+
+  Document:
+    description: One parsed file. Identity is `doc:<repo>:<repo-relative-path>`.
+      Carries format/byte_count/content_sha256 metadata + parse_warnings
+      list when parsing was skipped (no_parser / oversize / parse_failed).
+    class_uri: extr:Document
+    attributes:
+      doc_id:
+        required: true
+        description: Conventionally `doc:<repo>:<path>`.
+      repo:
+        required: true
+      path:
+        required: true
+        description: Repo-relative path; matches the source_file's `path`.
+      format:
+        required: true
+        description: Format key as registered in the parser dispatch (e.g.
+          markdown, json, yaml, code, pdf).
+      byte_count:
+        required: true
+        range: integer
+      content_sha256:
+        required: true
+        description: SHA-256 of the file's raw bytes; stable identity for
+          dedup.
+      parsed_at:
+        range: datetime
+      parse_warnings:
+        multivalued: true
+        description: Non-fatal parse anomalies as a JSONB array of strings
+          (`oversize`, `no_parser`, `no_format`, `parse_failed:<reason>`).
+          Empty array when the parse succeeded cleanly. Per
+          `refine-doc-corpus-extraction` (2026-04-26) W8 — pre-fix this
+          field was a comma-joined string, which caused the projector's
+          searchable-text auto-stamp to fold warnings into the BM25 index.
+          Historical node_facts emitted before that proposal MAY carry
+          the legacy string shape; nodes_live converges to the array
+          shape via natural re-projection.
+      title:
+        description: Document title when discoverable (e.g. first H1 in
+          markdown). Optional.
+      snapshot_date:
+        description: The operator-stated date this corpus is an observation
+          OF, verbatim from `DocCorpusSource(snapshot_date=...)`. Present
+          only on dated-snapshot corpora (the doc_snapshot module's shape);
+          absent on standing indexes, which are not one observation among
+          several. NEVER derived from a file mtime or the wall clock — a
+          date inferred from the machine would make two snapshots
+          incomparable for the reason the corpus exists. Per PACT
+          okg-corpus-doc-corpus / req.fresh.passage.
+      citation_label:
+        description: Source-supplied citation label — `<repo>/<path>`, a
+          name a user recognizes (never the graph node id). Per
+          `source-supplied-search-citations`.
+      citation_url:
+        description: Source-supplied citation URL — browser view of this
+          file at the immutable commit read during ingestion, on an
+          explicitly supported host. Absent when no truthful link exists
+          (unknown remote, unsupported host, dirty
+          working-tree file); never guessed. Per
+          `source-supplied-search-citations`.
+      text:
+        description: Full parsed text body. Populated by the projector's
+          searchable_text auto-stamp from `title` when no extractor wrote
+          a richer text field.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      okg_title_from: title
+      okg_path_from: path
+      archetype: artifact
+      transient: 'false'
+      # `index-document-source-file-search` (issue #900): `title` is filled
+      # with the repo-relative path by doc_corpus.py until a richer
+      # extractor overrides it, and the BM25 index's `english` config lexes
+      # a whole path as ONE token — so declaring `title` alone left every
+      # Document present in the index and unmatchable by any word in its
+      # name. `path` joins the rollup and both are split into component
+      # words.
+      okg_searchable_text_fields: title,path
+      okg_searchable_text_path_fields: title,path
+      # A Document's body lives on its chunks. Declare the one composed
+      # relation through which passage-ranked reads may roll scores up.
+      okg_passage_rollup:
+        edge_type: contains
+        child_subtype: DocumentChunk
+      # `add-delta-proportional-substrate-work` (2026-05-12):
+      # `parsed_at` is stamped by doc_corpus.py:634 from the run's
+      # wall-clock `observed_at`. Empirically, 100% of multi-version
+      # Document nodes show parsed_at differing across versions while
+      # the remaining content fields (text, title, format, path,
+      # repo, doc_id) are identical. Annotating excludes parsed_at
+      # from the runner's persisted-dedup hash so re-emission with
+      # only-volatile-field changes is recognized as content-stable
+      # and dropped at the runner boundary.
+      okg_volatile_fields: parsed_at
+
+  DocumentChunk:
+    description: A chunked excerpt of a parsed document. Identity is
+      `chunk:<sha256(text)[:16]>` for compatibility-default paragraphs and
+      `chunk:<sha256(chunk_kind + NUL + text)[:16]>` for non-paragraph kinds,
+      so same-kind text can deduplicate across files without allowing text used
+      in different structural roles to overwrite its kind. Structured table
+      occurrences instead use `chunk:table:<sha256(doc_id + NUL + canonical
+      source locator)[:16]>`, preserving duplicate identical tables at distinct
+      source positions. Each chunk's `text` is what feeds the substrate's BM25
+      index.
+    class_uri: extr:DocumentChunk
+    attributes:
+      chunk_id:
+        required: true
+        description: Content-only for paragraphs; kind-plus-content for typed
+          non-paragraph chunks; document-plus-locator for structured tables.
+      content_sha256:
+        required: true
+        description: SHA-256 of the chunk text — same value used in the
+          node_id (full hex form).
+      text:
+        required: true
+        description: Chunk body. Source-of-truth for substrate lexical
+          search.
+      chunk_kind:
+        required: true
+        description: Open lower-snake-case structural vocabulary. Shipped kinds
+          are paragraph, heading, equation, figure_caption, table, list_item,
+          code_block, and image_caption.
+      char_offset:
+        range: integer
+        description: Offset within the parent document, measured in
+          Python str code points (NOT bytes). Optional when the chunker
+          can't report it (e.g. structural chunkers that lose position).
+      char_length:
+        range: integer
+      char_end:
+        range: integer
+        description: Exclusive raw-source end offset in Python str code points.
+          Occurrence-authoritative values live on the member_of edge and are
+          surfaced by okg.v_doc_chunks; this node field is a legacy mirror.
+      chunker_name:
+        description: Registered chunker name from the deployment's
+          extractors.yaml — provenance for which strategy emitted this
+          chunk.
+      snapshot_date:
+        description: The operator-stated date this corpus is an observation
+          OF, inherited from the parent Document. Present only on
+          dated-snapshot corpora. Per PACT okg-corpus-doc-corpus /
+          req.fresh.passage.
+      doc_path:
+        description: Repo-relative path of the document this chunk was cut
+          from. Together with `chunk_ordinal` this is the SNAPSHOT-STABLE
+          POSITIONAL KEY — the thing that answers "which passage is this,
+          across two snapshots of the same corpus". Node identity is
+          content-addressed and deliberately does NOT answer that; instead a
+          changed passage gets a NEW node id under the SAME key, which is
+          precisely the freshness signal. The path also lives inside
+          `source_record_id`, but that is provenance, not queryable graph
+          state. Occurrence-authoritative on the `member_of` edge — when
+          one chunk text occurs in several documents the nodes collapse by
+          content and this node-level value is one of the occurrences.
+          Present only on dated-snapshot corpora. Per PACT
+          okg-corpus-doc-corpus / req.fresh.comparable.
+      chunk_ordinal:
+        range: integer
+        description: Zero-based position of this chunk within its document's
+          emission order. The second half of the positional key; see
+          `doc_path`. Occurrence-authoritative on the `member_of` edge.
+          Present only on dated-snapshot corpora.
+      heading_path:
+        description: For structural chunkers, the slash-joined heading
+          path the chunk lives under (e.g. "Why / What Changes /
+          Schema additions"). Empty for window-based chunks.
+      start_line:
+        range: integer
+        description: First source line (1-based) of a code chunk. Present only
+          on chunks from a code chunker (`PythonSymbolChunker`).
+          Occurrence-authoritative on the `member_of` edge.
+      end_line:
+        range: integer
+        description: Last source line (1-based, inclusive) of a code chunk.
+          Occurrence-authoritative on the `member_of` edge.
+      symbol:
+        description: Dotted name of the function, class or method a code chunk
+          belongs to (e.g. "JobSubmitterPoller.refreshCache"); empty for
+          module-level code. Occurrence-authoritative on the `member_of` edge.
+      citation_label:
+        description: Source-supplied citation label inherited from the
+          parent document's record (`<repo>/<path>`). Per
+          `source-supplied-search-citations`.
+      citation_url:
+        description: Source-supplied citation URL inherited from the
+          parent document — the file at the immutable ingested commit.
+          Absent when no truthful link exists. Per
+          `source-supplied-search-citations`.
+      chunk_source:
+        description: How this chunk was produced — "text_extract" for parsed text,
+          "vision_caption" for image-derived chunks. Absent on legacy text chunks.
+      caption_model:
+        description: litellm model string used to generate this caption (e.g.
+          "chatgpt/gpt-4o"). Present only when chunk_source=vision_caption.
+      caption_provider:
+        description: LLM provider key for the captioning call (e.g. "chatgpt").
+          Present only when chunk_source=vision_caption.
+      category:
+        description: Coarse category the captioning model assigned (e.g.
+          "plot" / "ui_element" / "other"). Present only when
+          chunk_source=vision_caption; the default prose prompt emits no
+          category so it falls back to "other".
+      visual_ref:
+        description: Node id of the `VisualArtifact` this caption chunk describes
+          (e.g. `visual:<sha256>`). Present only when chunk_source=vision_caption;
+          resolved to a `derived_from` edge at projection time. Per
+          `first-class-visual-artifacts` — lets a search hit on caption text walk
+          to the exact visual it was captioned from, distinguishing repeated
+          caption text across different images.
+      vision_signature:
+        description: Deterministic recaption-reuse signature, e.g.
+          `sha256(visual.content_sha256|visual.render_sha256|caption_model|
+          caption_provider|prompt_digest|config_digest)`. Present only when
+          chunk_source=vision_caption. Unchanged visual bytes/render hash plus
+          unchanged model/prompt/config MUST reuse the existing caption chunk
+          rather than re-invoking the VLM (enforced by the Task 3 enricher).
+      table_extraction_lane:
+        description: Structured-table producer lane (`latex` or `pdf_vlm`).
+          Present only on table occurrence nodes.
+      table_grid_status:
+        description: Closed structured-table outcome (`parsed`, `parse_failed`,
+          `provider_failed`, or `budget_exhausted`).
+      table_grid_error_code:
+        description: Stable failure code for a non-parsed table occurrence;
+          null for parsed tables.
+      table_grid:
+        description: Validated TableGridV1 JSON object. Present only when
+          table_grid_status is parsed.
+      source_locator:
+        description: Canonical raw-source locator (`tex:<start>:<end>` or
+          `pdf:<page>:<x0>,<y0>,<x1>,<y1>`).
+      source_content_sha256:
+        description: SHA-256 of the authoritative raw LaTeX slice or rendered
+          PDF crop bytes for this table occurrence.
+      source_page_index:
+        range: integer
+        description: Zero-based PDF page index; absent for LaTeX occurrences.
+      source_bbox:
+        description: Canonical PDF point bbox as a JSON array of four strings;
+          absent for LaTeX occurrences.
+      cache_signature:
+        description: Exact PDF transcription cache signature, when a crop
+          reached the cache/provider boundary.
+      table_detector:
+        description: PDF region detector name.
+      table_detector_version:
+        description: PDF region detector/operator version.
+      table_renderer:
+        description: PDF crop renderer name.
+      table_renderer_version:
+        description: PDF crop renderer/operator version.
+      table_render_dpi:
+        range: integer
+        description: PDF crop rendering resolution.
+      table_cache_hit:
+        range: boolean
+        description: Whether this PDF occurrence reused an exact cached response.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      okg_path_from: doc_path
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: text
+      okg_evidence_kind_by_attr:
+        chunk_kind:
+          paragraph: author_prose
+          figure_caption: author_figure_caption
+          image_caption: machine_vision_transcription
+          table: table_transcription
+
+  VisualArtifact:
+    description: >-
+      One discovered piece of visual source material — a standalone image, a
+      rendered PDF page, an embedded PDF image, an SVG/raster report asset, or
+      a simulation/replay plot or frame. Identity is stable and content-derived
+      (`visual:<sha256>`) so re-discovery of unchanged bytes collapses onto the
+      same node. Distinct from caption text (`DocumentChunk` with
+      `chunk_source=vision_caption`, which `derived_from`-links back here) and
+      distinct from domain-specific figure/plot subtypes — deployments bridge
+      to those (scholarly Figure, KDFlex SimResult/SimRun frames, CMS report
+      SVGs) rather than overloading this generic subtype. Per
+      `first-class-visual-artifacts` req.visual-artifacts.ontology: carries
+      stable identity plus locator/provenance metadata so a visual has a
+      graph-visible target for provenance, recaptioning, and domain bridges —
+      Task 2 (discovery) is responsible for populating these nodes from source
+      state; this subtype only fixes the shape.
+    class_uri: extr:VisualArtifact
+    attributes:
+      visual_id:
+        required: true
+        description: Alias key, conventionally `visual:<sha256(content bytes or
+          locator)[:16]>`. Stable across re-discovery of unchanged visual bytes.
+      source_kind:
+        required: true
+        description: Enum-flavored text for how this visual was discovered —
+          e.g. `standalone_image`, `pdf_page_render`, `pdf_embedded_image`,
+          `svg`, `simulation_plot`, `video_frame`, `screenshot`.
+      path:
+        description: Repo-relative or storage path to the persisted visual
+          asset bytes. Optional when the visual is only reachable via
+          `source_url` (e.g. a fetched remote image).
+      source_url:
+        description: External URL the visual was fetched from, when it is not
+          repo-resident. Optional; at least one of `path` / `source_url` SHOULD
+          be present.
+      parent_document_ref:
+        required: true
+        description: Node id of the `Document` this visual was discovered
+          under (e.g. `doc:<repo>:<path>`), resolved via alias to the
+          `contains`/`member_of` edges below.
+      source_file_ref:
+        description: Node id of the underlying `SourceFile` (git_graph module)
+          when the visual's origin file is tracked in source control. Optional
+          — not every visual (e.g. a fetched remote image) has one.
+      page_number:
+        range: integer
+        description: 1-based page number for PDF-page-rendered or
+          PDF-embedded visuals. Absent for standalone images.
+      bbox:
+        description: Bounding box within the parent page/image as a
+          JSON-serialized `[x0, y0, x1, y1]` array, for embedded or cropped
+          visuals. Absent when the visual is the whole page/file.
+      image_index:
+        range: integer
+        description: Index of this embedded image among multiple images
+          sharing the same page/document, for stable per-page identity.
+      frame:
+        range: integer
+        description: Frame index for video- or simulation-replay-derived
+          visuals (e.g. KDFlex replay frames).
+      camera:
+        description: Camera/view identifier for multi-camera simulation
+          captures, where applicable.
+      mime_type:
+        required: true
+        description: IANA media type of the persisted visual bytes (e.g.
+          `image/png`, `image/svg+xml`).
+      width:
+        range: integer
+        description: Rendered width in pixels, where known.
+      height:
+        range: integer
+        description: Rendered height in pixels, where known.
+      byte_count:
+        required: true
+        range: integer
+        description: Size of the persisted visual bytes.
+      content_sha256:
+        required: true
+        description: SHA-256 of the visual's raw source bytes — stable
+          identity/dedup key feeding `visual_id`.
+      render_sha256:
+        description: SHA-256 of the rendered/normalized bytes when a renderer
+          transforms the source into the persisted visual (e.g. rasterizing a
+          PDF page), distinct from `content_sha256` of the underlying source
+          bytes. Absent when the persisted bytes ARE the source bytes.
+      renderer_name:
+        description: Renderer that produced `render_sha256`, when applicable
+          (e.g. `pdfium`, `cairosvg`, `pillow`).
+      renderer_version:
+        description: Renderer version string, for provenance when the
+          rendering pipeline changes.
+      render_dpi:
+        range: integer
+        description: Raster resolution requested from the renderer, in dots per
+          inch. Present for standalone PDF figures even when rendering fails,
+          so the attempted configuration remains queryable.
+      caption_status:
+        description: Closed source-time outcome for a selected standalone visual
+          when captioning is enabled — `captioned`, `reused`, `skipped`, or
+          `failed`. Discovery-only PDF crops and offline-OCR visuals use their
+          separate pipelines and omit this field.
+      caption_skip_reason:
+        description: Closed reason present exactly when `caption_status` is
+          `skipped` or `failed` — `source_too_large`, `below_min_pixels`,
+          `pdf_renderer_unavailable`, `pdf_render_failed`, `decode_failed`,
+          `provider_error`, or `empty_result`.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      okg_path_from: path
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: visual_id
+      okg_searchable_text_fields: path,source_url
+
+  EntityMention:
+    description: A regex/NER hit inside a DocumentChunk. Identity is
+      `mention:<sha256(chunk_id|type|value|span_start)[:16]>`. The
+      mention is dangling unless the deployment's alias resolver maps
+      `entity_value` to a canonical node — when it does, the substrate
+      emits a `mentions` edge to that canonical entity.
+    class_uri: extr:EntityMention
+    attributes:
+      mention_id:
+        required: true
+      entity_type:
+        required: true
+        description: NER label (e.g. arxiv_id, doi, change_slug, person).
+      entity_value:
+        required: true
+        description: The matched substring as emitted by the extractor.
+      span_start:
+        range: integer
+        description: Offset within the parent chunk's text (code-point
+          units).
+      span_end:
+        range: integer
+      extractor_name:
+        description: Registered NER backend name (regex / spacy / gliner)
+          for provenance.
+      confidence:
+        range: float
+        description: Per-mention confidence score in [0, 1]. Regex
+          backends ship 1.0; ML backends report the model score.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_searchable_text_fields: entity_value
+      okg_evidence_kind: extracted_entity
+
+  Claim:
+    description: >-
+      Typed assertion an LLM extractor pulled from a paper's
+      structural neighborhood (Paragraph / Theorem statement /
+      Table caption). Carries the extractor name, confidence, and
+      paper-attribution provenance so agents can distinguish
+      paper-extracted claims from operator-authored content. Per
+      `extend-substrate-extraction-with-claim-evidence-extractors`
+      (umbrella D2: semantic extraction; D4: reuse reasoning
+      subtypes — Claim is the extraction-side typed assertion the
+      `evidence_extractor` attaches Evidence to).
+    class_uri: extr:Claim
+    attributes:
+      claim_id:
+        required: true
+        description: Alias key, prefix `claim:`.
+      text:
+        required: true
+        description: Claim body; searchable.
+      kind:
+        required: true
+        description: Enum {definitional, empirical, comparative, theoretical, conjectural}.
+      extractor:
+        required: true
+        description: Emitting enricher `name` (e.g. `claim_extractor`).
+      extractor_confidence:
+        required: true
+        range: float
+        description: LLM's confidence in this candidate, in [0, 1]. Pre-floor; same value as `confidence` for emitted Claims.
+      extractor_floor_at_emit:
+        required: true
+        range: float
+        description: The `confidence_floor` value in force when this Claim was emitted. Stamped so downstream queries can normalize across deployments tuning the floor differently.
+      provenance:
+        required: true
+        description: Substrate provenance enum; `extracted_model` at emit; `explicit` after `okg propose --from-dropped` promotion.
+      confidence:
+        required: true
+        range: float
+        description: Post-floor confidence; equal to `extractor_confidence` at emit; 1.0 after operator promotion.
+      extracted_from_paper_ref:
+        description: Paper node id; resolved via alias.
+      author_ref:
+        description: Author node id of the paper (NOT the operator).
+      tags:
+        description: Free-text tags; comma-joined.
+      created_at:
+        range: datetime
+        required: true
+      last_modified_at:
+        range: datetime
+        required: true
+      text_blob:
+        description: Optional rendered body for richer search; defaults to `text`.
+    annotations:
+      archetype: claim
+      transient: 'false'
+      okg_alias_fields: claim_id
+      okg_searchable_text_fields: text,kind,tags,text_blob
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  GenericClaim:
+    is_a: Claim
+    description: >-
+      Concrete default refinement of `Claim`. Carries the same
+      attribute shape as the abstract parent; emitted by the
+      substrate's default `claim_extractor` when no
+      domain-specific Claim refinement applies. Per
+      `extend-reasoning-with-abstract-types`: domain modules
+      (e.g., `engram_runs.EmpiricalClaim`) declare their own
+      refinements via LinkML `is_a: Claim`; deployments without
+      those modules see emissions land here. Downstream queries
+      SHOULD join `okg.subtype_ancestors` filtering
+      `ancestor_name = 'claim'` so all refinements surface
+      uniformly.
+    class_uri: extr:GenericClaim
+    annotations:
+      archetype: claim
+      transient: 'false'
+      okg_alias_fields: claim_id
+      okg_searchable_text_fields: text,kind,tags,text_blob
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  ExtractionDropped:
+    description: >-
+      Audit record an LLM-driven enricher emits when a candidate's
+      confidence falls below the extractor's declared
+      `confidence_floor`. Stand-alone subtype (per design.md D2)
+      rather than a `reasoning.Observation` extension — keeps
+      extractor-machinery attrs out of the reasoning module's read
+      surface. The operator promotes a dropped record to a durable
+      typed node via `okg propose --from-dropped <dropped_id>`;
+      this subtype survives the promotion as `operator_disposition:
+      promoted` with `promoted_node_ref` set, preserving the audit
+      trail. `dropped_id` is deterministic from `(extractor,
+      source_node_ref, sha256(candidate_text))` so re-runs dedupe.
+    class_uri: extr:ExtractionDropped
+    attributes:
+      dropped_id:
+        required: true
+        description: Alias key, prefix `dropped:`. Deterministic from `(extractor, source_node_ref, sha256(candidate_text))`.
+      extractor:
+        required: true
+        description: Enricher `name` that produced the candidate.
+      candidate_text:
+        required: true
+        description: The text the LLM emitted; searchable. Kept verbatim for operator review.
+      extractor_confidence:
+        required: true
+        range: float
+        description: LLM's confidence; less than `extractor_floor_at_emit`.
+      extractor_floor_at_emit:
+        required: true
+        range: float
+        description: The `confidence_floor` value in force when the candidate was dropped.
+      reason:
+        required: true
+        description: Free text from the enricher; e.g. `"below 0.6 floor"`, `"hallucination guard tripped"`.
+      source_node_ref:
+        required: true
+        description: Substrate node id the enricher was looking at — typically a Paragraph / PaperSection / Theorem from A1, or a Claim pair from cross-paper extraction.
+      operator_disposition:
+        required: true
+        description: Enum {pending, promoted, discarded}. Default `pending`. Updated by `okg propose --from-dropped`.
+      promoted_node_ref:
+        description: Set when `operator_disposition = 'promoted'`; the new typed node id.
+      created_at:
+        range: datetime
+        required: true
+      last_modified_at:
+        range: datetime
+        required: true
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: dropped_id
+      okg_searchable_text_fields: extractor,candidate_text,reason
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  Critique:
+    description: |
+      Persona-authored critique of any artifact or claim node. Produced
+      by `review_as` MCP calls (see add-substrate-pre-join-mcp-framework
+      / S-A7-R5). One Critique per `review_as` invocation; identity
+      includes the originating MCP call's `run_id` so re-reviews of the
+      same target produce distinct evidence rows rather than collapsing.
+
+      Lives in `extraction` because critiques are LLM-produced
+      (`provenance = extracted_model` on the emit). The Critique is not
+      itself the persona — `persona` is a slug pointing into the
+      substrate personas module; the optional `(Persona, authored,
+      Critique)` cross-module narrowing in personas/schema.yaml makes
+      that link queryable.
+    class_uri: extr:Critique
+    attributes:
+      critique_id:
+        required: true
+        description: Conventionally `critique:<persona_slug>:<sha256(target)_short>:<call_run_id>`.
+      persona:
+        required: true
+        description: Persona slug (e.g. `dijkstra`). Must exist in the
+          personas module's registry at the active catalog version.
+      target_node_ref:
+        required: true
+        description: Node id of the artifact/claim the critique targets.
+      request_type:
+        required: true
+        description: |
+          Enum-flavored text from the review-as conventions:
+          `research idea | paper review | methods review | code review |
+          design review | novelty defense | systems positioning |
+          design-doc gate | other`. Defaults to the persona's
+          `default_request_type` when not explicitly supplied.
+      verdict:
+        required: true
+        description: |
+          Enum-flavored text: `approve | conditional | reject`. On
+          structured-response parse failure, emit `conditional` with
+          severity `info` and the raw response in `text` so the audit
+          trail still lands (per S-A7-R5).
+      severity:
+        required: true
+        description: |
+          Enum-flavored text capturing the worst-flagged issue severity:
+          `info | minor | major | blocker`. Operators filter Critique
+          listings by `severity >= major` to focus.
+      text:
+        required: true
+        description: Full critique body, markdown. Drives the embedding.
+      confidence:
+        range: float
+        description: Optional model self-assessment in [0, 1] when the
+          persona's prompt produces a quantified call.
+      source_subtype:
+        required: true
+        description: Provenance enum, currently fixed at `review_as`.
+      created_at:
+        range: datetime
+        description: Wall-clock at emit time; stamped by the substrate's
+          `review_as` MCP tool.
+      last_modified_at:
+        range: datetime
+        description: Last edit timestamp; usually identical to created_at
+          (critiques are write-once).
+    annotations:
+      archetype: claim
+      transient: 'false'
+      okg_alias_fields: critique_id
+      okg_searchable_text_fields: text,verdict,request_type
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  EdgeNarrowings:
+    description: Intra-module edge narrowings for the extraction module.
+      Cross-module narrowings (e.g. document derived_from source_file)
+      are declared in the deployment's `bridges/` so they can opt-in
+      per deployment.
+    annotations:
+      okg_edge_narrowings: 'true'
+      # Per `extend-substrate-extraction-with-claim-evidence-extractors`
+    attributes:
+      document_contains_chunk:
+        description: A document is composed of one or more chunks.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Document
+          dst_subtypes: DocumentChunk
+      chunk_member_of_document:
+        description: Reverse of `document contains chunk` — chunk knows
+          its parent document. Lets traversals start from a search hit
+          and walk up.
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: DocumentChunk
+          dst_subtypes: Document
+      mention_member_of_chunk:
+        description: An entity mention belongs to the chunk whose text
+          carries it.
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: EntityMention
+          dst_subtypes: DocumentChunk
+      # --- first-class-visual-artifacts intra-module narrowings ---
+      # Per `first-class-visual-artifacts` task.visual-artifacts.ontology.
+      # Document/DocumentChunk/VisualArtifact all live in this module, so
+      # these are ordinary intra-module narrowings (mirrors the
+      # document/chunk pair above).
+      document_contains_visual_artifact:
+        description: A document's discovered visual material (standalone
+          image, PDF page render, PDF embedded image, SVG asset, etc.).
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Document
+          dst_subtypes: VisualArtifact
+      visual_artifact_member_of_document:
+        description: Reverse of `document contains visual_artifact` — a
+          visual knows its parent document, so traversal can start from a
+          visual/caption hit and walk up.
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: VisualArtifact
+          dst_subtypes: Document
+      chunk_derived_from_visual_artifact:
+        description: A caption chunk (`chunk_source=vision_caption`) is
+          derived from the exact visual artifact it describes. Lets a BM25/
+          embedding hit on caption text resolve to its precise visual target
+          even when caption text repeats across different images.
+        annotations:
+          edge_archetype: derived_from
+          src_subtypes: DocumentChunk
+          dst_subtypes: VisualArtifact
+      chunk_caption_of_visual_artifact:
+        description: An author-written figure caption labels the exact visual
+          artifact selected by the enclosing LaTeX figure environment.
+        annotations:
+          edge_archetype: caption_of
+          src_subtypes: DocumentChunk
+          dst_subtypes: VisualArtifact
+      visual_artifact_derived_from_source_file:
+        description: A visual artifact derives from the tracked filesystem
+          source file it was discovered in/from (e.g. the PDF a page was
+          rendered from), when `source_file_ref` is populated. Cross-module
+          with git_graph's `SourceFile`; guarded with
+          `optional_when_subtypes_missing` (mirrors `claim_supported_by_evidence`
+          above) since not every deployment loads git_graph.
+        annotations:
+          edge_archetype: derived_from
+          src_subtypes: VisualArtifact
+          dst_subtypes: SourceFile
+          optional_when_subtypes_missing: 'true'
+      chunk_references_document:
+        description: A document chunk references another document via an
+          inline link in its body. Per `add-markdown-link-extraction`
+          (2026-04-27). One edge per (chunk, target-doc) pair; the link
+          text is preserved as `link_text` and any heading-anchor
+          fragments are aggregated as a list under `anchors`. External
+          URLs (http/https/mailto) are NOT emitted as edges; that's a
+          later concern (entity_mention nodes for URLs).
+        annotations:
+          edge_archetype: references
+          src_subtypes: DocumentChunk
+          dst_subtypes: Document
+      # --- A2 (claim/evidence extractors) intra-module narrowings ---
+      # Per `extend-substrate-extraction-with-claim-evidence-extractors`.
+      # The narrowings here are A2-owned and self-contained — they
+      # reference only extraction and reasoning subtypes. Cross-module
+      # narrowings the A2 enrichers also emit (Paragraph contains Claim,
+      # Paper defines Concept, etc.) live in A1/A3 modules per the
+      # umbrella's D6 ownership convention.
+      claim_supported_by_evidence:
+        description: An extracted Claim is supported by a paper-extracted Evidence.
+          Direction matches reasoning module convention (src = supported party).
+        annotations:
+          edge_archetype: supported_by
+          src_subtypes: Claim
+          dst_subtypes: Evidence
+          optional_when_subtypes_missing: 'true'
+      claim_derived_from_extraction_dropped:
+        description: Promoted Claim links back to its originating ExtractionDropped
+          via `derived_from`. Emitted by `okg propose --from-dropped`.
+          Preserves the audit trail of the extractor candidate.
+        annotations:
+          edge_archetype: derived_from
+          src_subtypes: Claim
+          dst_subtypes: ExtractionDropped
+      hypothesis_derived_from_extraction_dropped:
+        description: Same pattern for promoted Hypothesis (when the originating
+          extractor was `hypothesis_extractor`).
+        annotations:
+          edge_archetype: derived_from
+          src_subtypes: Hypothesis
+          dst_subtypes: ExtractionDropped
+          optional_when_subtypes_missing: 'true'
+
+      # --- A7 (pre-join MCP framework) intra-module narrowing ---
+      # Per `add-substrate-pre-join-mcp-framework` D3 / S-A7-R8.
+      critique_critiques_artifact_or_claim:
+        description: |
+          A Critique targets any artifact-or-claim node. Per
+          `add-substrate-pre-join-mcp-framework` D3 / S-A7-R8:
+          rather than enumerate every critiquable subtype, this
+          narrowing uses the substrate's
+          `expand_dst_by_archetype` affordance — at catalog-compose
+          time, the composer walks every loaded subtype and adds
+          one explicit `(critique, critiques, <subtype>)` row to
+          `okg.narrowings` for each subtype whose `archetype`
+          annotation is `artifact` or `claim`. The projection-time
+          narrowing trigger continues to fire against typed triples;
+          deployment authors see one logical narrowing.
+        annotations:
+          edge_archetype: critiques
+          src_subtypes: Critique
+          expand_dst_by_archetype: artifact,claim

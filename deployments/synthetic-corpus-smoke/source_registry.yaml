@@ -1,0 +1,4 @@
+# The rendered corpus is ingested by the benchmark runner directly through
+# the ClaimCorpusSource wrapper (okg.bench.synth.runner); no registry-driven
+# ingest is declared for the smoke deployment.
+sources: {}

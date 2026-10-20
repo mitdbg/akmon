@@ -1,0 +1,1837 @@
+{
+  "harness": {
+    "command_guards": {
+      "max_chars": 500,
+      "max_statement_separators": 2
+    },
+    "denied_env": [
+      "AGENT_SESSION_ID",
+      "CLAUDE_SESSION_ID",
+      "CODEX_SESSION_ID",
+      "GIT_AUTHOR_DATE",
+      "GIT_AUTHOR_EMAIL",
+      "GIT_AUTHOR_NAME",
+      "GIT_COMMITTER_DATE",
+      "GIT_COMMITTER_EMAIL",
+      "GIT_COMMITTER_NAME",
+      "GIT_COMMON_DIR",
+      "GIT_CONFIG",
+      "GIT_DIR",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_WORK_TREE",
+      "OKG_AGENT_SESSION_ID",
+      "OKG_DEPLOYMENTS_DIR",
+      "OKG_DSN",
+      "OKG_ENABLE_LOCAL_ENV_FOR_TESTS",
+      "OKG_PRINCIPAL",
+      "OKG_PRINCIPAL_KIND",
+      "OKG_TEST_DSN",
+      "PACT_ACTOR"
+    ],
+    "denied_env_prefixes": [
+      "OKG_PACT_"
+    ],
+    "fixed_clock": {
+      "now": "2026-01-01T00:00:00+00:00",
+      "stamp": "20260101T000000000000Z"
+    },
+    "in_process": true,
+    "instrument_coverage": {
+      "executable_verbs": [
+        "decide",
+        "evidence attach",
+        "evidence status",
+        "evidence sync",
+        "evidence waive",
+        "gate post-edit",
+        "gate task-done",
+        "view"
+      ],
+      "executable_view_formats": [
+        "bootstrap",
+        "brief",
+        "markdown",
+        "next",
+        "status"
+      ],
+      "known_verbs": [
+        "decide",
+        "evidence approve",
+        "evidence attach",
+        "evidence bind-tla",
+        "evidence ingest",
+        "evidence status",
+        "evidence sync",
+        "evidence template",
+        "evidence waive",
+        "gate graph-freshness",
+        "gate post-edit",
+        "gate pre-commit",
+        "gate pre-implementation",
+        "gate pre-merge",
+        "gate reviewer-brief",
+        "gate task-done",
+        "hooks install",
+        "install",
+        "migrate-openspec",
+        "migrate-version",
+        "new",
+        "new-change",
+        "view"
+      ],
+      "unimplemented_verbs": [
+        "evidence approve",
+        "evidence bind-tla",
+        "evidence ingest",
+        "evidence template",
+        "gate graph-freshness",
+        "gate pre-commit",
+        "gate pre-implementation",
+        "gate pre-merge",
+        "gate reviewer-brief",
+        "hooks install",
+        "install",
+        "migrate-openspec",
+        "migrate-version",
+        "new",
+        "new-change"
+      ],
+      "verb_coverage_fraction": 0.3478
+    },
+    "ledger_arm": "unreachable (no DSN is offered to the harness)",
+    "requires_dsn": false
+  },
+  "metrics": {
+    "envelope_honesty": {
+      "derived_honest": 9,
+      "derived_honest_fraction": 1.0,
+      "derived_rows": 9,
+      "honest_fraction": 1.0,
+      "immutable_honest": 6,
+      "immutable_honest_fraction": 1.0,
+      "immutable_rows": 6,
+      "rows": [
+        {
+          "case": "attach_known_kind_ledger_dead",
+          "detail": {
+            "coordination": "deferred",
+            "pending_closure_intents": 1
+          },
+          "ground_truth": "deferred",
+          "honest": true,
+          "immutable": false,
+          "observed_ok": false,
+          "observed_verdict": "deferred",
+          "ok_key_present": true,
+          "verb": "evidence attach",
+          "verdict_coherent": true
+        },
+        {
+          "case": "attach_with_unknown_kind",
+          "detail": {
+            "evidence": null
+          },
+          "ground_truth": "refused",
+          "honest": true,
+          "immutable": true,
+          "observed_ok": false,
+          "observed_verdict": "refused",
+          "ok_key_present": true,
+          "verb": "evidence attach",
+          "verdict_coherent": true
+        },
+        {
+          "case": "bootstrap_on_blocked_change",
+          "detail": {
+            "actionable": false,
+            "blocker_category": "graph",
+            "manifest_blockers": 1
+          },
+          "ground_truth": "refused",
+          "honest": true,
+          "immutable": true,
+          "observed_ok": false,
+          "observed_verdict": "refused",
+          "ok_key_present": true,
+          "verb": "view --format=bootstrap",
+          "verdict_coherent": true
+        },
+        {
+          "case": "bootstrap_on_healthy_change",
+          "detail": {
+            "actionable": false,
+            "blocker_category": "graph",
+            "manifest_blockers": 0
+          },
+          "ground_truth": "recorded",
+          "honest": true,
+          "immutable": false,
+          "observed_ok": true,
+          "observed_verdict": "recorded",
+          "ok_key_present": true,
+          "verb": "view --format=bootstrap",
+          "verdict_coherent": true
+        },
+        {
+          "case": "evidence_status_all_unsatisfied",
+          "detail": {
+            "missing_requirements": 1
+          },
+          "ground_truth": "refused",
+          "honest": true,
+          "immutable": true,
+          "observed_ok": false,
+          "observed_verdict": "refused",
+          "ok_key_present": true,
+          "verb": "evidence status",
+          "verdict_coherent": true
+        },
+        {
+          "case": "evidence_status_satisfied",
+          "detail": {
+            "missing_requirements": 0
+          },
+          "ground_truth": "recorded",
+          "honest": true,
+          "immutable": false,
+          "observed_ok": true,
+          "observed_verdict": "recorded",
+          "ok_key_present": true,
+          "verb": "evidence status",
+          "verdict_coherent": true
+        },
+        {
+          "case": "evidence_sync_ledger_dead",
+          "detail": {
+            "owner": "repo operator (deployment owner)",
+            "pending": 1,
+            "remedy": true
+          },
+          "ground_truth": "refused",
+          "honest": true,
+          "immutable": false,
+          "observed_ok": false,
+          "observed_verdict": "refused",
+          "ok_key_present": true,
+          "verb": "evidence sync",
+          "verdict_coherent": true
+        },
+        {
+          "case": "gate_post_edit_invalid_manifest",
+          "detail": {
+            "errors": 1
+          },
+          "ground_truth": "refused",
+          "honest": true,
+          "immutable": false,
+          "observed_ok": false,
+          "observed_verdict": "refused",
+          "ok_key_present": true,
+          "verb": "gate post-edit --full",
+          "verdict_coherent": true
+        },
+        {
+          "case": "gate_post_edit_ledger_dead",
+          "detail": {
+            "intent_registration": "unavailable"
+          },
+          "ground_truth": "deferred",
+          "honest": true,
+          "immutable": true,
+          "observed_ok": false,
+          "observed_verdict": "deferred",
+          "ok_key_present": true,
+          "verb": "gate post-edit --full",
+          "verdict_coherent": true
+        },
+        {
+          "case": "gate_task_done_proof_complete_ledger_dead",
+          "detail": {
+            "marked": false,
+            "missing_proof": 0,
+            "queued_closure_intent": true
+          },
+          "ground_truth": "deferred",
+          "honest": true,
+          "immutable": true,
+          "observed_ok": false,
+          "observed_verdict": "deferred",
+          "ok_key_present": true,
+          "verb": "gate task-done",
+          "verdict_coherent": true
+        },
+        {
+          "case": "gate_task_done_unknown_task",
+          "detail": {
+            "error_code": "substrate_error",
+            "ok_key_present": true
+          },
+          "ground_truth": "refused",
+          "honest": true,
+          "immutable": true,
+          "observed_ok": false,
+          "observed_verdict": "refused",
+          "ok_key_present": true,
+          "verb": "gate task-done",
+          "verdict_coherent": true
+        },
+        {
+          "case": "gate_task_done_unproven_subject",
+          "detail": {
+            "missing_proof": 1
+          },
+          "ground_truth": "refused",
+          "honest": true,
+          "immutable": false,
+          "observed_ok": false,
+          "observed_verdict": "refused",
+          "ok_key_present": true,
+          "verb": "gate task-done",
+          "verdict_coherent": true
+        },
+        {
+          "case": "new_duplicate_change_id",
+          "detail": {
+            "ok_key_present": true
+          },
+          "ground_truth": "refused",
+          "honest": true,
+          "immutable": false,
+          "observed_ok": false,
+          "observed_verdict": "refused",
+          "ok_key_present": true,
+          "verb": "new",
+          "verdict_coherent": true
+        },
+        {
+          "case": "new_fresh_change",
+          "detail": {},
+          "ground_truth": "recorded",
+          "honest": true,
+          "immutable": false,
+          "observed_ok": true,
+          "observed_verdict": "recorded",
+          "ok_key_present": true,
+          "verb": "new",
+          "verdict_coherent": true
+        },
+        {
+          "case": "view_status_healthy_change",
+          "detail": {},
+          "ground_truth": "recorded",
+          "honest": true,
+          "immutable": false,
+          "observed_ok": true,
+          "observed_verdict": "recorded",
+          "ok_key_present": true,
+          "verb": "view --format=status",
+          "verdict_coherent": true
+        }
+      ]
+    },
+    "envelope_payload_size": {
+      "envelopes": 54,
+      "max_bytes": 5859,
+      "over_budget_verbs": 0,
+      "verbs": {
+        "evidence attach": {
+          "budget_bytes": null,
+          "count": 3,
+          "max_bytes": 1638,
+          "over_budget": false,
+          "p50_bytes": 1626
+        },
+        "evidence status": {
+          "budget_bytes": null,
+          "count": 2,
+          "max_bytes": 906,
+          "over_budget": false,
+          "p50_bytes": 632
+        },
+        "evidence sync": {
+          "budget_bytes": null,
+          "count": 1,
+          "max_bytes": 1893,
+          "over_budget": false,
+          "p50_bytes": 1893
+        },
+        "gate post-edit": {
+          "budget_bytes": 2048,
+          "count": 8,
+          "max_bytes": 1081,
+          "over_budget": false,
+          "p50_bytes": 748
+        },
+        "gate post-edit --full": {
+          "budget_bytes": null,
+          "count": 20,
+          "max_bytes": 5122,
+          "over_budget": false,
+          "p50_bytes": 2980
+        },
+        "gate task-done": {
+          "budget_bytes": null,
+          "count": 15,
+          "max_bytes": 5859,
+          "over_budget": false,
+          "p50_bytes": 4894
+        },
+        "new": {
+          "budget_bytes": null,
+          "count": 2,
+          "max_bytes": 722,
+          "over_budget": false,
+          "p50_bytes": 285
+        },
+        "view --format=bootstrap": {
+          "budget_bytes": 4096,
+          "count": 2,
+          "max_bytes": 2075,
+          "over_budget": false,
+          "p50_bytes": 1710
+        },
+        "view --format=status": {
+          "budget_bytes": null,
+          "count": 1,
+          "max_bytes": 3384,
+          "over_budget": false,
+          "p50_bytes": 3384
+        }
+      }
+    },
+    "gate_catch_rate": {
+      "catch_rate": 1.0,
+      "catch_rate_subject_absent": 1.0,
+      "catch_rate_subject_present": 1.0,
+      "caught": 12,
+      "miss": 0,
+      "mutants": 12,
+      "rows": [
+        {
+          "check": "graph_authority",
+          "family": "subject_absent",
+          "gate": "task_done",
+          "gate_ok": false,
+          "graph_blockers": [
+            "graph_not_fresh",
+            "graph_not_ready"
+          ],
+          "graph_generation_pin": null,
+          "graph_projection_status": "missing",
+          "graph_required": true,
+          "name": "unpinned_generation_projection_missing",
+          "other_blockers": [
+            "evidence_artifacts_stale",
+            "ledger_dsn_not_configured"
+          ],
+          "outcome": "caught",
+          "projected_generation_id": null
+        },
+        {
+          "check": "graph_authority",
+          "family": "subject_present",
+          "gate": "task_done",
+          "gate_ok": false,
+          "graph_blockers": [
+            "generation_pin_mismatch"
+          ],
+          "graph_generation_pin": 4243,
+          "graph_projection_status": "fresh",
+          "graph_required": true,
+          "name": "pinned_generation_refuted_by_fresh_projection",
+          "other_blockers": [
+            "evidence_artifacts_stale",
+            "ledger_dsn_not_configured"
+          ],
+          "outcome": "caught",
+          "projected_generation_id": 4242
+        },
+        {
+          "attributed_codes": [
+            "missing_evidence_policy"
+          ],
+          "check": "missing_evidence_policy",
+          "error_codes": [
+            "missing_evidence_policy",
+            "task_requirements_link"
+          ],
+          "expected_defect_codes": [
+            "missing_evidence_policy"
+          ],
+          "family": "subject_absent",
+          "gate": "post_edit",
+          "gate_ok": false,
+          "gate_verdict": "refused",
+          "name": "no_requirements_at_all",
+          "outcome": "caught",
+          "refused_without_attribution": false,
+          "warning_codes": []
+        },
+        {
+          "attributed_codes": [
+            "missing_evidence_policy"
+          ],
+          "check": "missing_evidence_policy",
+          "error_codes": [
+            "missing_evidence_policy"
+          ],
+          "expected_defect_codes": [
+            "missing_evidence_policy"
+          ],
+          "family": "subject_present",
+          "gate": "post_edit",
+          "gate_ok": false,
+          "gate_verdict": "refused",
+          "name": "empty_evidence_policy",
+          "outcome": "caught",
+          "refused_without_attribution": false,
+          "warning_codes": [
+            "missing_acceptance",
+            "missing_scenario"
+          ]
+        },
+        {
+          "attributed_codes": [
+            "task_done_missing_evidence"
+          ],
+          "check": "task_done_missing_evidence",
+          "error_codes": [
+            "task_done_missing_evidence",
+            "task_requirements_link"
+          ],
+          "expected_defect_codes": [
+            "task_done_missing_evidence"
+          ],
+          "family": "subject_absent",
+          "gate": "post_edit",
+          "gate_ok": false,
+          "gate_verdict": "refused",
+          "name": "compound_unlinked_and_done",
+          "outcome": "caught",
+          "refused_without_attribution": false,
+          "task_done_error_codes": [
+            "task_done_missing_evidence",
+            "task_requirements_link"
+          ],
+          "task_done_missing_proof": [],
+          "task_done_proof_obligation_vacuous": false,
+          "warning_codes": [
+            "task_done_empty_evidence"
+          ]
+        },
+        {
+          "attributed_codes": [
+            "task_done_missing_evidence"
+          ],
+          "check": "task_done_missing_evidence",
+          "error_codes": [
+            "task_done_missing_evidence"
+          ],
+          "expected_defect_codes": [
+            "task_done_missing_evidence"
+          ],
+          "family": "subject_present",
+          "gate": "post_edit",
+          "gate_ok": false,
+          "gate_verdict": "refused",
+          "name": "done_task_zero_evidence",
+          "outcome": "caught",
+          "refused_without_attribution": false,
+          "task_done_error_codes": [
+            "task_done_missing_evidence"
+          ],
+          "task_done_missing_proof": [
+            "req.one:executed_test"
+          ],
+          "task_done_proof_obligation_vacuous": false,
+          "warning_codes": [
+            "task_done_empty_evidence"
+          ]
+        },
+        {
+          "attributed_codes": [
+            "task_requirements_link"
+          ],
+          "check": "task_requirements_link",
+          "error_codes": [
+            "task_requirements_link"
+          ],
+          "expected_defect_codes": [
+            "task_requirements_link"
+          ],
+          "family": "subject_absent",
+          "gate": "post_edit",
+          "gate_ok": false,
+          "gate_verdict": "refused",
+          "name": "unlinked_task",
+          "outcome": "caught",
+          "refused_without_attribution": false,
+          "warning_codes": []
+        },
+        {
+          "attributed_codes": [
+            "unknown_requirement_ref"
+          ],
+          "check": "task_requirements_link",
+          "error_codes": [
+            "unknown_requirement_ref"
+          ],
+          "expected_defect_codes": [
+            "unknown_requirement_ref"
+          ],
+          "family": "subject_present",
+          "gate": "post_edit",
+          "gate_ok": false,
+          "gate_verdict": "refused",
+          "name": "task_links_unknown_requirement",
+          "outcome": "caught",
+          "refused_without_attribution": false,
+          "warning_codes": []
+        },
+        {
+          "attributed_codes": [
+            "unknown_evidence_kind"
+          ],
+          "check": "unknown_evidence_kind",
+          "error_codes": [
+            "unknown_evidence_kind"
+          ],
+          "expected_defect_codes": [
+            "unknown_evidence_kind"
+          ],
+          "family": "subject_absent",
+          "gate": "post_edit",
+          "gate_ok": false,
+          "gate_verdict": "refused",
+          "name": "policy_kind_outside_registry",
+          "outcome": "caught",
+          "refused_without_attribution": false,
+          "warning_codes": []
+        },
+        {
+          "attributed_codes": [
+            "unknown_evidence_kind"
+          ],
+          "check": "unknown_evidence_kind",
+          "error_codes": [
+            "unknown_evidence_kind"
+          ],
+          "expected_defect_codes": [
+            "unknown_evidence_kind"
+          ],
+          "family": "subject_present",
+          "gate": "post_edit",
+          "gate_ok": false,
+          "gate_verdict": "refused",
+          "name": "evidence_kind_outside_registry",
+          "outcome": "caught",
+          "refused_without_attribution": false,
+          "warning_codes": []
+        },
+        {
+          "attributed_codes": [
+            "unknown_evidence_ref"
+          ],
+          "check": "unknown_evidence_ref",
+          "error_codes": [
+            "unknown_evidence_ref"
+          ],
+          "expected_defect_codes": [
+            "unknown_evidence_ref"
+          ],
+          "family": "subject_absent",
+          "gate": "post_edit",
+          "gate_ok": false,
+          "gate_verdict": "refused",
+          "name": "evidence_without_refs",
+          "outcome": "caught",
+          "refused_without_attribution": false,
+          "warning_codes": []
+        },
+        {
+          "attributed_codes": [
+            "unknown_evidence_ref"
+          ],
+          "check": "unknown_evidence_ref",
+          "error_codes": [
+            "unknown_evidence_ref"
+          ],
+          "expected_defect_codes": [
+            "unknown_evidence_ref"
+          ],
+          "family": "subject_present",
+          "gate": "post_edit",
+          "gate_ok": false,
+          "gate_verdict": "refused",
+          "name": "dangling_evidence_ref",
+          "outcome": "caught",
+          "refused_without_attribution": false,
+          "warning_codes": []
+        }
+      ],
+      "warning_miss": 0
+    },
+    "gate_specificity": {
+      "acceptance_rate": 1.0,
+      "accepted": 8,
+      "rows": [
+        {
+          "accepted": true,
+          "change": "bound-ci-artifact-storage",
+          "error_codes": [],
+          "summary_disagrees": false,
+          "summary_ok": false,
+          "summary_verdict": "deferred"
+        },
+        {
+          "accepted": true,
+          "change": "ci-triage-null-machine-fields",
+          "error_codes": [],
+          "summary_disagrees": false,
+          "summary_ok": false,
+          "summary_verdict": "deferred"
+        },
+        {
+          "accepted": true,
+          "change": "code-repos-expand",
+          "error_codes": [],
+          "summary_disagrees": false,
+          "summary_ok": false,
+          "summary_verdict": "deferred"
+        },
+        {
+          "accepted": true,
+          "change": "idempotent-worker-stop",
+          "error_codes": [],
+          "summary_disagrees": false,
+          "summary_ok": false,
+          "summary_verdict": "deferred"
+        },
+        {
+          "accepted": true,
+          "change": "lock-free-pact-ledger",
+          "error_codes": [],
+          "summary_disagrees": false,
+          "summary_ok": false,
+          "summary_verdict": "deferred"
+        },
+        {
+          "accepted": true,
+          "change": "operator-ui-graph-view",
+          "error_codes": [],
+          "summary_disagrees": false,
+          "summary_ok": false,
+          "summary_verdict": "deferred"
+        },
+        {
+          "accepted": true,
+          "change": "operator-ui-motion",
+          "error_codes": [],
+          "summary_disagrees": false,
+          "summary_ok": false,
+          "summary_verdict": "deferred"
+        },
+        {
+          "accepted": true,
+          "change": "registry-env-expansion",
+          "error_codes": [],
+          "summary_disagrees": false,
+          "summary_ok": false,
+          "summary_verdict": "deferred"
+        }
+      ],
+      "sample_size": 8,
+      "subject": "frozen_real_corpus",
+      "summary_disagreements": 0,
+      "waiver_sweep": {
+        "cap": 10,
+        "hygiene_waiver_rows": [],
+        "hygiene_waivers": 0,
+        "hygiene_within_cap": true,
+        "manifests": 477,
+        "status": "measured",
+        "suppressed_violations": 0,
+        "unreadable": [],
+        "waivers": 22,
+        "within_cap": false
+      }
+    },
+    "manifest_quality": {
+      "manifests": [
+        {
+          "boilerplate_slots": 0,
+          "change": "bench-clean-minimal",
+          "components": {
+            "boilerplate_freedom": 1.0,
+            "proof_token_coverage": 1.0,
+            "reference_integrity": 1.0,
+            "requirements_link_coverage": 1.0,
+            "structured_acceptance_coverage": 0.0,
+            "verification_clause_honesty": 1.0
+          },
+          "dangling_refs": 0,
+          "score": 0.8333,
+          "unscored_requirements": []
+        },
+        {
+          "boilerplate_slots": 0,
+          "change": "bench-clean-multi",
+          "components": {
+            "boilerplate_freedom": 1.0,
+            "proof_token_coverage": 1.0,
+            "reference_integrity": 1.0,
+            "requirements_link_coverage": 1.0,
+            "structured_acceptance_coverage": 0.0,
+            "verification_clause_honesty": 1.0
+          },
+          "dangling_refs": 0,
+          "score": 0.8333,
+          "unscored_requirements": []
+        },
+        {
+          "boilerplate_slots": 0,
+          "change": "bench-clean-proven",
+          "components": {
+            "boilerplate_freedom": 1.0,
+            "proof_token_coverage": 1.0,
+            "reference_integrity": 1.0,
+            "requirements_link_coverage": 1.0,
+            "structured_acceptance_coverage": 0.0,
+            "verification_clause_honesty": 1.0
+          },
+          "dangling_refs": 0,
+          "score": 0.8333,
+          "unscored_requirements": []
+        },
+        {
+          "boilerplate_slots": 0,
+          "change": "bench-clean-structured",
+          "components": {
+            "boilerplate_freedom": 1.0,
+            "proof_token_coverage": 1.0,
+            "reference_integrity": 1.0,
+            "requirements_link_coverage": 1.0,
+            "structured_acceptance_coverage": 1.0,
+            "verification_clause_honesty": 1.0
+          },
+          "dangling_refs": 0,
+          "score": 1.0,
+          "unscored_requirements": []
+        },
+        {
+          "boilerplate_slots": 0,
+          "change": "bench-episode-acceptance-slot",
+          "components": {
+            "boilerplate_freedom": 1.0,
+            "proof_token_coverage": 1.0,
+            "reference_integrity": 1.0,
+            "requirements_link_coverage": 1.0,
+            "structured_acceptance_coverage": 1.0,
+            "verification_clause_honesty": 1.0
+          },
+          "dangling_refs": 0,
+          "score": 1.0,
+          "unscored_requirements": []
+        },
+        {
+          "boilerplate_slots": 0,
+          "change": "bench-episode-dead-ledger",
+          "components": {
+            "boilerplate_freedom": 1.0,
+            "proof_token_coverage": 1.0,
+            "reference_integrity": 1.0,
+            "requirements_link_coverage": 1.0,
+            "structured_acceptance_coverage": 0.0,
+            "verification_clause_honesty": 1.0
+          },
+          "dangling_refs": 0,
+          "score": 0.8333,
+          "unscored_requirements": []
+        },
+        {
+          "boilerplate_slots": 0,
+          "change": "bench-episode-schema-archaeology",
+          "components": {
+            "boilerplate_freedom": 1.0,
+            "proof_token_coverage": 1.0,
+            "reference_integrity": 1.0,
+            "requirements_link_coverage": 1.0,
+            "structured_acceptance_coverage": 0.0,
+            "verification_clause_honesty": 1.0
+          },
+          "dangling_refs": 0,
+          "score": 0.8333,
+          "unscored_requirements": []
+        }
+      ],
+      "mean_score": 0.8809,
+      "scored": 7,
+      "unscored_requirements": 0
+    },
+    "refusal_self_sufficiency": {
+      "author_action": 11,
+      "author_action_rate": 0.8182,
+      "command_repairable": 9,
+      "command_repairable_rate": 0.8889,
+      "harness_gap": 0,
+      "harness_gap_reasons": [],
+      "operator_action": 2,
+      "operator_action_rate": 1.0,
+      "operator_rows_naming_owner_and_remedy": 2,
+      "populations": {
+        "author_action": {
+          "population": "author_action",
+          "rate": 0.8182,
+          "repaired": 9,
+          "rows": 11,
+          "unrepaired_reasons": [
+            "manifest_edit_did_not_clear:underdetermined_descriptor"
+          ]
+        },
+        "command_repairable": {
+          "population": "command_repairable",
+          "rate": 0.8889,
+          "repaired": 8,
+          "rows": 9,
+          "unrepaired_reasons": [
+            "correction_not_determined:candidate_source=listing"
+          ]
+        },
+        "operator_action": {
+          "population": "operator_action",
+          "rate": 1.0,
+          "repaired": 2,
+          "rows": 2,
+          "unrepaired_reasons": []
+        }
+      },
+      "refusals": 22,
+      "rows": [
+        {
+          "blocked_by": [
+            "substrate_error"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 0,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "command_repairable",
+          "reason": "correction_not_determined:candidate_source=listing",
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "status": "not_attempted"
+          },
+          "repaired": false,
+          "verb": "evidence attach"
+        },
+        {
+          "blocked_by": [
+            "unsatisfied_requirement:req.one"
+          ],
+          "correction": null,
+          "coverage": "executable",
+          "first_command_executable": true,
+          "first_command_fits_guards": true,
+          "first_command_present": true,
+          "has_message": true,
+          "manifest_edits": 0,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "command_repairable",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "blocked_by_after": 0,
+            "blocked_by_before": 1,
+            "shrank_blocked_by": true,
+            "status": "executed"
+          },
+          "repaired": true,
+          "verb": "evidence status"
+        },
+        {
+          "blocked_by": [
+            "ledger_dsn_not_configured"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 0,
+          "names_offending_value": false,
+          "names_out_of_band_remedy": true,
+          "names_owner": true,
+          "population": "operator_action",
+          "reason": null,
+          "remedy_is_cause_derived": true,
+          "repair": {
+            "status": "not_attempted"
+          },
+          "repaired": true,
+          "verb": "evidence sync"
+        },
+        {
+          "blocked_by": [
+            "missing_evidence_policy"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 1,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "author_action",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "cleared": true,
+            "codes_after": [],
+            "codes_before": [],
+            "evidence_rows_after": 0,
+            "evidence_rows_before": 0,
+            "new_codes": [],
+            "quality_after": 0.8333,
+            "quality_before": 0.6667,
+            "result": {
+              "applied": [
+                {
+                  "after": [
+                    "executed_test"
+                  ],
+                  "before": [],
+                  "code": "missing_evidence_policy",
+                  "pointer": "requirements[0].evidence_policy.required"
+                }
+              ],
+              "failed": [],
+              "ok": true
+            },
+            "status": "applied",
+            "targeted_codes": [
+              "missing_evidence_policy"
+            ]
+          },
+          "repaired": true,
+          "verb": "gate post-edit --full"
+        },
+        {
+          "blocked_by": [
+            "missing_evidence_policy"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 1,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "author_action",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "cleared": true,
+            "codes_after": [],
+            "codes_before": [],
+            "evidence_rows_after": 0,
+            "evidence_rows_before": 0,
+            "new_codes": [],
+            "quality_after": 0.8333,
+            "quality_before": 0.6667,
+            "result": {
+              "applied": [
+                {
+                  "after": [
+                    "executed_test"
+                  ],
+                  "before": [],
+                  "code": "missing_evidence_policy",
+                  "pointer": "requirements[0].evidence_policy.required"
+                }
+              ],
+              "failed": [],
+              "ok": true
+            },
+            "status": "applied",
+            "targeted_codes": [
+              "missing_evidence_policy"
+            ]
+          },
+          "repaired": true,
+          "verb": "gate post-edit --full"
+        },
+        {
+          "blocked_by": [
+            "unknown_evidence_ref"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 1,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "author_action",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "cleared": true,
+            "codes_after": [],
+            "codes_before": [],
+            "evidence_rows_after": 1,
+            "evidence_rows_before": 1,
+            "new_codes": [],
+            "quality_after": 0.8333,
+            "quality_before": 0.7778,
+            "result": {
+              "applied": [
+                {
+                  "after": [
+                    "req.one"
+                  ],
+                  "before": [
+                    "req.does-not-exist"
+                  ],
+                  "code": "unknown_evidence_ref",
+                  "pointer": "evidence[0].refs"
+                }
+              ],
+              "failed": [],
+              "ok": true
+            },
+            "status": "applied",
+            "targeted_codes": [
+              "unknown_evidence_ref"
+            ]
+          },
+          "repaired": true,
+          "verb": "gate post-edit --full"
+        },
+        {
+          "blocked_by": [
+            "task_done_missing_evidence",
+            "task_requirements_link"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 1,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "author_action",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "cleared": true,
+            "codes_after": [],
+            "codes_before": [
+              "task_done_missing_evidence",
+              "task_requirements_link"
+            ],
+            "evidence_rows_after": 0,
+            "evidence_rows_before": 0,
+            "new_codes": [],
+            "quality_after": 0.8333,
+            "quality_before": 0.6667,
+            "result": {
+              "applied": [
+                {
+                  "after": [
+                    "req.one"
+                  ],
+                  "before": [],
+                  "code": "task_requirements_link",
+                  "pointer": "tasks[0].requirements"
+                }
+              ],
+              "failed": [],
+              "ok": true
+            },
+            "status": "applied",
+            "targeted_codes": [
+              "task_done_missing_evidence",
+              "task_requirements_link"
+            ]
+          },
+          "repaired": true,
+          "verb": "gate post-edit --full"
+        },
+        {
+          "blocked_by": [
+            "task_requirements_link"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 1,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "author_action",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "cleared": true,
+            "codes_after": [],
+            "codes_before": [
+              "task_requirements_link"
+            ],
+            "evidence_rows_after": 0,
+            "evidence_rows_before": 0,
+            "new_codes": [],
+            "quality_after": 0.8333,
+            "quality_before": 0.6667,
+            "result": {
+              "applied": [
+                {
+                  "after": [
+                    "req.one"
+                  ],
+                  "before": [],
+                  "code": "task_requirements_link",
+                  "pointer": "tasks[0].requirements"
+                }
+              ],
+              "failed": [],
+              "ok": true
+            },
+            "status": "applied",
+            "targeted_codes": [
+              "task_requirements_link"
+            ]
+          },
+          "repaired": true,
+          "verb": "gate post-edit --full"
+        },
+        {
+          "blocked_by": [
+            "unknown_requirement_ref"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 1,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "author_action",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "cleared": true,
+            "codes_after": [],
+            "codes_before": [],
+            "evidence_rows_after": 0,
+            "evidence_rows_before": 0,
+            "new_codes": [],
+            "quality_after": 0.8333,
+            "quality_before": 0.75,
+            "result": {
+              "applied": [
+                {
+                  "after": [
+                    "req.one"
+                  ],
+                  "before": [
+                    "req.does-not-exist"
+                  ],
+                  "code": "unknown_requirement_ref",
+                  "pointer": "tasks[0].requirements"
+                }
+              ],
+              "failed": [],
+              "ok": true
+            },
+            "status": "applied",
+            "targeted_codes": [
+              "unknown_requirement_ref"
+            ]
+          },
+          "repaired": true,
+          "verb": "gate post-edit --full"
+        },
+        {
+          "blocked_by": [
+            "unknown_evidence_kind"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 1,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "author_action",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "cleared": true,
+            "codes_after": [],
+            "codes_before": [
+              "unknown_evidence_kind"
+            ],
+            "evidence_rows_after": 1,
+            "evidence_rows_before": 1,
+            "new_codes": [],
+            "quality_after": 0.8333,
+            "quality_before": 0.8333,
+            "result": {
+              "applied": [
+                {
+                  "after": "executed_test",
+                  "before": "rogue_kind",
+                  "code": "unknown_evidence_kind",
+                  "pointer": "evidence[0].kind"
+                }
+              ],
+              "failed": [],
+              "ok": true
+            },
+            "status": "applied",
+            "targeted_codes": [
+              "unknown_evidence_kind"
+            ]
+          },
+          "repaired": true,
+          "verb": "gate post-edit --full"
+        },
+        {
+          "blocked_by": [
+            "unknown_evidence_kind"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 1,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "author_action",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "cleared": true,
+            "codes_after": [],
+            "codes_before": [
+              "unknown_evidence_kind"
+            ],
+            "evidence_rows_after": 0,
+            "evidence_rows_before": 0,
+            "new_codes": [],
+            "quality_after": 0.8333,
+            "quality_before": 0.8333,
+            "result": {
+              "applied": [
+                {
+                  "after": [
+                    "executed_test"
+                  ],
+                  "before": [
+                    "rogue_kind"
+                  ],
+                  "code": "unknown_evidence_kind",
+                  "pointer": "requirements[0].evidence_policy.required"
+                }
+              ],
+              "failed": [],
+              "ok": true
+            },
+            "status": "applied",
+            "targeted_codes": [
+              "unknown_evidence_kind"
+            ]
+          },
+          "repaired": true,
+          "verb": "gate post-edit --full"
+        },
+        {
+          "blocked_by": [
+            "missing_evidence_policy",
+            "task_requirements_link"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 2,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "author_action",
+          "reason": "manifest_edit_did_not_clear:underdetermined_descriptor",
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "cleared": false,
+            "detail": "descriptor carries no legal values",
+            "reason": "underdetermined_descriptor",
+            "result": {
+              "applied": [],
+              "failed": [
+                {
+                  "code": "missing_evidence_policy",
+                  "detail": "descriptor carries no legal values",
+                  "pointer": "requirements",
+                  "reason": "underdetermined_descriptor"
+                },
+                {
+                  "code": "task_requirements_link",
+                  "detail": "descriptor carries no legal values",
+                  "pointer": "tasks[0].requirements",
+                  "reason": "underdetermined_descriptor"
+                }
+              ],
+              "ok": false
+            },
+            "status": "refused"
+          },
+          "repaired": false,
+          "verb": "gate post-edit --full"
+        },
+        {
+          "blocked_by": [
+            "unknown_evidence_ref"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 1,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "author_action",
+          "reason": "manifest_edit_did_not_clear:underdetermined_descriptor",
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "cleared": false,
+            "detail": "4 legal values and no offending value to match",
+            "reason": "underdetermined_descriptor",
+            "result": {
+              "applied": [],
+              "failed": [
+                {
+                  "code": "unknown_evidence_ref",
+                  "detail": "4 legal values and no offending value to match",
+                  "pointer": "evidence[0].refs",
+                  "reason": "underdetermined_descriptor"
+                }
+              ],
+              "ok": false
+            },
+            "status": "refused"
+          },
+          "repaired": false,
+          "verb": "gate post-edit --full"
+        },
+        {
+          "blocked_by": [
+            "task_done_missing_evidence"
+          ],
+          "correction": null,
+          "coverage": "executable",
+          "first_command_executable": true,
+          "first_command_fits_guards": true,
+          "first_command_present": true,
+          "has_message": true,
+          "manifest_edits": 0,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "command_repairable",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "blocked_by_after": 0,
+            "blocked_by_before": 1,
+            "shrank_blocked_by": true,
+            "status": "executed"
+          },
+          "repaired": true,
+          "verb": "gate post-edit --full"
+        },
+        {
+          "blocked_by": [
+            "ledger_dsn_not_configured",
+            "task_done_missing_evidence",
+            "task_proof_obligation_vacuous:task.one",
+            "task_requirements_link"
+          ],
+          "correction": null,
+          "coverage": null,
+          "first_command_executable": false,
+          "first_command_fits_guards": false,
+          "first_command_present": false,
+          "has_message": true,
+          "manifest_edits": 1,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": true,
+          "names_owner": true,
+          "population": "author_action",
+          "reason": null,
+          "remedy_is_cause_derived": true,
+          "repair": {
+            "cleared": true,
+            "codes_after": [],
+            "codes_before": [
+              "task_done_missing_evidence",
+              "task_requirements_link"
+            ],
+            "evidence_rows_after": 0,
+            "evidence_rows_before": 0,
+            "new_codes": [],
+            "quality_after": 0.8333,
+            "quality_before": 0.6667,
+            "result": {
+              "applied": [
+                {
+                  "after": [
+                    "req.one"
+                  ],
+                  "before": [],
+                  "code": "task_requirements_link",
+                  "pointer": "tasks[0].requirements"
+                }
+              ],
+              "failed": [],
+              "ok": true
+            },
+            "status": "applied",
+            "targeted_codes": [
+              "task_done_missing_evidence",
+              "task_requirements_link"
+            ]
+          },
+          "repaired": true,
+          "verb": "gate task-done"
+        },
+        {
+          "blocked_by": [
+            "substrate_error"
+          ],
+          "correction": "corrected_argument",
+          "coverage": "executable",
+          "first_command_executable": true,
+          "first_command_fits_guards": true,
+          "first_command_present": true,
+          "has_message": true,
+          "manifest_edits": 0,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "command_repairable",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "blocked_by_after": 0,
+            "blocked_by_before": 1,
+            "kind": "corrected_argument",
+            "shrank_blocked_by": true,
+            "status": "executed"
+          },
+          "repaired": true,
+          "verb": "gate task-done"
+        },
+        {
+          "blocked_by": [
+            "evidence_artifacts_stale",
+            "ledger_dsn_not_configured",
+            "missing_proof:req.one:executed_test"
+          ],
+          "correction": null,
+          "coverage": "executable",
+          "first_command_executable": true,
+          "first_command_fits_guards": true,
+          "first_command_present": true,
+          "has_message": true,
+          "manifest_edits": 0,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": true,
+          "names_owner": true,
+          "population": "command_repairable",
+          "reason": null,
+          "remedy_is_cause_derived": true,
+          "repair": {
+            "blocked_by_after": 0,
+            "blocked_by_before": 2,
+            "shrank_blocked_by": true,
+            "status": "executed"
+          },
+          "repaired": true,
+          "verb": "gate task-done"
+        },
+        {
+          "blocked_by": [
+            "evidence_artifacts_stale",
+            "ledger_dsn_not_configured",
+            "missing_proof:req.one:executed_test",
+            "task_done_missing_evidence"
+          ],
+          "correction": null,
+          "coverage": "executable",
+          "first_command_executable": true,
+          "first_command_fits_guards": true,
+          "first_command_present": true,
+          "has_message": true,
+          "manifest_edits": 0,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": true,
+          "names_owner": true,
+          "population": "command_repairable",
+          "reason": null,
+          "remedy_is_cause_derived": true,
+          "repair": {
+            "blocked_by_after": 0,
+            "blocked_by_before": 3,
+            "shrank_blocked_by": true,
+            "status": "executed"
+          },
+          "repaired": true,
+          "verb": "gate task-done"
+        },
+        {
+          "blocked_by": [
+            "evidence_artifacts_stale",
+            "generation_pin_mismatch",
+            "ledger_dsn_not_configured",
+            "missing_proof:req.one:graph_report"
+          ],
+          "correction": null,
+          "coverage": "executable",
+          "first_command_executable": true,
+          "first_command_fits_guards": true,
+          "first_command_present": true,
+          "has_message": true,
+          "manifest_edits": 0,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": true,
+          "names_owner": true,
+          "population": "command_repairable",
+          "reason": null,
+          "remedy_is_cause_derived": true,
+          "repair": {
+            "blocked_by_after": 1,
+            "blocked_by_before": 3,
+            "shrank_blocked_by": true,
+            "status": "executed"
+          },
+          "repaired": true,
+          "verb": "gate task-done"
+        },
+        {
+          "blocked_by": [
+            "evidence_artifacts_stale",
+            "graph_not_fresh",
+            "graph_not_ready",
+            "ledger_dsn_not_configured",
+            "missing_proof:req.one:graph_report"
+          ],
+          "correction": null,
+          "coverage": "executable",
+          "first_command_executable": true,
+          "first_command_fits_guards": true,
+          "first_command_present": true,
+          "has_message": true,
+          "manifest_edits": 0,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": true,
+          "names_owner": true,
+          "population": "command_repairable",
+          "reason": null,
+          "remedy_is_cause_derived": true,
+          "repair": {
+            "blocked_by_after": 2,
+            "blocked_by_before": 4,
+            "shrank_blocked_by": true,
+            "status": "executed"
+          },
+          "repaired": true,
+          "verb": "gate task-done"
+        },
+        {
+          "blocked_by": [
+            "duplicate_change_id"
+          ],
+          "correction": "use_existing",
+          "coverage": "executable",
+          "first_command_executable": true,
+          "first_command_fits_guards": true,
+          "first_command_present": true,
+          "has_message": true,
+          "manifest_edits": 0,
+          "names_offending_value": true,
+          "names_out_of_band_remedy": false,
+          "names_owner": false,
+          "population": "command_repairable",
+          "reason": null,
+          "remedy_is_cause_derived": false,
+          "repair": {
+            "blocked_by_after": 0,
+            "blocked_by_before": 1,
+            "kind": "use_existing",
+            "shrank_blocked_by": true,
+            "status": "executed"
+          },
+          "repaired": true,
+          "verb": "new"
+        },
+        {
+          "blocked_by": [
+            "task_blocked:task.blocked"
+          ],
+          "correction": null,
+          "coverage": "harness_gap",
+          "first_command_executable": false,
+          "first_command_fits_guards": true,
+          "first_command_present": true,
+          "has_message": true,
+          "manifest_edits": 0,
+          "names_offending_value": false,
+          "names_out_of_band_remedy": true,
+          "names_owner": true,
+          "population": "operator_action",
+          "reason": null,
+          "remedy_is_cause_derived": true,
+          "repair": {
+            "status": "not_attempted"
+          },
+          "repaired": true,
+          "verb": "view --format=bootstrap"
+        }
+      ],
+      "unclassified": 0,
+      "unrepaired": 3
+    },
+    "round_trips_to_green": {
+      "cap": 30,
+      "episodes": [
+        {
+          "audited_class": "acceptance-slot hunt (28 calls)",
+          "calls": 3,
+          "cap": 30,
+          "change": "bench-episode-acceptance-slot",
+          "closed": true,
+          "edit_failures": [],
+          "edits_applied": 0,
+          "end_state_guard": {
+            "evidence_in_refusal_scope": true,
+            "evidence_kinds_resolve": true,
+            "fabricated_evidence": [],
+            "passed": true,
+            "quality_after": 1.0,
+            "quality_before": 0.8333,
+            "quality_not_worse": true,
+            "task_done_ok": true
+          },
+          "episode": "acceptance_slot_hunt",
+          "first_recommended_command": "uv run okg pact evidence attach bench-episode-acceptance-slot acc.one --kind executed_test --ref tests/bench/test_probe.py --status pass --json",
+          "green": true,
+          "harness_gap": null,
+          "scored": true,
+          "scored_calls": 3,
+          "stalled": null
+        },
+        {
+          "audited_class": "deferred closure under an unreachable ledger",
+          "calls": 1,
+          "cap": 30,
+          "change": "bench-episode-dead-ledger",
+          "closed": true,
+          "edit_failures": [],
+          "edits_applied": 0,
+          "end_state_guard": {
+            "evidence_in_refusal_scope": true,
+            "evidence_kinds_resolve": true,
+            "fabricated_evidence": [],
+            "passed": true,
+            "quality_after": 0.8333,
+            "quality_before": 0.8333,
+            "quality_not_worse": true,
+            "task_done_ok": true
+          },
+          "episode": "dead_ledger_closure",
+          "first_recommended_command": null,
+          "green": true,
+          "harness_gap": null,
+          "scored": true,
+          "scored_calls": 1,
+          "stalled": null
+        },
+        {
+          "audited_class": "schema-archaeology manifests (6-16 calls)",
+          "calls": 2,
+          "cap": 30,
+          "change": "bench-episode-schema-archaeology",
+          "closed": true,
+          "edit_failures": [],
+          "edits_applied": 2,
+          "end_state_guard": {
+            "evidence_in_refusal_scope": true,
+            "evidence_kinds_resolve": true,
+            "fabricated_evidence": [],
+            "passed": true,
+            "quality_after": 0.8333,
+            "quality_before": 0.6111,
+            "quality_not_worse": true,
+            "task_done_ok": true
+          },
+          "episode": "schema_archaeology",
+          "first_recommended_command": null,
+          "green": true,
+          "harness_gap": null,
+          "scored": true,
+          "scored_calls": 2,
+          "stalled": null
+        }
+      ],
+      "episodes_green": 3,
+      "episodes_scored": 3,
+      "episodes_total": 3,
+      "harness_gap_episodes": [],
+      "harness_gaps": [],
+      "max_scored_calls": 3,
+      "total_calls": 6,
+      "total_edits_applied": 2,
+      "total_scored_calls": 6
+    }
+  },
+  "schema": "okg.pact.bench.metrics.v1"
+}

@@ -1,0 +1,103 @@
+{
+  "outbox": [
+    {
+      "message_id": "poros-msg-1",
+      "sender": "okg:lab-a",
+      "recipient": "okg:mit",
+      "sender_generation_id": "sender-gen-7",
+      "body_sha256": "sha256:body-1",
+      "graph_id": "poros:graph:context-1",
+      "signing_key_id": "lab-a-sign-1",
+      "detached": false,
+      "object_hash_valid": false,
+      "sender_hint": false,
+      "receiver_authorized": true,
+      "classification": "public"
+    }
+  ],
+  "delivery_attempts": [
+    {
+      "message_id": "poros-msg-1",
+      "status": "accepted_for_admission",
+      "reason_code": null,
+      "receipt_sha256": "sha256:receipt-1",
+      "transport": "receiver_service_callback",
+      "body_sha256": "sha256:body-1",
+      "envelope_sha256": "sha256:envelope-1"
+    }
+  ],
+  "inbox": [
+    {
+      "message_id": "poros-msg-1",
+      "status": "accepted_for_admission",
+      "body_sha256": "sha256:body-1",
+      "trusted": true,
+      "signature_valid": true,
+      "recipient_valid": true,
+      "body_hash_valid": true,
+      "fresh": true,
+      "detached_object_valid": true
+    }
+  ],
+  "receipts": [
+    {
+      "message_id": "poros-msg-1",
+      "status": "accepted_for_admission",
+      "received_body_sha256": "sha256:body-1",
+      "admission_id": "admission-1"
+    }
+  ],
+  "nomos_decisions": [
+    {
+      "message_id": "poros-msg-1",
+      "decision_id": "nomos:decision:poros-msg-1",
+      "effect": "allow",
+      "input_hash": "sha256:nomos-input-1",
+      "policy_bundle_id": "nomos:bundle:poros-demo",
+      "policy_fingerprint": "sha256:policy-1",
+      "uses_receiver_policy": true,
+      "classification": "public",
+      "obligations": [],
+      "reason_code": "allow_public_context"
+    }
+  ],
+  "admissions": [
+    {
+      "message_id": "poros-msg-1",
+      "admission_id": "admission-1",
+      "status": "accepted",
+      "body_sha256": "sha256:body-1",
+      "source": "poros:okg:lab-a",
+      "run_id": "run-1"
+    }
+  ],
+  "generations": [
+    {
+      "message_id": "poros-msg-1",
+      "generation_id": "receiver-gen-3",
+      "status": "published",
+      "admission_id": "admission-1"
+    }
+  ],
+  "live_rows": [
+    {
+      "row_id": "node:poros-demo:context:poros-msg-1",
+      "row_kind": "node",
+      "message_id": "poros-msg-1",
+      "admission_id": "admission-1",
+      "sender_generation_id": "sender-gen-7",
+      "receiver_generation_id": "receiver-gen-3",
+      "body_sha256": "sha256:body-1"
+    }
+  ],
+  "proofs": [
+    {
+      "message_id": "poros-msg-1",
+      "visibility": "public",
+      "classification": "public",
+      "redacted": false,
+      "declassified": false
+    }
+  ],
+  "unsupported": []
+}

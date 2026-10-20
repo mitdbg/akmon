@@ -1,0 +1,33 @@
+# Σ-coverage preset (synth-constraint-coverage): seconds, LLM-free, markdown-only,
+# deterministic. Exercises all FOUR constraint kinds so recall is reported per
+# kind, not pooled. functional is the legacy value_perturbation shape; the three
+# coverage classes each trip one relational kind, and require_constraint_kinds
+# makes a kind that fails to fire a LOUD failure rather than a hidden zero.
+preset_name: constraint_kinds
+seed: "constraint-coverage-1"
+world_path: world_smoke
+redundancy:
+  # min 2 guarantees every eligible fact renders at least twice, so a functional
+  # value_perturbation keeps a clean cross-doc counterpart (cross_doc, detected)
+  # instead of collapsing to undetectable_by_construction at k=1, and the
+  # unresolved-key subject has the two members its ambiguity applies to.
+  renderings_per_fact_min: 2
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 3, magnitude: 0.2, visibility_corrupted: 1}
+    incompatible_status_pair: {count: 1, visibility_corrupted: 1}
+    linked_reference: {count: 1, visibility_corrupted: 1}
+    ambiguous_subject: {count: 1, magnitude: 0.2, visibility_corrupted: 1}
+benign_variation:
+  unit_rescale_rate: 0.4
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+require_constraint_kinds:
+  - functional
+  - incompatible_pair
+  - linked_pair
+  - unresolved_key
+materialize_pdf: false

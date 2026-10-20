@@ -1,0 +1,103 @@
+# Substrate external_repos ontology.
+#
+# One subtype (ExternalRepo) and one cross-shared narrowing
+# (source_file_member_of_external_repo) — sufficient for a
+# deployment to register the MultiRepoFactory source class
+# and ingest multiple external git repositories into a single
+# typed graph.
+#
+# Per `add-substrate-external-repos-module` (Wave A5 of
+# `evolve-memex-to-ai-scientist-substrate`). The narrowing is
+# cross-shared: src_subtypes references SourceFile from
+# git_graph; the narrowing entry sits in this module because
+# ExternalRepo is the new subtype.
+id: https://palimpzest.mit.edu/okg/modules/external_repos
+name: external_repos
+title: "External Repos — typed multi-repo ingestion"
+description: >-
+  One subtype, ExternalRepo, that types each tracked external
+  git repository as a first-class node. Paired with the
+  MultiRepoFactory source class, this module lets a deployment
+  list N repositories in an operator-curated YAML config and
+  spawn per-repo instances of git_files / git_history /
+  code_structure scoped to each repo's local path. The
+  cross-shared narrowing source_file_member_of_external_repo
+  types every emitted SourceFile under its parent repo.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  xrepo: https://palimpzest.mit.edu/okg/modules/external_repos/
+default_range: string
+imports:
+  - linkml:types
+
+classes:
+
+  ExternalRepo:
+    description: >-
+      A tracked external git repository, identified by an
+      operator-curated kebab-case name. The factory emits one
+      ExternalRepo node per declared repo on each run and
+      relies on the substrate's bitemporal succession to
+      retire repos that are removed from the config.
+    class_uri: xrepo:ExternalRepo
+    attributes:
+      name:
+        required: true
+        description: >-
+          Operator-curated kebab-case slug; identity field
+          for the node. Must be unique within the operator's
+          external_repos.yaml.
+      url:
+        required: true
+        description: >-
+          Git URL (clone source). Required even when the
+          operator clones manually so the substrate carries
+          provenance for the local checkout.
+      local_path:
+        required: true
+        description: >-
+          Filesystem path to the operator's local checkout.
+          Absolute or `~`-expanded; must exist on disk and
+          contain a `.git` directory at factory runtime.
+      tracked_branch:
+        required: true
+        description: >-
+          Branch the factory expects the local checkout to be
+          on (default `main` if absent from the operator
+          config). The factory validates the branch matches
+          on each run; mismatch surfaces a typed error.
+      description:
+        description: Free-text description; optional.
+      text:
+        description: >-
+          Substrate-convention searchable text; populated by
+          the factory with `<name>: <description>` when both
+          attributes are present.
+    annotations:
+      archetype: actor
+      transient: "false"
+      okg_alias_fields: name,url,local_path
+      okg_searchable_text_fields: name,url,local_path,tracked_branch,description,text
+
+  EdgeNarrowings:
+    description: >-
+      Cross-shared narrowing for external_repos. The single
+      narrowing entry is cross-shared because the src_subtypes
+      value (`SourceFile`) is owned by `git_graph`, but the
+      narrowing entry sits here since `ExternalRepo` is the
+      new subtype. Deployments composing both `external_repos`
+      and `git_graph` admit the edge; deployments composing
+      only one of them never see the narrowing entry (the
+      other schema isn't loaded), so catalog validation stays
+      consistent.
+    annotations:
+      okg_edge_narrowings: "true"
+      okg_relation_kind:
+        member_of: references
+    attributes:
+      source_file_member_of_external_repo:
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: SourceFile
+          dst_subtypes: ExternalRepo

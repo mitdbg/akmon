@@ -1,0 +1,171 @@
+/* --- sources ---------------------------------------------------------- */
+
+/* One bar, the whole population. Healthy is grey, not green: a 95 per cent
+ * green bar reads as a success meter rather than as a census. */
+.okg-console__statebar {
+  display: flex;
+  height: 8px;
+  margin-bottom: 12px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--okg-color-line-soft);
+}
+
+.okg-console__statebar-part { display: block; height: 8px; }
+
+/* Coloured by SEVERITY, not by the state's name.
+ *
+ * The rules used to name six states -- the design fixtures' vocabulary -- and
+ * a live deployment records none of them. On Archiv3 the bar's three
+ * segments (`blocked`, `manual_required`, `fresh`) matched no rule at all and
+ * the whole bar drew in its own background: a flat pale strip over a
+ * deployment with two blocked sources. Severity is the axis the rest of the
+ * page is already coloured on, and a state the console has never seen still
+ * lands on one of five values.
+ *
+ * `ok` is a 30 per cent tint of the success colour, not grey and not the full
+ * colour: a solid grey bar on the all-clear deployment read as "nothing
+ * here", and a solid green one reads as a success meter rather than a census.
+ */
+.okg-console__statebar-part[data-severity="ok"] {
+  background: color-mix(in srgb, var(--okg-color-ok) 30%, transparent);
+}
+.okg-console__statebar-part[data-severity="failed"] { background: var(--okg-color-bad); }
+.okg-console__statebar-part[data-severity="blocked"] { background: var(--okg-color-bad); }
+.okg-console__statebar-part[data-severity="running"] { background: var(--okg-color-info); }
+.okg-console__statebar-part[data-severity="never-run"] { background: var(--okg-color-warn); }
+/* No read recorded a state. Neutral, because nothing is wrong. */
+.okg-console__statebar-part[data-severity="unrecorded"] {
+  background: var(--okg-color-subtle);
+}
+
+/* Two states keep a rule of their own: both are `never-run` by severity --
+ * something an operator may act on -- but both are the operator's OWN
+ * configuration holding the producer off, so neither is drawn in the warning
+ * colour on a bar that is meant to be read at a glance. */
+.okg-console__statebar-part[data-state="excluded"],
+.okg-console__statebar-part[data-state="withheld"] { background: var(--okg-color-subtle); }
+
+/* The states a live runtime records. The bar used to know the design
+ * fixtures' words alone, so on a deployment whose runtime records real states
+ * every segment fell through to the track colour and the census read as one
+ * empty band. Colour follows the glyph's severity, so a row and its segment
+ * never disagree. */
+.okg-console__statebar-part[data-state="fresh"],
+.okg-console__statebar-part[data-state="healthy"] {
+  background: color-mix(in srgb, var(--okg-color-ok) 30%, transparent);
+}
+.okg-console__statebar-part[data-state="failing"],
+.okg-console__statebar-part[data-state="blocked"],
+.okg-console__statebar-part[data-state="unsupported"] { background: var(--okg-color-bad); }
+.okg-console__statebar-part[data-state="manual-required"],
+.okg-console__statebar-part[data-state="overdue"],
+.okg-console__statebar-part[data-state="stuck"],
+.okg-console__statebar-part[data-state="wired-but-silent"] { background: var(--okg-color-warn); }
+.okg-console__statebar-part[data-state="converging"] { background: var(--okg-color-info); }
+.okg-console__statebar-part[data-state="unknown"] { background: var(--okg-color-subtle); }
+
+/* --- contents --------------------------------------------------------- */
+
+/* Two tables of the same shape, side by side. 32 px gutter; each column is
+ * 464 px at 1440, which holds a type name, a count and a share bar without
+ * either table setting its own column widths. */
+.okg-console__typegrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+.okg-console__typeblock { min-width: 0; }
+
+.okg-console__typeblock-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+
+.okg-console__types {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.okg-console__types th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--okg-color-muted);
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--okg-color-line-soft);
+}
+
+.okg-console__types th:nth-child(2),
+.okg-console__types td:nth-child(2) {
+  text-align: right;
+  width: 96px;
+  padding-right: 16px;
+}
+
+.okg-console__types th:nth-child(3),
+.okg-console__types td:nth-child(3) { width: 124px; }
+
+/* A 214-type name and a 600-type name are both identifiers and neither may
+ * push its count out of the column. */
+.okg-console__types td:nth-child(1) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0;
+}
+
+.okg-console__types th:nth-child(3) { text-align: right; }
+
+.okg-console__types td {
+  height: 32px;
+  font-size: 13px;
+  padding: 0;
+  border-bottom: 1px solid var(--okg-color-line-soft);
+}
+
+.okg-console__types-count { text-align: right; }
+
+.okg-console__types-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+}
+
+.okg-console__types-tail td { color: var(--okg-color-muted); border-bottom: 0; }
+
+.okg-console__share-track {
+  display: block;
+  flex: 1 1 auto;
+  height: 4px;
+  background: var(--okg-color-line-soft);
+  border-radius: 2px;
+}
+
+.okg-console__share-bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--okg-color-accent);
+  opacity: 0.6;
+}
+
+.okg-console__share-pct { color: var(--okg-color-muted); min-width: 34px; text-align: right; }
+
+/* --- footer ----------------------------------------------------------- */
+
+.okg-console__footer {
+  margin: 0;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--okg-color-line-soft);
+  font-size: 12px;
+  color: var(--okg-color-muted);
+}

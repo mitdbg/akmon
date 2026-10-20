@@ -1,0 +1,6 @@
+name: ci
+version: 1.0.0
+description: 'CI: workflows, jobs, test runs, test cases, coverage reports,
+  runtime events, stack frames.'
+provides:
+  subtypes_file: schema.yaml

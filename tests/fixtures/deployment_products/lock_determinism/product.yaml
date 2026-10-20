@@ -1,0 +1,79 @@
+distribution_release:
+  distribution_id: okg-standard
+  version: "1.0"
+  origin: external
+  release_digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+  owner: distribution
+  bundle_ids: [search, core]
+  assets:
+    - owner: distribution
+      id: base-policy
+      kind: policy
+      version: "1"
+      digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+product_bundles:
+  - bundle_id: search
+    version: "1"
+    distribution_id: okg-standard
+    distribution_version: "1.0"
+    owner: distribution
+    bundle_digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+    assets:
+      - owner: search-team
+        id: search-schema
+        kind: schema
+        version: "1"
+        digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    requires_bundle_ids: [core]
+  - bundle_id: core
+    version: "1"
+    distribution_id: okg-standard
+    distribution_version: "1.0"
+    owner: distribution
+    bundle_digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+    assets:
+      - owner: core-team
+        id: ontology
+        kind: ontology
+        version: "1"
+        digest: sha256:6666666666666666666666666666666666666666666666666666666666666666
+definition:
+  definition_id: acme-prod
+  distribution_release_ref:
+    distribution_id: okg-standard
+    version: "1.0"
+    owner: distribution
+    digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+  bundles:
+    - bundle_id: search
+      version: "1"
+      owner: distribution
+      digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+    - bundle_id: core
+      version: "1"
+      owner: distribution
+      digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+  instance_values:
+    region: us-east
+    replicas: 2
+  overrides:
+    - slot_id: retention_days
+      value_type: integer
+      value: 30
+      owner: instance
+  local_assets:
+    - asset_id: instance-policy
+      kind: policy
+      namespace: acme
+      source_ref: instance-policy.yaml
+      digest: sha256:7777777777777777777777777777777777777777777777777777777777777777
+  secret_references:
+    - secret_id: database-password
+      provider: local-keychain
+      scope: acme-prod
+  connection_references:
+    - owner: acme
+      id: primary-database
+      kind: connection
+      version: "1"
+      digest: sha256:8888888888888888888888888888888888888888888888888888888888888888

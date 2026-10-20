@@ -1,0 +1,108 @@
+id: https://palimpzest.mit.edu/okg/modules/person
+name: person
+title: "Person — humans, accounts, teams"
+description: |-
+  Individual participants in a deployment (authors,
+  reviewers, assignees), their accounts/handles, and the
+  teams they belong to. Promoted from the legacy
+  `okg.ontology.person` fragment (per
+  `unify-ontology-systems`, 2026-04-26).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  per: https://palimpzest.mit.edu/okg/modules/person/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Person:
+    description: An individual participant (author, reviewer, assignee).
+    class_uri: per:Person
+    attributes:
+      person_id:
+        required: true
+        annotations:
+          pii_class: direct_identifier
+      display_name:
+        annotations:
+          pii_class: quasi_identifier
+      email:
+        annotations:
+          pii_class: direct_identifier
+      orcid:
+        description: >-
+          ORCID identifier (https://orcid.org/<orcid>). Populated by
+          scholarly source adapters (OpenAlex, Semantic Scholar)
+          when the matched record carries an ORCID. Added per
+          `lift-scholarly-sources-to-substrate-library` (additive,
+          optional).
+        annotations:
+          pii_class: direct_identifier
+      inspire_bai:
+        description: >-
+          INSPIRE-HEP BAI (Bibliographic Author Identifier).
+          Populated by the substrate scholarly `inspire_hep`
+          source. Added per
+          `lift-scholarly-sources-to-substrate-library` (additive,
+          optional).
+        annotations:
+          pii_class: direct_identifier
+    annotations:
+      archetype: actor
+      transient: 'false'
+  Identity:
+    description: An account or handle belonging to a person (e.g. github handle).
+    class_uri: per:Identity
+    attributes:
+      identity_id:
+        required: true
+        annotations:
+          pii_class: direct_identifier
+      kind:
+        annotations:
+          pii_class: non_pii
+      handle:
+        annotations:
+          pii_class: direct_identifier
+    annotations:
+      archetype: actor
+      transient: 'false'
+  Team:
+    description: A named group of people.
+    class_uri: per:Team
+    attributes:
+      team_id:
+        required: true
+        annotations:
+          pii_class: direct_identifier
+      name:
+        annotations:
+          pii_class: quasi_identifier
+    annotations:
+      archetype: actor
+      transient: 'false'
+  EdgeNarrowings:
+    description: Intra-module narrowings for person.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      person_has_identity:
+        annotations:
+          edge_archetype: has_identity
+          src_subtypes: Person
+          dst_subtypes: Identity
+      person_member_of_team:
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: Person
+          dst_subtypes: Team
+      person_same_as_person:
+        annotations:
+          edge_archetype: same_as
+          src_subtypes: Person
+          dst_subtypes: Person
+      identity_identifies_person:
+        annotations:
+          edge_archetype: identifies
+          src_subtypes: Identity
+          dst_subtypes: Person

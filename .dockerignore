@@ -1,0 +1,29 @@
+.git
+.github
+# .okg/ holds worktree-local state; only the tracked okg runtime policy
+# ships in the image (it moved here from okg/coordination.yaml).
+.okg/*
+!.okg/coordination.yaml
+.scratch
+.venv
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.secrets
+secrets/
+*.env
+*.pem
+*.key
+*.crt
+clouds.yaml
+archive
+experiments
+node_modules
+scratch
+src/okg/operator_ui/web/node_modules
+src/okg/operator_ui/web/test-results
+tests

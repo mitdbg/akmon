@@ -1,0 +1,475 @@
+# Production-scale targets for the synthetic okg-workspace graph.
+#
+# This file is the ONE place the generator's numbers live. Every number names
+# its provenance with a `basis:` on the block that holds it:
+#
+#   recorded  -- read from okg-workspace by the census below. Change it only
+#                from a newer read of the live deployment.
+#   derived   -- not read directly, but fixed by recorded totals (for
+#                example a per-source edge total split across that source's
+#                declared triples so every per-source AND per-type total
+#                still equals the census). The note says how.
+#   guessed   -- no recorded basis. The note says what the guess is.
+#
+# Census: read-only count of okg-workspace (dogfood container), 2026-10-01,
+# approved by Jason 189a. The census was run by the lane T lead with
+# `default_transaction_read_only=on`; nothing in this repository connects to
+# a live deployment. A newer census edits this file and nothing else.
+#
+# Scale: every count below is the scale-1.0 value. The generator multiplies by
+# --scale and rounds, keeping any count that is non-zero at scale 1.0 at
+# least 1, so every recorded record type and producer stays present at small
+# scale.
+
+schema: okg.bench.workspace_scale.targets.v1
+deployment: okg-workspace
+census:
+  read_at: "2026-10-01"
+  provenance: >-
+    read-only count of okg-workspace (dogfood container), 2026-10-01,
+    approved by Jason 189a
+  # The earlier figure in
+  # pact/changes/console-default-remove-old-views/evidence/browser-proof.md
+  # (122,366 records, 741,364 relationships, 62 record types) agrees with
+  # this census.
+
+totals:
+  basis: recorded
+  records: 122366
+  relationships: 741364
+  record_types: 62
+  relationship_types: 14
+  # Sources that own at least one live record (20) and that own at least one
+  # live relationship (21 including five enricher producers).
+  record_sources: 20
+
+# Live relationships per producer (census edge_source). The derived triple
+# split under `edges` plus `enricher_edges` must sum to exactly these.
+relationship_sources:
+  basis: recorded
+  okg-workspace.git-history: 661726
+  okg-workspace.pact: 38983
+  okg-workspace.openspec: 22754
+  okg-workspace.git-files: 14344
+  okg-workspace.latex-project-doc-corpus: 1001
+  okg-workspace.latex_project: 1001
+  okg-workspace.bib_references: 785
+  okg-workspace.papers-git-files: 340
+  _enricher:declarative:citation_cites_paper_by_paper_id: 182
+  okg-workspace.package-manifests: 114
+  _enricher:declarative:commit_message_subject_starts_with_change_slug: 86
+  okg-workspace.test-reports: 22
+  okg-workspace.branch-dispositions: 6
+  okg-workspace.compute-env-local: 4
+  _enricher:declarative:forge_item_word_boundary_mentions_change_slug: 4
+  okg-workspace.github-issues: 3
+  _enricher:acceptance_criteria: 2
+  _enricher:security_finding: 2
+  okg-workspace.semgrep-data-flow: 2
+  okg-workspace.codeql-data-flow: 2
+  okg-workspace.security-analysis: 1
+
+# Live relationships per type (census edge_type). Same rule as above.
+relationship_types:
+  basis: recorded
+  affects: 617414
+  contains: 60707
+  derives_from: 22408
+  assigned_to: 18963
+  member_of: 15265
+  references: 3259
+  targets: 2357
+  authored_by: 594
+  cites: 183
+  published_in: 132
+  supersedes: 50
+  derived_from: 28
+  verified_by: 2
+  caption_of: 2
+
+# Live records per (owning source, record type). basis: recorded, all 74
+# source x subtype pairs from the census rollup. Every pair except the
+# `_system:native_views` one is written by the generator under that source's
+# real owner id and must match a node the source declares in
+# deployments/okg-workspace/source_registry.yaml (the generator refuses a pair
+# the registry does not declare).
+nodes:
+  basis: recorded
+  okg-workspace.git-history:
+    source_file: 22235
+    git_commit: 18963
+    git_branch: 2933
+    git_author: 20
+    git_tag: 13
+  okg-workspace.pact:
+    verification_step: 21056
+    pact_task: 6693
+    acceptance_criterion: 5784
+    spec_delta: 1816
+    pact_change: 1816
+    task_group: 1816
+    spec_capability: 1
+  okg-workspace.openspec:
+    proposal_task: 8422
+    acceptance_scenario: 6859
+    acceptance_criterion: 3175
+    task_group: 2461
+    spec_delta: 541
+    open_spec_change: 442
+    design_decision: 217
+    non_goal: 149
+    verification_step: 110
+    spec_capability: 100
+    goal: 72
+    risk: 69
+    alternative: 48
+    stakeholder: 27
+    hypothesis: 2
+    insight: 1
+    observation: 1
+  okg-workspace.git-files:
+    source_file: 14344
+    git_branch: 1
+  okg-workspace.bib_references:
+    person: 485
+    paper: 146
+    venue: 88
+    conference_edition: 59
+    conference: 50
+  okg-workspace.latex-project-doc-corpus:
+    document_chunk: 441
+    entity_mention: 70
+    document: 23
+    visual_artifact: 2
+  okg-workspace.papers-git-files:
+    source_file: 340
+    git_branch: 1
+  okg-workspace.latex_project:
+    citation: 182
+    paper_section: 80
+    paper: 3
+  okg-workspace.package-manifests:
+    dependency_package: 112
+    package_manifest: 2
+  okg-workspace.coordination-config:
+    coordination_org_unit: 12
+    coordination_work_area: 5
+    role_agent: 5
+    work_gate: 2
+    worker_pool: 1
+  okg-workspace.profile-measurements:
+    performance_budget: 12
+  okg-workspace.branch-dispositions:
+    branch_disposition: 6
+    branch_archive_summary: 6
+  okg-workspace.test-reports:
+    test_case: 5
+    test_run: 2
+    test_report: 2
+    runtime_event: 1
+    stack_frame: 1
+  okg-workspace.instrumentation-log:
+    instrumentation_gap: 9
+  okg-workspace.compute-env-local:
+    runtime: 4
+    machine: 1
+  okg-workspace.github-issues:
+    issue: 2
+    repo: 1
+    pull_request: 1
+  okg-workspace.codeql-data-flow:
+    data_flow_step: 2
+    data_flow_observation: 1
+  okg-workspace.semgrep-data-flow:
+    data_flow_step: 2
+    data_flow_observation: 1
+  okg-workspace.security-analysis:
+    secret_finding: 1
+    security_finding: 1
+    dependency_vulnerability: 1
+
+# Records the generator does NOT write: the publish itself produces them. The
+# build checks each count after the publish instead of writing it.
+publisher_nodes:
+  basis: recorded
+  _system:native_views:
+    view: 8
+
+# Live relationships per source, split across that source's declared triples
+# as [src_subtype, edge_type, dst_subtype, count].
+#
+# basis: derived. The census records each source's relationship total
+# (edge_source) and each relationship type's total (edge_type), not the
+# triple. The split below keeps BOTH sets of totals exact; where a source
+# declares several triples of one type, the split between them is a guess
+# shaped by the record counts (one `contains` edge per child record where the
+# tree is one-parent). Checked by tests: every per-source sum equals the
+# recorded edge_source total and every per-type sum equals the recorded
+# edge_type total.
+edges:
+  basis: derived
+  okg-workspace.git-history:      # recorded total 661,726
+    - [git_commit, affects, source_file, 617409]
+    - [git_commit, derives_from, git_commit, 22408]
+    - [git_author, assigned_to, git_commit, 18963]
+    - [git_branch, references, git_commit, 2933]
+    - [git_tag, references, git_commit, 13]
+  okg-workspace.pact:             # recorded total 38,983
+    - [pact_change, contains, spec_delta, 1816]
+    - [pact_change, contains, task_group, 1816]
+    - [spec_delta, contains, acceptance_criterion, 5784]
+    - [acceptance_criterion, contains, verification_step, 5784]
+    - [task_group, contains, pact_task, 6693]
+    - [pact_task, contains, verification_step, 15224]
+    - [spec_delta, targets, spec_capability, 1816]
+    - [pact_change, supersedes, pact_change, 50]
+  okg-workspace.openspec:         # recorded total 22,754
+    - [task_group, contains, proposal_task, 8422]
+    - [acceptance_criterion, contains, acceptance_scenario, 6859]
+    - [open_spec_change, contains, task_group, 2461]
+    - [spec_delta, contains, acceptance_criterion, 3175]
+    - [spec_capability, contains, acceptance_criterion, 36]
+    - [open_spec_change, contains, spec_delta, 541]
+    - [proposal_task, contains, verification_step, 110]
+    - [open_spec_change, contains, design_decision, 217]
+    - [open_spec_change, contains, goal, 72]
+    - [open_spec_change, contains, non_goal, 149]
+    - [open_spec_change, contains, risk, 69]
+    - [open_spec_change, contains, stakeholder, 27]
+    - [design_decision, contains, alternative, 48]
+    - [spec_delta, targets, spec_capability, 541]
+    - [open_spec_change, references, source_file, 26]
+    - [insight, cites, observation, 1]
+  okg-workspace.git-files:        # recorded total 14,344
+    - [source_file, member_of, git_branch, 14344]
+  okg-workspace.latex-project-doc-corpus:   # recorded total 1,001
+    - [document, contains, document_chunk, 450]
+    - [document, contains, visual_artifact, 2]
+    - [document_chunk, member_of, document, 450]
+    - [entity_mention, member_of, document_chunk, 70]
+    - [visual_artifact, member_of, document, 2]
+    - [document, derived_from, source_file, 23]
+    - [visual_artifact, derived_from, source_file, 2]
+    - [document_chunk, caption_of, visual_artifact, 2]
+  okg-workspace.latex_project:    # recorded total 1,001
+    - [paper, derived_from, document, 3]
+    - [paper, references, document, 3]
+    - [citation, references, document_chunk, 182]
+    - [paper, contains, paper_section, 80]
+    - [paper_section, contains, paper_section, 110]
+    - [paper_section, contains, document_chunk, 441]
+    - [paper_section, contains, citation, 182]
+  okg-workspace.bib_references:   # recorded total 785
+    - [paper, authored_by, person, 594]
+    - [paper, published_in, venue, 88]
+    - [paper, published_in, conference_edition, 44]
+    - [conference_edition, member_of, conference, 59]
+  okg-workspace.papers-git-files: # recorded total 340
+    - [source_file, member_of, git_branch, 340]
+  okg-workspace.package-manifests:  # recorded total 114
+    - [source_file, contains, package_manifest, 2]
+    - [package_manifest, contains, dependency_package, 112]
+  okg-workspace.test-reports:     # recorded total 22
+    - [test_report, contains, test_case, 5]
+    - [test_report, contains, test_run, 2]
+    - [test_report, contains, runtime_event, 1]
+    - [test_run, contains, test_case, 5]
+    - [runtime_event, contains, stack_frame, 1]
+    - [runtime_event, references, test_case, 1]
+    - [test_case, references, source_file, 5]
+    - [test_run, affects, git_commit, 2]
+  okg-workspace.branch-dispositions:  # recorded total 6
+    - [branch_disposition, references, branch_archive_summary, 6]
+  okg-workspace.compute-env-local:  # recorded total 4
+    - [machine, contains, runtime, 4]
+  okg-workspace.github-issues:    # recorded total 3
+    - [repo, contains, issue, 2]
+    - [repo, contains, pull_request, 1]
+  okg-workspace.semgrep-data-flow:  # recorded total 2
+    - [data_flow_observation, contains, data_flow_step, 2]
+  okg-workspace.codeql-data-flow:   # recorded total 2
+    - [data_flow_observation, contains, data_flow_step, 2]
+  okg-workspace.security-analysis:  # recorded total 1
+    - [dependency_vulnerability, affects, dependency_package, 1]
+
+# Relationships the generator does NOT write: the deployment's own enrichers
+# derive them during the publish from attributes the generator plants. These
+# land in the fact log (okg.edge_facts) as well as the graph, which is where
+# the census found its 276 fact-log rows. basis: recorded (count, type).
+# `plant` names the attribute pattern. The build reports the count each
+# enricher actually produced and REFUSES when it is zero or differs from the
+# scaled count by more than `tolerance`: max(absolute, relative x planned).
+# basis of the tolerance: guessed. Rounding a small scaled count to a whole
+# number of planted records, and the two-way rules writing one relationship
+# each way, move a count by one; measured at scale 0.01 and 0.1 the largest
+# difference was one.
+enricher_edges:
+  basis: recorded
+  tolerance:
+    absolute: 1
+    relative: 0.10
+  _enricher:declarative:citation_cites_paper_by_paper_id:
+    edge_type: cites
+    count: 182
+    plant: citation.cited_paper_ref equals a bib paper's paper_id
+  _enricher:declarative:commit_message_subject_starts_with_change_slug:
+    edge_type: references
+    count: 86
+    plant: git_commit.message_subject starts with an open_spec_change change_id
+  _enricher:declarative:forge_item_word_boundary_mentions_change_slug:
+    edge_type: references
+    count: 4
+    plant: an issue or pull_request title names an open_spec_change change_id
+  _enricher:acceptance_criteria:
+    edge_type: verified_by
+    count: 2
+    plant: a test_case name carries an acceptance criterion id
+    # Each planted case links twice at scale 1.0 (lab-host run: 4 for 2
+    # planned), so this enricher alone allows a difference of 2.
+    tolerance_absolute: 2
+  _enricher:security_finding:
+    edge_type: affects
+    count: 2
+    plant: a security or secret finding's path names a source_file path
+
+# Record-level shape the console reads depend on.
+search:
+  basis: recorded
+  # GET /viz/api/console/records/search?q=deployment. The census counted
+  # 22,030 live records whose attributes contain the term (18.0%); the
+  # generator puts it in the searchable text of the same share.
+  term: deployment
+  records_with_term: 22030
+  # The budget review asked for at least this many candidates at scale 1.0.
+  minimum_candidates: 200
+
+attributes:
+  basis: guessed
+  # No per-record payload size was recorded. Searchable text is about this
+  # many characters, with the planted search term in the share above.
+  text_chars: 240
+
+# Version history. The census found ONE published generation and two branch
+# checkpoints today, but interval history of about 1.86M record rows and
+# 2.84M relationship rows (pg reltuples estimates), 15x and 3.8x the live
+# counts: the database kept the history of a deeper past. The production
+# budgets in okg.viz.console_perf_budgets were measured on that deeper past
+# (88 checkpoints, 42 published, 2026-09-22).
+#
+# `deep` is the nightly profile and the command-line default. The budgets
+# were set on the deep shape, and the views that read history cost several
+# times more on it: at scale 0.01 the independent review of PR #3136 measured
+# deep vs current at generations 57.6 vs 5.7 ms, attempts 30.2 vs 3.5,
+# versions 36 vs 8, view-diagnostics 13 vs 2.2, enricher-diagnostics 35.7 vs
+# 15.6, records-types 45.8 vs 27.3, producer-metrics 111 vs 77, and
+# records-search 398 vs 344.
+history:
+  basis: recorded
+  # The build refuses when the interval tables hold fewer rows than live
+  # rows plus planned re-writes, less this share. basis: guessed (a re-write
+  # the graph store treats as unchanged writes no row).
+  interval_depth_tolerance: 0.01
+  interval_rows:
+    records: 1860000
+    relationships: 2840000
+  profiles:
+    # Today's publish count: the bulk publish and nothing after it. Interval
+    # depth stays near 1x, which understates today's interval tables; use
+    # `deep` when interval depth matters.
+    current:
+      publishes: 1
+      # Re-write rounds spread over the follow-up publishes. None here.
+      record_churn_rounds: 0.0
+      relationship_churn_rounds: 0.0
+    # The deeper history: 42 published generations (the 2026-09-22 shape the
+    # budgets were measured on). Each follow-up publish re-writes a slice of
+    # records and relationships, so the interval tables reach the recorded
+    # depth: (1,860,000 - 122,366) / 122,366 = 14.2 extra record versions
+    # each and (2,840,000 - 741,364) / 741,364 = 2.83 extra relationship
+    # versions each.
+    deep:
+      publishes: 42
+      record_churn_rounds: 14.2
+      relationship_churn_rounds: 2.83
+    # NOT a production shape: the per-pull-request test's profile. Three
+    # publishes are enough to prove follow-up publishes build interval
+    # history through the same path `deep` uses, in seconds.
+    smoke:
+      publishes: 3
+      record_churn_rounds: 0.5
+      relationship_churn_rounds: 0.2
+
+# Known limits of this shape, recorded rather than fixed. Each is a place the
+# synthetic graph may cost the console less (or more) than the live one.
+known_limits:
+  basis: recorded
+  limits:
+    - The search share was counted with `attrs::text ILIKE '%deployment%'`
+      over whole attribute documents; records search ranks `attrs->>'text'`
+      with BM25, so the live number of BM25 candidates is not known.
+    - Text length (attributes.text_chars) is a guess; no per-record payload
+      size was recorded.
+    - Relationships are spread evenly over their endpoints (no skew). None of
+      the 22 budgeted views reads a single record's relationships; the
+      per-record reads that would feel skew are excluded from the budgets.
+    - One branch checkpoint per publish; the 2026-09-22 history also had
+      about 46 checkpoints that never published.
+  # Fields the next census should record (a live read needs Jason's own
+  # grant). Each would turn a guess above into a recorded number.
+  next_census_fields:
+    - "count of live records with attrs ? 'text'"
+    - "average length of attrs->>'text' per record type"
+    - "the real BM25 match count for 'deployment' (what records/search sees)"
+    - "pg_column_size(attrs) per record type (average and p95)"
+
+# Runtime tables the console reads outside the graph.
+runtime:
+  basis: recorded
+  # okg.source_progress rows per source (121 rows over 27 sources). The row
+  # COUNT is recorded; which keys they are was not. The generator writes the
+  # stage-timing keys the ingest service writes: one
+  # `sync.stage_timings.last_run` row plus (count - 1)
+  # `sync.stage_timings.run.<run_id>` rows (a guess at the composition).
+  source_progress_rows:
+    okg-workspace.test-reports: 6
+    okg-workspace.pact: 5
+    okg-workspace.agent-runtime-security-monitor: 5
+    okg-workspace.coordination-native: 5
+    okg-workspace.codeql-data-flow: 5
+    okg-workspace.junit-xml: 5
+    okg-workspace.security-analysis: 5
+    okg-workspace.package-manifests: 5
+    okg-workspace.branch-dispositions: 5
+    okg-workspace.latex-project-doc-corpus: 5
+    okg-workspace.github-issues: 5
+    okg-workspace.profile-measurements: 5
+    okg-workspace.semgrep-data-flow: 5
+    okg-workspace.openspec: 5
+    okg-workspace.compute-env-local: 5
+    okg-workspace.latex_project: 5
+    okg-workspace.coordination-config: 5
+    okg-workspace.git-files: 5
+    okg-workspace.instrumentation-log: 5
+    okg-workspace.papers-git-files: 5
+    okg-workspace.git-history: 5
+    okg-workspace.bib_references: 5
+    okg-workspace.doc-corpus: 2
+    okg-workspace.agent-sessions: 2
+    okg-workspace.chat-sessions: 2
+    okg-workspace.codex-sessions: 2
+    okg-workspace.code-structure: 2
+  # Recorded for comparison; the generator does not write these directly.
+  # They come from the real admission path and the real publish.
+  observed_only:
+    admission_envelopes: 38
+    admission_events: 138
+    fact_batch_receipts: 498
+    nomos_decisions: 1119
+    derived_artifact_runs: 20
+    derived_artifact_definitions: 18
+    enricher_progress: 17
+    node_facts: 0
+    edge_facts: 276
+    node_series: 0
+    # The census database has no `dbos` schema.
+    dbos_schema: absent

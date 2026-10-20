@@ -1,0 +1,43 @@
+{
+  "group": [
+    {
+      "work-summary": [
+        {
+          "put-code": 111111,
+          "title": {"title": {"value": "Polonium: Isolating Noisy Neighbours on a Single Machine"}},
+          "type": "conference-paper",
+          "publication-date": {"year": {"value": "2021"}},
+          "journal-title": {"value": "OSDI"},
+          "external-ids": {"external-id": [
+            {"external-id-type": "doi", "external-id-value": "10.0000/osdi.2021.curie", "external-id-relationship": "self"}
+          ]}
+        }
+      ]
+    },
+    {
+      "work-summary": [
+        {
+          "put-code": 222222,
+          "title": {"title": {"value": "Radium: Measuring Out-of-Core Emission at Scale"}},
+          "type": "conference-paper",
+          "publication-date": {"year": {"value": "2023"}},
+          "journal-title": {"value": "EuroSys"},
+          "external-ids": {"external-id": [
+            {"external-id-type": "doi", "external-id-value": "10.0000/eurosys.2023.curie", "external-id-relationship": "self"}
+          ]}
+        }
+      ]
+    },
+    {
+      "work-summary": [
+        {
+          "put-code": 333333,
+          "title": {"title": {"value": "A Tech Report Without a DOI"}},
+          "type": "other",
+          "publication-date": {"year": {"value": "2019"}},
+          "external-ids": {"external-id": []}
+        }
+      ]
+    }
+  ]
+}

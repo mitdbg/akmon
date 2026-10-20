@@ -1,0 +1,43 @@
+name: workspace-overview
+title: Workspace Graph Overview
+description: |
+  At-a-glance dashboard for a repository-centered Workspace Graph.
+
+panels:
+  - id: live_counts_by_layer
+    title: Live counts by layer
+    kind: table
+    description: Core Workspace Graph subtype counts.
+    sql: |
+      WITH layers(layer, subtype) AS (
+        VALUES
+          ('repo', 'source_file'),
+          ('repo', 'git_commit'),
+          ('code', 'code_symbol'),
+          ('spec', 'open_spec_change'),
+          ('spec', 'acceptance_criterion'),
+          ('ci', 'test_report'),
+          ('agent', 'agent_session'),
+          ('environment', 'local_machine')
+      )
+      SELECT l.layer,
+             l.subtype,
+             coalesce(count(n.node_id), 0) AS live_count
+        FROM layers l
+        LEFT JOIN okg.v_nodes n
+          ON n.subtype = l.subtype
+       GROUP BY l.layer, l.subtype
+       ORDER BY l.layer, l.subtype
+
+  - id: latest_generations
+    title: Latest generations
+    kind: table
+    description: Most recent publish cycles for this deployment.
+    sql: |
+      SELECT id AS generation_id,
+             status,
+             published_at,
+             catalog_version_id
+        FROM okg.v_generations
+       ORDER BY published_at DESC
+       LIMIT 5

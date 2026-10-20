@@ -1,0 +1,30 @@
+{
+  ".plugins-ml-config": {
+    "aliases": {}
+  },
+  ".opensearch-observability": {
+    "aliases": {}
+  },
+  ".opensearch-sap-log-types-config": {
+    "aliases": {}
+  },
+  "ingest-events-2026.09": {
+    "aliases": {}
+  },
+  ".opendistro-ism-config": {
+    "aliases": {}
+  },
+  "app-logs-2026.09": {
+    "aliases": {
+      "app-logs": {}
+    }
+  },
+  "top_queries-2026.09.20-04119": {
+    "aliases": {}
+  },
+  "audit-trail-2026.09": {
+    "aliases": {
+      "audit-trail": {}
+    }
+  }
+}

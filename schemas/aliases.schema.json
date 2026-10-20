@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://palimpzest.mit.edu/okg/schemas/aliases.schema.json",
+  "title": "OKG aliases.json",
+  "description": "Explicit cross-source canonicalization. alias → canonical node_id. Two value shapes accepted.",
+  "type": "object",
+  "additionalProperties": {"$ref": "#/$defs/entry"},
+  "$defs": {
+    "entry": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Global alias: resolves regardless of context."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["canonical"],
+          "properties": {
+            "canonical": {"type": "string"},
+            "scope": {
+              "type": "string",
+              "description": "Only applies when linker is resolving into this subtype. Omit for global."
+            }
+          }
+        }
+      ]
+    }
+  }
+}

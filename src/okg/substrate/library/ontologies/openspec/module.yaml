@@ -1,0 +1,7 @@
+name: openspec
+version: 1.0.0
+description: OpenSpecChange + per-proposal Goal, Risk, Stakeholder, Task,
+  AcceptanceCriterion subtypes. Composes with forge, git_graph, agent_sessions
+  which extend openspec with references rules.
+provides:
+  subtypes_file: schema.yaml

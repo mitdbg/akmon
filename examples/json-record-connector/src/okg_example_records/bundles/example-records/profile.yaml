@@ -1,0 +1,17 @@
+name: example-records
+version: 1.0.0
+classification: example
+description: Installed JSON record connector; disposable single-source graph.
+init_questions:
+  - id: deployment_name
+    prompt: Deployment name
+    type: slug
+    required: true
+  - id: postgres_dsn
+    prompt: PostgreSQL DSN
+    type: string
+    required: true
+modules: modules.yaml
+source_defaults: source-defaults/
+deployment_defaults: deployment-defaults.yaml
+invariants: invariants.yaml

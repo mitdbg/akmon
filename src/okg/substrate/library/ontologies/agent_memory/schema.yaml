@@ -1,0 +1,372 @@
+id: https://palimpzest.mit.edu/okg/modules/agent_memory
+name: agent_memory
+title: "Agent Memory — evidence-aware claims and decisions"
+description: >-
+  Structured, provenance-preserving memory emitted by coding agents. Claims are
+  hypotheses unless supported by explicit graph evidence.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  amem: https://palimpzest.mit.edu/okg/modules/agent_memory/
+default_range: string
+imports:
+- linkml:types
+classes:
+
+  AgentClaim:
+    description: A durable claim, hypothesis, remembered fact, or premise authored by an agent.
+    class_uri: amem:AgentClaim
+    attributes:
+      claim_id:
+        required: true
+      statement:
+        required: true
+      claim_kind:
+        required: true
+      scope:
+        required: true
+      subject_id:
+        required: true
+      status:
+        required: true
+        description: hypothesis | supported | refuted | superseded | stale | unknown.
+      confidence_kind:
+        required: true
+        description: deterministic | heuristic | model_inferred | operator_asserted.
+      source_artifact:
+        required: true
+      source_hash:
+        required: true
+      observed_at:
+        range: datetime
+        required: true
+      extraction_method:
+        required: true
+      session_id:
+      last_verified_generation_id:
+        range: integer
+      validation_warnings:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: claim_id,subject_id,claim_kind
+      okg_searchable_text_fields: statement,claim_kind,scope,status,text
+      okg_created_at_from: observed_at
+      okg_last_modified_at_from: observed_at
+
+  AgentObservation:
+    description: A concrete observation imported from a tool, command, graph query, report, or artifact.
+    class_uri: amem:AgentObservation
+    attributes:
+      observation_id:
+        required: true
+      summary:
+        required: true
+      observation_kind:
+        required: true
+      scope:
+        required: true
+      status:
+        required: true
+      confidence_kind:
+        required: true
+      source_artifact:
+        required: true
+      source_hash:
+        required: true
+      observed_at:
+        range: datetime
+        required: true
+      extraction_method:
+        required: true
+      tool_name:
+      command:
+      validation_warnings:
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: observation_id,observation_kind
+      okg_searchable_text_fields: summary,observation_kind,scope,status,text
+      okg_created_at_from: observed_at
+      okg_last_modified_at_from: observed_at
+
+  AgentExperiment:
+    description: A deliberate action taken to test, verify, refute, profile, scan, or publish something.
+    class_uri: amem:AgentExperiment
+    attributes:
+      experiment_id:
+        required: true
+      summary:
+        required: true
+      experiment_kind:
+        required: true
+      scope:
+        required: true
+      status:
+        required: true
+      confidence_kind:
+        required: true
+      source_artifact:
+        required: true
+      source_hash:
+        required: true
+      observed_at:
+        range: datetime
+        required: true
+      extraction_method:
+        required: true
+      command:
+      exit_code:
+        range: integer
+      validation_warnings:
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: experiment_id,experiment_kind
+      okg_searchable_text_fields: summary,experiment_kind,scope,status,command,text
+      okg_created_at_from: observed_at
+      okg_last_modified_at_from: observed_at
+
+  VerificationResult:
+    description: A verdict that verifies, refutes, supersedes, or marks stale a claim or acceptance criterion.
+    class_uri: amem:VerificationResult
+    attributes:
+      verification_id:
+        required: true
+      verdict:
+        required: true
+      summary:
+        required: true
+      scope:
+        required: true
+      status:
+        required: true
+      confidence_kind:
+        required: true
+      source_artifact:
+        required: true
+      source_hash:
+        required: true
+      observed_at:
+        range: datetime
+        required: true
+      extraction_method:
+        required: true
+      generation_id:
+        range: integer
+      validation_warnings:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: verification_id,verdict
+      okg_searchable_text_fields: verdict,summary,scope,status,text
+      okg_created_at_from: observed_at
+      okg_last_modified_at_from: observed_at
+
+  AgentDecision:
+    description: A durable decision made by an agent or operator, with evidence and dependencies.
+    class_uri: amem:AgentDecision
+    attributes:
+      decision_id:
+        required: true
+      summary:
+        required: true
+      decision_kind:
+        required: true
+      scope:
+        required: true
+      status:
+        required: true
+      confidence_kind:
+        required: true
+      source_artifact:
+        required: true
+      source_hash:
+        required: true
+      observed_at:
+        range: datetime
+        required: true
+      extraction_method:
+        required: true
+      rationale:
+      validation_warnings:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: decision_id,decision_kind
+      okg_searchable_text_fields: summary,decision_kind,scope,status,rationale,text
+      okg_created_at_from: observed_at
+      okg_last_modified_at_from: observed_at
+
+  Study:
+    description: A sub-investigation or analysis context that agent-memory records may reference.
+    class_uri: amem:Study
+    attributes:
+      study_id:
+        required: true
+      title:
+        required: true
+      description:
+      status:
+      scope:
+      source_artifact:
+      source_hash:
+      observed_at:
+        range: datetime
+      extraction_method:
+      validation_warnings:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: study_id,title
+      okg_searchable_text_fields: title,description,scope,status,text
+      okg_created_at_from: observed_at
+      okg_last_modified_at_from: observed_at
+
+  DomainEntity:
+    description: A deployment-domain context target that agent-memory records may reference.
+    class_uri: amem:DomainEntity
+    attributes:
+      domain_entity_id:
+        required: true
+      domain_kind:
+        required: true
+      label:
+        required: true
+      title:
+      status:
+      scope:
+      source_artifact:
+      source_hash:
+      observed_at:
+        range: datetime
+      extraction_method:
+      validation_warnings:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: domain_entity_id,domain_kind,label
+      okg_searchable_text_fields: label,title,domain_kind,scope,status,text
+      okg_created_at_from: observed_at
+      okg_last_modified_at_from: observed_at
+
+  Artifact:
+    description: A generic produced artifact or output that agent-memory records may reference.
+    class_uri: amem:Artifact
+    attributes:
+      artifact_id:
+        required: true
+      artifact_kind:
+      title:
+      uri:
+      status:
+      scope:
+      source_artifact:
+      source_hash:
+      observed_at:
+        range: datetime
+      extraction_method:
+      validation_warnings:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: artifact_id,title,uri
+      okg_searchable_text_fields: artifact_id,title,artifact_kind,uri,scope,status,text
+      okg_created_at_from: observed_at
+      okg_last_modified_at_from: observed_at
+
+  EdgeNarrowings:
+    description: Internal agent-memory narrowings.
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        supported_by: references
+        contradicted_by: references
+        produces: references
+        verifies: references
+    attributes:
+      agent_claim_supported_by_observation:
+        annotations:
+          edge_archetype: supported_by
+          src_subtypes: AgentClaim
+          dst_subtypes: AgentObservation
+      agent_claim_supported_by_verification_result:
+        annotations:
+          edge_archetype: supported_by
+          src_subtypes: AgentClaim
+          dst_subtypes: VerificationResult
+      agent_claim_contradicted_by_observation:
+        annotations:
+          edge_archetype: contradicted_by
+          src_subtypes: AgentClaim
+          dst_subtypes: AgentObservation
+      agent_claim_contradicted_by_verification_result:
+        annotations:
+          edge_archetype: contradicted_by
+          src_subtypes: AgentClaim
+          dst_subtypes: VerificationResult
+      agent_experiment_produces_observation:
+        annotations:
+          edge_archetype: produces
+          src_subtypes: AgentExperiment
+          dst_subtypes: AgentObservation
+      agent_experiment_produces_verification_result:
+        annotations:
+          edge_archetype: produces
+          src_subtypes: AgentExperiment
+          dst_subtypes: VerificationResult
+      verification_result_verifies_agent_claim:
+        annotations:
+          edge_archetype: verifies
+          src_subtypes: VerificationResult
+          dst_subtypes: AgentClaim
+      agent_claim_supersedes_agent_claim:
+        annotations:
+          edge_archetype: supersedes
+          src_subtypes: AgentClaim
+          dst_subtypes: AgentClaim
+      agent_decision_references_agent_claim:
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentDecision
+          dst_subtypes: AgentClaim
+      agent_records_reference_study:
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentClaim, AgentObservation, AgentExperiment, VerificationResult, AgentDecision
+          dst_subtypes: Study
+      # Study is a source here (and in the bookkeeping cross-link's
+      # project rule) because the study record template advertises
+      # `domain_refs` and `project_ref`. Omitting it made those fields
+      # unroutable while the study node was still created (#947). No
+      # cardinality annotation: it is declared per (parent_subtype,
+      # edge_type), and (study, references) covers both the single-valued
+      # project link and the multi-valued domain links.
+      agent_records_reference_domain_entity:
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentClaim, AgentObservation, AgentExperiment, VerificationResult, AgentDecision, Study
+          dst_subtypes: DomainEntity
+      agent_records_reference_artifact:
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentClaim, AgentObservation, AgentExperiment, VerificationResult, AgentDecision
+          dst_subtypes: Artifact
+      agent_experiment_produces_artifact:
+        annotations:
+          edge_archetype: produces
+          src_subtypes: AgentExperiment
+          dst_subtypes: Artifact
+      agent_decision_references_agent_observation:
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentDecision
+          dst_subtypes: AgentObservation

@@ -1,0 +1,21 @@
+# Narrowings live under `bridges/` in a deployment-native schema tree.
+# A packaged ontology module carries exactly one `schema.yaml`, so
+# `package.py` merges this file into the module schema it ships.
+id: https://example.invalid/okg/records/edges
+name: example_records_edges
+imports:
+  - linkml:types
+prefixes:
+  linkml: https://w3id.org/linkml/
+default_range: string
+classes:
+  EdgeNarrowings:
+    description: Intra-module narrowings for example_records.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      example_collection_contains_example_record:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: ExampleCollection
+          dst_subtypes: ExampleRecord

@@ -1,0 +1,62 @@
+sources:
+  pact:
+    module: okg.substrate.library.sources.pact
+    class: PACTSource
+    ownership_id: lifecycle-exec-dogfood.pact
+    params:
+      pact_root: ${repo_root}/deployments/lifecycle-exec-dogfood/pactfixture
+      repo: okg
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields:
+    - repo
+    - change_id
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    schedule:
+      reconcile_interval: 24h
+    admission_policy:
+      producer_id: lifecycle-exec-dogfood.pact
+      producer_kind: source
+      trust_label: repo-local-trusted
+      admission_mode: fast_track
+      authority_scope:
+        source_family: lifecycle_exec_fixture
+        path_globs:
+        - pactfixture/**/*
+      allowed_record_kinds:
+      - node
+      - edge
+  records:
+    module: okg.substrate.library.sources.bootstrap_fixture
+    class: BootstrapFixtureSource
+    ownership_id: lifecycle-exec-dogfood.records
+    params:
+      fixture_path: ${repo_root}/deployments/lifecycle-exec-dogfood/fixtures/records.json
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields:
+    - source_id
+    - record_id
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    schedule:
+      reconcile_interval: 24h
+  docs:
+    module: okg.substrate.library.sources.bootstrap_fixture
+    class: BootstrapFixtureSource
+    ownership_id: lifecycle-exec-dogfood.docs
+    params:
+      fixture_path: ${repo_root}/deployments/lifecycle-exec-dogfood/fixtures/docs.json
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields:
+    - source_id
+    - record_id
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    schedule:
+      reconcile_interval: 24h

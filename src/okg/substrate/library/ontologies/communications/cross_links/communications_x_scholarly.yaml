@@ -1,0 +1,27 @@
+# communications ↔ scholarly cross-link rules.
+#
+# Emails / ChatMessages may mention Papers (citation, link,
+# attachment).
+
+rules:
+  - id: email_mentions_paper
+    src:
+      subtype: email
+      field: email_id
+    dst:
+      subtype: paper
+      field: paper_id
+    matcher: exact
+    edge: mentions
+    bidirectional: false
+
+  - id: chat_message_mentions_paper
+    src:
+      subtype: chat_message
+      field: message_id
+    dst:
+      subtype: paper
+      field: paper_id
+    matcher: exact
+    edge: mentions
+    bidirectional: false

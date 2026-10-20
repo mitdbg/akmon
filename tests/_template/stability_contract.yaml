@@ -1,0 +1,77 @@
+# Stability contract — TEMPLATE
+#
+# Per the `deployment-qa` capability (proposal `qa-stabilize-main`):
+# every kept deployment ships a `tests/<deployment>/stability_contract.yaml`
+# that pins the substrate signals required for shippability. Copy this
+# template, fill in the per-deployment values from a captured baseline
+# build, and commit the contract YAML alongside the baseline JSON
+# (`qa-gate-baseline.json`).
+#
+# The contract is the source of truth for shippability. The QA gate
+# (`docs/runbooks/quality/ci-and-qa.md`) declares the deployment shippable iff:
+#   1. all four test classes (functional, database, viz, performance)
+#      exit zero;
+#   2. `okg.substrate.qa.contract.check_contract(...)` returns
+#      passed=True against a fresh `okg metrics --qa-snapshot` JSON;
+#   3. the substrate-leakage and manifest-leakage tests are green.
+#
+# RULE: the contract is NOT relaxed to make a failing gate pass.
+# Investigate the root cause and fix the deployment or the substrate.
+# A PR that lowers a previously-passing bound without a substrate-side
+# justification is rejected at review.
+#
+# Build provenance (REQUIRED): record the substrate git SHA at which
+# the bounds below were captured. If the substrate moves materially
+# from that SHA, recapture and update.
+#
+#   substrate_sha: <output of `git rev-parse --short HEAD`>
+#   captured_at:   <ISO-8601 timestamp>
+
+substrate_sha: REPLACE_ME
+captured_at: REPLACE_ME
+
+# Required string. Must match the deployment directory name under
+# `deployments/`.
+deployment_name: REPLACE_ME
+
+# Required list of source names registered in the deployment's
+# `source_registry.yaml`. Every name MUST be present in the active
+# registry; missing names fail the gate.
+expected_sources: []
+
+# Required list of node subtypes declared by the deployment's
+# `schemas/`. Every subtype MUST appear in the active catalog version
+# at the snapshot's generation_id; missing subtypes fail the gate.
+expected_subtypes: []
+
+# Required list of edge archetypes (per
+# `okg.substrate.types.EdgeArchetype`) the deployment's narrowings
+# activate. Every type MUST appear in the active catalog at the
+# snapshot's generation_id.
+expected_edge_types: []
+
+# Required lower bound on `nodes_live` row count (computed via
+# `nodes_live_delta` against the snapshot's previous published
+# generation, or absolute count if first publish).
+min_nodes_live: 0
+
+# Required lower bound on `edges_live` row count.
+min_edges_live: 0
+
+# Required upper bound on `publish_wallclock_seconds`.
+max_publish_wallclock_seconds: 0.0
+
+# Required list of view IDs (`<deployment>.<view_name>`) registered
+# in the deployment's `views_registry.yaml`. Each MUST be refreshable
+# without error at the snapshot's generation_id.
+required_views: []
+
+# Required list of invariant names (filenames under the deployment's
+# `invariants/` directory, without `.yaml`). Each MUST report status
+# `passed` (not `failed`, not `errored`) at publish.
+required_invariants: []
+
+# Required list of relative viz routes that MUST render without
+# severity-error console messages. Enumerate empirically from the
+# running viz server (port from `deployment.yaml: viz.port`).
+viz_smoke_pages: []

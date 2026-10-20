@@ -1,0 +1,291 @@
+# Profile: academic-researcher
+#
+# Turnkey personal-OKG for an academic researcher or principal
+# investigator. Composes the research base (scholarly literature +
+# code + OpenSpec + agent_sessions + reasoning core) PLUS the
+# academic_researcher module that adds lab-management subtypes
+# (Advisee, Lab, Grant, Deadline, Committee, Review, Course,
+# TalkEngagement, RecommendationLetter, ActionItem).
+#
+# Formerly two profiles: `academic-pi` (renamed to this one) and
+# `cs-researcher` (merged in on 2026-09-23; its module set was a
+# subset of this one). Both old names are retired and refused by
+# `discover_profile` with `profile_retired`.
+#
+# `okg init --profile academic-researcher --deployment-name <slug>
+#  --postgres-dsn <dsn> --orcid <orcid>` scaffolds a fresh
+# deployment under `deployments/<slug>/`. Optional answers
+# (papers_dir, cv_path, group_webpage, advisees_dir, grants_dir,
+# letters_log, calendar_ics, notes_dir, pi_name, n_grants_active)
+# parameterize the user-specific source-default configs; omitted
+# answers leave the corresponding sources unconfigured.
+#
+# Two install paths surfaced to the operator (per `INSTALL.md`):
+#   1. One-command:  okg install --profile academic-researcher
+#                    [--orcid <orcid>] [--name <slug>]
+#                    (Docker + MCP registration; source ingest waits
+#                     for setup-wizard approval)
+#   2. Manual:       okg init --profile academic-researcher --orcid <orcid>
+#                    (skips Docker provisioning + runtime config)
+
+name: academic-researcher
+version: 0.1.0
+classification: reusable
+description: |
+  Personal knowledge graph for an academic researcher or principal
+  investigator. Composes the research base (reasoning core,
+  methodology/experimental/bookkeeping layers, scholarly + code_graph
+  + openspec + agent_sessions ingest) plus the academic_researcher
+  module for lab-management state (advisees + grants + deadlines +
+  committees + reviews + courses + talks + letters + action items).
+  Ships PI-tuned invariants and the pi-overview and
+  researcher-overview dashboards.
+
+init_questions:
+  - id: deployment_name
+    prompt: deployment name (also used as the deployments/<name>/ dir)
+    type: slug
+    required: true
+    description: |
+      Slug for the deployment directory and the catalog's
+      `deployment_name`. Use lowercase, dashes or underscores.
+
+  - id: postgres_dsn
+    prompt: Postgres DSN (postgresql://...)
+    type: string
+    required: true
+    description: |
+      Substrate Postgres DSN. The deployment owns its own DB;
+      do not point this at any pre-substrate / legacy database.
+
+  - id: orcid
+    prompt: ORCID (NNNN-NNNN-NNNN-NNNN) — optional, blank to skip
+    type: orcid
+    required: false
+    description: |
+      Operator's ORCID. Optional per `dead-simple-install`
+      (2026-05-21): when provided, drives clean publication
+      matching via `dblp_by_orcid`'s ORCID endpoint. When omitted,
+      the same source falls back to name-based DBLP search (per
+      `extend-dblp-by-orcid-with-name-fallback`); `nsf_award_search`
+      and `doe_osti` already use `pi_name`, not ORCID.
+
+  - id: pi_name
+    prompt: PI name as it appears on NSF / DOE awards (optional)
+    type: string
+    required: false
+    description: |
+      Free-text PI name used by the nsf_award_search + doe_osti
+      sources to fetch federal grants. Also passed to
+      `dblp_by_orcid` as `author_name` for its name-based
+      resolution fallback (when DBLP's ORCID endpoint doesn't
+      cover this operator). Falls back to the ORCID display name
+      when omitted. Useful when the operator's official name
+      differs from their ORCID display name.
+
+  - id: dblp_pid
+    prompt: DBLP author PID (e.g. 000/0001; optional)
+    type: string
+    required: false
+    description: |
+      Explicit DBLP author PID for `dblp_by_orcid`'s resolution
+      chain. Path-shaped (`<X>/<Y>`). Bypasses both ORCID URL and
+      name search; the disambiguation path for operators with
+      common names. Look up at https://dblp.org/search?q=<your-name>
+      and copy the trailing segment of `https://dblp.org/pid/<X>/<Y>`.
+      Leave empty if your ORCID is linked at DBLP (most cases).
+
+  - id: papers_dir
+    prompt: papers directory (where your .bib files live; optional)
+    type: path
+    required: false
+    description: |
+      Local directory holding `.bib` files, paper PDFs (`inbox/`),
+      author aliases, talks corpus, concept aliases, external repos.
+      Layout: `<papers_dir>/{*.bib, inbox/, author_aliases.yaml,
+      talks.yaml, concept_aliases.yaml, external_repos.yaml}`.
+
+  - id: cv_path
+    prompt: path to your CV (.tex or .pdf; optional)
+    type: path
+    required: false
+    description: |
+      Local path to the operator's CV. The cv_ingest_llm source
+      extracts TalkEngagement / Committee / Course /
+      RecommendationLetter candidates with provenance=extracted_model.
+      Omitted answer skips the source entirely.
+
+  - id: group_webpage
+    prompt: group webpage URL (e.g. https://lab.example.org; optional)
+    type: string
+    required: false
+    description: |
+      URL of the operator's group webpage. The group_webpage_scrape
+      source performs a one-time fetch + LLM extraction of member
+      names; candidates land as Advisee nodes with
+      provenance=extracted_model awaiting `okg admission decide`.
+
+  - id: advisees_dir
+    prompt: advisees directory (default ~/.memex/advisees/)
+    type: path
+    required: false
+    description: |
+      Directory of advisee markdown files with frontmatter
+      (role, status, projects, papers, milestones). Default
+      `~/.memex/advisees/`. The advisees_dir source reads this
+      to emit Advisee nodes with provenance=explicit.
+
+  - id: grants_dir
+    prompt: grants directory (default ~/.memex/grants/)
+    type: path
+    required: false
+    description: |
+      Directory of grant subdirectories (`<grant-id>/proposal.{pdf,tex}`
+      + `meta.yaml`). The grants_dir source reads this to emit
+      Grant + GrantDeliverable + Deadline nodes.
+
+  - id: letters_log
+    prompt: recommendation letters log (default ~/.memex/letters.yaml)
+    type: path
+    required: false
+    description: |
+      YAML log of recommendation letters with status. Default
+      `~/.memex/letters.yaml`.
+
+  - id: calendar_ics
+    prompt: calendar .ics URL or file (optional; strict-allowlist filter)
+    type: string
+    required: false
+    description: |
+      `.ics` URL or file path. The calendar_ics source filters
+      events strictly: only events with `okg:` in DESCRIPTION /
+      SUMMARY OR matching configured patterns (lab meeting,
+      group meeting, 1:1 with, office hours) are ingested.
+      Default: off.
+
+  - id: notes_dir
+    prompt: notes directory (default ~/.memex/notes/)
+    type: path
+    required: false
+    description: |
+      Directory of `YYYY-MM-DD-<slug>.md` files with
+      `okg-meeting:` frontmatter. The notes_dir source reads
+      this to emit Meeting + ActionItem nodes.
+
+  - id: mcp_port
+    prompt: MCP server port
+    type: integer
+    required: false
+    default: 5431
+    description: |
+      Port the deployment's MCP server listens on. Default 5431.
+
+  - id: git_repos
+    prompt: comma-separated list of git repos to ingest (optional)
+    type: path_list
+    required: false
+    description: |
+      List of git repos to mine for git_graph + code_graph. The
+      first entry is the primary `${repo_root}` for OpenSpec,
+      drafts, experiments.
+
+  - id: lab_talks_url
+    prompt: lab webpage talks URL (optional)
+    type: string
+    required: false
+    description: |
+      URL to the lab webpage's "talks" or "media" section. The
+      lab_webpage_talks source scrapes it to merge with
+      CV-derived TalkEngagements.
+
+  - id: gmail_labels
+    prompt: Gmail labels to ingest (comma-separated; required for gmail_api)
+    type: string
+    required: false
+    description: |
+      Strict allowlist of Gmail labels to ingest (e.g.,
+      `Lab/Advisees,Grants,Sponsor-Calls`). Without this,
+      gmail_api refuses to run. No "ingest inbox" path by
+      design.
+
+  - id: google_calendar_feeds
+    prompt: Google Calendar IDs (comma-separated; required for google_calendar_api)
+    type: string
+    required: false
+    description: |
+      List of Google Calendar IDs. Each becomes a CalendarFeed
+      node. Without this, google_calendar_api emits zero rows.
+
+  - id: canvas_base_url
+    prompt: Canvas base URL (e.g. https://canvas.example.org; required for canvas_api)
+    type: string
+    required: false
+    description: |
+      The university's Canvas instance. The API token is the
+      instructor's self-serve token (Account -> Settings) via
+      the OKG_CANVAS_TOKEN env var; no admin app registration.
+
+  - id: canvas_courses
+    prompt: Canvas course codes or ids to ingest (comma-separated; required for canvas_api)
+    type: string
+    required: false
+    description: |
+      Strict allowlist of the instructor's own courses. Without
+      this, canvas_api refuses to run — no "ingest everything I
+      teach" path by design.
+
+  - id: outlook_folders
+    prompt: Outlook mail folders to ingest (comma-separated; required for outlook_mail_api)
+    type: string
+    required: false
+    description: |
+      Strict allowlist of Outlook mail folder display names
+      (e.g., `Inbox,Grants`). Without this, outlook_mail_api
+      refuses to run. No "ingest mailbox" path by design.
+      Shares the tenant-internal `msgraph` Entra app with
+      outlook_calendar_api (add-msgraph-sources).
+
+  - id: outlook_calendars
+    prompt: Outlook calendar names (comma-separated; required for outlook_calendar_api)
+    type: string
+    required: false
+    description: |
+      List of Outlook calendar names. Each becomes a
+      CalendarFeed node. Without this, outlook_calendar_api
+      emits zero rows. Event-level allowlist (okg: tag or
+      recurring-pattern match) mirrors calendar_ics.
+
+  - id: slack_channels
+    prompt: Slack channel IDs (comma-separated; required for slack_api)
+    type: string
+    required: false
+    description: |
+      Strict allowlist of Slack channel IDs. Without this,
+      slack_api refuses to run. DMs + private groups never
+      ingested by design.
+
+  - id: pii_mode
+    prompt: PII handling mode (plain | hashed)
+    type: string
+    required: false
+    default: plain
+    description: |
+      Redaction policy for Tier-C connectors. `plain`: sender
+      names + email addresses persist as-is. `hashed`: hash
+      to sha256-prefix-16. Default `plain` for trusted-machine
+      deployments.
+
+# References to sibling files within this profile dir.
+modules: modules.yaml
+source_defaults: source-defaults/
+invariants: invariants.yaml
+dashboards: dashboards/
+# Agent skills bundle, copied into each scaffolded deployment's
+# `skills/` so MCP-aware agents can drive setup, source
+# expansion, briefings, troubleshooting, and schema authoring.
+# Minimal five-skill set restored per the 2026-06-09 demo
+# de-risk (the full 11-skill bundle was cut as non-essential
+# by `cut-non-essential-skills`; these five are the management
+# + daily-use core).
+skills: skills/
+deployment_defaults: deployment-defaults.yaml

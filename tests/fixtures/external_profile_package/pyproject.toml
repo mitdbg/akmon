@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "okg-external-profile-fixture"
+version = "0.0.1"
+description = "Packaged external install-profile fixture for OKG tests"
+requires-python = ">=3.12"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+external_profile_fixture = [
+  "profiles/*/*.yaml",
+  "profiles/*/schemas/*.yaml",
+  "profiles/*/schemas/bridges/*.yaml",
+]

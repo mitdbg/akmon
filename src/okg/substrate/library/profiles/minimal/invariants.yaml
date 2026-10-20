@@ -1,0 +1,3 @@
+# The minimal starter ships no invariants: an empty graph has nothing to
+# check. Add deployment-specific checks here as the graph grows.
+invariants: []

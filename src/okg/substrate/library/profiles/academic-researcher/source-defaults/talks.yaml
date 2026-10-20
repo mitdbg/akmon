@@ -1,0 +1,17 @@
+# Talks corpus (Hamming, Dijkstra, Knuth Turing lectures, etc.).
+# Operator curates `<papers_dir>/talks.yaml`; transcripts cache
+# under `<papers_dir>/.cache/transcripts/`.
+talks:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.scholarly.talks
+  class: TalksSource
+  ownership_id: ${deployment_name}.talks
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [talk_slug]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    talks_yaml_path: ${papers_dir}/talks.yaml
+    transcript_cache_root: ${papers_dir}/.cache/transcripts

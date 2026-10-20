@@ -1,0 +1,23 @@
+{
+  "policy_bundle_id": "opensearch-reference.live-relations",
+  "policy_version": "1",
+  "default_effect": "deny",
+  "scope": {
+    "deployment": "opensearch-reference"
+  },
+  "rules": [
+    {
+      "rule_id": "allow_opensearch_search_for_the_runtime_service",
+      "effect": "allow",
+      "priority": 100,
+      "actions": ["external.opensearch.search"],
+      "subjects": ["service:okg-runtime"],
+      "match": {
+        "deployment": "opensearch-reference",
+        "subtype": "search_index",
+        "relation": ["documents", "histogram"]
+      },
+      "reason_code": "opensearch_reference.live_search_allowed"
+    }
+  ]
+}

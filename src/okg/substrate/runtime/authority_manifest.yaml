@@ -1,0 +1,622 @@
+schema: okg.runtime_authority_inventory.v1
+version: 1
+purpose: >
+  Checked inventory for runtime execution authority. Production workflow work
+  uses DBOS lifecycle state. Source-sync progress and watermarks carry source
+  state. The obsolete OKG job-runtime subsystem is absent from code and schema.
+allowed_authority_classes:
+  - dbos_executor
+  - explicit_inline_operator_path
+  - read_only_reconciliation_surface
+  - source_progress_writer
+entry_points:
+  - id: source_sync.producer.enqueue_events
+    surface_group: source-sync
+    surface: source-sync producer event enqueue
+    path: src/okg/substrate/source_sync_producers.py
+    symbols:
+      - enqueue_events_for_source
+    authority_class: dbos_executor
+    production_execution: true
+    dbos_lifecycle_authority: true
+    dbos_required_when_runtime_enabled: true
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Poll, webhook, and watcher events enqueue okg_source_sync through DBOS;
+      there is no alternate routing parameter.
+
+  - id: source_sync.dbos_enqueue_helpers
+    surface_group: source-sync
+    surface: source-sync DBOS enqueue helpers
+    path: src/okg/substrate/source_sync_enqueue.py
+    symbols:
+      - enqueue_source_sync_via_dbos
+      - enqueue_compacted_source_sync_via_dbos
+    authority_class: dbos_executor
+    production_execution: true
+    dbos_lifecycle_authority: true
+    dbos_required_when_runtime_enabled: true
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      DBOSClient enqueue is the durable lifecycle handle for source-sync
+      wakeups; compaction only rewrites queued DBOS payloads.
+
+  - id: source_sync.workflow_body
+    surface_group: source-sync
+    surface: DBOS source-sync workflow body
+    path: src/okg/substrate/runtime/source_sync_workflow.py
+    symbols:
+      - register_source_sync_workflow
+      - source_sync_workflow
+    authority_class: dbos_executor
+    production_execution: true
+    dbos_lifecycle_authority: true
+    dbos_required_when_runtime_enabled: true
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Runtime workers register and execute the okg_source_sync DBOS workflow.
+
+  - id: source_sync.producer.progress_writer
+    surface_group: source-sync
+    surface: poll and producer progress bookkeeping
+    path: src/okg/substrate/source_sync_producers.py
+    symbols:
+      - _write_poll_fingerprint
+      - record_source_sync_producer_health
+    authority_class: source_progress_writer
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: true
+    notes: >
+      Producers write probe fingerprints and liveness observations to
+      okg.source_progress. These rows describe source state and never dispatch
+      or claim workflow execution.
+
+  - id: source_sync.ingest.progress_writer
+    surface_group: source-sync
+    surface: ingest progress and watermark bookkeeping
+    path: src/okg/substrate/ingest/runner.py
+    symbols:
+      - _upsert_progress
+      - _persist_fact_log_chunk
+      - _advance_watermark
+    authority_class: source_progress_writer
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: true
+    notes: >
+      SourceRunner writes adapter-owned progress and applied cursors to
+      okg.source_progress and okg.source_watermarks after ingest. DBOS workflow
+      status remains the lifecycle authority.
+
+  - id: source_sync.terminal_state.progress_writer
+    surface_group: source-sync
+    surface: accepted ingest terminal-state bookkeeping
+    path: src/okg/substrate/ingest/source_terminal_state.py
+    symbols:
+      - persist_accepted_source_terminal_state
+    authority_class: source_progress_writer
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: true
+    notes: >
+      Accepted admission persists the source watermark, bootstrap identity
+      ledger transition, and adapter-owned terminal progress in the same
+      transaction. It never dispatches, retries, or claims workflow work.
+
+  - id: source_sync.watcher.progress_writer
+    surface_group: source-sync
+    surface: embedded watcher health bookkeeping
+    path: src/okg/substrate/watch/watcher.py
+    symbols:
+      - _record_watch_health
+    authority_class: source_progress_writer
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: true
+    notes: >
+      The embedded watcher records heartbeat, event, and enqueue observations in
+      okg.source_progress. It dispatches changed work only through the separately
+      inventoried DBOS producer path.
+
+  - id: source_sync.admission_rollback.progress_writer
+    surface_group: source-sync
+    surface: rejected-ingest source-state rollback
+    path: src/okg/substrate/ingest/compensation.py
+    symbols:
+      - restore_source_state
+    authority_class: source_progress_writer
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: true
+    notes: >
+      Rejected admission restores the pre-run source progress and watermark
+      snapshot transactionally. It does not dispatch, retry, or claim work.
+      Issue #1431 moved it out of the ingest service so SourceRunner can use
+      the same rollback for a run refused outside the orchestrator.
+
+  - id: source_sync.rerun_required.progress_writer
+    surface_group: source-sync
+    surface: failed-run rerun-required publish block
+    path: src/okg/substrate/ingest/run_base.py
+    symbols:
+      - mark_rerun_required
+      - clear_rerun_required
+    authority_class: source_progress_writer
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Issue #2993: writes and deletes the sync.rerun_required key in
+      okg.source_progress. Despite its sync. prefix this key is not pure
+      bookkeeping: while it is set, every publish of the deployment is
+      refused until the source reruns successfully or `okg runtime
+      finish-undo --accept-current` lifts it. It never moves a source
+      watermark or a run's lifecycle state, and it does not dispatch, retry,
+      or claim work.
+
+  - id: publisher.projection_watermark_writer
+    surface_group: publisher
+    surface: projected-source watermark sweep
+    path: src/okg/substrate/projection/projector.py
+    symbols:
+      - sweep_pending_watermarks
+    authority_class: source_progress_writer
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: true
+    notes: >
+      The projector advances per-source projection cursors after a generation
+      commits. Workflow lifecycle remains in DBOS.
+
+  - id: source_sync.microbench.progress_writer
+    surface_group: source-sync
+    surface: source-sync microbenchmark evidence bookkeeping
+    path: src/okg/substrate/source_sync_microbench.py
+    symbols:
+      - _persist_microbench_full_pipeline_progress
+    authority_class: source_progress_writer
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: true
+    progress_ledger_only: true
+    notes: >
+      Explicit microbench runs persist measurement evidence in source progress;
+      they do not provide a workflow executor.
+
+  - id: runtime.telemetry_probe.progress_writer
+    surface_group: runtime
+    surface: telemetry overhead benchmark probe
+    path: src/okg/substrate/telemetry/catalog.py
+    symbols:
+      - _write_minimal_runtime_probe
+    authority_class: source_progress_writer
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: true
+    progress_ledger_only: true
+    notes: >
+      The explicit telemetry benchmark writes one synthetic source-progress
+      observation to measure overhead; it never dispatches runtime work.
+
+  - id: publisher.cli.dbos_run_once
+    surface_group: publisher
+    surface: okg run --once DBOS path
+    path: src/okg/substrate/cli/main.py
+    symbols:
+      - _cmd_run
+    markers:
+      - "client_enqueue_publisher_cycle"
+      - "DBOS-path publisher enqueue failed"
+    authority_class: dbos_executor
+    production_execution: true
+    dbos_lifecycle_authority: true
+    dbos_required_when_runtime_enabled: true
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      When runtime.enabled is true and --inline is absent, okg run --once
+      enqueues okg_publisher_cycle and fails loudly on DBOS enqueue errors.
+
+  - id: publisher.cli.inline_run_once
+    surface_group: publisher
+    surface: okg run --once inline path
+    path: src/okg/substrate/cli/main.py
+    symbols:
+      - _cmd_run
+    markers:
+      - "--inline"
+      - "Publisher.cycle()"
+    authority_class: explicit_inline_operator_path
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: true
+    progress_ledger_only: false
+    notes: >
+      Inline publish is an operator-selected in-process path, not a silent
+      fallback and not OKG job runtime execution.
+
+  - id: publisher.workflow_body
+    surface_group: publisher
+    surface: DBOS publisher workflow body
+    path: src/okg/substrate/runtime/publisher_workflow.py
+    symbols:
+      - register_publisher_workflow
+      - publisher_cycle_workflow
+    authority_class: dbos_executor
+    production_execution: true
+    dbos_lifecycle_authority: true
+    dbos_required_when_runtime_enabled: true
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Runtime workers register and execute the okg_publisher_cycle DBOS
+      workflow.
+
+  - id: ingest.cli.source_sync_dbos
+    surface_group: source-sync
+    surface: okg ingest DBOS path
+    path: src/okg/substrate/cli/main.py
+    symbols:
+      - _cmd_ingest
+    markers:
+      - "client_enqueue_source_sync"
+      - "DBOS-path source-sync enqueue failed"
+    authority_class: dbos_executor
+    production_execution: true
+    dbos_lifecycle_authority: true
+    dbos_required_when_runtime_enabled: true
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Runtime-enabled ingest enqueues source-sync through DBOS. DBOS enqueue
+      failure reports a repair hint and requires --inline for bypass.
+
+  - id: ingest.cli.inline
+    surface_group: source-sync
+    surface: okg ingest inline path
+    path: src/okg/substrate/cli/main.py
+    symbols:
+      - _cmd_ingest
+    markers:
+      - "--inline"
+      - "run_ingest"
+    authority_class: explicit_inline_operator_path
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: true
+    progress_ledger_only: false
+    notes: >
+      Inline ingest is explicit operator execution, used for intentional repair
+      paths such as reset-cursor. It is not an OKG job executor fallback.
+
+  - id: jobs.cli.read_surfaces
+    surface_group: jobs
+    surface: okg jobs status
+    path: src/okg/substrate/cli/jobs.py
+    symbols:
+      - _cmd_status
+    authority_class: read_only_reconciliation_surface
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Status reads DBOS workflow state and fails nonzero if DBOS authority is
+      unavailable or obsolete schema objects still require cleanup.
+
+  - id: jobs.cli.enqueue_source
+    surface_group: jobs
+    surface: okg jobs enqueue-source
+    path: src/okg/substrate/cli/jobs.py
+    symbols:
+      - _cmd_enqueue_source
+    markers:
+      - "enqueue_source_sync_via_dbos"
+      - "dbos_workflow_id"
+    authority_class: dbos_executor
+    production_execution: true
+    dbos_lifecycle_authority: true
+    dbos_required_when_runtime_enabled: true
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      The jobs surface enqueues source-sync work through DBOS and does not
+      register or write OKG job-runtime ledger rows.
+
+  - id: admission.cli.read_surfaces
+    surface_group: admission
+    surface: okg admission list/show
+    path: src/okg/substrate/cli/admission.py
+    symbols:
+      - _cmd_admission
+    markers:
+      - "v_admission_envelopes"
+      - "v_admission_events"
+    authority_class: read_only_reconciliation_surface
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Admission list/show read admission views and event/reference ledgers.
+
+  - id: admission.cli.submit_decide_dbos
+    surface_group: admission
+    surface: okg admission submit/decide DBOS path
+    path: src/okg/substrate/cli/admission.py
+    symbols:
+      - _cmd_admission_submit
+      - _cmd_admission_decide
+    markers:
+      - "client_enqueue_admission_submit"
+      - "client_enqueue_admission_decide"
+    authority_class: dbos_executor
+    production_execution: true
+    dbos_lifecycle_authority: true
+    dbos_required_when_runtime_enabled: true
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Runtime-enabled admission submit/decide enqueues DBOS workflows and polls
+      workflow status.
+
+  - id: admission.cli.runtime_disabled_inline_decide
+    surface_group: admission
+    surface: okg admission decide when runtime is disabled
+    path: src/okg/substrate/cli/admission.py
+    symbols:
+      - _cmd_admission_decide
+    markers:
+      - "workflow_status\": \"INLINE\""
+      - "runtime.enabled: false"
+    authority_class: explicit_inline_operator_path
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Non-runtime deployments can decide admission synchronously to avoid an
+      unconsumed DBOS queue. Runtime-enabled deployments use DBOS.
+
+  - id: admission.cli.runtime_disabled_inline_submit
+    surface_group: admission
+    surface: okg admission submit when runtime is disabled
+    path: src/okg/substrate/cli/admission.py
+    symbols:
+      - _cmd_admission_submit
+      - _cmd_admission_submit_inline
+    markers:
+      - "workflow_status\": \"INLINE\""
+      - "_run_submit_with_runtime_approver"
+    authority_class: explicit_inline_operator_path
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Non-runtime deployments submit admission synchronously, like decide,
+      to avoid an unconsumed DBOS queue. The inline path runs the same body
+      as the DBOS submit step (idempotency advisory lock, replay returns
+      before any write) with the operator's --dsn and no runtime approver.
+      Runtime-enabled deployments use DBOS.
+
+  - id: runtime.admin.dbos_client_enqueues
+    surface_group: runtime
+    surface: DBOSClient enqueue/admin helpers
+    path: src/okg/substrate/runtime/admin.py
+    symbols:
+      - client_enqueue_source_sync
+      - client_enqueue_publisher_cycle
+      - client_enqueue_admission_submit
+      - client_enqueue_admission_decide
+      - client_trigger_schedule
+    authority_class: dbos_executor
+    production_execution: true
+    dbos_lifecycle_authority: true
+    dbos_required_when_runtime_enabled: true
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Short-lived CLI commands enqueue or trigger DBOS work through DBOSClient;
+      they do not instantiate a second DBOS singleton.
+
+  - id: runtime.cli.read_surfaces
+    surface_group: runtime
+    surface: okg runtime list-schedules/get-event/debug-workflow/drain
+    path: src/okg/substrate/cli/runtime.py
+    symbols:
+      - _cmd_runtime
+    markers:
+      - "list-schedules"
+      - "debug-workflow"
+      - "client_drain"
+    authority_class: read_only_reconciliation_surface
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Runtime diagnostics read DBOS schedule/workflow state or wait for queues
+      to drain; lifecycle truth remains DBOS workflow_status.
+
+  - id: runtime.cli.schedule_controls
+    surface_group: runtime
+    surface: okg runtime trigger-schedule/pause-schedule/resume-schedule
+    path: src/okg/substrate/cli/runtime.py
+    symbols:
+      - _cmd_runtime
+    markers:
+      - "trigger-schedule"
+      - "pause-schedule"
+      - "resume-schedule"
+    authority_class: explicit_inline_operator_path
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: true
+    progress_ledger_only: false
+    notes: >
+      Explicit operator controls trigger DBOS work or mutate persisted DBOS
+      schedule state. They remain control-plane operations and do not
+      instantiate a second workflow executor.
+
+  - id: runtime.cli.stuck_workflow_remedy
+    surface_group: runtime
+    surface: okg runtime cancel-workflow
+    path: src/okg/substrate/cli/runtime.py
+    symbols:
+      - _cmd_runtime
+    markers:
+      - "cancel-workflow"
+      - "cancel_deployment_workflow"
+    authority_class: explicit_inline_operator_path
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: true
+    progress_ledger_only: false
+    notes: >
+      The operator clears one named non-final workflow that is holding a
+      deployment queue slot (issues #1257 and #1254). It is a control-plane
+      remedy scoped to one row on a queue the named deployment owns, not an
+      alternate workflow executor; DBOS workflow_status remains lifecycle
+      truth and every other target is refused without a write.
+
+  - id: runtime.cli.worker_control
+    surface_group: runtime
+    surface: okg runtime worker/bootstrap/smoke/reset
+    path: src/okg/substrate/cli/runtime.py
+    symbols:
+      - _cmd_runtime
+    markers:
+      - "worker"
+      - "bootstrap"
+      - "reset"
+    authority_class: explicit_inline_operator_path
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: true
+    progress_ledger_only: false
+    notes: >
+      Operator runtime-control commands manage the DBOS worker or schema. They
+      are control-plane operations, not alternate workflow executors.
+
+  - id: dogfood.cli.status_readiness
+    surface_group: dogfood
+    surface: okg dogfood status/doctor readiness report
+    path: src/okg/substrate/cli/dogfood.py
+    symbols:
+      - _cmd_dogfood_status
+    markers:
+      - "_deployment_ready_live_checks"
+      - "_status_payload"
+    authority_class: read_only_reconciliation_surface
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Dogfood status composes deployment readiness, source-sync status, DBOS
+      queue state, doctor, MCP readiness, and recovery hints for agents.
+
+  - id: dogfood.cli.status_recovery_plan
+    surface_group: dogfood
+    surface: okg dogfood status source-sync stale-work recovery plan
+    path: src/okg/substrate/cli/dogfood.py
+    symbols:
+      - _cmd_dogfood_status
+    markers:
+      - "_plan_stale_source_sync_work_recovery"
+      - "source_sync_recovery_plan"
+    authority_class: read_only_reconciliation_surface
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: false
+    notes: >
+      Status may dry-run stale replaceable DBOS source-sync wakeup recovery and
+      report source_sync_recovery_plan with explicit dry-run/apply commands. It
+      must not cancel DBOS rows; mutation requires okg db dbos-gc --confirm
+      --apply.
+
+  - id: dogfood.cli.worker_control
+    surface_group: dogfood
+    surface: okg dogfood up/down/restart and service install
+    path: src/okg/substrate/cli/dogfood.py
+    symbols:
+      - _cmd_dogfood_control
+      - _cmd_dogfood_service
+    markers:
+      - "_run_control_commands"
+      - "dogfood service"
+    authority_class: explicit_inline_operator_path
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: true
+    progress_ledger_only: false
+    notes: >
+      Dogfood control surfaces manage supervised runtime worker processes and
+      service files. They do not execute source-sync, publisher, or admission
+      workflow bodies.

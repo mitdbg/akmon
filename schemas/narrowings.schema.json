@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://palimpzest.mit.edu/okg/schemas/narrowings.schema.json",
+  "title": "OKG schemas/narrowings.yaml",
+  "description": "OKG-specific extension: valid (src_subtype, edge_type, dst_subtype) triples for the graph.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["narrowings"],
+  "properties": {
+    "includes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^okg\\.narrowings\\.[a-z_][a-z0-9_]*$"
+      }
+    },
+    "narrowings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["parent", "edge", "child"],
+        "properties": {
+          "parent": {
+            "type": "string",
+            "description": "Source subtype."
+          },
+          "edge": {
+            "type": "string",
+            "description": "Edge type."
+          },
+          "child": {
+            "type": "string",
+            "description": "Destination subtype."
+          },
+          "attr_rules": {
+            "type": "object",
+            "description": "Optional per-attribute constraints applied at publish."
+          }
+        }
+      }
+    }
+  }
+}

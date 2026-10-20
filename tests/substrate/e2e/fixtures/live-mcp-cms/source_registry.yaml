@@ -1,0 +1,3 @@
+# No source. The tests publish one node of each system subtype directly; the
+# live relations, not an ingest, are what this fixture exists to exercise.
+sources: {}

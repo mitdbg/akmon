@@ -1,0 +1,34 @@
+sources:
+  pact:
+    module: okg.substrate.library.sources.pact
+    class: PACTSource
+    ownership_id: kubernetes-smoke.pact
+    params:
+      repo: okg
+      # The deployment's own fixture changes, not this repository's PACT
+      # records: the public copy and the runtime image built from it ship no
+      # pact/changes, and the proof must publish a non-empty graph there too.
+      pact_root: ${deployment_dir}/pactfixture
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, change_id]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["${deployment_dir}/pactfixture"]
+        include_globs:
+          - "changes/*/pact.yaml"
+        exclude_globs:
+          - "**/pact.md"
+          - "**/pact.yaml.lock"
+          - "**/*.tmp"
+      triggers: [manual, reconcile]
+      default_event_mode: scope_complete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: stat_tree
+      scope:
+        accepts: [path]
+        unsupported_fallback: scope_complete

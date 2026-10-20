@@ -1,0 +1,259 @@
+id: https://palimpzest.mit.edu/okg/modules/methodology
+name: methodology
+title: "Methodology — codified-wisdom ontology citing the reasoning core"
+description: |
+  Substrate-shipped ontology module for codified-wisdom
+  primitives: MethodCard, MethodPattern, Heuristic,
+  AntiPattern. Per `add-substrate-methodology-module`
+  (child of `expand-memex-to-personal-okg`): a deployment
+  imports this module to ingest methodology corpora
+  (Polya-style problem-solving cards, Alexander-style
+  pattern languages, ops runbook entries, design playbooks)
+  and link them to the substrate `reasoning` module's
+  Principle subtype via the umbrella's Pattern B
+  (reasoning citation) framing.
+
+  Cross-link rules in
+  `library/ontologies/methodology/cross_links/methodology_to_reasoning.yaml`
+  drive the outgoing `embodies` and `violates` edges via
+  slug-to-slug exact match on `reasoning.Principle.slug`.
+  Resolution requires the sibling `reasoning` module to be
+  loaded by the deployment.
+
+  This module ships no source adapter. Deployments compose
+  the module and bring their own corpus readers; the memex
+  deployment refactors its existing `memex_methods` and
+  `memex_cases` sources to emit into substrate methodology
+  subtypes in Wave B (`memex-compose-personal-okg-deployment`).
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  meth: https://palimpzest.mit.edu/okg/modules/methodology/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+
+  MethodCard:
+    description: |
+      Written description of a reusable method. The unit of
+      content in Polya's *How to Solve It*, Alexander's
+      *A Pattern Language*, an ops runbook entry. Cards
+      typically contain heuristics and aggregate under
+      method patterns. The card *embodies* one or more
+      reasoning Principles — it turns a normative claim
+      into a procedural form.
+    class_uri: meth:MethodCard
+    attributes:
+      slug:
+        required: true
+        description: >-
+          Kebab-case identifier, stable across catalog
+          versions. Used as the primary alias for cross-
+          source identity resolution.
+      name:
+        required: true
+        description: >-
+          Short human label (e.g. "Lemma Scaffolding",
+          "Specialization Heuristic"). Used by the agent-
+          facing read surface and alias resolution.
+      description:
+        description: >-
+          1-3 sentence gist of what the card teaches.
+          Optional rather than required to permit Wave B
+          migration of existing memex cards that carry
+          body_text but no separate description. When
+          present, drives the embedding per
+          canonical searchable-text field list.
+      body_text:
+        description: >-
+          Full prose body of the card. Embedding falls back
+          to this attribute when description is absent.
+      source_ref:
+        description: >-
+          Pointer to the source artifact (a FoundationalWork
+          slug, a section reference, a URL).
+      embodies_principle:
+        description: >-
+          Slug of the reasoning.Principle this card primarily
+          embodies. Resolved by the DeclarativeLinker rule
+          `methodcard_embodies_principle` via exact match
+          on Principle.slug. Single-valued in v1; multi-
+          principle bindings emit via deployment enrichers.
+      text:
+        description: >-
+          Searchable + embedded text. Auto-stamped by the
+          substrate's text-derivation per
+          okg_searchable_text_fields.
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: slug,name
+      okg_searchable_text_fields: name,description,body_text
+
+  MethodPattern:
+    description: |
+      Abstraction across MethodCards. Several cards may be
+      `member_of` one pattern (e.g. "decomposition" as a
+      pattern across many specific decomposition cards).
+      Enables cross-corpus distillation: aggregate
+      decomposition-pattern cards across Polya + Hadamard
+      + ops runbooks under one queryable abstraction.
+    class_uri: meth:MethodPattern
+    attributes:
+      slug:
+        required: true
+      name:
+        required: true
+        description: >-
+          Short human label (e.g. "Decomposition",
+          "Generalization", "Working Backward").
+      summary:
+        description: >-
+          1-2 sentence statement of the abstract pattern
+          (NOT a specific method). Drives the embedding.
+      body_text:
+        description: Fuller exposition.
+      source_ref:
+        description: Pointer to source artifact.
+      text:
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_alias_fields: slug,name
+      okg_searchable_text_fields: name,summary,body_text
+
+  Heuristic:
+    description: |
+      Rule-of-thumb. Shorter and more atomic than a
+      MethodCard — a one-sentence imperative. The
+      statement SHOULD be expressible as an imperative
+      ("Do X" / "When Y, do Z"). Declarative normative
+      claims ("Smaller examples are easier") belong in
+      reasoning.Principle, not here.
+    class_uri: meth:Heuristic
+    attributes:
+      slug:
+        required: true
+      name:
+        required: true
+        description: >-
+          Short human label (often the rule itself
+          truncated, e.g. "Start Smaller").
+      statement:
+        required: true
+        description: >-
+          The rule as a single-sentence imperative. Required
+          even though MethodCard's description is optional:
+          a Heuristic without its rule is not a Heuristic.
+      trigger:
+        description: >-
+          Condition under which the heuristic applies
+          ("when a proof feels too abstract").
+      embodies_principle:
+        description: >-
+          Slug of the reasoning.Principle the heuristic
+          embodies. Resolved by the DeclarativeLinker rule
+          `heuristic_embodies_principle`.
+      text:
+    annotations:
+      archetype: claim
+      transient: "false"
+      okg_alias_fields: slug,name
+      okg_searchable_text_fields: name,statement,trigger
+
+  AntiPattern:
+    description: |
+      Documented mistake to avoid. The negative form of a
+      method. First-class node when the mistake deserves
+      graph-level attribution (retrievable, citable,
+      linkable to a violated Principle). Distinct from a
+      MethodCard's inline "caution" subsections.
+    class_uri: meth:AntiPattern
+    attributes:
+      slug:
+        required: true
+      name:
+        required: true
+        description: >-
+          Short human label (e.g. "Premature
+          Generalization", "Solution in Search of a
+          Problem").
+      description:
+        description: >-
+          1-3 sentence gist of the anti-pattern. Optional
+          for migration symmetry with MethodCard.
+      body_text:
+      failure_mode:
+        description: >-
+          What happens when the anti-pattern is followed.
+          Load-bearing for diagnostic retrieval ("we
+          observed X failure mode; which anti-pattern is
+          at play?").
+      violates_principle:
+        description: >-
+          Slug of the reasoning.Principle the anti-pattern
+          violates. Resolved by the DeclarativeLinker rule
+          `antipattern_violates_principle`.
+      text:
+    annotations:
+      archetype: claim
+      transient: "false"
+      okg_alias_fields: slug,name
+      okg_searchable_text_fields: name,description,failure_mode,body_text
+
+  EdgeNarrowings:
+    description: |
+      Intra-module edge narrowings for the methodology
+      module.
+
+      Intra-module narrowings (declared here):
+      - method_card member_of method_pattern (cards
+        aggregate under patterns).
+      - method_card contains heuristic (cards contain
+        atomic imperative rules).
+
+      Outgoing Pattern B narrowings (methodology →
+      reasoning.Principle: `embodies` / `violates`) are
+      declared in DEPLOYMENT BRIDGES, not in this module,
+      because the substrate's `_validate_narrowing_subtypes`
+      rejects narrowings whose destination subtype isn't
+      in the composed catalog. A bridge file owned by the
+      deployment (e.g.
+      `deployments/memex/schemas/bridges/methodology_to_reasoning.yaml`)
+      composes both modules and declares
+      `MethodCard embodies Principle`,
+      `Heuristic embodies Principle`,
+      `AntiPattern violates Principle`. This matches the
+      established substrate pattern (see `concepts` module
+      docstring: "a deployment declares
+      `<source_subtype> -mentions-> Concept` narrowings in
+      its bridge"). Wave B's
+      `memex-compose-personal-okg-deployment` lands the
+      bridge.
+
+      The substrate-library cross-link rule file
+      `library/ontologies/methodology/cross_links/methodology_to_reasoning.yaml`
+      drives the DeclarativeLinker emission of those
+      cross-module edges; the bridge narrowings let the
+      narrowing trigger accept them at insert time.
+    class_uri: meth:EdgeNarrowings
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      methodcard_member_of_methodpattern:
+        description: A method card aggregates under a method pattern.
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: MethodCard
+          dst_subtypes: MethodPattern
+      methodcard_contains_heuristic:
+        description: A method card contains one or more heuristics.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: MethodCard
+          dst_subtypes: Heuristic

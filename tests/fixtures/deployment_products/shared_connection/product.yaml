@@ -1,0 +1,85 @@
+schema: okg.deployment_product.shared_connection/v1
+
+product:
+  owner: fixture-team
+  id: shared-connection-product
+  version: 1
+
+connection:
+  connection_id: primary-provider
+  owner: fixture-team
+  connection_type:
+    owner: fixture-team
+    id: fixture-provider
+    kind: connection-type
+  endpoint: https://provider.example.test/api
+  auth_strategy: oauth2
+  tls:
+    mode: system
+  proxy:
+    mode: none
+  diagnostics:
+    - diagnostic_id: metadata-health
+      operation_id: metadata.health
+  secret_reference:
+    provider: fixture-keychain
+    secret_id: fixture-provider-token
+    scope: fixture-team
+  capabilities:
+    - provider.metadata.read
+    - provider.source.read
+
+source_bindings:
+  - binding_id: source-mail
+    source_ref:
+      owner: fixture-team
+      id: mail
+      kind: source
+    connection_ref:
+      owner: fixture-team
+      id: primary-provider
+      kind: provider-connection
+    enabled: true
+    config:
+      collection: mail
+      mailbox: primary
+    readiness_policy: required
+    refresh_identity: source-mail-refresh
+    required_capabilities:
+      - provider.source.read
+
+  - binding_id: source-calendar
+    source_ref:
+      owner: fixture-team
+      id: calendar
+      kind: source
+    connection_ref:
+      owner: fixture-team
+      id: primary-provider
+      kind: provider-connection
+    enabled: true
+    config:
+      collection: calendar
+      timezone: UTC
+    readiness_policy: required
+    refresh_identity: source-calendar-refresh
+    required_capabilities:
+      - provider.source.read
+
+tool_binding:
+  binding_id: search-tool
+  tool_ref:
+    owner: fixture-team
+    id: search
+    kind: tool
+  connection_ref:
+    owner: fixture-team
+    id: primary-provider
+    kind: provider-connection
+  enabled: true
+  config:
+    operation: metadata.search
+  readiness_policy: required
+  refresh_identity: search-tool-refresh
+  required_capabilities:
+    - provider.metadata.read

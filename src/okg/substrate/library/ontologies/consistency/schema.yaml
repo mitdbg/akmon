@@ -1,0 +1,258 @@
+id: https://palimpzest.mit.edu/okg/modules/consistency
+name: consistency
+title: "Consistency — claims, corrections, precedents, Σ policies, findings"
+description: The (C, Σ, ≻) claim-model node types. Normative semantics live
+  in docs/develop/architecture/consistency.md; the graph representation follows
+  the ratified graph-derivation design (attrs on claims for derived tiers,
+  separate nodes for findings AND operator-asserted claims; corrections
+  snapshot the observed content they were written against — review F1, the
+  stale_correction_review flag is unimplementable without it).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  cons: https://palimpzest.mit.edu/okg/modules/consistency/
+default_range: string
+imports:
+- linkml:types
+classes:
+
+  ConsistencyClaim:
+    is_a: Claim
+    description: A claim-model claim — extraction.Claim refined with the
+      (predicate, normalized key, value, scope) coordinates the Σ engine
+      buckets and classifies on. Identity (claim_id, inherited) is the
+      deterministic logical key that EXCLUDES the value. Operator-ASSERTED
+      claims materialize as nodes of this subtype with
+      claim_provenance=asserted (review F4 — there is no extracted node to
+      carry attrs).
+    class_uri: cons:ConsistencyClaim
+    attributes:
+      predicate:
+        required: true
+        description: Predicate id from the deployment's admitted schemas
+          (e.g. preferred_target, lifecycle_status).
+      normalized_key:
+        required: true
+        description: Canonical bucket key — computed at EXTRACTION time
+          (decision D3; claim-locality precondition for bucket-scoped
+          recompute).
+      value:
+        required: true
+      scope:
+        description: Heading-path scope string ("" = unscoped).
+      scope_state:
+        required: true
+        description: Enum {known, unknown} — unknown scopes only ever
+          participate in POSSIBLE findings.
+      claim_provenance:
+        required: true
+        description: Enum {derived, asserted} — asserted = operator-authored
+          via an ASSERT correction, no source extraction behind it.
+      source_id:
+        required: true
+        description: Source coordinate (document/page id) — the tier-2
+          locality discriminator (internal vs cross_document findings,
+          review M5). Asserted claims carry the correction's source_id.
+    annotations:
+      archetype: claim
+      transient: 'false'
+      # Redeclared (not inherited): compose harvests annotations per class,
+      # no parent-chain walk — GenericClaim does the same (review M4).
+      okg_alias_fields: claim_id
+      okg_searchable_text_fields: predicate,normalized_key,value,scope
+
+  ClaimCorrection:
+    description: An operator decision on C — exactly one of retract /
+      override / assert against one claim id (one-decision-one-object).
+      observed_content snapshots the claim content the decision was written
+      against (review F1) — the stale_correction_review flag compares it to
+      the freshly derived content each cycle.
+    class_uri: cons:ClaimCorrection
+    attributes:
+      correction_id:
+        required: true
+      target_claim_id:
+        required: true
+        description: The claim id this decision names. Carried as an attr
+          (not only the corrects edge) because for ASSERT the claim node is
+          a tier-1 derived OUTPUT — at decision-write time there is nothing
+          to point an edge at (review H1).
+      action:
+        required: true
+        description: Enum {retract, override, assert}.
+      sequence:
+        required: true
+        range: integer
+        description: Decision order; equal-sequence action order is
+          retract, override, assert (witnessed).
+      observed_content:
+        description: JSON snapshot of the target claim's content at decision
+          time (predicate/key/value/scope). REQUIRED for retract/override
+          (staleness baseline); absent for assert (no target exists).
+      value:
+        description: Override/assert payload — replacement value.
+      normalized_key:
+        description: Override/assert payload — replacement key.
+      predicate:
+        description: Assert payload — the asserted claim's predicate
+          (Correction.predicate in the library; _asserted_claim requires
+          it — review H1).
+      source_id:
+        description: Assert payload — the asserted claim's source
+          coordinate (Correction.source_id; also the tier-2 locality
+          coordinate for the derived claim — review H1/M5).
+      scope:
+        description: Override/assert payload — set with scope_state.
+      scope_state:
+        description: Override/assert payload — set with scope.
+      decided_by:
+        required: true
+        description: Acting principal.
+      decided_at:
+        range: datetime
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: action,decided_by
+
+  ClaimPrecedent:
+    description: An operator decision on ≻ — within the (heading-path)
+      scope, prefer this source class. Applies by either-direction
+      subsumption; among applicable precedents the latest sequence wins.
+    class_uri: cons:ClaimPrecedent
+    attributes:
+      precedent_id:
+        required: true
+      prefer_source:
+        required: true
+        description: The preferred source class.
+      scope:
+        description: Heading-path scope ("" = global).
+      sequence:
+        required: true
+        range: integer
+      decided_by:
+        required: true
+      decided_at:
+        range: datetime
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: prefer_source,scope
+
+  PredicatePolicy:
+    description: One Σ fact row (review F6 shape) — Σ is admitted,
+      operator-correctable DATA. policy_kind discriminates the row shape;
+      disabling a policy is a Σ-correction (an ordinary write to this node).
+    class_uri: cons:PredicatePolicy
+    attributes:
+      policy_id:
+        required: true
+      policy_kind:
+        required: true
+        description: Enum {functional, incompatible_pair, linked_pair,
+          unresolved_key} — functional = any two distinct values conflict;
+          incompatible_pair = value_a×value_b conflict (closed domains);
+          linked_pair = cross-predicate policy via link_key; unresolved_key
+          = alignment not comparable, never a forced conflict.
+      predicate:
+        required: true
+      value_a:
+        description: incompatible_pair only.
+      value_b:
+        description: incompatible_pair only.
+      target_predicate:
+        description: linked_pair only — the linked predicate.
+      violates_values:
+        description: linked_pair only — target values that violate.
+        multivalued: true
+      link_key_fn:
+        description: linked_pair only — the named pure kernel deriving the
+          link key from the source claim's value (cern-twiki uses
+          normalize_entity_value; the convention was implicit — review M5).
+      unresolved_key:
+        description: unresolved_key rows only — the normalized key flagged
+          not-comparable. cern-twiki flags "" AND the sentinel
+          ACTIVITY_UNKNOWN (review H2 — value_a/value_b could not carry
+          this).
+      enabled:
+        required: true
+        description: Enum {true, false} — disabling is the Σ-correction.
+    annotations:
+      archetype: policy
+      transient: 'false'
+      okg_searchable_text_fields: policy_kind,predicate
+
+  ConflictFinding:
+    description: A tier-2 DERIVED finding — claims that jointly violate Σ,
+      with the scope-aware outcome. Findings are separate nodes (not claim
+      attrs) because they carry their own identity and open/resolved
+      lifecycle (decision D2).
+    class_uri: cons:ConflictFinding
+    attributes:
+      finding_id:
+        required: true
+      constraint_id:
+        required: true
+      predicate:
+        required: true
+      bucket_key:
+        required: true
+      outcome:
+        required: true
+        description: Legacy adapter field. Enum {definite, possible, not_comparable}; new consumers MUST use typed_category.
+      typed_category:
+        required: true
+        description: Enum {conflict, alignment_uncertain, applicability_uncertain, not_comparable, no_conflict}.
+      actionable_conflict:
+        required: true
+        description: Boolean; true only when typed_category is conflict.
+      alignment_established:
+        description: JSON list of established semantic dimensions (subject, activity, value).
+      alignment_unknown:
+        description: JSON list of unresolved semantic dimensions (subject, activity, value).
+      applicability_established:
+        description: JSON list of established applicability dimensions (heading, time, scope/conditions).
+      applicability_unknown:
+        description: JSON list of unresolved applicability dimensions (heading, time, scope/conditions).
+      legacy_marker:
+        description: Explicit adapter marker for rows whose legacy possible value represents typed uncertainty.
+      locality:
+        required: true
+        description: Enum {internal, cross_document}.
+      finding_status:
+        required: true
+        description: Enum {open, resolved} — the lifecycle D2 gives findings
+          their own nodes FOR (review M2).
+      detail:
+        description: Human-readable finding detail (ConflictFinding.detail
+          in the library).
+    annotations:
+      archetype: claim
+      transient: 'false'
+      okg_searchable_text_fields: predicate,bucket_key,outcome
+
+  EdgeNarrowings:
+    description: Consistency intra-module narrowings.
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        corrects: references
+        involves_claim: references
+        constrained_by: references
+    attributes:
+      correction_corrects_claim:
+        annotations:
+          edge_archetype: corrects
+          src_subtypes: ClaimCorrection
+          dst_subtypes: ConsistencyClaim
+      finding_involves_claim:
+        annotations:
+          edge_archetype: involves_claim
+          src_subtypes: ConflictFinding
+          dst_subtypes: ConsistencyClaim
+      finding_constrained_by_policy:
+        annotations:
+          edge_archetype: constrained_by
+          src_subtypes: ConflictFinding
+          dst_subtypes: PredicatePolicy

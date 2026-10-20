@@ -1,0 +1,937 @@
+id: https://palimpzest.mit.edu/okg/modules/stark_prime
+name: stark_prime
+title: STaRK-Prime — the PrimeKG-derived biomedical retrieval graph
+description: |-
+  The entity and relation vocabulary of the STaRK-Prime semi-structured
+  knowledge base (`snap-stanford/stark`, `skb/prime/processed.zip`), as the
+  release itself states it: 10 entity types from `node_type_dict.pkl`, 18
+  relation types from `edge_type_dict.pkl`, and the 56 (src, relation, dst)
+  triples those two dictionaries and `edge_index.pt` actually realise.
+
+  ANSWER UNIT. STaRK-Prime's gold is a SET OF ENTITY INDICES into the 0..N-1
+  space `node_types.pt` defines, scored as a ranked list. Node ids are therefore
+  `stark_prime:entity:<index>` — no type segment, so a gold id resolves to a
+  node id by formatting alone. The corpus must hold that vocabulary for the
+  question to be answerable at all; what it must NOT hold is the question->answer
+  mapping, which lives only in `qa/prime/stark_qa/stark_qa.csv` and is refused
+  by both the source and the benchmark adapter.
+
+  NARROWINGS ARE THE RELEASE'S TRIPLES, ONE PER LINE, NOT A CROSS PRODUCT.
+  `src_subtypes` accepts a list and the composer expands src x dst, which for
+  a symmetric relation like `expression_present` would admit `anatomy -> anatomy`
+  and `gene_protein -> gene_protein` — two triples the release does not state.
+  Each of the 56 is therefore declared on its own, so the narrowing catalog
+  refuses at insert exactly the edges the release does not carry.
+
+  DIRECTION. The release is perfectly symmetric: 8,100,498 directed rows over
+  4,050,249 undirected relations, 0 self-loops, every row's reverse present
+  (checked exhaustively). Both directions are declared and emitted, because
+  that is what the release states; the pairs are visible above as the 28
+  mirrored triples.
+
+  PACT okg-bench-graph-benchmarks / req.stark.corpus.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  stark_prime: https://palimpzest.mit.edu/okg/modules/stark_prime/
+default_range: string
+imports:
+- linkml:types
+classes:
+  StarkPrimeDisease:
+    description: |-
+      A disease or disorder, MONDO-grounded. Released type name 'disease';
+      17,080 entities in the pinned release.
+      Node id stark_prime:entity:<entity_index>, where entity_index
+      is the release's own 0..129374 index — the same space the QA
+      answer ids live in.
+    class_uri: stark_prime:StarkPrimeDisease
+    attributes:
+      entity_index:
+        required: true
+        range: integer
+        description: The release's 0-based entity index; the unit
+          STaRK's gold answer sets are expressed in.
+      name:
+        required: true
+        description: The entity's released display name.
+      stark_node_type:
+        required: true
+        description: The released type string, verbatim (e.g.
+          'gene/protein'), kept unnormalised so a node states which
+          release vocabulary it came from.
+      primekg_id:
+        description: The upstream source identifier the release
+          carries (NCBI gene id, MONDO id, DrugBank id, ...).
+          Not unique across types and never used as node identity.
+      source_db:
+        description: The upstream database the release names.
+      text:
+        required: true
+        description: |-
+          Name plus the release's own `details` prose, joined in a
+          DECLARED key order and truncated to 4000 chars. The order
+          is fixed in the source so a release that adds a details
+          field cannot silently rewrite every entity's retrieval
+          text under a running benchmark.
+      text_truncated:
+        range: boolean
+        description: True when `text` hit the 4000-char bound.
+      no_relations_reason:
+        description: |-
+          Present ONLY on a bounded (`max_entities`) build, naming
+          why this entity has no incident edge. A COMPLETE build
+          never carries it: the release declares minimum degree 2
+          and zero isolates, so the source refuses an isolate
+          outright rather than excusing it with a stamp derived
+          from the same edge_index the emission walks.
+      declared_degree:
+        range: integer
+        description: Companion to no_relations_reason — the entity's
+          degree in the WHOLE release, so a bounded build states how
+          much it dropped.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  StarkPrimeGeneProtein:
+    description: |-
+      A gene or its protein product, NCBI-grounded. Released type name 'gene/protein';
+      27,671 entities in the pinned release.
+      Node id stark_prime:entity:<entity_index>, where entity_index
+      is the release's own 0..129374 index — the same space the QA
+      answer ids live in.
+    class_uri: stark_prime:StarkPrimeGeneProtein
+    attributes:
+      entity_index:
+        required: true
+        range: integer
+        description: The release's 0-based entity index; the unit
+          STaRK's gold answer sets are expressed in.
+      name:
+        required: true
+        description: The entity's released display name.
+      stark_node_type:
+        required: true
+        description: The released type string, verbatim (e.g.
+          'gene/protein'), kept unnormalised so a node states which
+          release vocabulary it came from.
+      primekg_id:
+        description: The upstream source identifier the release
+          carries (NCBI gene id, MONDO id, DrugBank id, ...).
+          Not unique across types and never used as node identity.
+      source_db:
+        description: The upstream database the release names.
+      text:
+        required: true
+        description: |-
+          Name plus the release's own `details` prose, joined in a
+          DECLARED key order and truncated to 4000 chars. The order
+          is fixed in the source so a release that adds a details
+          field cannot silently rewrite every entity's retrieval
+          text under a running benchmark.
+      text_truncated:
+        range: boolean
+        description: True when `text` hit the 4000-char bound.
+      no_relations_reason:
+        description: |-
+          Present ONLY on a bounded (`max_entities`) build, naming
+          why this entity has no incident edge. A COMPLETE build
+          never carries it: the release declares minimum degree 2
+          and zero isolates, so the source refuses an isolate
+          outright rather than excusing it with a stamp derived
+          from the same edge_index the emission walks.
+      declared_degree:
+        range: integer
+        description: Companion to no_relations_reason — the entity's
+          degree in the WHOLE release, so a bounded build states how
+          much it dropped.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  StarkPrimeMolecularFunction:
+    description: |-
+      A Gene Ontology molecular function. Released type name 'molecular_function';
+      11,169 entities in the pinned release.
+      Node id stark_prime:entity:<entity_index>, where entity_index
+      is the release's own 0..129374 index — the same space the QA
+      answer ids live in.
+    class_uri: stark_prime:StarkPrimeMolecularFunction
+    attributes:
+      entity_index:
+        required: true
+        range: integer
+        description: The release's 0-based entity index; the unit
+          STaRK's gold answer sets are expressed in.
+      name:
+        required: true
+        description: The entity's released display name.
+      stark_node_type:
+        required: true
+        description: The released type string, verbatim (e.g.
+          'gene/protein'), kept unnormalised so a node states which
+          release vocabulary it came from.
+      primekg_id:
+        description: The upstream source identifier the release
+          carries (NCBI gene id, MONDO id, DrugBank id, ...).
+          Not unique across types and never used as node identity.
+      source_db:
+        description: The upstream database the release names.
+      text:
+        required: true
+        description: |-
+          Name plus the release's own `details` prose, joined in a
+          DECLARED key order and truncated to 4000 chars. The order
+          is fixed in the source so a release that adds a details
+          field cannot silently rewrite every entity's retrieval
+          text under a running benchmark.
+      text_truncated:
+        range: boolean
+        description: True when `text` hit the 4000-char bound.
+      no_relations_reason:
+        description: |-
+          Present ONLY on a bounded (`max_entities`) build, naming
+          why this entity has no incident edge. A COMPLETE build
+          never carries it: the release declares minimum degree 2
+          and zero isolates, so the source refuses an isolate
+          outright rather than excusing it with a stamp derived
+          from the same edge_index the emission walks.
+      declared_degree:
+        range: integer
+        description: Companion to no_relations_reason — the entity's
+          degree in the WHOLE release, so a bounded build states how
+          much it dropped.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  StarkPrimeDrug:
+    description: |-
+      A drug or compound, DrugBank-grounded. Released type name 'drug';
+      7,957 entities in the pinned release.
+      Node id stark_prime:entity:<entity_index>, where entity_index
+      is the release's own 0..129374 index — the same space the QA
+      answer ids live in.
+    class_uri: stark_prime:StarkPrimeDrug
+    attributes:
+      entity_index:
+        required: true
+        range: integer
+        description: The release's 0-based entity index; the unit
+          STaRK's gold answer sets are expressed in.
+      name:
+        required: true
+        description: The entity's released display name.
+      stark_node_type:
+        required: true
+        description: The released type string, verbatim (e.g.
+          'gene/protein'), kept unnormalised so a node states which
+          release vocabulary it came from.
+      primekg_id:
+        description: The upstream source identifier the release
+          carries (NCBI gene id, MONDO id, DrugBank id, ...).
+          Not unique across types and never used as node identity.
+      source_db:
+        description: The upstream database the release names.
+      text:
+        required: true
+        description: |-
+          Name plus the release's own `details` prose, joined in a
+          DECLARED key order and truncated to 4000 chars. The order
+          is fixed in the source so a release that adds a details
+          field cannot silently rewrite every entity's retrieval
+          text under a running benchmark.
+      text_truncated:
+        range: boolean
+        description: True when `text` hit the 4000-char bound.
+      no_relations_reason:
+        description: |-
+          Present ONLY on a bounded (`max_entities`) build, naming
+          why this entity has no incident edge. A COMPLETE build
+          never carries it: the release declares minimum degree 2
+          and zero isolates, so the source refuses an isolate
+          outright rather than excusing it with a stamp derived
+          from the same edge_index the emission walks.
+      declared_degree:
+        range: integer
+        description: Companion to no_relations_reason — the entity's
+          degree in the WHOLE release, so a bounded build states how
+          much it dropped.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  StarkPrimePathway:
+    description: |-
+      A Reactome pathway. Released type name 'pathway';
+      2,516 entities in the pinned release.
+      Node id stark_prime:entity:<entity_index>, where entity_index
+      is the release's own 0..129374 index — the same space the QA
+      answer ids live in.
+    class_uri: stark_prime:StarkPrimePathway
+    attributes:
+      entity_index:
+        required: true
+        range: integer
+        description: The release's 0-based entity index; the unit
+          STaRK's gold answer sets are expressed in.
+      name:
+        required: true
+        description: The entity's released display name.
+      stark_node_type:
+        required: true
+        description: The released type string, verbatim (e.g.
+          'gene/protein'), kept unnormalised so a node states which
+          release vocabulary it came from.
+      primekg_id:
+        description: The upstream source identifier the release
+          carries (NCBI gene id, MONDO id, DrugBank id, ...).
+          Not unique across types and never used as node identity.
+      source_db:
+        description: The upstream database the release names.
+      text:
+        required: true
+        description: |-
+          Name plus the release's own `details` prose, joined in a
+          DECLARED key order and truncated to 4000 chars. The order
+          is fixed in the source so a release that adds a details
+          field cannot silently rewrite every entity's retrieval
+          text under a running benchmark.
+      text_truncated:
+        range: boolean
+        description: True when `text` hit the 4000-char bound.
+      no_relations_reason:
+        description: |-
+          Present ONLY on a bounded (`max_entities`) build, naming
+          why this entity has no incident edge. A COMPLETE build
+          never carries it: the release declares minimum degree 2
+          and zero isolates, so the source refuses an isolate
+          outright rather than excusing it with a stamp derived
+          from the same edge_index the emission walks.
+      declared_degree:
+        range: integer
+        description: Companion to no_relations_reason — the entity's
+          degree in the WHOLE release, so a bounded build states how
+          much it dropped.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  StarkPrimeAnatomy:
+    description: |-
+      An anatomical structure (UBERON). Released type name 'anatomy';
+      14,035 entities in the pinned release.
+      Node id stark_prime:entity:<entity_index>, where entity_index
+      is the release's own 0..129374 index — the same space the QA
+      answer ids live in.
+    class_uri: stark_prime:StarkPrimeAnatomy
+    attributes:
+      entity_index:
+        required: true
+        range: integer
+        description: The release's 0-based entity index; the unit
+          STaRK's gold answer sets are expressed in.
+      name:
+        required: true
+        description: The entity's released display name.
+      stark_node_type:
+        required: true
+        description: The released type string, verbatim (e.g.
+          'gene/protein'), kept unnormalised so a node states which
+          release vocabulary it came from.
+      primekg_id:
+        description: The upstream source identifier the release
+          carries (NCBI gene id, MONDO id, DrugBank id, ...).
+          Not unique across types and never used as node identity.
+      source_db:
+        description: The upstream database the release names.
+      text:
+        required: true
+        description: |-
+          Name plus the release's own `details` prose, joined in a
+          DECLARED key order and truncated to 4000 chars. The order
+          is fixed in the source so a release that adds a details
+          field cannot silently rewrite every entity's retrieval
+          text under a running benchmark.
+      text_truncated:
+        range: boolean
+        description: True when `text` hit the 4000-char bound.
+      no_relations_reason:
+        description: |-
+          Present ONLY on a bounded (`max_entities`) build, naming
+          why this entity has no incident edge. A COMPLETE build
+          never carries it: the release declares minimum degree 2
+          and zero isolates, so the source refuses an isolate
+          outright rather than excusing it with a stamp derived
+          from the same edge_index the emission walks.
+      declared_degree:
+        range: integer
+        description: Companion to no_relations_reason — the entity's
+          degree in the WHOLE release, so a bounded build states how
+          much it dropped.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  StarkPrimeEffectPhenotype:
+    description: |-
+      A phenotypic effect or clinical feature (HPO). Released type name 'effect/phenotype';
+      15,311 entities in the pinned release.
+      Node id stark_prime:entity:<entity_index>, where entity_index
+      is the release's own 0..129374 index — the same space the QA
+      answer ids live in.
+    class_uri: stark_prime:StarkPrimeEffectPhenotype
+    attributes:
+      entity_index:
+        required: true
+        range: integer
+        description: The release's 0-based entity index; the unit
+          STaRK's gold answer sets are expressed in.
+      name:
+        required: true
+        description: The entity's released display name.
+      stark_node_type:
+        required: true
+        description: The released type string, verbatim (e.g.
+          'gene/protein'), kept unnormalised so a node states which
+          release vocabulary it came from.
+      primekg_id:
+        description: The upstream source identifier the release
+          carries (NCBI gene id, MONDO id, DrugBank id, ...).
+          Not unique across types and never used as node identity.
+      source_db:
+        description: The upstream database the release names.
+      text:
+        required: true
+        description: |-
+          Name plus the release's own `details` prose, joined in a
+          DECLARED key order and truncated to 4000 chars. The order
+          is fixed in the source so a release that adds a details
+          field cannot silently rewrite every entity's retrieval
+          text under a running benchmark.
+      text_truncated:
+        range: boolean
+        description: True when `text` hit the 4000-char bound.
+      no_relations_reason:
+        description: |-
+          Present ONLY on a bounded (`max_entities`) build, naming
+          why this entity has no incident edge. A COMPLETE build
+          never carries it: the release declares minimum degree 2
+          and zero isolates, so the source refuses an isolate
+          outright rather than excusing it with a stamp derived
+          from the same edge_index the emission walks.
+      declared_degree:
+        range: integer
+        description: Companion to no_relations_reason — the entity's
+          degree in the WHOLE release, so a bounded build states how
+          much it dropped.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  StarkPrimeBiologicalProcess:
+    description: |-
+      A Gene Ontology biological process. Released type name 'biological_process';
+      28,642 entities in the pinned release.
+      Node id stark_prime:entity:<entity_index>, where entity_index
+      is the release's own 0..129374 index — the same space the QA
+      answer ids live in.
+    class_uri: stark_prime:StarkPrimeBiologicalProcess
+    attributes:
+      entity_index:
+        required: true
+        range: integer
+        description: The release's 0-based entity index; the unit
+          STaRK's gold answer sets are expressed in.
+      name:
+        required: true
+        description: The entity's released display name.
+      stark_node_type:
+        required: true
+        description: The released type string, verbatim (e.g.
+          'gene/protein'), kept unnormalised so a node states which
+          release vocabulary it came from.
+      primekg_id:
+        description: The upstream source identifier the release
+          carries (NCBI gene id, MONDO id, DrugBank id, ...).
+          Not unique across types and never used as node identity.
+      source_db:
+        description: The upstream database the release names.
+      text:
+        required: true
+        description: |-
+          Name plus the release's own `details` prose, joined in a
+          DECLARED key order and truncated to 4000 chars. The order
+          is fixed in the source so a release that adds a details
+          field cannot silently rewrite every entity's retrieval
+          text under a running benchmark.
+      text_truncated:
+        range: boolean
+        description: True when `text` hit the 4000-char bound.
+      no_relations_reason:
+        description: |-
+          Present ONLY on a bounded (`max_entities`) build, naming
+          why this entity has no incident edge. A COMPLETE build
+          never carries it: the release declares minimum degree 2
+          and zero isolates, so the source refuses an isolate
+          outright rather than excusing it with a stamp derived
+          from the same edge_index the emission walks.
+      declared_degree:
+        range: integer
+        description: Companion to no_relations_reason — the entity's
+          degree in the WHOLE release, so a bounded build states how
+          much it dropped.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  StarkPrimeCellularComponent:
+    description: |-
+      A Gene Ontology cellular component. Released type name 'cellular_component';
+      4,176 entities in the pinned release.
+      Node id stark_prime:entity:<entity_index>, where entity_index
+      is the release's own 0..129374 index — the same space the QA
+      answer ids live in.
+    class_uri: stark_prime:StarkPrimeCellularComponent
+    attributes:
+      entity_index:
+        required: true
+        range: integer
+        description: The release's 0-based entity index; the unit
+          STaRK's gold answer sets are expressed in.
+      name:
+        required: true
+        description: The entity's released display name.
+      stark_node_type:
+        required: true
+        description: The released type string, verbatim (e.g.
+          'gene/protein'), kept unnormalised so a node states which
+          release vocabulary it came from.
+      primekg_id:
+        description: The upstream source identifier the release
+          carries (NCBI gene id, MONDO id, DrugBank id, ...).
+          Not unique across types and never used as node identity.
+      source_db:
+        description: The upstream database the release names.
+      text:
+        required: true
+        description: |-
+          Name plus the release's own `details` prose, joined in a
+          DECLARED key order and truncated to 4000 chars. The order
+          is fixed in the source so a release that adds a details
+          field cannot silently rewrite every entity's retrieval
+          text under a running benchmark.
+      text_truncated:
+        range: boolean
+        description: True when `text` hit the 4000-char bound.
+      no_relations_reason:
+        description: |-
+          Present ONLY on a bounded (`max_entities`) build, naming
+          why this entity has no incident edge. A COMPLETE build
+          never carries it: the release declares minimum degree 2
+          and zero isolates, so the source refuses an isolate
+          outright rather than excusing it with a stamp derived
+          from the same edge_index the emission walks.
+      declared_degree:
+        range: integer
+        description: Companion to no_relations_reason — the entity's
+          degree in the WHOLE release, so a bounded build states how
+          much it dropped.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  StarkPrimeExposure:
+    description: |-
+      An environmental exposure (CTD). Released type name 'exposure';
+      818 entities in the pinned release.
+      Node id stark_prime:entity:<entity_index>, where entity_index
+      is the release's own 0..129374 index — the same space the QA
+      answer ids live in.
+    class_uri: stark_prime:StarkPrimeExposure
+    attributes:
+      entity_index:
+        required: true
+        range: integer
+        description: The release's 0-based entity index; the unit
+          STaRK's gold answer sets are expressed in.
+      name:
+        required: true
+        description: The entity's released display name.
+      stark_node_type:
+        required: true
+        description: The released type string, verbatim (e.g.
+          'gene/protein'), kept unnormalised so a node states which
+          release vocabulary it came from.
+      primekg_id:
+        description: The upstream source identifier the release
+          carries (NCBI gene id, MONDO id, DrugBank id, ...).
+          Not unique across types and never used as node identity.
+      source_db:
+        description: The upstream database the release names.
+      text:
+        required: true
+        description: |-
+          Name plus the release's own `details` prose, joined in a
+          DECLARED key order and truncated to 4000 chars. The order
+          is fixed in the source so a release that adds a details
+          field cannot silently rewrite every entity's retrieval
+          text under a running benchmark.
+      text_truncated:
+        range: boolean
+        description: True when `text` hit the 4000-char bound.
+      no_relations_reason:
+        description: |-
+          Present ONLY on a bounded (`max_entities`) build, naming
+          why this entity has no incident edge. A COMPLETE build
+          never carries it: the release declares minimum degree 2
+          and zero isolates, so the source refuses an isolate
+          outright rather than excusing it with a stamp derived
+          from the same edge_index the emission walks.
+      declared_degree:
+        range: integer
+        description: Companion to no_relations_reason — the entity's
+          degree in the WHOLE release, so a bounded build states how
+          much it dropped.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  EdgeNarrowings:
+    description: |-
+      The 56 (src_subtype, relation, dst_subtype) triples the pinned
+      release realises, one narrowing each. Generated from a census of
+      `edge_index.pt` + `edge_types.pt` + `node_types.pt`, not written
+      by hand: composition is determined by the release. The source's
+      PRIME_RELEASE_TRIPLES holds the same 56 keys and a run refuses if
+      the release realises a triple that is not among them.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      stark_prime_disease_associated_with_stark_prime_gene_protein:
+        description: 80,411 rows in the pinned release.
+        annotations:
+          edge_archetype: associated_with
+          src_subtypes: StarkPrimeDisease
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_effect_phenotype_associated_with_stark_prime_gene_protein:
+        description: 3,330 rows in the pinned release.
+        annotations:
+          edge_archetype: associated_with
+          src_subtypes: StarkPrimeEffectPhenotype
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_gene_protein_associated_with_stark_prime_disease:
+        description: 80,411 rows in the pinned release.
+        annotations:
+          edge_archetype: associated_with
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeDisease
+      stark_prime_gene_protein_associated_with_stark_prime_effect_phenotype:
+        description: 3,330 rows in the pinned release.
+        annotations:
+          edge_archetype: associated_with
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeEffectPhenotype
+      stark_prime_drug_carrier_stark_prime_gene_protein:
+        description: 864 rows in the pinned release.
+        annotations:
+          edge_archetype: carrier
+          src_subtypes: StarkPrimeDrug
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_gene_protein_carrier_stark_prime_drug:
+        description: 864 rows in the pinned release.
+        annotations:
+          edge_archetype: carrier
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeDrug
+      stark_prime_disease_contraindication_stark_prime_drug:
+        description: 30,675 rows in the pinned release.
+        annotations:
+          edge_archetype: contraindication
+          src_subtypes: StarkPrimeDisease
+          dst_subtypes: StarkPrimeDrug
+      stark_prime_drug_contraindication_stark_prime_disease:
+        description: 30,675 rows in the pinned release.
+        annotations:
+          edge_archetype: contraindication
+          src_subtypes: StarkPrimeDrug
+          dst_subtypes: StarkPrimeDisease
+      stark_prime_drug_enzyme_stark_prime_gene_protein:
+        description: 5,317 rows in the pinned release.
+        annotations:
+          edge_archetype: enzyme
+          src_subtypes: StarkPrimeDrug
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_gene_protein_enzyme_stark_prime_drug:
+        description: 5,317 rows in the pinned release.
+        annotations:
+          edge_archetype: enzyme
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeDrug
+      stark_prime_anatomy_expression_absent_stark_prime_gene_protein:
+        description: 19,887 rows in the pinned release.
+        annotations:
+          edge_archetype: expression_absent
+          src_subtypes: StarkPrimeAnatomy
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_gene_protein_expression_absent_stark_prime_anatomy:
+        description: 19,887 rows in the pinned release.
+        annotations:
+          edge_archetype: expression_absent
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeAnatomy
+      stark_prime_anatomy_expression_present_stark_prime_gene_protein:
+        description: 1,518,203 rows in the pinned release.
+        annotations:
+          edge_archetype: expression_present
+          src_subtypes: StarkPrimeAnatomy
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_gene_protein_expression_present_stark_prime_anatomy:
+        description: 1,518,203 rows in the pinned release.
+        annotations:
+          edge_archetype: expression_present
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeAnatomy
+      stark_prime_disease_indication_stark_prime_drug:
+        description: 9,388 rows in the pinned release.
+        annotations:
+          edge_archetype: indication
+          src_subtypes: StarkPrimeDisease
+          dst_subtypes: StarkPrimeDrug
+      stark_prime_drug_indication_stark_prime_disease:
+        description: 9,388 rows in the pinned release.
+        annotations:
+          edge_archetype: indication
+          src_subtypes: StarkPrimeDrug
+          dst_subtypes: StarkPrimeDisease
+      stark_prime_biological_process_interacts_with_stark_prime_exposure:
+        description: 1,625 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeBiologicalProcess
+          dst_subtypes: StarkPrimeExposure
+      stark_prime_biological_process_interacts_with_stark_prime_gene_protein:
+        description: 144,805 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeBiologicalProcess
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_cellular_component_interacts_with_stark_prime_exposure:
+        description: 10 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeCellularComponent
+          dst_subtypes: StarkPrimeExposure
+      stark_prime_cellular_component_interacts_with_stark_prime_gene_protein:
+        description: 83,402 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeCellularComponent
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_exposure_interacts_with_stark_prime_biological_process:
+        description: 1,625 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeExposure
+          dst_subtypes: StarkPrimeBiologicalProcess
+      stark_prime_exposure_interacts_with_stark_prime_cellular_component:
+        description: 10 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeExposure
+          dst_subtypes: StarkPrimeCellularComponent
+      stark_prime_exposure_interacts_with_stark_prime_gene_protein:
+        description: 1,212 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeExposure
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_exposure_interacts_with_stark_prime_molecular_function:
+        description: 45 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeExposure
+          dst_subtypes: StarkPrimeMolecularFunction
+      stark_prime_gene_protein_interacts_with_stark_prime_biological_process:
+        description: 144,805 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeBiologicalProcess
+      stark_prime_gene_protein_interacts_with_stark_prime_cellular_component:
+        description: 83,402 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeCellularComponent
+      stark_prime_gene_protein_interacts_with_stark_prime_exposure:
+        description: 1,212 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeExposure
+      stark_prime_gene_protein_interacts_with_stark_prime_molecular_function:
+        description: 69,530 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeMolecularFunction
+      stark_prime_gene_protein_interacts_with_stark_prime_pathway:
+        description: 42,646 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimePathway
+      stark_prime_molecular_function_interacts_with_stark_prime_exposure:
+        description: 45 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeMolecularFunction
+          dst_subtypes: StarkPrimeExposure
+      stark_prime_molecular_function_interacts_with_stark_prime_gene_protein:
+        description: 69,530 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimeMolecularFunction
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_pathway_interacts_with_stark_prime_gene_protein:
+        description: 42,646 rows in the pinned release.
+        annotations:
+          edge_archetype: interacts_with
+          src_subtypes: StarkPrimePathway
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_disease_linked_to_stark_prime_exposure:
+        description: 2,304 rows in the pinned release.
+        annotations:
+          edge_archetype: linked_to
+          src_subtypes: StarkPrimeDisease
+          dst_subtypes: StarkPrimeExposure
+      stark_prime_exposure_linked_to_stark_prime_disease:
+        description: 2,304 rows in the pinned release.
+        annotations:
+          edge_archetype: linked_to
+          src_subtypes: StarkPrimeExposure
+          dst_subtypes: StarkPrimeDisease
+      stark_prime_disease_off_label_use_stark_prime_drug:
+        description: 2,568 rows in the pinned release.
+        annotations:
+          edge_archetype: off_label_use
+          src_subtypes: StarkPrimeDisease
+          dst_subtypes: StarkPrimeDrug
+      stark_prime_drug_off_label_use_stark_prime_disease:
+        description: 2,568 rows in the pinned release.
+        annotations:
+          edge_archetype: off_label_use
+          src_subtypes: StarkPrimeDrug
+          dst_subtypes: StarkPrimeDisease
+      stark_prime_anatomy_parent_child_stark_prime_anatomy:
+        description: 28,064 rows in the pinned release.
+        annotations:
+          edge_archetype: parent_child
+          src_subtypes: StarkPrimeAnatomy
+          dst_subtypes: StarkPrimeAnatomy
+      stark_prime_biological_process_parent_child_stark_prime_biological_process:
+        description: 105,772 rows in the pinned release.
+        annotations:
+          edge_archetype: parent_child
+          src_subtypes: StarkPrimeBiologicalProcess
+          dst_subtypes: StarkPrimeBiologicalProcess
+      stark_prime_cellular_component_parent_child_stark_prime_cellular_component:
+        description: 9,690 rows in the pinned release.
+        annotations:
+          edge_archetype: parent_child
+          src_subtypes: StarkPrimeCellularComponent
+          dst_subtypes: StarkPrimeCellularComponent
+      stark_prime_disease_parent_child_stark_prime_disease:
+        description: 64,388 rows in the pinned release.
+        annotations:
+          edge_archetype: parent_child
+          src_subtypes: StarkPrimeDisease
+          dst_subtypes: StarkPrimeDisease
+      stark_prime_effect_phenotype_parent_child_stark_prime_effect_phenotype:
+        description: 37,472 rows in the pinned release.
+        annotations:
+          edge_archetype: parent_child
+          src_subtypes: StarkPrimeEffectPhenotype
+          dst_subtypes: StarkPrimeEffectPhenotype
+      stark_prime_exposure_parent_child_stark_prime_exposure:
+        description: 4,140 rows in the pinned release.
+        annotations:
+          edge_archetype: parent_child
+          src_subtypes: StarkPrimeExposure
+          dst_subtypes: StarkPrimeExposure
+      stark_prime_molecular_function_parent_child_stark_prime_molecular_function:
+        description: 27,148 rows in the pinned release.
+        annotations:
+          edge_archetype: parent_child
+          src_subtypes: StarkPrimeMolecularFunction
+          dst_subtypes: StarkPrimeMolecularFunction
+      stark_prime_pathway_parent_child_stark_prime_pathway:
+        description: 5,070 rows in the pinned release.
+        annotations:
+          edge_archetype: parent_child
+          src_subtypes: StarkPrimePathway
+          dst_subtypes: StarkPrimePathway
+      stark_prime_disease_phenotype_absent_stark_prime_effect_phenotype:
+        description: 1,193 rows in the pinned release.
+        annotations:
+          edge_archetype: phenotype_absent
+          src_subtypes: StarkPrimeDisease
+          dst_subtypes: StarkPrimeEffectPhenotype
+      stark_prime_effect_phenotype_phenotype_absent_stark_prime_disease:
+        description: 1,193 rows in the pinned release.
+        annotations:
+          edge_archetype: phenotype_absent
+          src_subtypes: StarkPrimeEffectPhenotype
+          dst_subtypes: StarkPrimeDisease
+      stark_prime_disease_phenotype_present_stark_prime_effect_phenotype:
+        description: 150,317 rows in the pinned release.
+        annotations:
+          edge_archetype: phenotype_present
+          src_subtypes: StarkPrimeDisease
+          dst_subtypes: StarkPrimeEffectPhenotype
+      stark_prime_effect_phenotype_phenotype_present_stark_prime_disease:
+        description: 150,317 rows in the pinned release.
+        annotations:
+          edge_archetype: phenotype_present
+          src_subtypes: StarkPrimeEffectPhenotype
+          dst_subtypes: StarkPrimeDisease
+      stark_prime_gene_protein_ppi_stark_prime_gene_protein:
+        description: 642,150 rows in the pinned release.
+        annotations:
+          edge_archetype: ppi
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_drug_side_effect_stark_prime_effect_phenotype:
+        description: 64,784 rows in the pinned release.
+        annotations:
+          edge_archetype: side_effect
+          src_subtypes: StarkPrimeDrug
+          dst_subtypes: StarkPrimeEffectPhenotype
+      stark_prime_effect_phenotype_side_effect_stark_prime_drug:
+        description: 64,784 rows in the pinned release.
+        annotations:
+          edge_archetype: side_effect
+          src_subtypes: StarkPrimeEffectPhenotype
+          dst_subtypes: StarkPrimeDrug
+      stark_prime_drug_synergistic_interaction_stark_prime_drug:
+        description: 2,672,628 rows in the pinned release.
+        annotations:
+          edge_archetype: synergistic_interaction
+          src_subtypes: StarkPrimeDrug
+          dst_subtypes: StarkPrimeDrug
+      stark_prime_drug_target_stark_prime_gene_protein:
+        description: 16,380 rows in the pinned release.
+        annotations:
+          edge_archetype: target
+          src_subtypes: StarkPrimeDrug
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_gene_protein_target_stark_prime_drug:
+        description: 16,380 rows in the pinned release.
+        annotations:
+          edge_archetype: target
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeDrug
+      stark_prime_drug_transporter_stark_prime_gene_protein:
+        description: 3,092 rows in the pinned release.
+        annotations:
+          edge_archetype: transporter
+          src_subtypes: StarkPrimeDrug
+          dst_subtypes: StarkPrimeGeneProtein
+      stark_prime_gene_protein_transporter_stark_prime_drug:
+        description: 3,092 rows in the pinned release.
+        annotations:
+          edge_archetype: transporter
+          src_subtypes: StarkPrimeGeneProtein
+          dst_subtypes: StarkPrimeDrug

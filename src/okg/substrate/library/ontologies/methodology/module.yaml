@@ -1,0 +1,18 @@
+name: methodology
+version: 1.0.0
+description: 'Codified-wisdom layer: MethodCard, MethodPattern, Heuristic,
+  AntiPattern. Embodies Principles (positively) or violates them (negatively).'
+provides:
+  subtypes_file: schema.yaml
+extends:
+  reasoning:
+    description: MethodCard / Heuristic embodies Principle (positive); AntiPattern
+      violates Principle (negative). Each rule resolves via exact match on
+      Principle.slug.
+    cross_link_rules:
+    - cross_links/methodology_to_reasoning.yaml
+  concepts:
+    description: 'MethodCard embodies Concept via frontmatter `embodies_concept:
+      <name>` tag.'
+    cross_link_rules:
+    - cross_links/methodcard_embodies_concept.yaml

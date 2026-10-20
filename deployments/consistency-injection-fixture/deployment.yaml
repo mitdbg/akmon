@@ -1,0 +1,79 @@
+name: consistency-injection-fixture
+description: >
+  Ring-0 fixture of the synthetic inconsistency injection benchmark (PACT
+  consistency-injection-benchmark, task.bench.ring0-fixture). A tiny
+  deployment whose checked-in corpus/ is the source of truth: the
+  deterministic ClaimCorpusSource (okg.bench.injection.
+  claim_corpus_source) parses it into consistency_claim nodes, the claim
+  derivations materialize okg.claim_effective / okg.claim_projection, and one
+  claim-state IR check flags contested buckets. The corpus is authored
+  consistent except ONE deliberate stale page (ops_legacy.md Version: 3.9 vs
+  4.2), so the clean baseline B0 is exactly one contested-bucket finding.
+  LLM-free and byte-deterministic end to end.
+
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+postgres:
+  dsn: ${OKG_DSN}
+  database: okg_consistency_injection_fixture
+
+modules:
+  - extraction        # ConsistencyClaim is_a extraction.Claim (hard dependency)
+  - consistency
+
+enrichers: []
+
+# Deferred posture — this is a benchmark fixture, not an operated deployment.
+nomos:
+  rollout:
+    status: deferred
+    owner:
+      name: consistency
+      contact: consistency-team@example.com
+    review_by: "2027-01-01"
+
+# The claim-model derivations: a real publish cycle materializes
+# okg.claim_effective / okg.claim_projection under this deployment label.
+maintained_derivations:
+  registry: consistency_injection_derivations:registry
+
+# The read-side consumer the benchmark scores stage 3/4 against: contested
+# bucket resolutions on the claim-state surface.
+ir_consistency_checks:
+  - name: injection_fixture_contested_bucket_ir
+    check_id: consistency-injection-fixture.ir.claim_state.contested_bucket.v1
+    predicate_family: claim_state_resolution_consistency
+    confidence_type: deterministic_boolean
+    program_ref: consistency_injection_checks.contested_bucket_program
+    surfaces:
+      claim_projection_rows:
+        binding: okg.claim_projection
+        kind: live
+
+# The declared agent surface (issue #2067). Migrated from the frozen
+# legacy path with no change in behaviour: `served` is exactly what
+# `okg mcp-serve --allow-writes` registered before the block existed, so no
+# launch loses a tool. A read-only launch still registers the seven read
+# operators; the write gate stays the launch operator's. No response budget
+# and no chat projection are declared, so both keep the substrate defaults.
+agent_surface:
+  served:
+    - inspect
+    - search
+    - expand
+    - filter
+    - map
+    - aggregate
+    - query
+    - record
+    - propose
+    - list_sources
+    - add_source
+    - remove_source
+    - source_status
+    - discover_sources
+    - propose_setup
+    - commit_setup
+    - connector_route_status
+    - connector_ingest_batch

@@ -1,0 +1,2333 @@
+{
+  "name": "empty",
+  "purpose": "A deployment with three configured sources that has never published. No version, no records, nothing to search.",
+  "clock": "2026-09-18T09:00:00.000Z",
+  "stories": [
+    "S20"
+  ],
+  "edge_cases": [
+    "No published version at all: every 'version read from' line has nothing to name (S20).",
+    "Three sources configured, all never run, none of them shown as failed.",
+    "Explore must say there is nothing to search yet rather than rendering an empty result list.",
+    "Zero record types and zero relationship types, so Home's contents section has no rows."
+  ],
+  "expect": {
+    "deployment": "empty",
+    "version": null,
+    "nodes_live": 0,
+    "edges_live": 0,
+    "source_count": 3,
+    "enricher_count": 0,
+    "view_count": 0,
+    "failed_producer_count": 0,
+    "never_run_producer_count": 3,
+    "attempt_count": 0,
+    "published_attempt_count": 0,
+    "blocked_attempt_count": 0,
+    "running_attempt_count": 0,
+    "record_type_count": 0,
+    "relationship_type_count": 0,
+    "source_read_row_count": 3,
+    "featured_record": null,
+    "failing_check_count": 0,
+    "queue_total": 0,
+    "dlq_count": 0
+  },
+  "reads": {
+    "/viz/api/deployments": {
+      "entries": [
+        {
+          "name": "archiv3-small",
+          "description": "Mock deployment archiv3-small",
+          "url": "https://mock.invalid/archiv3-small",
+          "operator_ui_base": "https://mock.invalid/archiv3-small/console/",
+          "chat_site_base": "https://mock.invalid/archiv3-small/chat/",
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": false
+        },
+        {
+          "name": "workspace-mixed",
+          "description": "Mock deployment workspace-mixed",
+          "url": "https://mock.invalid/workspace-mixed",
+          "operator_ui_base": "https://mock.invalid/workspace-mixed/console/",
+          "chat_site_base": "https://mock.invalid/workspace-mixed/chat/",
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": false
+        },
+        {
+          "name": "scale-200",
+          "description": "Mock deployment scale-200",
+          "url": "https://mock.invalid/scale-200",
+          "operator_ui_base": "https://mock.invalid/scale-200/console/",
+          "chat_site_base": "https://mock.invalid/scale-200/chat/",
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": false
+        },
+        {
+          "name": "empty",
+          "description": "A deployment with three configured sources that has never published. No version, no records, nothing to search.",
+          "url": "https://mock.invalid/empty",
+          "operator_ui_base": "https://mock.invalid/empty/console/",
+          "chat_site_base": null,
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": true
+        },
+        {
+          "name": "broken-runtime",
+          "description": "Mock deployment broken-runtime",
+          "url": "https://mock.invalid/broken-runtime",
+          "operator_ui_base": "https://mock.invalid/broken-runtime/console/",
+          "chat_site_base": "https://mock.invalid/broken-runtime/chat/",
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": false
+        },
+        {
+          "name": "all-clear",
+          "description": "Mock deployment all-clear",
+          "url": "https://mock.invalid/all-clear",
+          "operator_ui_base": "https://mock.invalid/all-clear/console/",
+          "chat_site_base": "https://mock.invalid/all-clear/chat/",
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": false
+        }
+      ]
+    },
+    "/viz/api/health": {
+      "ok": true,
+      "ready": false,
+      "deployment_name": "empty",
+      "generation_id": null,
+      "node_count": 0,
+      "edge_count": 0,
+      "count_estimated": false
+    },
+    "/viz/api/traces": {
+      "items": []
+    },
+    "/viz/api/workflows": {
+      "meta": {
+        "count": 0,
+        "workflow_tables_present": true,
+        "root_kinds": [
+          "update"
+        ]
+      },
+      "items": []
+    },
+    "/viz/api/console/health": {
+      "generation_id": null,
+      "payload": {
+        "deployment": "empty",
+        "generation_id": null,
+        "compat_generation_id": null,
+        "generation_status": "none",
+        "generation_age": null,
+        "verdict": "degraded",
+        "history": [],
+        "history_total": 0,
+        "latest_attempt": null,
+        "vitals": {
+          "generation_blocked_count": 0,
+          "queue_depth": {
+            "ingest": 0,
+            "link": 0,
+            "enrich": 0,
+            "publish": 0,
+            "embed": 0
+          },
+          "queue_total": 0,
+          "dlq_count": 0,
+          "terminal_history_dlq_count": 0,
+          "nodes_live": 0,
+          "edges_live": 0,
+          "nodes_live_delta": 0,
+          "edges_live_delta": 0,
+          "publish_wallclock_seconds": 0,
+          "invariants": {
+            "cross_source_total": 0,
+            "cross_source_failed": 0,
+            "cross_source_timed_out": 0,
+            "source_local_total": 0,
+            "source_local_failed": 0,
+            "total": 0,
+            "failed": 0,
+            "budget_exceeded": false,
+            "duration_ms": 0
+          },
+          "excluded_sources": []
+        },
+        "source_breakdown": {
+          "source_count": 3,
+          "summary": {
+            "total": 3,
+            "healthy": 0,
+            "needs_review": 0,
+            "unknown": 3,
+            "excluded": 0
+          },
+          "sources": [
+            {
+              "name": "papers",
+              "source_key": "empty.papers",
+              "status": "unknown",
+              "included": true,
+              "last_update": null,
+              "latest_issue": null,
+              "next_check": null
+            },
+            {
+              "name": "git-files",
+              "source_key": "empty.git-files",
+              "status": "unknown",
+              "included": true,
+              "last_update": null,
+              "latest_issue": null,
+              "next_check": null
+            },
+            {
+              "name": "sessions",
+              "source_key": "empty.sessions",
+              "status": "unknown",
+              "included": true,
+              "last_update": null,
+              "latest_issue": null,
+              "next_check": null
+            }
+          ]
+        },
+        "resources": {
+          "status": "ok",
+          "source": "okg.node_series + pg_database_size",
+          "hosts": [],
+          "database_size_bytes": 8388608,
+          "window": {
+            "start": null,
+            "end": null,
+            "period": "1h"
+          },
+          "series": {
+            "nodes": [],
+            "edges": [],
+            "cpu": [],
+            "memory": []
+          },
+          "omissions": []
+        },
+        "critical_reads": {
+          "generation_id": null,
+          "ready": false,
+          "prerequisites": []
+        },
+        "checks": [
+          {
+            "severity": "warn",
+            "code": "no_published_generation",
+            "scope": "publisher",
+            "summary": "This deployment has never published a version.",
+            "actual": "0 published generations",
+            "expected": "at least one published generation",
+            "fix_hint": "okg update run"
+          }
+        ],
+        "doctor_note": "Substrate-state health from the pinned Chronos generation. This is a design fixture; no deployment was read."
+      }
+    },
+    "/viz/api/console/generations": {
+      "generation_id": null,
+      "payload": {
+        "deployment": "empty",
+        "current_generation_id": null,
+        "shown": 0,
+        "total": 0,
+        "next_cursor": null,
+        "generations": [],
+        "gap": [
+          "stopped_stage",
+          "stopped_producer",
+          "error_text",
+          "duration_ms"
+        ]
+      }
+    },
+    "/viz/api/console/sources": {
+      "generation_id": null,
+      "payload": {
+        "deployment": "empty",
+        "generation_id": null,
+        "source_count": 3,
+        "sources": [
+          {
+            "name": "papers",
+            "source_key": "empty.papers",
+            "in_registry": true,
+            "total_facts": null,
+            "total_edge_facts": null,
+            "fact_counts_available": false,
+            "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+            "records_in_gen": 0,
+            "edges_in_gen": 0,
+            "last_sync_age": null
+          },
+          {
+            "name": "git-files",
+            "source_key": "empty.git-files",
+            "in_registry": true,
+            "total_facts": null,
+            "total_edge_facts": null,
+            "fact_counts_available": false,
+            "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+            "records_in_gen": 0,
+            "edges_in_gen": 0,
+            "last_sync_age": null
+          },
+          {
+            "name": "sessions",
+            "source_key": "empty.sessions",
+            "in_registry": true,
+            "total_facts": null,
+            "total_edge_facts": null,
+            "fact_counts_available": false,
+            "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+            "records_in_gen": 0,
+            "edges_in_gen": 0,
+            "last_sync_age": null
+          }
+        ]
+      }
+    },
+    "/viz/api/console/versions": {
+      "generation_id": "unpublished",
+      "payload": {
+        "deployment": "empty",
+        "versions": [],
+        "latest": null,
+        "truncated": false
+      }
+    },
+    "/viz/api/console/ontology-rollup": {
+      "generation_id": "unpublished",
+      "payload": {
+        "deployment": "empty",
+        "node_types": [],
+        "relationship_types": [],
+        "node_type_total": 0,
+        "relationship_type_total": 0,
+        "count_basis": "published_total_before_access_rules"
+      }
+    },
+    "/viz/api/console/attempts?range=1d": {
+      "generation_id": null,
+      "payload": {
+        "deployment": "empty",
+        "range": "1d",
+        "now": "2026-09-18T09:00:00.000Z",
+        "buckets": [
+          {
+            "day": "2026-09-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          }
+        ],
+        "totals": {
+          "published": 0,
+          "blocked": 0,
+          "running": 0
+        },
+        "gap": true
+      }
+    },
+    "/viz/api/console/attempts?range=7d": {
+      "generation_id": null,
+      "payload": {
+        "deployment": "empty",
+        "range": "7d",
+        "now": "2026-09-18T09:00:00.000Z",
+        "buckets": [
+          {
+            "day": "2026-09-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-15",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-16",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          }
+        ],
+        "totals": {
+          "published": 0,
+          "blocked": 0,
+          "running": 0
+        },
+        "gap": true
+      }
+    },
+    "/viz/api/console/attempts?range=14d": {
+      "generation_id": null,
+      "payload": {
+        "deployment": "empty",
+        "range": "14d",
+        "now": "2026-09-18T09:00:00.000Z",
+        "buckets": [
+          {
+            "day": "2026-09-04",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-05",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-06",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-07",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-08",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-09",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-10",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-15",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-16",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          }
+        ],
+        "totals": {
+          "published": 0,
+          "blocked": 0,
+          "running": 0
+        },
+        "gap": true
+      }
+    },
+    "/viz/api/console/attempts?range=30d": {
+      "generation_id": null,
+      "payload": {
+        "deployment": "empty",
+        "range": "30d",
+        "now": "2026-09-18T09:00:00.000Z",
+        "buckets": [
+          {
+            "day": "2026-08-19",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-20",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-21",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-22",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-23",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-24",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-25",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-26",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-27",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-28",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-29",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-30",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-31",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-01",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-02",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-03",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-04",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-05",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-06",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-07",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-08",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-09",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-10",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-15",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-16",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          }
+        ],
+        "totals": {
+          "published": 0,
+          "blocked": 0,
+          "running": 0
+        },
+        "gap": true
+      }
+    },
+    "/viz/api/console/attempts?range=90d": {
+      "generation_id": null,
+      "payload": {
+        "deployment": "empty",
+        "range": "90d",
+        "now": "2026-09-18T09:00:00.000Z",
+        "buckets": [
+          {
+            "day": "2026-06-20",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-21",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-22",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-23",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-24",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-25",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-26",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-27",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-28",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-29",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-30",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-01",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-02",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-03",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-04",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-05",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-06",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-07",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-08",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-09",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-10",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-15",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-16",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-19",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-20",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-21",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-22",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-23",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-24",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-25",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-26",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-27",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-28",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-29",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-30",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-31",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-01",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-02",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-03",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-04",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-05",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-06",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-07",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-08",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-09",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-10",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-15",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-16",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-19",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-20",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-21",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-22",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-23",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-24",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-25",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-26",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-27",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-28",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-29",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-30",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-31",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-01",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-02",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-03",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-04",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-05",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-06",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-07",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-08",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-09",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-10",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-15",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-16",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          }
+        ],
+        "totals": {
+          "published": 0,
+          "blocked": 0,
+          "running": 0
+        },
+        "gap": true
+      }
+    },
+    "/viz/api/console/producers": {
+      "ok": true,
+      "generation_id": null,
+      "payload": {
+        "schema": "okg.console.producers.v1",
+        "deployment": "empty",
+        "generation_id": null,
+        "producer_count": 3,
+        "producers": [
+          {
+            "name": "papers",
+            "ownership_id": "empty.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "git-files",
+            "ownership_id": "empty.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "sessions",
+            "ownership_id": "empty.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          }
+        ],
+        "read_authority": {
+          "generation_id": null,
+          "sources": {
+            "status": "available"
+          },
+          "enrichers": {
+            "status": "available"
+          },
+          "views": {
+            "status": "available"
+          }
+        },
+        "omitted_data": [],
+        "selected_producer": null,
+        "selected": null
+      }
+    },
+    "/viz/api/console/source-diagnostics": {
+      "generation_id": null,
+      "payload": {
+        "schema": "okg.console.source_diagnostics.v1",
+        "deployment": "empty",
+        "generation_id": null,
+        "selected_source": null,
+        "summary": {
+          "sources_count": 3,
+          "degraded_count": 0,
+          "stale_count": 3,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "sources": [
+          {
+            "name": "papers",
+            "source_key": "empty.papers",
+            "in_registry": true,
+            "health": {
+              "status": "unknown",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": null,
+              "age": null,
+              "next_due": "2026-09-18T18:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.papers",
+              "settings": {
+                "endpoint": "https://new.invalid/papers",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "never run",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 24,
+              "run_count": 0
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "record_types": []
+            },
+            "latest_run": null,
+            "incidents": []
+          },
+          {
+            "name": "git-files",
+            "source_key": "empty.git-files",
+            "in_registry": true,
+            "health": {
+              "status": "unknown",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": null,
+              "age": null,
+              "next_due": "2026-09-18T18:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.git-files",
+              "settings": {
+                "endpoint": "https://new.invalid/git-files",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "never run",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 24,
+              "run_count": 0
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "record_types": []
+            },
+            "latest_run": null,
+            "incidents": []
+          },
+          {
+            "name": "sessions",
+            "source_key": "empty.sessions",
+            "in_registry": true,
+            "health": {
+              "status": "unknown",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": null,
+              "age": null,
+              "next_due": "2026-09-18T18:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.sessions",
+              "settings": {
+                "endpoint": "https://new.invalid/sessions",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "never run",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 24,
+              "run_count": 0
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "record_types": []
+            },
+            "latest_run": null,
+            "incidents": []
+          }
+        ],
+        "list_omitted_reason": null,
+        "selected": null,
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/enricher-diagnostics": {
+      "generation_id": null,
+      "payload": {
+        "schema": "okg.console.enricher_diagnostics.v1",
+        "deployment": "empty",
+        "generation_id": null,
+        "selected_source": null,
+        "summary": {
+          "enrichers_count": 0,
+          "degraded_count": 0,
+          "stale_count": 0,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "enrichers": [],
+        "list_omitted_reason": null,
+        "selected": null,
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/view-diagnostics": {
+      "generation_id": null,
+      "payload": {
+        "schema": "okg.console.view_diagnostics.v1",
+        "deployment": "empty",
+        "generation_id": null,
+        "selected_source": null,
+        "summary": {
+          "views_count": 0,
+          "degraded_count": 0,
+          "stale_count": 0,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "views": [],
+        "list_omitted_reason": null,
+        "selected": null,
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/source-diagnostics?mode=detail&name=papers&run_limit=20": {
+      "generation_id": null,
+      "payload": {
+        "schema": "okg.console.source_diagnostics.v1",
+        "deployment": "empty",
+        "generation_id": null,
+        "selected_source": "papers",
+        "summary": {
+          "sources_count": 3,
+          "degraded_count": 0,
+          "stale_count": 3,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "sources": [],
+        "list_omitted_reason": "the list is served by GET /viz/api/console/source-diagnostics without a name",
+        "selected": {
+          "source_name": "papers",
+          "found": true,
+          "row": {
+            "name": "papers",
+            "source_key": "empty.papers",
+            "in_registry": true,
+            "health": {
+              "status": "unknown",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": null,
+              "age": null,
+              "next_due": "2026-09-18T18:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.papers",
+              "settings": {
+                "endpoint": "https://new.invalid/papers",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "never run",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 24,
+              "run_count": 0
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "record_types": []
+            },
+            "latest_run": null,
+            "incidents": []
+          },
+          "run_history": [],
+          "run_summary": {
+            "total": 0,
+            "failed": 0
+          },
+          "phase_summary": [],
+          "selected_run": null,
+          "omitted_data": []
+        },
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/producers?name=papers&run_limit=20": {
+      "ok": true,
+      "generation_id": null,
+      "payload": {
+        "schema": "okg.console.producers.v1",
+        "deployment": "empty",
+        "generation_id": null,
+        "producer_count": 3,
+        "producers": [
+          {
+            "name": "papers",
+            "ownership_id": "empty.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "git-files",
+            "ownership_id": "empty.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "sessions",
+            "ownership_id": "empty.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          }
+        ],
+        "read_authority": {
+          "generation_id": null,
+          "sources": {
+            "status": "available"
+          },
+          "enrichers": {
+            "status": "available"
+          },
+          "views": {
+            "status": "available"
+          }
+        },
+        "omitted_data": [],
+        "selected_producer": "papers",
+        "selected": {
+          "found": true,
+          "row": {
+            "name": "papers",
+            "ownership_id": "empty.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": 0,
+            "run_count_unavailable_reason": null
+          },
+          "records_by_type": {
+            "status": "available",
+            "types": [],
+            "total": 0,
+            "omitted": 0
+          },
+          "relationships_by_type": {
+            "status": "not_recorded",
+            "reason": "no_rollup_dimension_pairs_an_edge_with_its_producer"
+          },
+          "run_history": [],
+          "run_offset": 0,
+          "run_limit": 20,
+          "run_history_fetched": 0,
+          "run_history_truncated": false,
+          "more": false
+        }
+      }
+    },
+    "/viz/api/console/source-diagnostics?mode=detail&name=git-files&run_limit=20": {
+      "generation_id": null,
+      "payload": {
+        "schema": "okg.console.source_diagnostics.v1",
+        "deployment": "empty",
+        "generation_id": null,
+        "selected_source": "git-files",
+        "summary": {
+          "sources_count": 3,
+          "degraded_count": 0,
+          "stale_count": 3,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "sources": [],
+        "list_omitted_reason": "the list is served by GET /viz/api/console/source-diagnostics without a name",
+        "selected": {
+          "source_name": "git-files",
+          "found": true,
+          "row": {
+            "name": "git-files",
+            "source_key": "empty.git-files",
+            "in_registry": true,
+            "health": {
+              "status": "unknown",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": null,
+              "age": null,
+              "next_due": "2026-09-18T18:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.git-files",
+              "settings": {
+                "endpoint": "https://new.invalid/git-files",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "never run",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 24,
+              "run_count": 0
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "record_types": []
+            },
+            "latest_run": null,
+            "incidents": []
+          },
+          "run_history": [],
+          "run_summary": {
+            "total": 0,
+            "failed": 0
+          },
+          "phase_summary": [],
+          "selected_run": null,
+          "omitted_data": []
+        },
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/producers?name=git-files&run_limit=20": {
+      "ok": true,
+      "generation_id": null,
+      "payload": {
+        "schema": "okg.console.producers.v1",
+        "deployment": "empty",
+        "generation_id": null,
+        "producer_count": 3,
+        "producers": [
+          {
+            "name": "papers",
+            "ownership_id": "empty.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "git-files",
+            "ownership_id": "empty.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "sessions",
+            "ownership_id": "empty.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          }
+        ],
+        "read_authority": {
+          "generation_id": null,
+          "sources": {
+            "status": "available"
+          },
+          "enrichers": {
+            "status": "available"
+          },
+          "views": {
+            "status": "available"
+          }
+        },
+        "omitted_data": [],
+        "selected_producer": "git-files",
+        "selected": {
+          "found": true,
+          "row": {
+            "name": "git-files",
+            "ownership_id": "empty.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": 0,
+            "run_count_unavailable_reason": null
+          },
+          "records_by_type": {
+            "status": "available",
+            "types": [],
+            "total": 0,
+            "omitted": 0
+          },
+          "relationships_by_type": {
+            "status": "not_recorded",
+            "reason": "no_rollup_dimension_pairs_an_edge_with_its_producer"
+          },
+          "run_history": [],
+          "run_offset": 0,
+          "run_limit": 20,
+          "run_history_fetched": 0,
+          "run_history_truncated": false,
+          "more": false
+        }
+      }
+    },
+    "/viz/api/console/source-diagnostics?mode=detail&name=sessions&run_limit=20": {
+      "generation_id": null,
+      "payload": {
+        "schema": "okg.console.source_diagnostics.v1",
+        "deployment": "empty",
+        "generation_id": null,
+        "selected_source": "sessions",
+        "summary": {
+          "sources_count": 3,
+          "degraded_count": 0,
+          "stale_count": 3,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "sources": [],
+        "list_omitted_reason": "the list is served by GET /viz/api/console/source-diagnostics without a name",
+        "selected": {
+          "source_name": "sessions",
+          "found": true,
+          "row": {
+            "name": "sessions",
+            "source_key": "empty.sessions",
+            "in_registry": true,
+            "health": {
+              "status": "unknown",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": null,
+              "age": null,
+              "next_due": "2026-09-18T18:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.sessions",
+              "settings": {
+                "endpoint": "https://new.invalid/sessions",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "never run",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 24,
+              "run_count": 0
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "record_types": []
+            },
+            "latest_run": null,
+            "incidents": []
+          },
+          "run_history": [],
+          "run_summary": {
+            "total": 0,
+            "failed": 0
+          },
+          "phase_summary": [],
+          "selected_run": null,
+          "omitted_data": []
+        },
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/producers?name=sessions&run_limit=20": {
+      "ok": true,
+      "generation_id": null,
+      "payload": {
+        "schema": "okg.console.producers.v1",
+        "deployment": "empty",
+        "generation_id": null,
+        "producer_count": 3,
+        "producers": [
+          {
+            "name": "papers",
+            "ownership_id": "empty.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "git-files",
+            "ownership_id": "empty.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "sessions",
+            "ownership_id": "empty.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          }
+        ],
+        "read_authority": {
+          "generation_id": null,
+          "sources": {
+            "status": "available"
+          },
+          "enrichers": {
+            "status": "available"
+          },
+          "views": {
+            "status": "available"
+          }
+        },
+        "omitted_data": [],
+        "selected_producer": "sessions",
+        "selected": {
+          "found": true,
+          "row": {
+            "name": "sessions",
+            "ownership_id": "empty.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "unknown",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "never run",
+              "status": "never run",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": null,
+            "latest_run_unavailable_reason": "no_source_run_diagnostics_rows",
+            "run_count": 0,
+            "run_count_unavailable_reason": null
+          },
+          "records_by_type": {
+            "status": "available",
+            "types": [],
+            "total": 0,
+            "omitted": 0
+          },
+          "relationships_by_type": {
+            "status": "not_recorded",
+            "reason": "no_rollup_dimension_pairs_an_edge_with_its_producer"
+          },
+          "run_history": [],
+          "run_offset": 0,
+          "run_limit": 20,
+          "run_history_fetched": 0,
+          "run_history_truncated": false,
+          "more": false
+        }
+      }
+    },
+    "/viz/api/console/records/types": {
+      "generation_id": "unpublished",
+      "payload": {
+        "types": [],
+        "count_basis": "published_total_before_access_rules"
+      }
+    },
+    "/viz/api/console/records/search?limit=20&offset=0&q=": {
+      "generation_id": "unpublished",
+      "payload": {
+        "query": "",
+        "type": null,
+        "filters": {
+          "type": null,
+          "source": null
+        },
+        "results": [],
+        "exact_match": false,
+        "exact_match_in_text": false,
+        "total_count": 0,
+        "paged_count": 0,
+        "truncated": false,
+        "next_offset": null,
+        "rank_capped": false,
+        "zero_hit_reason": null,
+        "search_profile": null,
+        "searched_types": null,
+        "skipped_types": [],
+        "skipped_types_reason": null
+      }
+    },
+    "/viz/api/console/records/search?limit=20&offset=0&q=anything": {
+      "generation_id": "unpublished",
+      "payload": {
+        "query": "anything",
+        "type": null,
+        "filters": {
+          "type": null,
+          "source": null
+        },
+        "results": [],
+        "exact_match": false,
+        "exact_match_in_text": false,
+        "total_count": 0,
+        "paged_count": 0,
+        "truncated": false,
+        "next_offset": null,
+        "rank_capped": false,
+        "zero_hit_reason": null,
+        "search_profile": null,
+        "searched_types": null,
+        "skipped_types": [],
+        "skipped_types_reason": null
+      }
+    }
+  }
+}

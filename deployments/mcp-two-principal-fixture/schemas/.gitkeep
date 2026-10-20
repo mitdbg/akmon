@@ -1,0 +1,9 @@
+# Intentionally empty: this fixture contributes no local subtypes. The
+# directory exists because `deployment.yaml` declares `schema_dir` and the
+# deployment lint refuses a declared path that is not there.
+#
+# This file carries text rather than being empty on purpose. An empty
+# .gitkeep is byte-identical to every other deployment's, and the PACT scope
+# gate diffs with `--find-copies-harder`, so an empty one is reported as a
+# COPY of an unrelated deployment's file -- which then has to be covered by
+# this change's affected_code, or the gate refuses.

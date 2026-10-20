@@ -1,0 +1,36 @@
+id: https://palimpzest.mit.edu/okg/deployments/lifecycle-exec/bootstrap_domain
+name: lifecycle-exec_bootstrap_domain
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+default_range: string
+imports:
+- linkml:types
+classes:
+  LifecycleExecRecord:
+    description: Bootstrap-generated source record subtype.
+    attributes:
+      record_id:
+        required: true
+      title: {}
+      text: {}
+      source_id:
+        required: true
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: title,text
+      okg_alias_fields: record_id,title
+  LifecycleExecFinding:
+    description: Bootstrap-generated observation subtype.
+    attributes:
+      finding_id:
+        required: true
+      label: {}
+      text: {}
+      source_id:
+        required: true
+    annotations:
+      archetype: observation
+      transient: 'false'
+      okg_searchable_text_fields: label,text

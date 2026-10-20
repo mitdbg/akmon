@@ -1,0 +1,135 @@
+# Profile bundles ship every check at `severity: warn`. A deployment
+# scaffolded from this profile must be able to publish before every
+# source has landed and without a DBOS runtime, so an error here would
+# block its first publish. Raise a check to `error` in the deployment's
+# own copy once the graph is populated.
+# Invariants for the academic-researcher profile.
+#
+# Tuned for a PI's personal-OKG. The floors describe minimum
+# content for an actively-used deployment, not absolute scale.
+# A new operator who runs `okg install` starts with an empty,
+# wizard-ready deployment. Source approval happens through the setup
+# skill, so floors are warnings until a settled deployment raises them
+# in its own invariant overrides.
+
+invariants:
+  - name: academic_researcher_core_subtypes_present
+    severity: warn
+    scope: cross
+    timeout_ms: 5000
+    description: >-
+      Required academic-researcher subtypes must have at least one live row.
+      Paper + Person are the settled-deployment floor. Fresh installs
+      are empty until the operator approves setup, so this ships as a
+      warning and deployments can promote it after identity sources are
+      expected to be wired.
+    sql: |
+      WITH required(subtype) AS (
+        VALUES
+          ('paper'),
+          ('person')
+      ),
+      counts AS (
+        SELECT subtype, count(*) AS n
+          FROM okg.v_nodes
+         GROUP BY subtype
+      )
+      SELECT r.subtype, coalesce(c.n, 0) AS live_count
+        FROM required r
+        LEFT JOIN counts c USING (subtype)
+       WHERE coalesce(c.n, 0) = 0
+
+  - name: academic_researcher_advisee_floor
+    severity: warn
+    scope: cross
+    timeout_ms: 5000
+    description: >-
+      Soft floor on active Advisee count. Default 0 (many PIs are
+      between students or on sabbatical); per-prof override raises
+      the floor when expected lab size is known. Fires YELLOW when
+      the configured `advisees_dir` is non-empty but no Advisee
+      rows landed — indicates the source silently failed.
+    sql: |
+      WITH c AS (
+        SELECT count(*) AS n
+          FROM okg.v_nodes
+         WHERE subtype = 'advisee'
+           AND (attrs->>'status') = 'active'
+      )
+      SELECT 'advisee_active' AS subtype, n AS live_count, 0 AS floor
+        FROM c
+       WHERE n < 0
+
+  - name: academic_researcher_grant_milestone_overdue_warn
+    severity: warn
+    scope: cross
+    timeout_ms: 5000
+    description: >-
+      Flag overdue grant deliverables (due_date in the past, status
+      != met). Operator-actionable: surface in pi-overview dashboard
+      so missed NSF reports don't quietly slip.
+    sql: |
+      SELECT node_id,
+             attrs->>'title' AS title,
+             attrs->>'due' AS due,
+             attrs->>'status' AS status
+        FROM okg.v_nodes
+       WHERE subtype = 'deadline'
+         AND attrs->>'kind' IN ('grant_report', 'review_due')
+         AND attrs->>'status' = 'pending'
+         AND (attrs->>'due')::timestamp < now()
+
+  - name: academic_researcher_letter_request_outstanding_warn
+    severity: warn
+    scope: cross
+    timeout_ms: 5000
+    description: >-
+      Flag recommendation letters in `requested` state older than
+      14 days — letters slip when not surfaced.
+    sql: |
+      SELECT node_id,
+             attrs->>'recipient' AS recipient,
+             attrs->>'requested_date' AS requested_date,
+             attrs->>'due' AS due
+        FROM okg.v_nodes
+       WHERE subtype = 'recommendation_letter'
+         AND attrs->>'status' = 'requested'
+         AND (attrs->>'requested_date')::timestamp
+             < (now() - interval '14 days')
+
+  - name: academic_researcher_service_load_warn_threshold
+    severity: warn
+    scope: cross
+    timeout_ms: 5000
+    description: >-
+      Flag when active Committee count + open Review count exceeds
+      8. Heuristic threshold for "say no to the next ask"; the
+      service-load skill surfaces the full breakdown.
+    sql: |
+      WITH s AS (
+        SELECT
+          (SELECT count(*) FROM okg.v_nodes
+            WHERE subtype = 'committee'
+              AND attrs->>'status' = 'active') AS committees,
+          (SELECT count(*) FROM okg.v_nodes
+            WHERE subtype = 'review'
+              AND attrs->>'status' IN ('assigned', 'drafted')) AS reviews
+      )
+      SELECT committees, reviews,
+             (committees + reviews) AS total
+        FROM s
+       WHERE (committees + reviews) > 8
+
+  - name: academic_researcher_source_sync_dlq_zero
+    severity: warn
+    scope: cross
+    timeout_ms: 5000
+    description: >-
+      Inherited from the standard substrate hygiene checks — DLQ
+      rows must be zero. A non-zero count means a source kept
+      retrying without succeeding.
+    sql: |
+      SELECT queue_name, workflow_name, availability, dlq_count
+        FROM okg.v_runtime_queue_health
+       WHERE availability <> 'available'
+          OR dlq_count > 0

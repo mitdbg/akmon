@@ -1,0 +1,142 @@
+pact_schema_version: 0
+canonical_file: pact.yaml
+required_top_level:
+  - pact_version
+  - change
+  - requirements
+  - tasks
+  - dependencies
+  - test_plan
+  - evidence
+# `edits` is v0-v3 history only: v4 manifests carry no in-file edits ledger
+# (the decision ledger owns history), and empty `edits:`/`prose:` keys are
+# no longer emitted (polish-pact-agent-ux req.polish.doc-holes).
+optional_top_level:
+  - edits
+  - prose
+  - formal
+  - waivers
+  - hierarchy
+objects:
+  change:
+    required:
+      - id
+      - title
+      - status
+    optional:
+      - tier
+  hierarchy:
+    optional:
+      - role
+      - parent
+      - children
+      # Every clause MUST name an owning `req.*` that exists in this program
+      # or in one of its children; validation refuses a clause naming none
+      # and a clause naming an id that does not exist, blocking at the
+      # verification bar for programs (pact-acceptance-prose-is-enforceable
+      # req.pact-acceptance-prose-is-enforceable.integration-acceptance-validated-or-deleted).
+      - integration_acceptance
+  requirement:
+    required:
+      - id
+      - statement
+      - scenarios
+      - acceptance
+      - evidence_policy
+  scenario:
+    required:
+      - id
+      - title
+      - when
+      - then
+  acceptance_criterion:
+    required:
+      - id
+      - description
+    # `evidence` is the flat proof-token list; `arms` is the explicit
+    # per-arm form. Declare one or the other, not both. Every token in
+    # either is an ARM: validation refuses a criterion whose arms are not
+    # separably bound -- a distinct evidence kind per arm, or an explicit
+    # `ev.*` id per arm -- because otherwise ONE row closes them all
+    # (pact-acceptance-prose-is-enforceable
+    # req.pact-acceptance-prose-is-enforceable.arms-bind-structurally).
+    optional:
+      - evidence
+      - arms
+  acceptance_arm:
+    required:
+      - id
+      - evidence
+    optional:
+      - description
+  task:
+    required:
+      - id
+      - title
+      - status
+      - verification
+    optional:
+      - environment
+      - method_metadata
+  task_method_metadata:
+    optional:
+      # Explicit v4 alternative to the shared PACT graph projection. Presence
+      # selects this authority even when malformed; there is no fallback.
+      - graph_authority
+  published_generation_evidence_authority:
+    required:
+      - kind # literal: published_generation_evidence
+      - deployment
+      - branch
+      - canonical_generation_id
+      - compatibility_generation_id
+      - catalog_version_id
+      - nodes_live
+      - edges_live
+      - artifacts # non-empty, unique, sorted by repository-relative path
+  published_generation_evidence_artifact:
+    required:
+      - path
+      - sha256 # sha256:<64 lowercase hex>
+  environment_check:
+    required:
+      - id
+      - kind
+    optional:
+      - env
+      - name
+      - description
+      - required
+  # Dependency edges are OPTIONAL, and they are the ONLY dependency
+  # mechanism: no ordering is enforced unless an explicit edge is written
+  # (without edges every todo task is unblocked; `--format=next` merely
+  # recommends tasks in declaration order). When an edge is written, it
+  # carries all three fields (pact/AGENTS.md, the loop step 1).
+  task_dependency:
+    required:
+      - from
+      - to
+      - kind
+  test_plan_entry:
+    required:
+      - id
+      - requirement
+      - test_id
+  evidence:
+    required:
+      - id
+      - kind
+      - status
+      - refs
+    optional:
+      - generation_id
+      - data
+  pact_edit:
+    required:
+      - id
+      - at
+      - actor
+      - command
+      - before_digest
+      - after_digest
+      - validation

@@ -1,0 +1,69 @@
+{
+ "arms": [
+  "prose",
+  "structured"
+ ],
+ "caveat": "n=3 paired seeds. The 95% interval at df=2 is wide; a 'separated' verdict here means the paired differences agreed in sign and size relative to their own scatter, not that the effect size is precisely estimated. Seeds re-draw inside ONE frozen world, so this generalizes across draws of that world and not across corpora.",
+ "delta": {
+  "max": 0.027045300878972278,
+  "mean": -0.0036060401171962666,
+  "min": -0.05679513184584173,
+  "range": 0.083840432724814,
+  "stdev": 0.04624140131884483
+ },
+ "df": 2,
+ "metric": "extraction/recall",
+ "n_pairs": 3,
+ "pairs": [
+  {
+   "delta": -0.05679513184584173,
+   "prose": {
+    "config_digest": "a482ca353494eb3ae5e4c6009a56ece5ddcb637c7d8227eff0932f27cafff4d2",
+    "dir": "synth-a482ca353494-da2d7488d4d5",
+    "value": 0.830290736984449
+   },
+   "seed": "prose-749-1",
+   "structured": {
+    "config_digest": "85814e01a8a1d01649274124c1158ec3a0f2cdcf3e6e38074b5c18a9443f7749",
+    "dir": "synth-85814e01a8a1-983c858cc079",
+    "value": 0.8870858688302907
+   }
+  },
+  {
+   "delta": 0.01893171061528065,
+   "prose": {
+    "config_digest": "ef1829af74c6d3014a4eeb6fa4979a7bb1c5b128834a1ee6425cc7fb9528defc",
+    "dir": "synth-ef1829af74c6-23e767fdc702",
+    "value": 0.9168356997971603
+   },
+   "seed": "prose-749-2",
+   "structured": {
+    "config_digest": "117cf0552e6834f8a11d2a2503329f789ccb74eec21aa47ea8edf8652b4952fd",
+    "dir": "synth-117cf0552e68-da92cb2ab095",
+    "value": 0.8979039891818796
+   }
+  },
+  {
+   "delta": 0.027045300878972278,
+   "prose": {
+    "config_digest": "44a5a9bb58db6158e8997e596bccbab616cba431e7e5d01ab64e226f82122103",
+    "dir": "synth-44a5a9bb58db-ff08e1f150f0",
+    "value": 0.9121027721433401
+   },
+   "seed": "prose-749-3",
+   "structured": {
+    "config_digest": "509bf705dae32a72a5e524b521d8aa504f1071dcf4199eac4636830b4dc1b07b",
+    "dir": "synth-509bf705dae3-e5698e13cb81",
+    "value": 0.8850574712643678
+   }
+  }
+ ],
+ "schema": "okg.synth.paired-effect.v1",
+ "separated_at_95": false,
+ "standard_error": 0.02669748549914058,
+ "t_critical_two_sided_95": 4.303,
+ "t_statistic": -0.1350704026906335,
+ "varying_config_keys": [
+  "realism"
+ ]
+}

@@ -1,0 +1,11 @@
+name: forge
+version: 1.0.0
+description: GitHub/GitLab issues, pull requests, repositories.
+provides:
+  subtypes_file: schema.yaml
+extends:
+  openspec:
+    description: Issues + PRs whose title or body word-boundary-mentions a
+      known change_id slug emit a `references` edge into the matching OpenSpecChange.
+    cross_link_rules:
+    - cross_links/forge_to_openspec.yaml

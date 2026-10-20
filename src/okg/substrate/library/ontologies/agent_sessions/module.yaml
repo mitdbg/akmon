@@ -1,0 +1,29 @@
+name: agent_sessions
+version: 1.0.0
+description: Agent + sub-agent sessions, chapters, briefs, tool-use events,
+  permission events, skills, spawned-task chips. Captures the LLM-agent workflow
+  as graph nodes.
+provides:
+  subtypes_file: schema.yaml
+extends:
+  openspec:
+    description: 'Sessions and bounded agent_message nodes reference
+      open_spec_change when they edit files under `openspec/changes/<slug>/`
+      or `pact/changes/<slug>/` (via_edge: affects -> source_file), or when
+      their tool_use_events/messages run an `openspec` or `okg pact` command
+      naming the slug.'
+    cross_link_rules:
+    - cross_links/sessions_to_openspec.yaml
+  git_graph:
+    description: tool_use_events with a `file_path` attr resolve to the corresponding
+      source_file via exact path match; emits the finer-grained per-call `affects`
+      edge alongside the per-session edge.
+    cross_link_rules:
+    - cross_links/tool_use_to_files.yaml
+  methodology:
+    description: 'Sessions reference method_card when their prompts or tool_use_events
+      mention `card:<slug>`; tool_use_event grain emits direct `references`,
+      session grain emits inherited `references`. Resolves to nothing when
+      methodology module isn''t loaded.'
+    cross_link_rules:
+    - cross_links/agent_session_references_method_card.yaml

@@ -1,0 +1,36 @@
+invariants:
+  - use: okg.invariants.no_orphan_edges
+    severity: error
+
+  - use: okg.invariants.subtype_counts_within_bounds
+    with:
+      subtype: Incident
+      min: 1
+      max: 5000
+
+  - use: okg.invariants.every_text_node_has_text
+    severity: warn
+    with:
+      subtypes: [Issue]
+
+  - name: every_incident_has_severity
+    severity: warn
+    scope: cross
+    sql: |
+      SELECT node_id
+      FROM nodes_live
+      WHERE subtype='Incident' AND (attrs->>'severity') IS NULL
+      LIMIT 100;
+
+  - name: github_issues_have_repo
+    severity: error
+    scope: source
+    source: github_issues
+    sql: |
+      SELECT node_id
+      FROM nodes_live
+      WHERE subtype='Issue'
+        AND node_id NOT IN (
+          SELECT src FROM edges_live WHERE edge_type='in_repo'
+        )
+      LIMIT 100;

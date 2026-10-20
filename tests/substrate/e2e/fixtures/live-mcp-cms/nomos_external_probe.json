@@ -1,0 +1,36 @@
+{
+  "policy_bundle_id": "live-mcp-cms.live-relations",
+  "policy_version": "1",
+  "default_effect": "deny",
+  "scope": {
+    "deployment": "live-mcp-cms"
+  },
+  "rules": [
+    {
+      "rule_id": "allow_dbs_datasets_for_the_runtime_service",
+      "effect": "allow",
+      "priority": 100,
+      "actions": ["external.cms.dbs.read"],
+      "subjects": ["service:okg-runtime"],
+      "match": {
+        "deployment": "live-mcp-cms",
+        "subtype": "dbs_instance",
+        "relation": ["datasets", "dataset"]
+      },
+      "reason_code": "live_mcp_cms.dbs_datasets_allowed"
+    },
+    {
+      "rule_id": "allow_rucio_rses_for_the_runtime_service",
+      "effect": "allow",
+      "priority": 100,
+      "actions": ["external.cms.rucio.read"],
+      "subjects": ["service:okg-runtime"],
+      "match": {
+        "deployment": "live-mcp-cms",
+        "subtype": "rucio_instance",
+        "relation": ["rses"]
+      },
+      "reason_code": "live_mcp_cms.rucio_rses_allowed"
+    }
+  ]
+}

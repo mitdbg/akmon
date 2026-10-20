@@ -1,0 +1,23 @@
+reconcile:
+  - change: remove_narrowing
+    parent: Issue
+    edge: mentions
+    child: Bug
+    violators: 17
+    action: retract
+
+  - change: remove_subtype
+    subtype: LegacyWidget
+    violators: 0
+    action: apply
+
+  - change: rename_subtype
+    from: Issue
+    to:   Ticket
+    violators: 3421
+    action: rename
+
+  - change: remove_edge_type
+    edge_type: obsolete_references
+    violators: 42
+    action: retract

@@ -1,0 +1,33 @@
+rules:
+  - id: calendar_event_produces_action_item
+    src:
+      subtype: calendar_event
+      field: event_id
+    dst:
+      subtype: action_item
+      field: parent_meeting_ref
+    matcher: exact
+    edge: produces
+    bidirectional: false
+
+  - id: calendar_event_mentions_advisee
+    src:
+      subtype: calendar_event
+      field: event_id
+    dst:
+      subtype: advisee
+      field: person_id
+    matcher: exact
+    edge: mentions
+    bidirectional: false
+
+  - id: calendar_event_mentions_grant
+    src:
+      subtype: calendar_event
+      field: event_id
+    dst:
+      subtype: grant
+      field: grant_id
+    matcher: exact
+    edge: mentions
+    bidirectional: false

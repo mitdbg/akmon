@@ -1,0 +1,95 @@
+# systemd unit for the OKG DBOS runtime worker.
+#
+# Per `consolidate-deployment-runtime` (2026-05-11): one supervised
+# worker process per deployment runs DBOS workflows + the embedded
+# Watcher + the embedded webhook server. There is NO separate
+# `okg watch` or `okg webhook-serve` process; the worker is the
+# single thing systemd needs to keep alive.
+#
+# Install:
+#   sudo cp docs/operate/deployments/assets/okg-runtime-worker.service \
+#       /etc/systemd/system/okg-runtime-worker@.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now okg-runtime-worker@okg-workspace.service
+#
+# The `@` makes this a template unit. The instance string (the part
+# after `@`) is the deployment name. Each deployment runs its own
+# worker process bound to its own systemd instance.
+#
+# Verify:
+#   systemctl status okg-runtime-worker@okg-workspace.service
+#   journalctl -u okg-runtime-worker@okg-workspace.service -f
+#   okg doctor --deployment okg-workspace --json | jq .runtime_services_health
+
+[Unit]
+Description=AKMON runtime worker (deployment %i)
+# Guide: docs/operate/deployments/runtime.md in the AKMON repository.
+Documentation=https://github.com/mitdbg/akmon
+After=postgresql.service network.target
+Wants=postgresql.service
+
+# Restart rate-limit: if the worker dies and is restarted 5 times within 300s
+# (e.g. an OOM-restart loop on a wedged or too-heavy publish), give up and mark
+# the unit `failed` rather than loop forever -- a fail-loud signal for the
+# operator instead of a silent thrash. StartLimit* MUST live in [Unit]; systemd
+# IGNORES them in [Service] (where they previously, wrongly, sat -- so the limit
+# was the 10s default and never tripped on the ~28s OOM cycle).
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+
+# REQUIRED — set to a user with read on the deployment dir + DB role
+# permissions matching role_split.sql.
+User=okg
+Group=okg
+
+# REQUIRED — adjust to wherever the repo is checked out + venv lives.
+WorkingDirectory=/opt/okg
+Environment="PYTHONUNBUFFERED=1"
+
+# OKG_DSN is interpolated into the manifest's `postgres.dsn`. Use a
+# drop-in (`systemctl edit okg-runtime-worker@okg-workspace`) to set
+# deployment-specific overrides without editing this template.
+EnvironmentFile=/etc/okg/runtime-worker.env
+
+# `okg runtime worker` is the long-running CLI form; falls back to
+# `python -m okg.substrate.runtime.worker` if the entry point isn't
+# installed.
+ExecStart=/opt/okg/.venv/bin/okg runtime worker --deployment %i
+
+# Stop signal: SIGTERM is what the worker's signal handler expects.
+# The handler runs `stop_supervised_services()` + `DBOS.destroy()`,
+# which takes a few seconds on a busy queue; a 30 s timeout gives
+# DBOS time to drain in-flight workflows.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Auto-restart on any non-zero exit, with a 5 s backoff so a thrashing
+# config doesn't spin systemd into a tight loop. (The restart RATE-LIMIT that
+# actually stops the loop lives in [Unit] above -- StartLimit* are ignored
+# here in [Service].)
+Restart=on-failure
+RestartSec=5
+
+# Worker is a long-lived process; the heap doesn't normally grow
+# unboundedly, but cap to a sane ceiling so a leak surfaces as an OOM
+# restart rather than swap death. Adjust based on deployment size.
+MemoryMax=2G
+TasksMax=256
+
+# Send all stdout/stderr to the journal so `journalctl -u …` shows
+# everything the worker logs.
+StandardOutput=journal
+StandardError=journal
+
+# Filesystem hardening — uncomment if your deployment lives entirely
+# under /opt/okg and writes only to the DB + journal.
+# ProtectSystem=strict
+# ReadWritePaths=/var/lib/okg /var/log/okg
+# PrivateTmp=true
+# NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

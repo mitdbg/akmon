@@ -1,0 +1,123 @@
+name: live-mcp-cms
+description: >
+  A TEST FIXTURE, not a shipped deployment (PACT live-relation-mcp-adapter,
+  req.mcp.real-upstream). It binds three live relations to two MCP servers
+  with the built-in `kind: mcp` adapter: two DBS dataset relations (a wide
+  search and one dataset by name) and a Rucio RSE relation, on two
+  deployment-private system subtypes.
+
+  Two tests stage a copy of this tree. In CI,
+  `tests/substrate/external_backed/test_live_relation_mcp_adapter.py` points
+  every binding at an in-process fake MCP server. By hand, and never in CI,
+  `tests/live/mcp_cms/` runs it against the two real servers on loopback.
+  The committed ports are the hand-run proof's; the CI copy rewrites them.
+
+# Prototype, and it has to be: every binding declares a `personal` upstream
+# credential, which the server build refuses on any lifecycle but
+# `prototype` or `demo`.
+contract:
+  version: 1
+  lifecycle: prototype
+  owner: agent-surface
+  intended_usage: >-
+    a test-only deployment proving the `kind: mcp` live adapter against real
+    MCP servers; never deployed or operated
+  evidence:
+    readiness:
+      status: not_required
+      collected_at: null
+      ttl_seconds: null
+      provenance: test-fixture
+
+release:
+  channel: dev
+
+postgres:
+  dsn: ${OKG_DSN}
+
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+# No library module: the two subtypes are this deployment's own
+# (`schemas/cms_live_systems.yaml`). The tests publish one node of each.
+modules: []
+
+enrichers: []
+
+agent_surface:
+  served:
+    - search
+    - inspect
+    - expand
+
+  live_bindings:
+    datasets:
+      kind: mcp
+      # The upstream server holds one person's credential. okg cannot
+      # inspect it; this line declares it, and `contract.lifecycle` above is
+      # what admits the declaration.
+      upstream_credential: personal
+      config:
+        # Loopback, so opted into by name, and the exact `ip:port` is the
+        # allowlist. A gate in front of the server checks a bearer token.
+        server_url: http://127.0.0.1:5952/mcp
+        allowed_hosts: ["127.0.0.1:5952"]
+        allow_non_global: true
+        tool: dbs_list_datasets
+        arguments:
+          primary_ds_name: {$arg: primary_ds_name}
+          detail: {$arg: detail}
+        # The tool's JSON text is the list of datasets itself.
+        rows_path: "."
+        # No `max_response_bytes`: the 8 MiB default is the bound under
+        # test. A wide query returns far more and must be refused on the
+        # wire, not read.
+        auth_header: Authorization
+      # The variable holds the whole header value, `Bearer <token>`. The
+      # tests set it in-process; it is never written to a file in this tree.
+      secret_refs:
+        - env:OKG_MCP_CMS_GATE_AUTH
+
+    dataset:
+      kind: mcp
+      upstream_credential: personal
+      config:
+        server_url: http://127.0.0.1:5952/mcp
+        allowed_hosts: ["127.0.0.1:5952"]
+        allow_non_global: true
+        tool: dbs_list_datasets
+        arguments:
+          dataset: {$arg: dataset}
+          # Operator-fixed: a pattern lists names only. A caller who needs
+          # the detail of many datasets asks the wide relation, which is
+          # bounded by the default cap.
+          detail: false
+        rows_path: "."
+        # A name-only row is about a hundred bytes; a pattern that matches
+        # more than ~10,000 datasets is refused `response_over_cap`, with
+        # `dataset` named as the argument to narrow.
+        max_response_bytes: 1048576
+        auth_header: Authorization
+      secret_refs:
+        - env:OKG_MCP_CMS_GATE_AUTH
+
+    rses:
+      kind: mcp
+      upstream_credential: personal
+      config:
+        server_url: http://127.0.0.1:5951/mcp
+        allowed_hosts: ["127.0.0.1:5951"]
+        allow_non_global: true
+        tool: rucio_list_rses
+        arguments:
+          rse_expression: {$arg: rse_expression}
+          limit: {$arg: limit}
+        # The tool returns an object; its structured result carries the rows
+        # under `items`.
+        rows_path: items
+        row_fields: [rse]
+        max_rows: 500
+        max_response_bytes: 1048576
+        auth_header: Authorization
+      secret_refs:
+        - env:OKG_MCP_CMS_GATE_AUTH

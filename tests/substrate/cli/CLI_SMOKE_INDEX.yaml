@@ -1,0 +1,971 @@
+# CLI smoke-test coverage manifest.
+#
+# Per `audit-test-and-document-cli-surface` Phase 2: every verb in
+# the substrate's argparse tree SHALL appear here, mapped to a
+# test file that exercises it. Adding a verb without updating this
+# file fails `test_cli_surface_coverage.py`.
+#
+# Layering:
+#   - `test_cli_smoke.py` runs a UNIVERSAL parametrized check for
+#     every argparse verb (--help exits 0; verb is in subparsers).
+#     It doesn't read this manifest; verbs are discovered straight
+#     from `_build_parser()`. Re-routing a manifest entry away
+#     from `test_cli_smoke.py` does NOT remove that verb's smoke.
+#   - `test_file` here names the canonical BEHAVIORAL home (no-DSN
+#     failure, happy path, regression cases).
+#   - `test_low_coverage_verb_smoke.py` is the default behavioral
+#     destination for verbs whose only real check is "fails
+#     predictably without DSN" or "succeeds without state".
+#
+# Comments document edge-case mocking notes.
+#
+# ─── `role:` — the entry surface, per PACT define-newcomer-entry-path ───
+#
+# Every TOP-LEVEL verb carries a role. Sub-verbs do not: "which command
+# does a newcomer type first" is a property of the top-level surface.
+# A top-level verb with no role fails `test_cli_surface_coverage.py` —
+# it must be classified explicitly, never defaulted, because silently
+# defaulting is how the entry surface grew several front doors without
+# anything noticing.
+#
+# A DOOR is a verb a newcomer plausibly types FIRST to obtain a working
+# graph — NOT merely any verb that can result in one. The loose reading
+# admits half the CLI and makes the role meaningless.
+#
+#   newcomer_bring_up  The ONE documented way in. Exactly one verb.
+#   superseded_entry   Also a door a newcomer might type first, but not the
+#                      documented one. Migration to alias/frozen/deleted
+#                      is pending; the count is a ratchet that may fall
+#                      but never rise.
+#   alias              Delegates to the newcomer door and reaches the
+#                      same end state. Requires `alias_of:`.
+#   frozen             Still executes, but emits a migration notice
+#                      naming its replacement. Requires `replaced_by:`.
+#   lifecycle          Operates an EXISTING deployment (start/stop/up).
+#                      Deliberately OUTSIDE the alias/frozen/delete
+#                      trichotomy: `start` is the only day-2 capability
+#                      the newcomer path has, added by `dead-simple-install`
+#                      because "after reboot, the container stops", and
+#                      freezing it would delete the reboot story.
+#   not_entry          Cannot begin a bring-up.
+#
+# Classification is grounded in probes, not in a verb's name or help text.
+# Each of these was checked by RUNNING it, and three were misclassified on
+# an earlier reading of their help strings alone:
+#
+#   provision          NOT a door — exits "deployment dir for 'X' not
+#                      found", so it presumes a scaffold already exists.
+#   fetch-deployments  NOT a door — clones the reference-deployment cache
+#                      and creates no deployment. A prerequisite step, and
+#                      `install --profile` names it in the error at the
+#                      moment it is needed.
+#   snapshot-load      NOT a door — can publish a first generation from a
+#                      JSON file, but a newcomer has no snapshot. An
+#                      import/restore capability.
+#   deployment         NOT a door — its door is three levels down at
+#                      `deployment bootstrap apply`, a deliberate authoring
+#                      workflow (plan/draft/verify/apply) for someone
+#                      designing a deployment, not a first command.
+
+# ─── `visibility:` — default `okg --help` listing, per okg#3109 slice 0 ───
+#
+# Optional, top-level verbs only. `hidden` leaves a verb out of the default
+# `okg --help` listing; it still parses, runs, and answers `--help`.
+# Absent means `shown`. Mirrors `entry_roles.HIDDEN_FROM_DEFAULT_HELP`, and
+# `test_cli_surface_coverage.py` asserts the two agree. `retired` (issue
+# #2479) also leaves the listing, is not named in the epilog, and mirrors
+# `entry_roles.RETIRED_VERBS`; such a verb only refuses.
+# `unlisted` (issue #3416) also leaves the listing and is not named in the
+# epilog, but runs as before; it mirrors `entry_roles.UNLISTED_VERBS`.
+
+verbs:
+  # ─── operator / core ──────────────────────────────────────────
+  doctor:
+    role: not_entry
+    test_file: tests/substrate/cli/test_doctor_registry.py
+    notes: "20 tests; subchecks covered in test_doctor_subchecks.py"
+  dogfood:
+    role: not_entry
+    visibility: hidden
+    test_file: tests/substrate/cli/test_dogfood_runtime_control_cli.py
+  dogfood status:
+    test_file: tests/substrate/cli/test_dogfood_runtime_control_cli.py
+  dogfood doctor:
+    test_file: tests/substrate/cli/test_dogfood_runtime_control_cli.py
+  dogfood up:
+    test_file: tests/substrate/cli/test_dogfood_runtime_control_cli.py
+  dogfood down:
+    test_file: tests/substrate/cli/test_dogfood_runtime_control_cli.py
+  dogfood restart:
+    test_file: tests/substrate/cli/test_dogfood_runtime_control_cli.py
+  dogfood service:
+    test_file: tests/substrate/test_dogfood_runtime_service_adapters.py
+  run:
+    role: not_entry
+    test_file: tests/substrate/cli/test_command_function_happy_paths.py
+    notes: "happy-path; mocks psycopg.connect"
+  up:
+    role: lifecycle
+    test_file: tests/substrate/test_deployment_upgrade.py
+  enricher:
+    role: not_entry
+    test_file: tests/substrate/cli/test_enricher_backfill_cli.py
+  enricher backfill:
+    test_file: tests/substrate/cli/test_enricher_backfill_cli.py
+  jobs:
+    role: not_entry
+    test_file: tests/substrate/cli/test_job_runtime_cli.py
+  jobs status:
+    test_file: tests/substrate/cli/test_job_runtime_cli.py
+  jobs enqueue-source:
+    test_file: tests/substrate/cli/test_job_runtime_cli.py
+  jobs find-source-run:
+    test_file: tests/substrate/cli/test_job_runtime_cli.py
+  chat:
+    role: not_entry
+    test_file: tests/substrate/chat/test_source_admin_transport.py
+    notes: >-
+      PACT chat-source-admin. `chat source-admin` reads a write-enabled
+      MCP endpoint back and refuses to project an admin preset over an
+      unauthenticated network endpoint; `chat source-retry` drives the
+      DLQ supersession chain. Retry behavior is covered by
+      tests/substrate/chat/test_source_retry_affordance.py.
+  chat source-admin:
+    test_file: tests/substrate/chat/test_source_admin_transport.py
+  chat source-retry:
+    test_file: tests/substrate/chat/test_source_retry_affordance.py
+  chat setup:
+    test_file: tests/substrate/chat/test_chat_setup.py
+    notes: |
+      Issue #1792. The one guided entry point: stand-up, admin bootstrap,
+      provider registration by secret reference, model and graph-endpoint
+      readiness, sync, and the tool-attached conversation probe that
+      separates configuration convergence from conversation readiness.
+  chat codex-shim:
+    test_file: tests/substrate/chat/test_codex_shim.py
+    notes: |
+      PACT chat-codex-cli-provider-shim. A loopback OpenAI-compatible
+      endpoint that answers each chat completion with one read-only,
+      shell-less `codex exec --json` run; tests drive it against a fake
+      codex executable replaying a recorded event stream.
+  chat sync:
+    test_file: tests/substrate/test_chat_sync_projection.py
+  chat plan:
+    test_file: tests/substrate/test_chat_plan_apply_readback.py
+    notes: |
+      PACT chat-plan-apply-readback. Writes the manifest-derived desired
+      state without contacting an instance; the behavioral home covers
+      byte-identity on re-run, secret-freedom, and the pre-existing-path
+      refusal.
+  chat readback:
+    test_file: tests/substrate/test_chat_plan_apply_readback.py
+    notes: |
+      PACT chat-plan-apply-readback. Compares a live instance against a
+      plan and writes chat-readback.json. The read-only claim is checked
+      against the fake's request log, not asserted.
+  chat sso-check:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+    notes: >-
+      PACT chat-sso-integration. The verb shipped with no test naming it —
+      tests/substrate/test_chat_sso_config.py covers the sso module and the
+      manifest parsing, never the CLI verb. Routed to the low-coverage
+      default (fails predictably without a DSN) rather than pointed at a
+      file that does not exercise it. A behavioral home belongs with
+      task.chat-sso-integration.proxy-integration, which is still todo.
+  chat-instance:
+    role: not_entry
+    test_file: tests/substrate/chat/test_instance_lifecycle.py
+    notes: >-
+      PACT chat-instance-lifecycle. Stands up a deployment's Open WebUI
+      instance and its per-deployment Postgres app database, supervises
+      the process, and renders the single-operator front door. Separate
+      top-level verb rather than a `chat` sub-verb because `chat` reads
+      and configures an instance that already exists, while this creates
+      one — the producer every other live proof in the program consumes.
+  chat-instance up:
+    test_file: tests/substrate/chat/test_instance_lifecycle.py
+  chat-instance status:
+    test_file: tests/substrate/chat/test_instance_ports_supervision.py
+    notes: >-
+      Status shares a home with supervise because supervision is what
+      reads it: the restart arm asserts down before and up after, so the
+      status path is exercised on both sides of a real SIGKILL rather
+      than only on a healthy instance.
+  chat-instance supervise:
+    test_file: tests/substrate/chat/test_instance_ports_supervision.py
+  chat-instance down:
+    test_file: tests/substrate/chat/test_instance_lifecycle.py
+  chat-instance front-door:
+    test_file: tests/substrate/chat/test_instance_front_door.py
+  chat-instance lifecycle-receipt:
+    test_file: tests/substrate/test_chat_lifecycle_receipts.py
+    notes: >-
+      PACT chat-layer-lifecycle. Writes an inert upgrade, rollback or
+      retire receipt for the chat layer. The behavioural home is the
+      receipt suite rather than a CLI test because the verb is a thin
+      wrapper: every refusal it can produce is raised by the builders,
+      and the retire arms need an instance that genuinely held the
+      surfaces before they were removed.
+  ingest:
+    role: not_entry
+    test_file: tests/substrate/cli/test_ingest_happy_path.py
+  status:
+    role: not_entry
+    test_file: tests/substrate/cli/test_command_function_happy_paths.py
+  start:
+    role: lifecycle
+    test_file: tests/substrate/cli/test_lifecycle.py
+    notes: "docker compose start wrapper (dead-simple-install)"
+  stop:
+    role: lifecycle
+    test_file: tests/substrate/cli/test_lifecycle.py
+    notes: "docker compose stop wrapper (dead-simple-install)"
+  restart:
+    role: lifecycle
+    test_file: tests/substrate/cli/test_lifecycle.py
+    notes: "docker compose restart wrapper (dead-simple-install)"
+  fetch-deployments:
+    role: not_entry
+    test_file: tests/substrate/cli/test_fetch.py
+    notes: "okg-deployments cache populator (separate-framework-and-deployments)"
+  metrics:
+    role: not_entry
+    test_file: tests/substrate/cli/test_command_function_happy_paths.py
+  telemetry:
+    role: not_entry
+    test_file: tests/substrate/test_unified_telemetry_metrics.py
+  telemetry bench:
+    test_file: tests/substrate/test_unified_telemetry_metrics.py
+  telemetry contract:
+    test_file: tests/substrate/test_unified_telemetry_metrics.py
+  telemetry coverage:
+    test_file: tests/substrate/test_unified_telemetry_operator_surface.py
+  telemetry metrics:
+    test_file: tests/substrate/test_unified_telemetry_metrics.py
+  telemetry profile:
+    test_file: tests/substrate/test_unified_telemetry_profile_bundle.py
+  telemetry report:
+    test_file: tests/substrate/test_unified_telemetry_operator_surface.py
+  telemetry trace:
+    test_file: tests/substrate/test_unified_telemetry_operator_surface.py
+  provision:
+    role: not_entry
+    test_file: tests/substrate/cli/test_provision.py
+    notes: "one-command deployment bootstrap empty DB -> published generation (canonical-dev-okg)"
+  search:
+    role: not_entry
+    test_file: tests/substrate/cli/test_cli_smoke.py
+    notes: "argparse smoke only; read-side wrapper around MCP search tool"
+  # PACT read-commands-3666: one command per read operator, each calling
+  # the MCP server's own tool in the command's process.
+  inspect:
+    role: not_entry
+    test_file: tests/substrate/cli/test_read_operator_commands.py
+  expand:
+    role: not_entry
+    test_file: tests/substrate/cli/test_read_operator_commands.py
+  filter:
+    role: not_entry
+    test_file: tests/substrate/cli/test_read_operator_commands.py
+  aggregate:
+    role: not_entry
+    test_file: tests/substrate/cli/test_read_operator_commands.py
+  map:
+    role: not_entry
+    test_file: tests/substrate/cli/test_read_operator_commands.py
+  query:
+    role: not_entry
+    test_file: tests/substrate/cli/test_read_operator_commands.py
+  # PACT read-commands-help-3666: the instructions an MCP client gets at
+  # connect, printed from a shell.
+  guide:
+    role: not_entry
+    test_file: tests/substrate/cli/test_read_help_text.py
+  source:
+    role: not_entry
+    test_file: tests/substrate/sources/test_manifest_draft.py
+  source draft:
+    test_file: tests/substrate/sources/test_manifest_draft.py
+  trace:
+    role: not_entry
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  trace node:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+
+  # ─── catalog group ────────────────────────────────────────────
+  catalog:
+    role: not_entry
+    test_file: tests/substrate/cli/test_catalog_alias_concept.py
+  catalog load:
+    test_file: tests/substrate/cli/test_dispatch_paths.py
+  catalog history:
+    test_file: tests/substrate/cli/test_align_cli_phase2.py
+  catalog ownership:
+    test_file: tests/substrate/test_catalog_ownership.py
+  catalog repair-restamp-ownership:
+    test_file: tests/substrate/test_searchable_text_path_fields.py
+
+  # ─── generation group ─────────────────────────────────────────
+  generation:
+    role: not_entry
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  generation describe:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  generation list:
+    test_file: tests/substrate/cli/test_align_cli_phase2.py
+  generation compact:
+    test_file: tests/substrate/test_chronos_compaction.py
+
+  # ─── alias group ──────────────────────────────────────────────
+  alias:
+    role: not_entry
+    test_file: tests/substrate/cli/test_catalog_alias_concept.py
+  alias add:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  alias collisions:
+    test_file: tests/substrate/catalog/test_alias_seeding_collision.py
+  alias list:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  alias remove:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  alias seed-from-subtype:
+    test_file: tests/substrate/test_alias_cli.py
+
+  # ─── remediate group (fix-projection-alias-identity, ruling 4) ─
+  remediate:
+    role: not_entry
+    test_file: tests/substrate/projection/test_remediation_cli.py
+  remediate stranded-link-cache:
+    test_file: tests/substrate/projection/test_remediation_cli.py
+  remediate collapsed-aliases:
+    test_file: tests/substrate/projection/test_remediation_cli.py
+  remediate link-endpoints:
+    test_file: tests/substrate/projection/test_remediation_cli.py
+  remediate multi-target-report:
+    test_file: tests/substrate/projection/test_remediation_cli.py
+  remediate derived-node-exposure:
+    test_file: tests/substrate/cli/test_derived_node_liveness_cli.py
+  remediate entity-merge:
+    test_file: tests/substrate/entity_resolution/test_merge_rehome.py
+  remediate retire-source:
+    test_file: tests/substrate/cli/test_source_retirement_cli.py
+
+  # ─── library group ────────────────────────────────────────────
+  library:
+    role: not_entry
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  library list:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  library show:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+
+  # ─── admission group ──────────────────────────────────────────
+  admission:
+    role: not_entry
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  admission list:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  admission show:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  admission decide:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  admission submit:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+
+  # ─── sync group ───────────────────────────────────────────────
+  sync:
+    role: not_entry
+    test_file: tests/substrate/cli/test_sync_diagnostics.py
+  sync explain:
+    test_file: tests/substrate/cli/test_sync_diagnostics.py
+  sync frontier:
+    test_file: tests/substrate/test_source_frontier_operational_view.py
+  sync benchmark:
+    test_file: tests/okg-workspace/test_source_sync_benchmark.py
+  sync microbench:
+    test_file: tests/substrate/source_sync/test_source_microbenchmark_inventory.py
+  sync benchmark-capture:
+    test_file: tests/okg-workspace/test_source_sync_performance_measurements.py
+  sync convergence:
+    test_file: tests/substrate/test_source_sync_convergence_status.py
+  sync health:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  sync poll:
+    test_file: tests/substrate/cli/test_sync_diagnostics.py
+  sync webhook:
+    test_file: tests/substrate/cli/test_sync_diagnostics.py
+
+  # ─── admin: substrate maintenance ────────────────────────────
+  migrate:
+    role: not_entry
+    test_file: tests/substrate/cli/test_command_function_happy_paths.py
+  snapshot-load:
+    role: not_entry
+    test_file: tests/substrate/cli/test_align_cli_phase2.py
+  consistency-rerun:
+    role: not_entry
+    test_file: tests/substrate/cli/test_align_cli_phase2.py
+  consistency-scope-report:
+    role: not_entry
+    test_file: tests/substrate/consistency/test_locality_surface.py
+    notes: "per-check scope-decision (scoped/full + fallback reason) observability surface"
+  bench:
+    role: not_entry
+    visibility: hidden
+    test_file: tests/bench/injection/test_injection_cli.py
+    notes: "shipped okg.bench harness command group (PACT ship-okg-bench)"
+  bench inject:
+    test_file: tests/bench/injection/test_injection_cli.py
+    notes: "synthetic inconsistency injection benchmark (#749): --help smoke, golden rendering, live double-run byte-identical over the deterministic surface"
+  bench synth:
+    test_file: tests/bench/synth/test_run_e2e.py
+    notes: "KG-first synthetic-corpus benchmark (ring 1a-prime, PACT kg-first-synthetic-corpus): smoke e2e through two real publish cycles, pinned non-vacuous golden, clean-FP gate negative control"
+
+  # ─── read-only native view artifacts ─────────────────────────
+  view:
+    role: not_entry
+    test_file: tests/substrate/test_derived_view_reads.py
+    notes: "read-only derived-artifact surface; no refresh/materialize verb"
+  view list:
+    test_file: tests/substrate/test_derived_view_reads.py
+  view show:
+    test_file: tests/substrate/test_derived_view_reads.py
+  view inspect:
+    test_file: tests/substrate/test_derived_view_reads.py
+
+  # ─── admin: db group ──────────────────────────────────────────
+  db:
+    role: not_entry
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  db list:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  db status:
+    test_file: tests/substrate/cli/test_align_cli_phase2.py
+  db doctor:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  db drop:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  db gc:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+    notes: "needs cluster-dsn arg; covered by parametrized smoke only"
+  db clone:
+    test_file: tests/substrate/test_postgres_clone.py
+    notes: "destructive development helper requires explicit --apply; real repeated-container proof lives in scripts/verify_safe_database_clone.py"
+  db cold-history:
+    test_file: tests/substrate/test_cold_history_compression.py
+    notes: "runtime-floor status/rotation and exact index-definition validation"
+  db dbos-gc:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  db current-runtime-dlq:
+    test_file: tests/substrate/test_deployment_upgrade_dirty_state.py
+  db acknowledge-runtime-dlq:
+    test_file: tests/substrate/test_runtime_dlq_acknowledgement.py
+  db inspect-effective-attribute-recovery:
+    test_file: tests/substrate/test_deployment_upgrade_dirty_state.py
+  db prepare-effective-attribute-recovery:
+    test_file: tests/substrate/test_deployment_upgrade_dirty_state.py
+  db prune-source-blobs:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  db prune-blobs:
+    test_file: tests/substrate/images/test_prune_blobs.py
+    notes: "real PostgreSQL dry run, grace, apply, touch race, compaction"
+  db remove-job-runtime-subsystem:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  db migrations:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  db repair-effective-attribute-intervals:
+    test_file: tests/substrate/test_effective_attribute_view_intervals.py
+    notes: "real PostgreSQL partial repair, rollback, lock contention, and idempotence proof"
+  db prune-effective-intervals:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+    notes: "CLI smoke (no-DSN nonzero); deep window/drain/idempotence witnesses in tests/substrate/test_effective_attribute_view_intervals.py"
+  db backfill-effective-interval-raw-attrs:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+    notes: "CLI smoke (no-DSN nonzero); deep dedup + reads==recompute witnesses in tests/substrate/test_effective_attribute_view_intervals.py"
+  db role-passwords:
+    test_file: tests/substrate/test_least_privilege_mcp.py
+    notes: "real PostgreSQL (issue #3273): --apply sets random passwords, the built-in ones are refused, the 0600 secrets file feeds the MCP role DSN; doctor warns on a built-in password until rotation"
+  db reclaim-index-space:
+    test_file: tests/substrate/db/test_failed_publish_index_reclaim.py
+    notes: "real PostgreSQL (okg#3112): a blocked dry run fails, a clean one lists flagged tables and changes nothing; --apply rebuilds under the publisher lock with an authority fingerprint; refusals for a held publisher lock, a source run in progress and an invalid index"
+  db embed-backfill:
+    test_file: tests/substrate/test_embedding_vector_sets_db.py
+    notes: "real PostgreSQL (PACT openrouter-embeddings-hnsw): vector-set backfill with the free hash backend through the CLI (run, --dry-run, unknown and unregistered set refusals), distinct missing documents only, reuse, no node rows, links after a template change, the per-set lock; spend cap, ledger by set and dry-run pricing over httpx.MockTransport in tests/substrate/test_embedding_pipeline.py"
+  db embed-show:
+    test_file: tests/substrate/test_embedding_vector_sets_db.py
+    notes: "real PostgreSQL (PACT openrouter-embeddings-hnsw): prints the registered set's document, doc_hash and vector state for a node; node_not_found for an unknown node"
+  db embed-index:
+    test_file: tests/substrate/test_embedding_vector_sets_db.py
+    notes: "real PostgreSQL (PACT openrouter-embeddings-hnsw): through the CLI, the dry run lists build and drop, --apply builds the new-settings index concurrently and drops the old one, a rerun keeps it, kind none drops every index of the set; refusals for a rebuild already running and for index settings migrate has not registered"
+  db semantic-index:
+    test_file: tests/substrate/test_embedding_pipeline.py
+    notes: "real PostgreSQL (PACT openrouter-embeddings-hnsw): dry run reports a missing index, --apply builds the HNSW index concurrently; ranking through it is in tests/substrate/mcp/test_semantic_model_identity.py"
+  db migrate-down:
+    test_file: tests/substrate/db/test_ordered_migrations.py
+  db attr-index:
+    test_file: tests/substrate/db/test_declared_attr_index_lifecycle.py
+    notes: "real PostgreSQL (okg#3112 step 2): `reconcile` dry run plans without DDL, --apply builds every declared index concurrently, a second reconciler is refused, --retry-failed lifts the failure cap; `verify --against-graph` exit 0 clean and 1 naming the attribute, plain `verify` refused as removed_check (test_declared_attr_index_parity.py)"
+
+  # ─── admin: runtime (DBOS) group ─────────────────────────────
+  runtime:
+    role: not_entry
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime bootstrap:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  runtime worker:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  runtime debug-workflow:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  runtime cancel-workflow:
+    test_file: tests/substrate/runtime/test_clear_stranded_workflow.py
+  runtime supersede-checkpoint:
+    test_file: tests/substrate/ingest/test_supersede_incomplete_checkpoint.py
+  runtime finish-undo:
+    test_file: tests/substrate/ingest/test_run_base_undo.py
+  runtime smoke:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime drain:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime reset:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime escalation:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime measure-recovery:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime get-event:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime openshell-policy:
+    test_file: tests/substrate/runtime/test_openshell_policy.py
+  runtime list-schedules:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime trigger-schedule:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime enqueue-fenced-recovery:
+    test_file: tests/substrate/test_runtime_dlq_acknowledgement.py
+  runtime pause-schedule:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime resume-schedule:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime quiesce:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  runtime fence-status:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+
+  # ─── admin: agent runtime boundary ───────────────────────────
+  agent-ssh-run:
+    role: not_entry
+    visibility: hidden
+    test_file: tests/substrate/library/agent_runtimes/test_coordination_ssh.py
+  agent-ssh-client:
+    role: not_entry
+    visibility: hidden
+    test_file: tests/substrate/library/agent_runtimes/test_coordination_client.py
+  agent-runtime-launch:
+    role: not_entry
+    visibility: hidden
+    test_file: tests/substrate/library/agent_runtimes/test_agent_runtime_launcher.py
+  # PACT agent-connect-3412: connect an EXISTING deployment to Claude Code,
+  # Claude Desktop, Cursor or Codex. Not a door: it refuses with
+  # `deployment_not_found` when no deployment exists yet.
+  agent:
+    role: not_entry
+    test_file: tests/substrate/library/agent_runtimes/test_agent_connect.py
+  agent connect:
+    test_file: tests/substrate/library/agent_runtimes/test_agent_connect.py
+  agent disconnect:
+    test_file: tests/substrate/library/agent_runtimes/test_agent_connect.py
+
+  # ─── admin: misc ──────────────────────────────────────────────
+  # `cron` was removed and `worker` is now `runtime worker` (see the
+  # runtime group above) when the DBOS runtime layer absorbed them; the
+  # stale top-level rows were dropped so the argparse-vs-manifest gate
+  # stays green.
+  mcp-serve:
+    role: not_entry
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  ui:
+    role: not_entry
+    test_file: tests/substrate/cli/test_ui_command.py
+  poros:
+    role: not_entry
+    visibility: unlisted
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros demo:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros deliver:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros hardening-harness:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros harness-init:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros init:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros outbox-export:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros peer:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros promote:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros proof:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros readiness:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros readiness-harness:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros receive:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros send:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros serve:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros status:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  poros submit:
+    test_file: tests/substrate/cli/test_poros_cli.py
+  federation:
+    role: not_entry
+    visibility: unlisted
+    test_file: tests/substrate/cli/test_federation_cli.py
+  federation candidate:
+    test_file: tests/substrate/cli/test_federation_cli.py
+  federation discover:
+    test_file: tests/substrate/cli/test_federation_cli.py
+  federation identity:
+    test_file: tests/substrate/cli/test_federation_cli.py
+  federation mailbox:
+    test_file: tests/substrate/federation/test_mailbox_cli_ux.py
+  federation pull:
+    test_file: tests/substrate/cli/test_federation_cli.py
+  federation pull-surface:
+    test_file: tests/substrate/cli/test_federation_cli.py
+  federation route:
+    test_file: tests/substrate/cli/test_federation_cli.py
+  connect:
+    role: not_entry
+    visibility: unlisted
+    test_file: tests/substrate/federation/test_connection_ux.py
+  connect approve:
+    test_file: tests/substrate/federation/test_connection_ux.py
+  connect deny:
+    test_file: tests/substrate/federation/test_connection_ux.py
+  connect demo:
+    test_file: tests/substrate/federation/test_connection_ux.py
+  connect discover:
+    test_file: tests/substrate/federation/test_connection_ux.py
+  connect readiness:
+    test_file: tests/substrate/federation/test_connection_ux.py
+  connect request:
+    test_file: tests/substrate/federation/test_connection_ux.py
+  send:
+    role: not_entry
+    visibility: unlisted
+    test_file: tests/substrate/federation/test_connection_ux.py
+  pull:
+    role: not_entry
+    visibility: unlisted
+    test_file: tests/substrate/federation/test_connection_ux.py
+  inbox:
+    role: not_entry
+    visibility: unlisted
+    test_file: tests/substrate/federation/test_connection_ux.py
+  inbox list:
+    test_file: tests/substrate/federation/test_connection_ux.py
+  inbox promote:
+    test_file: tests/substrate/federation/test_connection_ux.py
+  inbox review:
+    test_file: tests/substrate/federation/test_connection_ux.py
+  proof:
+    role: not_entry
+    visibility: unlisted
+    test_file: tests/substrate/federation/test_connection_ux.py
+  nomos:
+    role: not_entry
+    test_file: tests/substrate/cli/test_nomos_cli.py
+  nomos demo:
+    test_file: tests/substrate/cli/test_nomos_cli.py
+  nomos compile:
+    test_file: tests/substrate/cli/test_nomos_cli.py
+  nomos evaluate:
+    test_file: tests/substrate/cli/test_nomos_cli.py
+  nomos inspect:
+    test_file: tests/substrate/cli/test_nomos_cli.py
+  nomos provider:
+    test_file: tests/substrate/cli/test_nomos_cli.py
+  nomos binding:
+    test_file: tests/substrate/cli/test_nomos_binding_cli.py
+  nomos grant:
+    test_file: tests/substrate/cli/test_nomos_binding_cli.py
+  nomos decision:
+    test_file: tests/substrate/cli/test_nomos_cli.py
+  nomos decisions-prune:
+    test_file: tests/substrate/cli/test_nomos_cli.py
+  nomos trace:
+    test_file: tests/substrate/cli/test_nomos_cli.py
+
+  # ─── scaffold / init ─────────────────────────────────────────
+  init:
+    role: alias
+    alias_of: install
+    test_file: tests/substrate/cli/test_okg_init.py
+  deployments:
+    role: not_entry
+    test_file: tests/substrate/cli/test_deployments_audit.py
+  deployments audit:
+    test_file: tests/substrate/cli/test_deployments_audit.py
+  environment:
+    role: not_entry
+    visibility: hidden
+    test_file: tests/substrate/cli/test_deployment_environment.py
+  environment plan:
+    test_file: tests/substrate/cli/test_deployment_environment.py
+  environment product-status:
+    test_file: tests/substrate/cli/test_environment_product_lifecycle.py
+  environment prepare-release:
+    test_file: tests/substrate/cli/test_deployment_environment.py
+  environment activate-release:
+    test_file: tests/substrate/cli/test_deployment_environment.py
+  environment clone-backup:
+    test_file: tests/substrate/cli/test_deployment_environment.py
+  environment clone-restore:
+    test_file: tests/substrate/cli/test_deployment_environment.py
+  environment clone-rebind:
+    test_file: tests/substrate/cli/test_deployment_environment.py
+  environment claim-owner:
+    test_file: tests/substrate/cli/test_deployment_environment.py
+  environment seed-nomos-baseline:
+    test_file: tests/substrate/cli/test_deployment_environment.py
+  environment promote:
+    test_file: tests/substrate/cli/test_deployment_environment.py
+  environment ready:
+    test_file: tests/substrate/test_environment_services.py
+  environment show:
+    test_file: tests/substrate/cli/test_deployment_environment.py
+  environment service:
+    test_file: tests/substrate/test_environment_services.py
+  external-action:
+    role: not_entry
+    visibility: hidden
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action serve:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action list:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action show:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action timeline:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action recovery:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action submit:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action edit:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action decide:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action cancel:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action claim:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action attest-owner-unavailable:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action outcome:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action restore-create:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action restore-batch:
+    test_file: tests/substrate/cli/test_external_actions.py
+  external-action restore-finalize:
+    test_file: tests/substrate/cli/test_external_actions.py
+  deployment:
+    role: not_entry
+    test_file: tests/substrate/cli/test_deployment_bootstrap.py
+  deployment apply:
+    test_file: tests/substrate/cli/test_deployment_apply.py
+  deployment new:
+    test_file: tests/substrate/cli/test_deployment_new.py
+  deployment list:
+    test_file: tests/substrate/test_deployment_list.py
+  deployment env:
+    test_file: tests/substrate/test_resolve_deployment_dsn.py
+  deployment show:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  deployment read-status:
+    test_file: tests/substrate/cli/test_deployment_read_surfaces.py
+  deployment install-plan:
+    test_file: tests/substrate/cli/test_deployment_install_plan.py
+    notes: "package + bundle -> plan and lock, no runtime effect (distribution-install-plan-and-lock)"
+  deployment install-receipt:
+    test_file: tests/substrate/cli/test_deployment_install_receipt.py
+    notes: "upgrade, rollback and drift receipts over planned installs (distribution-lifecycle-receipts)"
+  deployment conformance:
+    test_file: tests/substrate/contracts/test_external_distribution_conformance_contract.py
+  deployment ready:
+    test_file: tests/okg-workspace/test_dogfood_readiness.py
+  deployment prove-live:
+    test_file: tests/substrate/test_deployment_live_proof.py
+  deployment plan:
+    test_file: tests/substrate/test_deployment_wiring_plan.py
+  deployment lint:
+    test_file: tests/substrate/cli/test_deployment_lint.py
+  deployment compat:
+    test_file: tests/substrate/test_deployment_compat.py
+  deployment add-source:
+    test_file: tests/substrate/sources/test_guided_add.py
+  deployment source-types:
+    test_file: tests/substrate/sources/test_guided_add.py
+  deployment remove-source:
+    test_file: tests/substrate/sources/test_guided_remove.py
+  deployment profile:
+    test_file: tests/substrate/cli/test_deployment_profile_explain.py
+  deployment fork-worktree:
+    test_file: tests/substrate/cli/test_argparse_acceptance.py
+  deployment gc-forks:
+    test_file: tests/substrate/cli/test_argparse_acceptance.py
+  deployment gc-scaffolds:
+    test_file: tests/substrate/cli/test_deployment_gc_scaffolds.py
+  deployment isolated:
+    test_file: tests/substrate/cli/test_argparse_acceptance.py
+  deployment release:
+    test_file: tests/substrate/test_deployment_release.py
+  deployment up:
+    test_file: tests/substrate/test_deployment_upgrade.py
+  deployment backup:
+    test_file: tests/substrate/test_deployment_upgrade.py
+    notes: "independent backup verify (bound-deployment-backup-latency); backup restore for installed deployments (#3415) in tests/substrate/test_deployment_installed_restore.py and tests/substrate/test_installed_upgrade_backup_pg.py"
+  deployment nomos-rollout-audit:
+    test_file: tests/substrate/cli/test_nomos_rollout_audit.py
+  deployment nomos-source-lineage-rollout-audit:
+    test_file: tests/substrate/nomos/test_nomos_source_lineage_rollout.py
+  deployment bootstrap:
+    test_file: tests/substrate/cli/test_deployment_bootstrap.py
+  deployment bug-report:
+    test_file: tests/substrate/cli/test_bug_report_cli.py
+    notes: "added by origin/dev merge (2026-05-22)"
+
+  # ─── dev-tooling ──────────────────────────────────────────────
+  lint:
+    role: not_entry
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  lint deployments:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  new-module:
+    role: not_entry
+    test_file: tests/substrate/cli/test_okg_init.py
+  new-source:
+    role: not_entry
+    visibility: retired
+    test_file: tests/substrate/cli/test_okg_init.py
+    notes: "retired by issue #2479; refuses with command_retired and writes nothing"
+  schema:
+    role: not_entry
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  schema show:
+    test_file: tests/substrate/cli/test_argparse_acceptance.py
+    notes: "back-compat config-file JSON Schema dump (was bare `okg schema <file>`)"
+  schema quality:
+    test_file: tests/ci/test_schema_quality.py
+    notes: "schema-quality scorecard (build-schema-quality-scorecard)"
+
+  # ─── debug / niche ────────────────────────────────────────────
+  branch:
+    role: not_entry
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  branch create:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  branch list:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  branch abandon:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  branch delete:
+    test_file: tests/substrate/cli/test_destructive_verb_guards.py
+    notes: "protected-branch refusal, dry-run default, cascade opt-in (#1306)"
+  branch show:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  branch compact:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  branch rollover:
+    test_file: tests/substrate/cli/test_destructive_verb_guards.py
+    notes: "dry-run, confirmation, publisher exclusion, and source-sync refusal"
+  perf:
+    role: not_entry
+    test_file: tests/substrate/cli/test_renamed_flags.py
+  perf compare:
+    test_file: tests/substrate/cli/test_renamed_flags.py
+  perf list:
+    test_file: tests/substrate/cli/test_renamed_flags.py
+  perf show:
+    test_file: tests/substrate/cli/test_renamed_flags.py
+  # Deprecated old name of `perf` (decision 310): parses, dispatches to the
+  # same handler, warns on stderr, hidden from help. Mirrors
+  # `entry_roles.RENAMED_VERBS`; test_renamed_flags.py asserts they agree.
+  profile:
+    role: not_entry
+    renamed_to: perf
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  profile compare:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  profile list:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+  profile show:
+    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
+
+  # ─── PACT group ──────────────────────────────────────────────
+  pact:
+    role: not_entry
+    visibility: hidden
+    test_file: tests/substrate/cli/test_cli_smoke.py
+    notes: "argparse smoke here; behavioral coverage lives under tests/pact/"
+  # The 22 deprecated verbs were deleted per `complete-pact-surface-cut`
+  # task.delete-verbs. The canonical lifecycle verbs plus read-only census,
+  # the `new-change` alias, and transitional `migrate-openspec` survive.
+  pact census:
+    test_file: tests/pact/test_pact_census.py
+  pact coord:
+    test_file: tests/pact/test_coordination_cli.py
+  pact evidence:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  pact gate:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  pact hooks:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  pact migrate-openspec:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  pact migrate-version:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  pact new:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  pact new-change:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  pact view:
+    test_file: tests/substrate/cli/test_cli_smoke.py
+  pact install:
+    test_file: tests/pact/test_agent_install.py
+  pact decide:
+    test_file: tests/pact/test_review.py
+  # PACT v5 verbs forward to the self-contained `pact` package
+  # (pact-v5-git-native); behavioral coverage lives in tests/pact/test_v5_*.py.
+  pact check:
+    test_file: tests/pact/test_v5_check.py
+  pact digest:
+    test_file: tests/pact/test_v5_check.py
+  pact migrate:
+    test_file: tests/pact/test_v5_migration.py
+  pact usage:
+    test_file: tests/pact/test_v5_usage.py
+
+  # ─── profile-discovered (academic-researcher)────────────────────────
+  install:
+    role: newcomer_bring_up
+    test_file: tests/substrate/cli/test_install_command.py
+  set-token:
+    role: not_entry
+    test_file: tests/substrate/cli/test_pi_set_token.py
+  add:
+    role: not_entry
+    test_file: tests/substrate/cli/test_pi_add_wizards.py
+  remove:
+    role: not_entry
+    test_file: tests/substrate/cli/test_pi_add_wizards.py
+  reset:
+    role: lifecycle
+    test_file: tests/substrate/cli/test_pi_add_wizards.py

@@ -1,0 +1,810 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,array,float,longtable}
+\newfloat{algorithm}{tbp}{loa}
+\floatname{algorithm}{Algorithm}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.8}
+\usepackage[hidelinks]{hyperref}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\flowbox}[2]{\fbox{\parbox{0.79\linewidth}{\centering\strut\textbf{#1}\\#2\strut}}}
+\title{Concord: from changed sources to maintained findings}
+\author{}
+\date{Proposed design}
+\begin{document}
+\maketitle
+
+Akmon extracts a shared graph from source material. Concord maintains consistency
+findings over that graph. A source update retracts old claims, inserts replacements
+and re-checks the affected claim pairs. Optional repair selects claims to accept; an
+approved source edit is a separate action.
+
+The three finite algorithms below specify a bucket-local pair-rule core. They
+make state and failure handling explicit. They refine the
+Concord design (internal pull request 2521); they do not claim
+that the general query engine or this complete integration is implemented.
+
+Incremental maintenance is the core of the design. Algorithms 1 and 2 read only
+the changed sources, the claims they remove or add, and the newly arrived model
+answers, and they revisit only the claim pairs these can affect. Their work does not
+grow with the rest of the graph. Three changes are broad by nature: a new
+producer configuration changes every extraction request, a new rule revision
+changes every finding key, and a change to a shared dictionary or policy
+re-extracts every source that reads it. Answer cleanup, which keeps the answer
+of every active source's current request, is a separate background pass over
+the stored answers.
+
+Section~\ref{sec:status} separates three things for every claim this document
+makes: \emph{design intent} (what the design requires), \emph{proved model}
+(what a checked Lean proof establishes about a simplified model), and
+\emph{implementation agreement} (whether code matches the model). No Concord
+code yet implements these algorithms.
+
+\section{Algorithmic design}
+
+\subsection{Architecture}
+
+\begin{figure}[h]
+\centering
+\begin{tabular}{c}
+\flowbox{Source items}{IDs, revisions, content and context}\\[3pt]
+$\downarrow$\quad old/new source inputs\\[3pt]
+\flowbox{Existing AKMON: shared extraction}{Algorithm 1 proposes finer per-item replacement}\\[3pt]
+$\downarrow$\quad derived facts applied; publisher commits\\[3pt]
+\flowbox{Pinned graph snapshots}{Claims and provenance; explicit coverage is required}\\[3pt]
+$\downarrow$\quad signed claim changes and coverage\\[3pt]
+\flowbox{Proposed Concord: maintenance}{Algorithm 2 re-tests affected claim pairs}\\[3pt]
+$\downarrow$\quad findings, statuses and witnesses\\[3pt]
+\flowbox{Stored Repair proposals}{Algorithm 3 persists acceptance choices; application is separate}\\
+\end{tabular}
+\caption{Shared extraction publishes claims once for all rules. Fixed stored answers
+feed extraction and judged rules; extraction assigns each claim its bucket, and rules supply the tests.
+Repair also needs the same pinned claims and protection policy. Human-approved
+source correction returns to the first box. Applying an acceptance proposal never edits a source; source-edit proposals require an authorized edit.}
+\end{figure}
+
+Coverage travels with claims. A zero-row relation alone cannot establish that
+extraction completed. Pinned answers are inputs to a run; an independent worker
+creates observations for a later run. The diagram distinguishes the existing
+Akmon substrate from proposed per-item coverage and Concord maintenance.
+
+
+\subsection{Five graph records}
+
+A \textbf{Source} is an identified paragraph, table or code declaration. It stores
+source\_id, revision, content and context. For each producer at that revision it
+also records extraction completion: complete, pending or failed, with receipt
+links. Complete extraction may produce zero claims. Pending or failed extraction
+cannot justify an all-clear.
+
+A \textbf{Claim} stores id, bucket, value and provenance. It links to its Source
+revision, supporting span and extraction receipt. Its ID includes the complete
+extraction request and local output ID. This identity is safe because a
+request's stored answer is written once and never replaced; a different answer
+needs a different request, for example a new retry policy or producer
+revision. Answer retention therefore keeps the answer of every active source's
+current request. A bucket is (entity, predicate, scope),
+or Unknown. Different source supports remain different claims; extraction does
+not establish their truth.
+
+A \textbf{Rule} stores id, revision, fixed context and a versioned test. The
+pair-rule core below compares unordered claim pairs within a bucket. Outcomes
+are NoViolation, Violation(conclusion), Pending(reason) or Failed(reason).
+Unknown eligibility is pending, not false.
+
+A \textbf{Finding} links its Rule revision, witness Claims and their Source
+provenance, and stores the conclusion and evaluation identity. Its key contains
+rule ID/revision and the ordered witness claim IDs; its stable name, to which
+reviewer decisions attach, is defined below. Check completion is recorded per
+rule and pair, so a bucket with no finding is known to be checked. Rule-wide incomplete
+coverage marks the rule ``may be out of date'' or ``could not check'' (defined
+in Implementation); a completed finding need not mean the
+sources agree.
+
+\textbf{Finding names.} A claim ID contains its full request, so editing any
+part of a witness's paragraph, or changing the producer, gives the claim a new
+ID and the pair a new key. Reviewer decisions therefore attach to a separate,
+stable \emph{finding name}: the rule ID, the bucket, and the unordered pair of
+the witnesses' (source ID, value) (operator decision, 2026-10-01). An edit to a
+witness's paragraph that keeps its value keeps the name and the decision. A
+changed value is a different conflict and gets a new name. A decision records
+the rule revision and each witness's source revision and span that the reviewer
+saw; when either differs, the finding shows ``changed since decision'', as in
+the Concord design (internal pull request 2521). Two
+supports from the same source with the same value give the same name and share
+one decision; the decision records the set of (source revision, span) it saw,
+so either finding shows ``changed since decision'' only when its own spans are
+not in that set. Values are compared by their canonical typed serialization.
+When a value changes, the finding's name changes: the old decision is retired
+with its name and stays visible in that name's history, and the new finding
+starts undecided. Computing a name reads only the pair's two claims.
+
+These names depart from the Concord design on two points, by the operator's
+decision. The Concord design names a finding by rule, subject and witness and
+never by value; here the value is part of the name, so a changed value is a new
+conflict. The Concord design retires decisions at a new rule version; here the
+name holds the rule ID, not its revision, so a decision carries across a rule
+revision and shows ``changed since decision''.
+
+A \textbf{Repair} is a separately stored proposal, not a property of a Finding.
+It stores id; its pins (the bucket, the conflict component's claim IDs and
+edges, the complete hard-rule identities, and the selection-policy identity
+with the protected IDs in the component); action set; accepted IDs; supporting
+Finding links; lifecycle status; and approval and application receipts.
+This algorithm creates one proposal per acceptance choice: actions are
+RejectClaim(id), interpreted in a separate acceptance view. Source and Claim
+evidence remains stored. The record can also represent an authorized source-edit
+proposal, but the acceptance enumerator does not generate or execute edits.
+
+Repair status is Proposed, Approved, Applied, Rejected or Superseded.
+Approval names a specific proposal and authorizes its actions; it does not
+apply them. Application re-derives the pinned component at the current state,
+compares it and the rule and policy pins, and applies the actions in the same
+transaction. A mismatch blocks application and marks the proposal Superseded;
+superseding happens at application or at the next enumeration for that bucket,
+not during maintenance. Application records its actual
+effects and receipt. Applied records remain historical when sources change.
+
+\subsection{One complete example}
+
+\textbf{Initial state.} S1 revision 1 and S2 revision 1 both state that Orion
+launches June 10. Their claims claim\_s1r1 and claim\_s2r1 retain different
+spans but share the bucket (Orion, launch-date, public). Rule R1 is
+deterministic and forbids different dates in a bucket; it is also the hard rule
+for repair. Both Sources record completed extraction. The bucket's stored output
+has no finding, no issue and no request.
+
+\textbf{Source update, answer pending.} S2 revision 2 states June 12. The graph
+difference lists S2, so EXTRACT selects only S2. Its new request,
+request\_s2r2, has no answer yet: EXTRACT removes claim\_s2r1, stores a Pending
+record, adds S2 to \code{unfinished} and records request\_s2r2 in
+\code{pending\_index}. UPDATE receives one removed claim and deletes its one
+pair, with claim\_s1r1; the bucket now holds claim\_s1r1 alone. R1 is marked
+``may be out of date'' because S2's answer is Missing; zero known conflicts is
+not an all-clear. No other bucket or source is read.
+
+\textbf{Answer arrives.} A worker stores the answer to request\_s2r2. In the
+next run \code{arrived\_requests} contains it, \code{pending\_index} maps it to
+S2, and EXTRACT re-selects S2 alone, decodes claim\_s2r2 and clears S2 from
+\code{unfinished}. UPDATE receives one added claim and runs one pair test,
+claim\_s1r1 against claim\_s2r2, which stores a finding with both spans. Its
+name is (R1, the bucket, \{(S1, June 10), (S2, June 12)\}). UPDATE does not
+decide which is true. R1 is deterministic, so its pair read no request and no
+answer arrival could select it.
+
+\textbf{Repair choices.} The bucket's conflict graph has one edge, so one
+component \{claim\_s1r1, claim\_s2r2\}. With no protected claims, Minimal
+returns two proposals: reject \code{\{claim\_s1r1\}} or reject
+\code{\{claim\_s2r2\}}. Protecting claim\_s1r1 permits only rejecting
+\code{\{claim\_s2r2\}}; protecting both makes repair Impossible. Each choice
+becomes a stored Proposed Repair pinned to the component, R1 and the policy. A
+person approves the proposal rejecting claim\_s2r2. A separate application
+re-derives the component, finds it unchanged, marks the proposal Applied,
+updates the acceptance view, and supersedes the sibling proposal. S2's June 12 content, its Claim and the Finding
+remain evidence.
+
+\textbf{Source correction.} An approved edit creates S2 revision 3 stating June
+10. When its answer arrives, EXTRACT retracts claim\_s2r2 and inserts
+claim\_s2r3. UPDATE deletes claim\_s2r2's pair and tests claim\_s2r3 against
+claim\_s1r1; the pair agrees, so the finding and the component disappear. Had
+S2 revision 3 changed only its wording and kept June 12, the new pair would
+have the same finding name, and a reviewer's decision on it would carry over,
+marked ``changed since decision'' because the source revision differs. The other proposal (reject
+claim\_s1r1) was already superseded when the first one was applied; had none
+been applied, the retirement step after UPDATE would supersede both, because
+their pinned component no longer exists. The Applied proposal remains a
+historical record. The bucket again has no finding and no issue.
+
+\subsection{Algorithms over the stored graph}
+
+The procedures below use finite maps as the storage representation of these
+five records. The extraction map is a private index of Source completion and
+source-supported Claims, not another graph object. Its request-cache fields,
+decoder contracts and helper notation are specified in Implementation.
+
+Each algorithm starts from stored state and a change, and returns new state.
+Working maps are \emph{overlays}: \code{overlay(map)} reads through to the
+stored map and records only the entries written, so starting one costs nothing
+and its cost is the number of writes. All maps and indexes are committed
+atomically with the new identity.
+
+\subsection{Algorithm 1: maintain shared extraction records}
+
+Algorithm~\ref{alg:extract} gives the procedure. \textit{Input:} the old
+extraction map; its pending-request index; the set \code{unfinished}, which
+holds the sources whose extraction is incomplete; the new
+source-item map; the producer; the fixed answer snapshot; \code{changed\_sources},
+the source IDs that this publication added, removed or edited; and
+\code{arrived\_requests}, the requests whose answer is new in this snapshot.
+\textit{Output:} the new extraction map and index, the claims removed and
+added, and the new \code{unfinished} set.
+
+\textit{Preconditions.} \code{changed\_sources} contains every source whose item
+differs between the old and new source maps; it comes from the graph store's
+difference between the two checkpoints. \code{pending\_index} maps each request
+whose answer is Missing to the sources waiting on it. A request's answer only
+moves from Missing to a stored value; it is never replaced (first answer wins).
+Each stored record's claims and issues equal the decoding of its stored answer,
+and the decoder and \code{make\_claim} read only fields covered by the request.
+The extraction map stores the producer identity it was built with; a new
+producer configuration changes every request, so lines 6--7 select every source
+themselves rather than trusting the caller.
+
+Two other inputs of a request are shared across sources, and both stay local.
+A source's context records the revision of every dictionary or policy it reads,
+and a stored index maps each such input to the sources that read it; when a
+shared input changes, the graph difference lists that input and the index
+expands it into \code{changed\_sources}. That pass is proportional to the
+input's readers, which can be the whole graph for a dictionary every source
+reads. Retrying a stored failure is an edit of that one source: the source's
+item carries its attempt number, so a retry changes only its request.
+
+\begin{algorithm}[tbp]
+{\footnotesize
+\begin{verbatim}
+01 EXTRACT(old_extractions, pending_index, unfinished, new_sources,
+02         producer, answers, changed_sources, arrived_requests):
+03   selected = set(changed_sources)
+04   for request in arrived_requests:
+05     selected |= pending_index.get(request, set())
+06   if producer.identity != old_extractions.producer:
+07     selected = keys(old_extractions) | keys(new_sources)
+08   extractions = overlay(old_extractions)
+09   pending, unfinished = overlay(pending_index), overlay(unfinished)
+10   removed, added = set(), set()
+11   extractions.producer = producer.identity
+12   for source_id in selected:
+13     if source_id in old_extractions:
+14       old = old_extractions[source_id]
+15       removed |= old.claims
+16       if old.answer is Missing:
+17         pending[old.request].remove(source_id)
+18       unfinished.discard(source_id)
+19       extractions.pop(source_id, None)
+20     if source_id not in new_sources: continue
+21     request = make_request(source_id, new_sources[source_id],
+22                            producer)
+23     answer = answers.get(request, Missing)
+24     claims, issues = set(), set()
+25     if answer is Missing:
+26       issues = {Pending(request)}
+27       pending[request].add(source_id)
+28     elif answer is Failure(reason): issues = {Failed(reason)}
+29     else:
+30       decoded = producer.decode(answer.payload)
+31       if decoded is Invalid(reason): issues = {Failed(reason)}
+32       else: claims = {make_claim(request, row,
+33                         new_sources[source_id], answer)
+34                       for row in decoded.rows}
+35     if issues != set(): unfinished.add(source_id)
+36     extractions[source_id] =
+37       ExtractionRecord(request, answer, claims, issues)
+38     added |= claims
+39   return (extractions, pending, unfinished,
+40           removed - added, added - removed)
+\end{verbatim}}
+\caption{EXTRACT maintains the shared extraction records.}\label{alg:extract}
+\end{algorithm}
+
+Replacement removes every prior claim and status of a selected source. Each
+support has its own claim ID, so the removed and added sets retain signed
+support changes. A claim ID contains its request, and a request contains its
+source ID, so claims of different sources never coincide; the claims of
+unselected sources are unchanged. Hence the returned sets equal the differences
+between all old and all new claims, and \code{extractions} equals a rebuild from
+scratch, while the work is proportional to the selected sources, their claims
+and the arrived requests. A source that is re-selected without a real change
+returns the same claims, which cancel in lines 39--40. A temporary worker
+failure leaves the answer Missing, so the source stays pending until an outcome
+is stored. A source also stays in \code{unfinished} when its answer was a stored
+failure; Pending and Failed sources are both incomplete coverage.
+
+\subsection{Algorithm 2: maintain inconsistency findings}
+
+A pair's outcome depends only on its two claims, the rule, and the answers to
+the requests its test reads. Algorithm 2 therefore maintains outcomes pair by
+pair: it deletes the pairs of removed claims, tests the pairs of added claims,
+and re-tests the pairs whose requests received answers. No other pair is
+touched, so one changed claim in a bucket of $n$ claims costs at most $n$ pair
+tests (operator decision, 2026-10-01).
+
+Algorithm~\ref{alg:update} gives the procedure. \textit{Input:} the stored
+check state; the claims removed and added by Algorithm 1;
+\code{arrived\_requests}; the new rule and answer snapshot; and the new
+identity. \textit{Output:} the check state for the new identity.
+
+The check state holds, for one rule:
+\begin{itemize}
+\setlength{\itemsep}{0pt}
+\item \code{claims\_by\_bucket}, each known bucket's member claims, and
+  \code{unplaced}, the IDs of claims whose bucket is Unknown;
+\item \code{pairs}, keyed by the ordered pair of claim IDs (smaller first), with
+  each pair's bucket, its two claims, its outcome and the requests its test
+  read;
+\item \code{pairs\_by\_request}, the reverse index from each request to the
+  pairs whose test read it;
+\item \code{violations\_by\_bucket} and \code{issues\_by\_bucket}, the keys of
+  each bucket's pairs whose outcome is a Violation, or Pending or Failed.
+\end{itemize}
+The \emph{full reference check} tests every pair of every known bucket with the
+same \code{check\_pair}. The helper \code{pair\_key(a, b)} orders two claim
+IDs. The helper \code{store(key, pair)} writes a pair and adds it to the request index
+and to the bucket index for its outcome; \code{drop(key)} removes a pair and
+all its index entries. Both cost the pair's request count. The two bucket
+indexes are overlays too, started like \code{pairs\_by\_request} on line 6.
+UPDATE also returns \code{touched}, the buckets of the removed and added known
+claims and of the re-tested pairs (lines 37--38); these are the \emph{affected
+buckets} that repair retirement reads. A rule change makes every bucket
+affected.
+
+\textit{Precondition.} The stored state equals the full reference check of the
+old claims, rule and answers; every removed claim is an old claim; no added claim
+is already among the old claims that remain; and claim IDs are unique (Algorithm 1's (request, local ID) IDs are, and its removed set
+is drawn from the old claims). \code{arrived\_requests} contains every request
+whose answer differs between the old and new snapshots; under first answer
+wins, these are the answers stored since the old snapshot. UPDATE refuses, as
+InvalidInput, a stored state whose identity is not the base checkpoint, rule
+identity and answer sequence that the caller's change starts from (line 3).
+
+\begin{algorithm}[tbp]
+{\footnotesize
+\begin{verbatim}
+01 UPDATE(state, base_identity, removed_claims, added_claims,
+02        arrived_requests, new_rule, new_answers, new_identity):
+03   if state.identity != base_identity: return InvalidInput
+04   claims_by_bucket = overlay(state.claims_by_bucket)
+05   unplaced, pairs = overlay(state.unplaced), overlay(state.pairs)
+06   pairs_by_request = overlay(state.pairs_by_request)
+07   for claim in removed_claims:
+08     if claim.bucket == Unknown: unplaced.discard(claim.id)
+09     else:
+10       claims_by_bucket[claim.bucket].discard(claim)
+11       for other in claims_by_bucket[claim.bucket]:
+12         drop(pair_key(claim.id, other.id))
+13   if new_rule.identity != state.rule_identity:
+14     return FULL_CHECK(claims_by_bucket, unplaced, added_claims,
+15                       new_rule, new_answers, new_identity)
+16   tested = set()
+17   for claim in added_claims:
+18     if claim.bucket == Unknown: unplaced.add(claim.id); continue
+19     for other in claims_by_bucket[claim.bucket]:
+20       left, right = ordered(claim, other)
+21       outcome, requests = check_pair(new_rule, left, right,
+22                                      new_answers)
+23       store(pair_key(left.id, right.id), Pair(claim.bucket, left,
+24             right, outcome, requests))
+25       tested.add(pair_key(left.id, right.id))
+26     claims_by_bucket[claim.bucket].add(claim)
+27   for request in arrived_requests:
+28     for key in state.pairs_by_request.get(request, set()):
+29       if key in pairs and key not in tested:
+30         old = pairs[key]
+31         outcome, requests = check_pair(new_rule, old.left,
+32                                        old.right, new_answers)
+33         drop(key)
+34         store(key, Pair(old.bucket, old.left, old.right,
+35                         outcome, requests))
+36         tested.add(key)
+37   touched = {c.bucket for c in removed_claims | added_claims
+38              if c.bucket != Unknown} | {pairs[k].bucket for k in tested}
+39   return CheckState(new_identity, new_rule.identity,
+40     claims_by_bucket, unplaced, pairs, pairs_by_request,
+41     violations_by_bucket, issues_by_bucket), touched
+\end{verbatim}}
+\caption{UPDATE maintains one rule's pair outcomes.}\label{alg:update}
+\end{algorithm}
+
+\textbf{Which pairs are touched.} Removing a claim deletes its pairs with every
+claim still in its bucket (lines 7--12); when two removed claims share a
+bucket, the first removal deletes the pair between them. Adding a claim tests
+it against every claim already in its bucket, including claims added earlier in
+the same run (lines 17--26), so each new pair is tested exactly once. A claim
+that moves from bucket $b$ to $b'$ is a removed claim in $b$ and an added claim
+in $b'$. A claim entering or leaving Unknown changes only \code{unplaced} and
+the pairs of the one known bucket it leaves or enters. An arrived answer
+re-tests exactly the surviving pairs whose test read its request (lines
+27--36); a Pending outcome therefore clears when, and only when, its answer
+arrives. Nothing else is revisited. A pending extraction elsewhere, or an
+unplaced claim, is reported as rule-wide incomplete coverage, which blocks an
+all-clear but changes no pair.
+
+\textbf{Why the result is exact.} Every pair of the new claims either consists
+of two old claims or contains an added claim. A pair of two old claims that
+are both still present was not deleted; if none of its requests arrived, its
+claims and the answers it reads are unchanged, so its stored outcome is still
+the full reference outcome, and if one arrived, lines 27--36 re-test it. Every
+pair containing an added claim is tested in lines 17--26. Every stored pair
+containing a removed claim was deleted in lines 7--12. A rule change re-tests
+every pair (\code{FULL\_CHECK}: drop all pairs, then test every pair of every
+bucket after applying the claim changes); this pass is inherent, since every
+finding key contains the rule revision. Section~\ref{sec:status} names the
+Lean theorems that prove this for a model of the algorithm.
+
+\textbf{Cost.} Outside a rule change, the work is
+\[
+\sum_{x\in\text{removed}} \bigl(n_{b(x)} + d_x\bigr)
+\;+\; \sum_{y\in\text{added}} \bigl(n_{b(y)} + r_y\bigr)
+\;+\; \sum_{q\in\text{arrived}} \bigl(|\text{pairs\_by\_request}[q]| + r_q\bigr)
+\;+\; 1,
+\]
+where $n_{b}$ is the number of claims in bucket $b$, and $d$, $r$ count the
+request-index entries deleted and written. One changed claim costs at most
+$n_b$ pair tests, not $\binom{n_b}{2}$. This keeps within reach the work
+gate of the Concord design (internal pull request 2521), one eighth of a
+full recompute, even when one bucket holds most of
+a rule's claims. No term depends on pairs that contain no changed claim and
+read no arrived request.
+
+\subsection{Algorithm 3: propose acceptance repairs}
+
+Repair works on the findings that Algorithm 2 maintains, not on a fresh search
+of the graph. In this version its hard constraints are pair rules only
+(operator decision, 2026-10-01). Constraints over three or more claims, and
+global contradictions, are not supported; a constraint that spans buckets would
+also join components across buckets and lose the locality below. Within one bucket, the
+Violation findings of the hard rules form a \emph{conflict graph}: claims are
+vertices and each violating pair is an edge. A set of rejected claims is
+\emph{safe} if it contains at least one end of every edge, so that no violating
+pair remains among the accepted claims. Edges never cross buckets, so the
+conflict graph splits into connected components inside buckets, and a
+component's choices do not interact with any other component.
+
+Algorithm~\ref{alg:repair} gives the procedure. \textit{Input:} a bucket and
+one connected component of its conflict graph (its claim IDs and edges), the
+hard rules' check states, the current identity (graph checkpoint and answer
+sequence), the protected claim IDs, the selection policy, and whether the hard
+rules' coverage is incomplete. \textit{Output:} a RepairEnumeration.
+
+A policy contains revision, mode and weights. Modes are Minimal or Weighted.
+Weighted mode requires a finite positive rational weight for every claim in the
+component; \code{valid\_weight(value)} tests precisely that condition. Positive
+weights matter: a zero weight would let a minimum-cost choice reject a claim for
+no reason. A RepairEnumeration contains status, proposals and reason;
+non-Available results contain no proposals, and
+\code{repair\_result(status, proposals, reason)} constructs it.
+\code{connected\_components(edges)} returns each component as its claim IDs and
+edges. The caller passes a component that \code{COMPONENTS} returned for the
+current state; application re-derives it, so a stale component cannot be
+applied. \code{weighted} abbreviates \code{policy.mode == Weighted}; Minimal
+proposals pin no weights, so a weight change does not supersede them. \code{ready(bucket, hard\_states, current)} is lines 9--13: it holds
+when every hard rule's state is at the current identity and none of their
+pairs in the bucket has a Pending or Failed outcome. \code{make\_repair}
+constructs a Proposed Repair whose actions are RejectClaim(id) for each
+rejected ID and whose ID is the canonical serialization of its pins and
+actions; \code{persist\_if\_absent} stores it by ID, adds it to
+\code{proposals\_by\_bucket}, and never overwrites existing lifecycle
+receipts, so a repeated run returns the existing proposal.
+
+\begin{algorithm}[tbp]
+{\footnotesize
+\begin{verbatim}
+01 COMPONENTS(bucket, hard_states):
+02   edges = set()
+03   for state in hard_states:
+04     for key in state.violations_by_bucket.get(bucket, set()):
+05       edges.add(frozenset(key))
+06   return connected_components(edges)
+
+07 REPAIR(bucket, component, edges, hard_states, current,
+08        protected_ids, policy, coverage_incomplete):
+09   for state in hard_states:
+10     if (state.identity.checkpoint, state.identity.answers) != current:
+11       return repair_result(Unavailable, set(), "stale check")
+12     if state.issues_by_bucket.get(bucket, set()) != set():
+13       return repair_result(Unavailable, set(), "unfinished check")
+14   if policy.mode not in {Minimal, Weighted}:
+15     return repair_result(InvalidPolicy, set(), "invalid mode")
+16   if policy.mode == Weighted and any(
+17       not valid_weight(policy.weights.get(id)) for id in component):
+18     return repair_result(InvalidPolicy, set(), "invalid weights")
+19   safe = set()
+20   for rejected in all_subsets(component - protected_ids):
+21     if all(edge & rejected != set() for edge in edges):
+22       safe.add(rejected)
+23   if safe == set():
+24     return repair_result(Impossible, set(), "protected conflict")
+25   if policy.mode == Minimal:
+26     selected = {rejected for rejected in safe
+27                 if not any(other < rejected for other in safe)}
+28   else:
+29     costs = {rejected: sum(policy.weights[id] for id in rejected)
+30              for rejected in safe}
+31     selected = {rejected for rejected in safe
+32                 if costs[rejected] == min(costs.values())}
+33   pins = Pins(bucket, component, edges,
+34     {state.rule_identity for state in hard_states},
+35     (policy.revision, policy.mode,
+36      {id: policy.weights[id] for id in component} if weighted else {}),
+37     protected_ids & component)
+38   proposals = set()
+39   for rejected in selected:
+40     proposals.add(persist_if_absent(make_repair(pins, rejected)))
+41   return repair_result(Available, proposals,
+42     "incomplete coverage" if coverage_incomplete else "")
+\end{verbatim}}
+\caption{COMPONENTS and REPAIR propose acceptance repairs for one conflict component.}\label{alg:repair}
+\end{algorithm}
+
+\textbf{What it guarantees.} Every proposal is safe and never rejects a
+protected claim (lines 19--22). In Minimal mode the proposals are exactly the
+inclusion-minimal safe sets of the component; in Weighted mode they are exactly
+the minimum-weight safe sets. Because components do not interact, a minimal (or
+minimum-weight) safe set for the whole bucket is exactly one such choice per
+component, so per-component proposals represent every whole-bucket choice
+without materializing the product. Repair runs only on current, finished
+checks (lines 9--13): a hard rule whose update has not yet reached the current
+checkpoint could be missing an edge, and a Pending or Failed pair could be an
+unknown conflict, so either makes the bucket's repair Unavailable. An unknown
+conflict is never treated as no conflict. Repair does not choose a true source,
+and evidence is preserved. Certainty requires agreement across all selected
+acceptance sets and, separately, admitted interpretations.
+
+\textbf{Cost.} Lines 1--6 read one bucket's violation index, and lines 9--13
+read one identity and one issue index per hard rule. Lines 19--22 enumerate $2^{k}$ subsets for a
+component of $k$ unprotected claims; the search is exponential in the
+component, not the graph, and the number of proposals can itself be
+exponential in $k$. The pins hold only the component's weights and protected
+IDs, so a weight change elsewhere does not touch a proposal. Incomplete coverage
+is reported with the result, not stored in the proposal, because it changes
+over time without changing the proposal: an unplaced claim, or a source still
+being extracted, may later add a claim to the bucket, and application then
+sees a different component.
+
+\textbf{Application.} Application runs in one transaction. It requires
+\code{ready(bucket, hard\_states, current)}, re-derives the component with
+\code{COMPONENTS} for the pinned bucket, and requires the component, its edges,
+the rule identities, the policy pin and the protected IDs to equal the pins.
+If any check fails, the proposal becomes Superseded and the person is shown a
+fresh enumeration. Otherwise it applies the actions, records their effects and
+receipt, and marks every other Proposed or Approved repair pinned to the same
+bucket and component Superseded, whatever its policy or protected IDs, because
+the component now has its chosen acceptance. An Applied rejection stays in the
+acceptance view until a person revokes it. If the component later changes, its
+pins no longer match, so a fresh enumeration is offered for the new component;
+it never silently reuses the old application. All of this
+reads one bucket and its proposals. Unrelated updates elsewhere in the graph
+do not invalidate a proposal.
+
+\textbf{Retiring stale proposals.} After Algorithm 2 commits, the stored
+proposals of each affected bucket, found through the index
+\code{proposals\_by\_bucket}, are compared with the bucket's current
+components; a Proposed or Approved repair whose pinned
+component no longer exists becomes Superseded. This costs work proportional to
+the affected buckets' proposals.
+
+\section{Implementation}
+
+Akmon already owns import, shared extraction, derived-fact application and graph
+publication. Its ClaimExtractor reads pinned Paragraph/Theorem/Table records.
+Current complete-producer replacement can cover broader output than Algorithm
+1's proposed per-item state. Chronos supplies before/after checkpoint differences,
+whose fallback may read entire snapshots. Current claim projection supports
+limited bucket updates; these algorithms are a proposed precise pair-rule core.
+
+ExtractionRecord is private implementation bookkeeping for shared extraction;
+it is not a sixth conceptual graph object. Store the extraction map keyed by
+source ID with its producer identity, the pending-request index, the
+\code{unfinished} set, the index from each shared dictionary or policy to the
+sources that read it, \code{proposals\_by\_bucket}, and, per
+rule, the check state: \code{claims\_by\_bucket}, \code{unplaced},
+\code{pairs}, \code{pairs\_by\_request}, \code{violations\_by\_bucket} and
+\code{issues\_by\_bucket}, plus reviewer decisions keyed by finding name. These
+maps represent Source completion and Rule pair completion; they are not additional
+conceptual graph objects. Commit them, the Claims and the Findings with the
+pinned source, rule and answer identity in one transaction. A journal resumes the
+same target after interruption. Model fetching is outside evaluation; retain
+answers required by committed stage inputs and pinned unfinished jobs,
+including inputs that emitted no finding.
+
+Algorithms 1 and 2 need three inputs from the substrate that are not free:
+\code{changed\_sources} comes from Chronos's row difference between two
+checkpoints (\code{diff\_rows}), which may fall back to reading whole snapshots;
+\code{arrived\_requests} needs the answer store to list answers stored since a
+snapshot, for example by insertion sequence; and the overlays need storage that
+writes a delta rather than copying a map. If any of these is implemented by a
+scan, that scan is part of the cost and the work is no longer local.
+
+Totals, rankings, requirements and downstream stored relations require separate
+query and dependency contracts; they are not silently executed by UPDATE's pair
+loop. Repair is local to one conflict component only because its hard rules
+are pair rules; a constraint that spans buckets would join components.
+
+\subsection{Extraction and evaluation bookkeeping}
+
+A source item is one independently identified paragraph, table or code
+declaration. Its record has source\_id, revision, content and context. Context
+includes every dictionary or policy input the producer reads. Producer
+configuration contains code/decoder revision, model, prompt, schema and parameters.
+\code{make\_request(source\_id, item, producer)} serializes only source\_id,
+revision, content, context and producer configuration. It excludes derived
+completion and receipt fields, so recording completion does not change its own
+request.
+An immutable answer map returns Missing, Success(payload) or Failure(reason);
+a changed retry policy creates a different request.
+
+The producer's total decoder validates field types, unique local IDs and source
+spans. It returns Decoded(rows) or Invalid(reason). The Claim representation contains
+id, bucket, value and provenance. Its ID is (complete request, local ID); its
+bucket is (entity, predicate, scope), or Unknown if placement is unresolved.
+\code{make\_claim(request, row, source, answer)} builds those fields: ID from
+the request/local ID, bucket and value from the row, and provenance from the
+source, span and answer receipt. Claim IDs are ordered by their
+typed, length-prefixed serialization bytes. Extraction completion does not
+establish factual truth.
+
+An \textbf{ExtractionRecord} stores the extraction result for one source item:
+\code{request}, \code{answer}, \code{claims}, and \code{issues}. It is not another
+kind of graph object. The map \code{old\_extractions} is keyed by source\_id.
+Completed extraction has an empty issue set, even when it produces zero claims.
+For example, request\_s2r2 is the complete request for S2 revision 2, and
+claim\_s2r2 is its June 12 claim. Its completed record is:
+
+\begin{minipage}{\linewidth}{\small
+\begin{verbatim}
+ExtractionRecord(request=request_s2r2, answer=Success(payload),
+                 claims={claim_s2r2}, issues=set())
+\end{verbatim}}\end{minipage}
+
+Before its answer is available, the same source item has:
+
+\begin{minipage}{\linewidth}{\small
+\begin{verbatim}
+ExtractionRecord(request=request_s2r2, answer=Missing,
+                 claims=set(), issues={Pending(request_s2r2)})
+\end{verbatim}}\end{minipage}
+
+The following names have one meaning throughout. \code{claim\_ids(claims)}
+returns claim IDs, not claim records. Empty maps are \code{\{\}}; empty sets are
+\code{set()}. In pseudocode, \code{|} means set union and \code{-} set
+difference. \code{keys(map)} returns its key set. Rejection sets are immutable
+mathematical values; pseudocode collections may contain them. \code{add(value)}
+updates a working set by union with the singleton \code{\{value\}};
+\code{remove(value)} and \code{discard(value)} delete it, and \code{discard}
+is a no-op if it is absent. Indexing a map of sets at a missing key yields an
+empty set, and a set left empty is deleted, so \code{keys} lists only non-empty
+entries. \code{overlay(map)} is defined in Algorithms over the stored graph.
+\code{pop(key, None)} removes an entry and is a no-op if absent. Assignment
+uses \code{=}, equality uses \code{==}; \code{is Tag(fields)} matches a tagged
+value and binds its fields; \code{\_} ignores a field. For sets, \code{<=}
+means subset and \code{<} proper subset.
+
+\emph{Rule-wide incomplete coverage} means that \code{unfinished} (Algorithm 1)
+or \code{unplaced} (Algorithm 2) is non-empty. It blocks an all-clear but
+changes no pair's outcome. Following the
+Concord design (internal pull request 2521), it has two
+kinds. A source whose answer is still Missing makes the rule's findings
+\emph{may be out of date}; this clears when the answer arrives. A source whose
+answer is a stored failure, or a claim whose completed extraction left its
+bucket Unknown, makes the rule \emph{could not check}, naming those sources and
+claims; this is permanent until the source changes. Keeping a count of each
+kind makes both tests constant work.
+
+The Rule representation contains id, revision, fixed context and a total pair test. It
+compares every unordered pair in each known bucket. Test outcomes are
+NoViolation, Violation(conclusion), Pending(reason) or Failed(reason).
+Definitely ineligible pairs return NoViolation; unknown eligibility returns
+Pending; errors return Failed.
+
+\code{check\_pair(rule, left, right, answers)} returns (outcome, requests).
+For deterministic rules, it calls the supplied test and returns an empty request
+set. For judged rules, it serializes the complete rule, context and ordered claim
+records into a request. Missing yields Pending; Failure yields Failed; Success
+passes through the total typed decoder, with invalid output converted to Failed.
+The request set contains that request even if absent. No answer is fetched here.
+Complete rule identity includes immutable test/decoder code references.
+
+A \textbf{CheckState} contains \code{identity}, \code{rule\_identity} and the
+maps listed under Algorithm 2. A Pair has \code{bucket}, \code{left},
+\code{right}, \code{outcome} and \code{requests}; \code{ordered(a, b)} returns
+two claims with the smaller ID first. A bucket whose \code{issues\_by\_bucket}
+entry is empty is completely evaluated, even with findings. The full FindingKey
+is (rule\_id, rule\_revision, left\_id, right\_id): the rule part comes from
+\code{rule\_identity}. A Finding is a pair whose outcome is a Violation; its
+conclusion and its claims' provenance come from the stored pair, and its owning
+CheckState supplies the Rule link and the evaluation identity. Reviewer
+decisions attach to the finding name, not to this key. A retained older checkpoint is separate from this
+current state.
+
+The identity is (graph checkpoint, rule identity, answer sequence). The graph
+checkpoint is the publication's checkpoint ID. The rule identity is the full
+canonical typed serialization of the rule's ID, revision, context and code
+references; it is not an assumed collision-free hash, and it is small. Because
+answers are never replaced, the answers stored up to a sequence number form a
+snapshot, so the sequence number identifies it. None of the three requires
+reading the graph.
+
+
+\section{Verification status}\label{sec:status}
+
+Three levels are kept apart. \emph{Design intent} is what this document
+requires. A \emph{proved model} is a simplified mathematical version of a
+mechanism together with a Lean proof, checked by Lean 4.34.1 with no axioms
+beyond \code{propext} and \code{Quot.sound}. \emph{Implementation agreement}
+means production code is shown to behave like the model. No Concord code
+implements Algorithms 1--3 yet, so no row below has implementation agreement.
+Each proved model also has an executable Python control that enumerates small
+cases and confirms that deliberately broken variants give wrong results.
+
+\medskip
+{\small
+\begin{longtable}{@{}>{\raggedright}p{0.25\linewidth}>{\raggedright}p{0.37\linewidth}>{\raggedright\arraybackslash}p{0.30\linewidth}@{}}
+\textbf{Design intent} & \textbf{Proved model} & \textbf{Not covered}\\\hline
+\endhead
+Algorithm 2 is exact: deleting removed claims' pairs, testing added claims'
+pairs and re-testing pairs whose requests arrived gives the full check. &
+\code{ConcordPairLevel.pair\_step\_exact} and \code{pair\_runs}: for any pair
+rule that reads answers only through its reported requests, the whole stored
+state (bucket members, unplaced IDs, every pair's outcome and requests, and a
+complete and sound request index) stays exact across any number of runs;
+\code{pair\_view\_exact}: each bucket's view equals the full check. Proved
+counterexamples show stale results when a batch's added claims are not tested
+against each other, when a removed claim's pairs are kept, or when arrived
+answers are ignored. &
+Rule changes (a full pass by design); calls whose answer chooses the next
+request; real index and storage costs; the bucket indexes
+\code{violations\_by\_bucket} and \code{issues\_by\_bucket} that repair
+reads (the proved view rebuilds a bucket from its pairs). Assumes the removed
+claims are old claims
+and claim IDs are unique, which Algorithm 1's (request, local ID) IDs give but
+no theorem links.\\[3pt]
+Algorithm 2's work grows with the change, not the graph. &
+\code{ConcordPairLevel.pair\_cost\_bound}: pair tests are at most the sum of
+added claims' bucket sizes plus the index entries of arrived requests, and
+deletions at most the sum of removed claims' bucket sizes;
+\code{pair\_cost\_single}: one changed claim costs at most $n$ tests or
+deletions in a bucket of $n$ claims. &
+Counts tests and deletions, not index edits or measured time.\\[3pt]
+Algorithm 1 equals a rebuild from scratch, and its removed and added sets are
+exact. &
+\code{ConcordExtract.extract\_exact}, \code{delta\_exact} and
+\code{extract\_step}: from an exact stored state, one run yields the exact
+state for the new sources and answers. &
+Producer configuration changes (all sources selected); decoder determinism is
+assumed.\\[3pt]
+Algorithm 3 returns exactly the minimal or minimum-weight safe sets of a
+component, and components can be repaired separately. &
+\code{ConcordRepair.repair\_sound}, \code{repair\_complete} (both modes),
+\code{component\_decomposition} (Minimal mode),
+\code{min\_weight\_is\_minimal}. &
+COMPONENTS, the \code{ready} test, pins, persistence, application and
+retirement are not modeled. Weighted-mode decomposition is checked only on all
+graphs of four claims. Output can be exponential.\\[3pt]
+Algorithm 1's delta feeds Algorithm 2. &
+Not proved: the two models use different claim types. &
+The composition of Algorithms 1 and 2.\\[3pt]
+Missing answers are reported, never treated as values. &
+\code{unmarked\_sound} in \code{ConcordUncertainty}, for addition expressions. &
+Unknown answers that decide a bucket, a ranking or a branch.\\[3pt]
+Bounded lag under a work envelope. &
+\code{ConcordBounded} FIFO backlog and deadline theorems. &
+A real target's queue charge is assumed, not derived from Algorithm 2's
+cost.\\[3pt]
+Crash and resume keep progress without duplicate effects. &
+\code{ConcordRecovery}, for an atomic journal and a deterministic evaluator. &
+Database atomicity; provider faults.\\[3pt]
+Answer cleanup keeps every answer current results need. &
+\code{ConcordCleanup}, given complete roots. &
+That the roots are complete for real stages.\\
+\end{longtable}}
+
+\medskip
+The bucket-level model in \code{ConcordPairs} proves the same exactness for
+the earlier whole-bucket variant and supplies the full check that
+\code{ConcordPairLevel} is compared against. Two older proofs are weaker than
+their names suggest. In \code{ConcordWork}
+the set of touched groups is an input, so its locality theorems hold by the
+definition of the cost; \code{ConcordPairs} replaces that assumption with a
+derived set for the pair-rule core. In \code{ConcordProgress} the target's
+queue charge is a hypothesis. The
+W2 Lean work (internal pull request 2707) proves properties
+of the broader Concord specification; the models here are separate and
+smaller. Producer interpretation accuracy is a further, empirical question.
+Every proof here is reproduced by
+\begin{center}{\small\code{python3 formal/concord\_bounded\_maintenance/program/run\_checks.py}}\end{center}
+
+\end{document}

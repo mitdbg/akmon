@@ -1,0 +1,423 @@
+{
+ "config_digest": "a482ca353494eb3ae5e4c6009a56ece5ddcb637c7d8227eff0932f27cafff4d2",
+ "draws": [
+  {
+   "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T202734945340Z:70f1bcdc81c0",
+   "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T205541443245Z:193a984b47a4",
+   "deployment": "synthetic-corpus-smoke",
+   "dir": "synth-a482ca353494-0cbdc7786f17",
+   "extractor": "llm"
+  },
+  {
+   "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T192754194700Z:be2c8c82c23e",
+   "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T195544697170Z:e8207ea1fc96",
+   "deployment": "synthetic-corpus-smoke",
+   "dir": "synth-a482ca353494-da2d7488d4d5",
+   "extractor": "llm"
+  },
+  {
+   "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T202523792601Z:b98997556a1c",
+   "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T205448069749Z:cf910a2e45cb",
+   "deployment": "synthetic-corpus-smoke",
+   "dir": "synth-a482ca353494-fdd6851ccf96",
+   "extractor": "llm"
+  }
+ ],
+ "kind": "within_seed_decode_noise",
+ "metrics": {
+  "detection": {
+   "conditional": {
+    "denominator": {
+     "max": 102,
+     "mean": 95.66666666666667,
+     "min": 86,
+     "range": 16,
+     "stdev": 8.504900548115383
+    },
+    "detected": {
+     "max": 102,
+     "mean": 95.66666666666667,
+     "min": 86,
+     "range": 16,
+     "stdev": 8.504900548115383
+    },
+    "rate": {
+     "max": 1.0,
+     "mean": 1.0,
+     "min": 1.0,
+     "range": 0.0,
+     "stdev": 0.0
+    }
+   },
+   "end_to_end": {
+    "denominator": {
+     "max": 147,
+     "mean": 147.0,
+     "min": 147,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "detected": {
+     "max": 106,
+     "mean": 100.66666666666667,
+     "min": 92,
+     "range": 14,
+     "stdev": 7.571877794400365
+    },
+    "rate": {
+     "max": 0.7210884353741497,
+     "mean": 0.6848072562358277,
+     "min": 0.6258503401360545,
+     "range": 0.09523809523809523,
+     "stdev": 0.05150937275102288
+    }
+   }
+  },
+  "extraction": {
+   "denominator": {
+    "max": 1479,
+    "mean": 1479.0,
+    "min": 1479,
+    "range": 0,
+    "stdev": 0.0
+   },
+   "recall": {
+    "max": 0.8958755916159568,
+    "mean": 0.8717601983322064,
+    "min": 0.830290736984449,
+    "range": 0.06558485463150776,
+    "stdev": 0.03607237236496438
+   },
+   "recovered": {
+    "max": 1325,
+    "mean": 1289.3333333333333,
+    "min": 1228,
+    "range": 97,
+    "stdev": 53.35103872778236
+   }
+  },
+  "majority_flavor": {
+   "copy": {
+    "mis_repaired": {
+     "max": 0,
+     "mean": 0.0,
+     "min": 0,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "preserved": {
+     "max": 0,
+     "mean": 0.0,
+     "min": 0,
+     "range": 0,
+     "stdev": 0.0
+    }
+   },
+   "independent": {
+    "mis_repaired": {
+     "max": 0,
+     "mean": 0.0,
+     "min": 0,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "preserved": {
+     "max": 0,
+     "mean": 0.0,
+     "min": 0,
+     "range": 0,
+     "stdev": 0.0
+    }
+   }
+  },
+  "per_class_survival": {
+   "broken_reference": {
+    "rate": {
+     "max": 1.0,
+     "mean": 0.8888888888888888,
+     "min": 0.7777777777777778,
+     "range": 0.2222222222222222,
+     "stdev": 0.1111111111111111
+    },
+    "sites": {
+     "max": 9,
+     "mean": 9.0,
+     "min": 9,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "survived": {
+     "max": 9,
+     "mean": 8.0,
+     "min": 7,
+     "range": 2,
+     "stdev": 1.0
+    }
+   },
+   "cardinality_violation": {
+    "rate": {
+     "max": 1.0,
+     "mean": 1.0,
+     "min": 1.0,
+     "range": 0.0,
+     "stdev": 0.0
+    },
+    "sites": {
+     "max": 9,
+     "mean": 9.0,
+     "min": 9,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "survived": {
+     "max": 9,
+     "mean": 9.0,
+     "min": 9,
+     "range": 0,
+     "stdev": 0.0
+    }
+   },
+   "dangling_entity": {
+    "rate": {
+     "max": 0.4,
+     "mean": 0.3111111111111111,
+     "min": 0.26666666666666666,
+     "range": 0.13333333333333336,
+     "stdev": 0.07698003589195011
+    },
+    "sites": {
+     "max": 15,
+     "mean": 15.0,
+     "min": 15,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "survived": {
+     "max": 6,
+     "mean": 4.666666666666667,
+     "min": 4,
+     "range": 2,
+     "stdev": 1.1547005383792517
+    }
+   },
+   "derived_value": {
+    "rate": {
+     "max": 0.9333333333333333,
+     "mean": 0.8222222222222223,
+     "min": 0.6666666666666666,
+     "range": 0.2666666666666667,
+     "stdev": 0.1387777332977422
+    },
+    "sites": {
+     "max": 15,
+     "mean": 15.0,
+     "min": 15,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "survived": {
+     "max": 14,
+     "mean": 12.333333333333334,
+     "min": 10,
+     "range": 4,
+     "stdev": 2.0816659994661326
+    }
+   },
+   "digit_transposition": {
+    "rate": {
+     "max": 0.9,
+     "mean": 0.8333333333333334,
+     "min": 0.8,
+     "range": 0.09999999999999998,
+     "stdev": 0.05773502691896257
+    },
+    "sites": {
+     "max": 10,
+     "mean": 10.0,
+     "min": 10,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "survived": {
+     "max": 9,
+     "mean": 8.333333333333334,
+     "min": 8,
+     "range": 1,
+     "stdev": 0.5773502691896257
+    }
+   },
+   "entity_swap": {
+    "rate": {
+     "max": 0.25,
+     "mean": 0.11666666666666665,
+     "min": 0.05,
+     "range": 0.2,
+     "stdev": 0.11547005383792516
+    },
+    "sites": {
+     "max": 20,
+     "mean": 20.0,
+     "min": 20,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "survived": {
+     "max": 5,
+     "mean": 2.3333333333333335,
+     "min": 1,
+     "range": 4,
+     "stdev": 2.3094010767585034
+    }
+   },
+   "label_value_mismatch": {
+    "rate": {
+     "max": 1.0,
+     "mean": 0.9,
+     "min": 0.8,
+     "range": 0.19999999999999996,
+     "stdev": 0.09999999999999998
+    },
+    "sites": {
+     "max": 10,
+     "mean": 10.0,
+     "min": 10,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "survived": {
+     "max": 10,
+     "mean": 9.0,
+     "min": 8,
+     "range": 2,
+     "stdev": 1.0
+    }
+   },
+   "polarity_flip": {
+    "rate": {
+     "max": 1.0,
+     "mean": 0.8974358974358975,
+     "min": 0.8461538461538461,
+     "range": 0.15384615384615385,
+     "stdev": 0.0888231183368655
+    },
+    "sites": {
+     "max": 13,
+     "mean": 13.0,
+     "min": 13,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "survived": {
+     "max": 13,
+     "mean": 11.666666666666666,
+     "min": 11,
+     "range": 2,
+     "stdev": 1.1547005383792517
+    }
+   },
+   "unit_conversion_error": {
+    "rate": {
+     "max": 0.875,
+     "mean": 0.7916666666666666,
+     "min": 0.75,
+     "range": 0.125,
+     "stdev": 0.07216878364870323
+    },
+    "sites": {
+     "max": 8,
+     "mean": 8.0,
+     "min": 8,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "survived": {
+     "max": 7,
+     "mean": 6.333333333333333,
+     "min": 6,
+     "range": 1,
+     "stdev": 0.5773502691896258
+    }
+   },
+   "value_perturbation": {
+    "rate": {
+     "max": 0.9210526315789473,
+     "mean": 0.8771929824561404,
+     "min": 0.8157894736842105,
+     "range": 0.10526315789473684,
+     "stdev": 0.05478068419647718
+    },
+    "sites": {
+     "max": 38,
+     "mean": 38.0,
+     "min": 38,
+     "range": 0,
+     "stdev": 0.0
+    },
+    "survived": {
+     "max": 35,
+     "mean": 33.333333333333336,
+     "min": 31,
+     "range": 4,
+     "stdev": 2.0816659994661326
+    }
+   }
+  },
+  "poisoning": {
+   "flip_rate": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0,
+    "range": 0.0,
+    "stdev": 0.0
+   },
+   "flipped": {
+    "max": 0,
+    "mean": 0.0,
+    "min": 0,
+    "range": 0,
+    "stdev": 0.0
+   },
+   "poisoned": {
+    "max": 0,
+    "mean": 0.0,
+    "min": 0,
+    "range": 0,
+    "stdev": 0.0
+   }
+  },
+  "repair": {
+   "detected_only": {
+    "max": 36,
+    "mean": 35.0,
+    "min": 34,
+    "range": 2,
+    "stdev": 1.0
+   },
+   "mis_repaired": {
+    "max": 7,
+    "mean": 5.333333333333333,
+    "min": 4,
+    "range": 3,
+    "stdev": 1.5275252316519465
+   },
+   "repaired": {
+    "max": 89,
+    "mean": 82.33333333333333,
+    "min": 74,
+    "range": 15,
+    "stdev": 7.637626158259733
+   },
+   "unadjudicated": {
+    "max": 34,
+    "mean": 24.333333333333332,
+    "min": 19,
+    "range": 15,
+    "stdev": 8.386497083606084
+   }
+  }
+ },
+ "n": 3,
+ "question": "How much does the model vary on ONE corpus? Every draw shares the config digest, hence the seed, hence the corruption selection and the document assignment; only the model's decoding differs. This is decode noise.",
+ "schema": "okg.synth.spread.v2",
+ "seed": "prose-749-1"
+}

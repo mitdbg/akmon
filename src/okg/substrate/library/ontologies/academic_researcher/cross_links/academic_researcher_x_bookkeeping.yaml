@@ -1,0 +1,39 @@
+# academic_researcher ↔ bookkeeping cross-link rules.
+#
+# Per `add-academic-pi-ontology-module` (Child 1 of
+# `add-academic-pi-profile`): two narrowings connecting Grant to
+# the bookkeeping module's Project / ProjectMilestone.
+#
+#   - `grant_funds_project`. NSF Award Search emits Grant + the
+#     corresponding Project (via grants_dir frontmatter `project:`
+#     field). The cross-link resolves when both lands. Direction:
+#     src is Grant, dst is Project.
+#
+#   - `grant_has_milestone`. Grant deliverables map to
+#     bookkeeping.ProjectMilestone nodes. Direction: src is Grant,
+#     dst is ProjectMilestone.
+#
+# Both rules silently skip when `bookkeeping` isn't loaded.
+
+rules:
+  - id: grant_funds_project
+    src:
+      subtype: grant
+      field: project_ref
+    dst:
+      subtype: project
+      field: project_id
+    matcher: exact
+    edge: funds
+    bidirectional: false
+
+  - id: grant_has_milestone
+    src:
+      subtype: grant
+      field: grant_id
+    dst:
+      subtype: project_milestone
+      field: parent_grant_ref
+    matcher: exact
+    edge: has_milestone
+    bidirectional: false

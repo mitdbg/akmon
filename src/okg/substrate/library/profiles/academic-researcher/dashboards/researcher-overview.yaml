@@ -1,0 +1,90 @@
+# Researcher overview dashboard.
+#
+# Surfaces the high-level "is my personal-OKG alive" signal for a
+# academic-researcher deployment. Each panel is a SQL query against the
+# live publish state; the panel runner renders them in the order
+# declared.
+#
+# Lifted from the personal-OKG supervisor-console layout. The
+# panels deliberately mirror the invariants in `invariants.yaml`
+# so a YELLOW finding in the dashboard tells the operator where to
+# look without going through `okg doctor`.
+
+name: researcher-overview
+title: CS Researcher Overview
+description: |
+  At-a-glance dashboard for a personal-OKG deployment: per-subtype
+  live counts for the reasoning core, scholarly content, code
+  graph, OpenSpec, and agent traces.
+
+panels:
+  - id: live_counts_by_layer
+    title: Live node counts by layer
+    kind: table
+    description: |
+      How much content has each layer accumulated? Empty layers
+      indicate either a cold start (no ingest yet) or a
+      source-coverage gap (config error, missing path).
+    sql: |
+      WITH layers(layer, subtype) AS (
+        VALUES
+          ('reasoning', 'hypothesis'),
+          ('reasoning', 'observation'),
+          ('reasoning', 'principle'),
+          ('reasoning', 'evidence'),
+          ('reasoning', 'refutation'),
+          ('reasoning', 'question'),
+          ('reasoning', 'connection'),
+          ('reasoning', 'insight'),
+          ('methodology', 'method_card'),
+          ('methodology', 'method_pattern'),
+          ('scholarly', 'paper'),
+          ('scholarly', 'person'),
+          ('scholarly', 'venue'),
+          ('code', 'source_file'),
+          ('code', 'git_branch'),
+          ('openspec', 'open_spec_change'),
+          ('bookkeeping', 'project'),
+          ('agent', 'agent_session')
+      )
+      SELECT l.layer,
+             l.subtype,
+             coalesce(count(n.node_id), 0) AS live_count
+        FROM layers l
+        LEFT JOIN okg.v_nodes n
+          ON n.subtype = l.subtype
+       GROUP BY l.layer, l.subtype
+       ORDER BY l.layer, l.subtype
+
+  - id: latest_published_generations
+    title: Latest published generations
+    kind: table
+    description: Most recent five publish cycles and their outcome.
+    sql: |
+      SELECT id AS generation_id,
+             status,
+             created_at,
+             published_at
+        FROM okg.v_generations
+       WHERE status IN ('published', 'blocked')
+       ORDER BY coalesce(published_at, created_at) DESC
+       LIMIT 5
+
+  - id: source_coverage
+    title: Source coverage (latest run per source)
+    kind: table
+    description: |
+      Each source's most recent run and what it appended or
+      retracted. A source appending zero rows across several runs is
+      a coverage regression candidate; reach for `okg doctor sources`.
+    sql: |
+      SELECT DISTINCT ON (source_name)
+             source_name,
+             run_id,
+             finished_at,
+             nodes_appended,
+             edges_appended,
+             node_retractions,
+             edge_retractions
+        FROM okg.v_source_runs
+       ORDER BY source_name, started_at DESC NULLS LAST

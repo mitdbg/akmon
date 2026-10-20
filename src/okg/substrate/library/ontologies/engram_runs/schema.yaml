@@ -1,0 +1,459 @@
+# Engram run-artifact ontology module.
+#
+# Per `add-engram-run-artifact-sources` (Layer 3A of
+# `add-portable-memex-deployments`): turns Engram (and Glia-compatible)
+# run artifacts into typed substrate nodes so prior runs accumulate
+# into the deployment's knowledge graph.
+#
+# Seven subtypes:
+#   - ResearchDigest (concrete, per-run anchor)
+#   - ExperimentResult (refines reasoning.Evidence)
+#   - CandidateSolution (concrete, snapshot.* file body)
+#   - FinalResult (concrete, per-run summary)
+#   - AgentSummary (concrete, agent_<N>_summary.json carrier)
+#   - EmpiricalClaim (refines extraction.Claim — the canonical Claim home)
+#   - FailedApproach (refines reasoning.Hypothesis)
+#
+# Per design.md + reasoning-abstract-types: ExperimentResult +
+# FailedApproach refine reasoning subtypes and EmpiricalClaim refines
+# extraction.Claim, all via LinkML `is_a:`. Refinement closure
+# (per Layer 1A `add-subtype-refines-to-catalog`) means
+# `subtype_ancestors` queries filtering `ancestor_name = 'claim'` /
+# `'evidence'` / `'hypothesis'` surface these refinements alongside
+# any other refining subtypes the deployment loads.
+#
+# The module opts a deployment into Engram-run ingestion. No shipped
+# profile loads it; operators
+# add `engram_runs` to their deployment.yaml `modules:` list to enable.
+
+id: https://palimpzest.mit.edu/okg/modules/engram_runs
+name: engram_runs
+title: "Engram runs — research digests, experiment results, candidate solutions, agent summaries"
+description: |-
+  Typed-node ingestion family for Engram (and Glia-compatible) run
+  artifacts. Source adapters walk a configured `runs_dir`, parse
+  `research_journal.md`, `score.txt`, `snapshot.{py,cpp,...}`,
+  `final_result.json`, and `agent_<N>_summary.json`, and emit one
+  NodeFact per artifact. AgentSummary additionally decomposes its
+  structured payload into one EmpiricalClaim per claim entry and one
+  FailedApproach per failed-approach entry, surfaced via `surfaces`
+  edges.
+
+  Refinement closure: ExperimentResult `is_a: Evidence`,
+  EmpiricalClaim `is_a: Claim`, FailedApproach `is_a: Hypothesis`.
+  Evidence + Hypothesis live in the `reasoning` module; Claim lives
+  in the `extraction` module (the canonical Claim home — the
+  reasoning ring is closed at 8 subtypes and has no Claim, per
+  reasoning-abstract-types). So loading `engram_runs` requires both
+  `reasoning` and `extraction`; their absence raises at configure
+  time (the source detects it and fails loudly per design.md "no
+  silent fallbacks").
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  engram: https://palimpzest.mit.edu/okg/modules/engram_runs/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+
+  ResearchDigest:
+    description: |-
+      Per-run anchor node. Sourced from `research_journal.md`;
+      each Engram run materializes exactly one ResearchDigest, and
+      every other per-run artifact `produced_during` this digest.
+      Identity is `engram_digest:<run_id>` so re-ingest collapses
+      to the same node.
+    class_uri: engram:ResearchDigest
+    attributes:
+      research_digest_id:
+        required: true
+        description: Alias key, prefix `engram_digest:`. Deterministic from run_id.
+      run_id:
+        required: true
+        description: Engram run identifier — the per-run directory name under runs/.
+      problem_name:
+        required: true
+        description: Problem slug the run targeted (from journal frontmatter or manifest).
+      digest_text:
+        required: true
+        description: The journal body; searchable.
+      content_hash:
+        required: true
+        description: SHA-256 of the journal markdown body for dedup.
+      source_generation_id:
+        description: Optional OKG catalog_version_id the run's context packet consumed.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: research_digest_id,run_id,problem_name
+      okg_searchable_text_fields: digest_text,problem_name
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  ExperimentResult:
+    is_a: Evidence
+    description: |-
+      One simulator evaluation of one candidate. Refines
+      `reasoning.Evidence` via LinkML `is_a:` so the
+      refinement-closure machinery (Layer 1A) joins
+      `ancestor_name = 'evidence'` queries to this subtype.
+      Identity is `engram_exp:<run_id>:<agent_id>:<experiment_id>`;
+      matched against CandidateSolution on the
+      `(run_id, agent_id, experiment_id)` triple to emit
+      `ExperimentResult evaluates CandidateSolution`.
+
+      Evidence attribute alignment: `hypothesis_ref` and
+      `observation_ref` carry the upstream reasoning links when
+      known; `support_polarity` is `supports` when the score
+      improved over the baseline, `contradicts` when it
+      regressed. Both can be absent on initial ingest (the source
+      doesn't always know the reference Hypothesis); the
+      cross-link rules backfill on later cycles.
+    class_uri: engram:ExperimentResult
+    attributes:
+      experiment_result_id:
+        required: true
+        description: Alias key, prefix `engram_exp:`. Deterministic from (run_id, agent_id, experiment_id).
+      run_id:
+        required: true
+      agent_id:
+        required: true
+        description: Conventionally `agent_<N>`.
+      experiment_id:
+        required: true
+        description: Conventionally `exp_<M>`.
+      score:
+        range: float
+        required: true
+        description: Parsed score value from score.txt.
+      score_metric:
+        description: Metric name (e.g. cost_objective, latency_p99); read from co-located metric.txt when present.
+      simulator:
+        description: Simulator backend (e.g. vidur, cloudcast); read from co-located simulator.txt when present.
+      content_hash:
+        required: true
+        description: SHA-256 of the score.txt body for dedup.
+      source_generation_id:
+        description: Optional OKG catalog_version_id the run's context packet consumed.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: experiment_result_id
+      okg_searchable_text_fields: score_metric,simulator,agent_id
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  CandidateSolution:
+    description: |-
+      A snapshot.{py,cpp,...} file body — one program the agent
+      tried at a given experiment. Identity is
+      `engram_cand:<run_id>:<agent_id>:<experiment_id>:<lang>` so
+      the (snapshot.py, snapshot.cpp) pair at one experiment
+      collapse to distinct nodes. The matching
+      `(run_id, agent_id, experiment_id)` ExperimentResult emits
+      an `evaluates` edge against this node.
+    class_uri: engram:CandidateSolution
+    attributes:
+      candidate_solution_id:
+        required: true
+        description: Alias key, prefix `engram_cand:`. Deterministic from (run_id, agent_id, experiment_id, language).
+      run_id:
+        required: true
+      agent_id:
+        required: true
+      experiment_id:
+        required: true
+      language:
+        required: true
+        description: Language tag from the snapshot file extension (python, cpp, rust, ...).
+      content_hash:
+        required: true
+        description: SHA-256 of the snapshot body for dedup.
+      source_text:
+        required: true
+        description: Snapshot file body verbatim. Searchable.
+      source_generation_id:
+        description: Optional OKG catalog_version_id the run's context packet consumed.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: candidate_solution_id
+      okg_searchable_text_fields: language,source_text
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  FinalResult:
+    description: |-
+      Per-run summary from `final_result.json` — best score, total
+      simulations, total agents, convergence reason. Identity is
+      `engram_final:<run_id>`. Points at its best CandidateSolution
+      via the `best_solution` edge when the final-result JSON
+      carries a best-snapshot pointer.
+    class_uri: engram:FinalResult
+    attributes:
+      final_result_id:
+        required: true
+        description: Alias key, prefix `engram_final:`. Deterministic from run_id.
+      run_id:
+        required: true
+      problem_name:
+        required: true
+      best_score:
+        range: float
+        description: Best objective value the run reached.
+      total_simulations:
+        range: integer
+        description: How many ExperimentResults the run produced.
+      total_agents:
+        range: integer
+        description: How many distinct agent_<N> trees the run materialized.
+      convergence_reason:
+        description: Free-text reason (budget_exhausted, no_improvement_window, manual_stop, ...).
+      best_candidate_ref:
+        description: Optional candidate_solution_id this result points at; drives the `best_solution` cross-edge.
+      content_hash:
+        required: true
+        description: SHA-256 of the final_result.json body for dedup.
+      source_generation_id:
+        description: Optional OKG catalog_version_id the run's context packet consumed.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: final_result_id,run_id
+      okg_searchable_text_fields: problem_name,convergence_reason
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  AgentSummary:
+    description: |-
+      One per-agent summary node sourced from
+      `agent_<N>_summary.json`. Carries the prose summary plus
+      machine-readable lists the source decomposes into
+      `EmpiricalClaim` / `FailedApproach` nodes (linked via
+      `surfaces` edges). Identity is
+      `engram_summary:<run_id>:<agent_id>`.
+    class_uri: engram:AgentSummary
+    attributes:
+      agent_summary_id:
+        required: true
+        description: Alias key, prefix `engram_summary:`. Deterministic from (run_id, agent_id).
+      run_id:
+        required: true
+      agent_id:
+        required: true
+      summary_text:
+        description: Free-form prose summary the agent emitted; searchable.
+      cite_key_ref:
+        description: Optional `paper:<key>` reference parsed from the summary's recommended-reading or citations block. Drives the `cites` cross-edge against scholarly.Paper when scholarly is loaded.
+      content_hash:
+        required: true
+        description: SHA-256 of the agent_summary.json body for dedup.
+      source_generation_id:
+        description: Optional OKG catalog_version_id the run's context packet consumed.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: agent_summary_id
+      okg_searchable_text_fields: summary_text,agent_id
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  EmpiricalClaim:
+    is_a: Claim
+    description: |-
+      One claim entry decomposed from an `agent_<N>_summary.json`
+      `empirical_claims:` list. Refines `extraction.Claim` — the
+      canonical Claim home (see reasoning-abstract-types; the
+      reasoning ring is closed at 8 subtypes and has no Claim, so
+      Claim lives in the extraction module where claims are
+      produced) — so closure queries filtering
+      `ancestor_name = 'claim'` surface these alongside
+      extractor-emitted GenericClaims. Carries enough provenance
+      (run_id, agent_id) to back-trace to the AgentSummary that
+      surfaced it.
+
+      Schema note: parent attrs `claim_id` / `text` / `kind` /
+      provenance / confidence are inherited from
+      `extraction.Claim` via `is_a:`. Engram-specific attrs:
+      `statement` (the user-facing claim text — populated from
+      the JSON entry's `statement` field), `observed_score_delta`
+      (the score delta the agent attributed to the claim), and
+      run / agent provenance.
+    class_uri: engram:EmpiricalClaim
+    attributes:
+      empirical_claim_id:
+        required: true
+        description: Alias key, prefix `engram_claim:`. Deterministic from (run_id, agent_id, claim_index).
+      statement:
+        required: true
+        description: The empirical claim body; searchable.
+      observed_score_delta:
+        range: float
+        description: Score delta the agent attributed to the claim.
+      run_id:
+        required: true
+      agent_id:
+        required: true
+      cite_key_ref:
+        description: Optional `paper:<key>` reference when the claim entry cites a paper key parseable from `statement`.
+      content_hash:
+        required: true
+        description: SHA-256 of the claim entry's JSON serialization for dedup.
+      source_generation_id:
+        description: Optional OKG catalog_version_id the run's context packet consumed.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: claim
+      transient: 'false'
+      okg_alias_fields: empirical_claim_id
+      okg_searchable_text_fields: statement,agent_id
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  FailedApproach:
+    is_a: Hypothesis
+    description: |-
+      A hypothesis the agent tested and refuted, decomposed from
+      an `agent_<N>_summary.json` `failed_approaches:` list.
+      Refines `reasoning.Hypothesis` so closure queries filtering
+      `ancestor_name = 'hypothesis'` surface these alongside
+      operator-authored Hypotheses.
+
+      When the JSON entry carries an `experiment_id`, the source
+      emits a `FailedApproach refuted_by ExperimentResult` edge
+      matched on `(run_id, agent_id, experiment_id)`. If the
+      target ExperimentResult is not yet projected, the source
+      emits the FailedApproach without the `refuted_by` edge; a
+      later cycle re-evaluates and the edge appears
+      automatically.
+    class_uri: engram:FailedApproach
+    attributes:
+      failed_approach_id:
+        required: true
+        description: Alias key, prefix `engram_failed:`. Deterministic from (run_id, agent_id, approach_index).
+      statement:
+        required: true
+        description: The hypothesis text the agent tested; searchable.
+      failure_mode:
+        description: Why the approach failed (free text).
+      run_id:
+        required: true
+      agent_id:
+        required: true
+      refuted_by_experiment_ref:
+        description: Optional experiment_result_id the JSON entry referenced; drives the `refuted_by` cross-edge.
+      content_hash:
+        required: true
+        description: SHA-256 of the failed-approach entry's JSON serialization for dedup.
+      source_generation_id:
+        description: Optional OKG catalog_version_id the run's context packet consumed.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: claim
+      transient: 'false'
+      okg_alias_fields: failed_approach_id
+      okg_searchable_text_fields: statement,failure_mode,agent_id
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  EdgeNarrowings:
+    description: |-
+      Engram-runs intra-module narrowings. Cross-module
+      narrowings (to scholarly papers, to bookkeeping projects)
+      live in `cross_links/engram_runs_x_*.yaml` and are wired
+      via `module.yaml`'s `extends:` blocks. They are silently
+      dormant when their target modules are not composed — the
+      composition resolver skips rules whose subtypes are absent
+      from the catalog (mirrors the bookkeeping module's
+      pattern).
+
+      Refinement narrowings (e.g. `Hypothesis refuted_by
+      Evidence`) live in the reasoning module's schema and are
+      satisfied automatically through the Layer 1A closure once
+      `FailedApproach` refines Hypothesis and `ExperimentResult`
+      refines Evidence — no extra rules needed here.
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        evaluates: references
+        produced_during: references
+        surfaces: contains
+        best_solution: references
+        refuted_by: references
+    attributes:
+      experiment_result_evaluates_candidate_solution:
+        annotations:
+          edge_archetype: evaluates
+          src_subtypes: ExperimentResult
+          dst_subtypes: CandidateSolution
+      candidate_solution_produced_during_research_digest:
+        annotations:
+          edge_archetype: produced_during
+          src_subtypes: CandidateSolution
+          dst_subtypes: ResearchDigest
+      experiment_result_produced_during_research_digest:
+        annotations:
+          edge_archetype: produced_during
+          src_subtypes: ExperimentResult
+          dst_subtypes: ResearchDigest
+      agent_summary_produced_during_research_digest:
+        annotations:
+          edge_archetype: produced_during
+          src_subtypes: AgentSummary
+          dst_subtypes: ResearchDigest
+      final_result_produced_during_research_digest:
+        annotations:
+          edge_archetype: produced_during
+          src_subtypes: FinalResult
+          dst_subtypes: ResearchDigest
+      agent_summary_surfaces_empirical_claim:
+        annotations:
+          edge_archetype: surfaces
+          src_subtypes: AgentSummary
+          dst_subtypes: EmpiricalClaim
+      agent_summary_surfaces_failed_approach:
+        annotations:
+          edge_archetype: surfaces
+          src_subtypes: AgentSummary
+          dst_subtypes: FailedApproach
+      final_result_best_solution_candidate_solution:
+        annotations:
+          edge_archetype: best_solution
+          src_subtypes: FinalResult
+          dst_subtypes: CandidateSolution
+      failed_approach_refuted_by_experiment_result:
+        annotations:
+          edge_archetype: refuted_by
+          src_subtypes: FailedApproach
+          dst_subtypes: ExperimentResult

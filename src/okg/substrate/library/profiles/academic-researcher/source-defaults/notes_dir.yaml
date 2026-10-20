@@ -1,0 +1,16 @@
+# notes_dir — reads ~/.memex/notes/YYYY-MM-DD-<slug>.md with
+# okg-meeting: frontmatter. Emits CalendarEvent + ActionItem.
+
+notes_dir:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.notes_dir
+  class: NotesDirSource
+  ownership_id: ${deployment_name}.notes_dir
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [path]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    notes_dir: ${notes_dir}

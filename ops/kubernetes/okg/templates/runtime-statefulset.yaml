@@ -1,0 +1,471 @@
+{{- if ge (int .Values.postgresql.settings.timescaledbMaxBackgroundWorkers) (int .Values.postgresql.settings.maxWorkerProcesses) }}
+{{- fail "postgresql.settings.timescaledbMaxBackgroundWorkers must be lower than maxWorkerProcesses" }}
+{{- end }}
+{{- $reservedEnv := list "OKG_DSN" "OKG_DSN_SOURCE" "OKG_MCP_RO_DSN" "OKG_DEPLOYMENT" "OKG_DEPLOYMENTS_DIR" "OKG_REPO_ROOT" "OKG_ENVIRONMENT_DATA_ROOT" "OKG_RUNTIME_ENVIRONMENT" "OKG_RUNTIME_SUPERVISOR" "OKG_NOMOS_SUBJECT" "GIT_PASSWORD" "GIT_AUTH_USERNAME" "GIT_REPOSITORY_URL" "GIT_REPOSITORY_REVISION" "GIT_TERMINAL_PROMPT" "GIT_CONFIG_COUNT" "GIT_CONFIG_PARAMETERS" "MCP_ROLE_PASSWORD" }}
+{{- $envByTarget := dict }}
+{{- range $source := list "secrets.extraEnv" "extraEnv" }}
+{{- $entries := ternary $.Values.secrets.extraEnv $.Values.extraEnv (eq $source "secrets.extraEnv") }}
+{{- range $entries }}
+{{- if or (has .name $reservedEnv) (eq .name $.Values.okg.deploymentDsnEnv) (hasPrefix "GIT_CONFIG_KEY_" .name) (hasPrefix "GIT_CONFIG_VALUE_" .name) (hasPrefix "GIT_CRED_TOKEN_" .name) }}
+{{- fail (printf "%s name %s is reserved by the chart" $source .name) }}
+{{- end }}
+{{- $name := .name }}
+{{- range $target := .targets }}
+{{- $key := printf "%s/%s" $target $name }}
+{{- if hasKey $envByTarget $key }}
+{{- fail (printf "%s name %s is already set for %s by %s" $source $name $target (get $envByTarget $key)) }}
+{{- end }}
+{{- $_ := set $envByTarget $key $source }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.bootstrap.requireApprovalRevision }}
+{{- if not .Values.repositorySync.enabled }}
+{{- fail "bootstrap.requireApprovalRevision requires repositorySync.enabled=true" }}
+{{- end }}
+{{- if ne .Values.bootstrap.approvedRevision .Values.repositorySync.revision }}
+{{- fail "bootstrap.approvedRevision must exactly match repositorySync.revision" }}
+{{- end }}
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "okg.fullname" . }}-runtime
+  labels:
+    {{- include "okg.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime
+spec:
+  serviceName: {{ include "okg.fullname" . }}-runtime
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "okg.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: runtime
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "okg.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: runtime
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "okg.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.runtime.terminationGracePeriodSeconds }}
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with (include "okg.imagePullSecrets" $ | trim) }}{{ . | nindent 6 }}{{- end }}
+      initContainers:
+        {{- if .Values.repositorySync.enabled }}
+        - name: repository-sync
+          image: {{ include "okg.runtimeImage" . | quote }}
+          imagePullPolicy: {{ .Values.images.okg.pullPolicy }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              git_auth() {
+                if [ -n "${GIT_PASSWORD:-}" ]; then
+                  git -c 'credential.helper=!f() { echo username=$GIT_AUTH_USERNAME; echo password=$GIT_PASSWORD; }; f' "$@"
+                else
+                  git "$@"
+                fi
+              }
+              if [ -e "$OKG_REPO_ROOT" ] && [ ! -d "$OKG_REPO_ROOT/.git" ]; then
+                echo "$OKG_REPO_ROOT exists but is not a Git repository" >&2
+                exit 1
+              fi
+              if [ ! -d "$OKG_REPO_ROOT/.git" ]; then
+                mkdir -p "$OKG_REPO_ROOT"
+                git -C "$OKG_REPO_ROOT" init
+                git -C "$OKG_REPO_ROOT" remote add origin "$GIT_REPOSITORY_URL"
+              fi
+              git -C "$OKG_REPO_ROOT" remote set-url origin "$GIT_REPOSITORY_URL"
+              test "$(git -C "$OKG_REPO_ROOT" remote get-url origin)" = "$GIT_REPOSITORY_URL"
+              git_auth -C "$OKG_REPO_ROOT" fetch --force --prune origin "$GIT_REPOSITORY_REVISION"
+              git -C "$OKG_REPO_ROOT" checkout --force --detach FETCH_HEAD
+              git -C "$OKG_REPO_ROOT" clean -ffdx
+          env:
+            {{- include "okg.commonEnv" . | nindent 12 }}
+            - name: GIT_REPOSITORY_URL
+              value: {{ .Values.repositorySync.url | quote }}
+            - name: GIT_REPOSITORY_REVISION
+              value: {{ .Values.repositorySync.revision | quote }}
+            - name: GIT_AUTH_USERNAME
+              value: {{ .Values.repositorySync.authUsername | quote }}
+            {{- if .Values.repositorySync.authSecretKey }}
+            - name: GIT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.repositorySync.authSecretKey }}
+            {{- end }}
+          securityContext:
+            {{- include "okg.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.runtime.resources | nindent 12 }}
+          volumeMounts:
+            - name: runtime-data
+              mountPath: {{ .Values.okg.environmentDataRoot }}
+            - name: tmp
+              mountPath: /tmp
+        {{- end }}
+        {{- if .Values.worker.secretMounts }}
+        - name: worker-secrets
+          image: {{ include "okg.runtimeImage" . | quote }}
+          imagePullPolicy: {{ .Values.images.okg.pullPolicy }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              umask 077
+              {{- range .Values.worker.secretMounts }}
+              {{- $mount := . }}
+              {{- range .files }}
+              install -D -m {{ .mode }} \
+                "/source/{{ $mount.name }}/{{ .fileName }}" \
+                "/output/{{ $mount.name }}/{{ .fileName }}"
+              test "$(stat -c %u:%g:%a "/output/{{ $mount.name }}/{{ .fileName }}")" = "10001:10001:{{ trimPrefix "0" .mode }}"
+              {{- end }}
+              {{- end }}
+          securityContext:
+            {{- include "okg.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.runtime.resources | nindent 12 }}
+          volumeMounts:
+            - name: worker-secrets
+              mountPath: /output
+            - name: tmp
+              mountPath: /tmp
+            {{- range .Values.worker.secretMounts }}
+            - name: worker-secret-source-{{ .name }}
+              mountPath: /source/{{ .name }}
+              readOnly: true
+            {{- end }}
+        {{- end }}
+        - name: bootstrap
+          image: {{ include "okg.runtimeImage" . | quote }}
+          imagePullPolicy: {{ .Values.images.okg.pullPolicy }}
+          # Exit 8 means the publish committed with a capacity warning (the
+          # lock hold passed the bar); the JSON in this log carries it. Only
+          # that code is mapped to success; every other code stays fatal.
+          command:
+            - /bin/sh
+            - -c
+            - 'okg "$@"; rc=$?; if [ "$rc" -eq 8 ]; then exit 0; fi; exit "$rc"'
+            - okg-bootstrap
+          args:
+            - provision
+            - --deployment
+            - {{ .Values.okg.deployment | quote }}
+            {{- if .Values.bootstrap.publishOnce }}
+            - --publish-once
+            {{- end }}
+            - --source-workers
+            - {{ .Values.bootstrap.sourceWorkers | quote }}
+            {{- if .Values.bootstrap.include }}
+            - --include
+            {{- range .Values.bootstrap.include }}
+            - {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            - --json
+          env:
+            {{- include "okg.commonEnv" . | nindent 12 }}
+            {{- include "okg.runtimeSubjectEnv" . | nindent 12 }}
+            {{- with (include "okg.extraEnvFor" (list $ "bootstrap") | trim) }}{{ . | nindent 12 }}{{- end }}
+            {{- include "okg.extraSecretEnvFor" (list . "bootstrap") | nindent 12 }}
+            {{- with (include "okg.gitCredentialsEnv" $ | trim) }}{{ . | nindent 12 }}{{- end }}
+            {{- include "okg.writerDsnEnv" . | nindent 12 }}
+          securityContext:
+            {{- include "okg.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.runtime.resources | nindent 12 }}
+          volumeMounts:
+            - name: runtime-data
+              mountPath: {{ .Values.okg.environmentDataRoot }}
+            - name: tmp
+              mountPath: /tmp
+        - name: runtime-bootstrap
+          image: {{ include "okg.runtimeImage" . | quote }}
+          imagePullPolicy: {{ .Values.images.okg.pullPolicy }}
+          command: ["okg"]
+          args:
+            - runtime
+            - bootstrap
+            - --deployment
+            - {{ .Values.okg.deployment | quote }}
+            - --json
+          env:
+            {{- include "okg.commonEnv" . | nindent 12 }}
+            {{- include "okg.runtimeSubjectEnv" . | nindent 12 }}
+            {{- include "okg.writerDsnEnv" . | nindent 12 }}
+          securityContext:
+            {{- include "okg.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.runtime.resources | nindent 12 }}
+          volumeMounts:
+            - name: runtime-data
+              mountPath: {{ .Values.okg.environmentDataRoot }}
+            - name: tmp
+              mountPath: /tmp
+        {{- if .Values.mcp.manageRole }}
+        - name: mcp-role
+          image: {{ include "okg.runtimeImage" . | quote }}
+          imagePullPolicy: {{ .Values.images.okg.pullPolicy }}
+          command: ["python", "-c"]
+          args:
+            - |
+              import os
+
+              import psycopg
+              from psycopg import sql
+
+              from okg.substrate.db.role_lock import lock_roles_for_alter
+
+              # One transaction: the role's server-wide lock, then the ALTER.
+              # Another okg process altering the role at the same moment waits
+              # instead of failing with "tuple concurrently updated". A
+              # holder runs one short statement, so a wait this long means a
+              # stuck session: fail the step, and Kubernetes retries it.
+              with psycopg.connect(os.environ["OKG_DSN"]) as conn:
+                  conn.execute("SET LOCAL lock_timeout = '60s'")
+                  lock_roles_for_alter(conn, ["okg_mcp"])
+                  conn.execute(
+                      sql.SQL(
+                          "ALTER ROLE okg_mcp LOGIN NOSUPERUSER "
+                          "NOCREATEDB NOCREATEROLE PASSWORD {}"
+                      ).format(sql.Literal(os.environ["MCP_ROLE_PASSWORD"]))
+                  )
+          env:
+            {{- include "okg.commonEnv" . | nindent 12 }}
+            {{- include "okg.runtimeSubjectEnv" . | nindent 12 }}
+            {{- include "okg.writerDsnEnv" . | nindent 12 }}
+            - name: MCP_ROLE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.mcpPasswordKey }}
+          securityContext:
+            {{- include "okg.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+          volumeMounts:
+            - name: runtime-data
+              mountPath: {{ .Values.okg.environmentDataRoot }}
+            - name: tmp
+              mountPath: /tmp
+        {{- end }}
+      containers:
+        - name: worker
+          image: {{ include "okg.runtimeImage" . | quote }}
+          imagePullPolicy: {{ .Values.images.okg.pullPolicy }}
+          command: ["okg"]
+          args:
+            - runtime
+            - worker
+            - --deployment
+            - {{ .Values.okg.deployment | quote }}
+          env:
+            {{- include "okg.commonEnv" . | nindent 12 }}
+            {{- include "okg.runtimeSubjectEnv" . | nindent 12 }}
+            {{- with (include "okg.extraEnvFor" (list $ "worker") | trim) }}{{ . | nindent 12 }}{{- end }}
+            {{- include "okg.extraSecretEnvFor" (list . "worker") | nindent 12 }}
+            {{- with (include "okg.gitCredentialsEnv" $ | trim) }}{{ . | nindent 12 }}{{- end }}
+            {{- include "okg.writerDsnEnv" . | nindent 12 }}
+          securityContext:
+            {{- include "okg.containerSecurityContext" . | nindent 12 }}
+          startupProbe:
+            exec:
+              # renamed-flag compat (decision 310): images.okg.tag is set
+              # independently of the chart, so the probe keeps the old
+              # spelling `--profile` (old and new images accept it) and
+              # silences the rename warning for this command only. Switch to
+              # `--checks` and drop the env prefix when the aliases go.
+              command:
+                - env
+                - OKG_RENAMED_FLAG_WARNINGS=0
+                - okg
+                - deployment
+                - ready
+                - {{ .Values.okg.deployment | quote }}
+                - --profile
+                - {{ .Values.okg.readinessProfile | quote }}
+                - --json
+            periodSeconds: {{ .Values.runtime.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.runtime.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.runtime.probes.startup.failureThreshold }}
+          readinessProbe:
+            exec:
+              # renamed-flag compat (decision 310): images.okg.tag is set
+              # independently of the chart, so the probe keeps the old
+              # spelling `--profile` (old and new images accept it) and
+              # silences the rename warning for this command only. Switch to
+              # `--checks` and drop the env prefix when the aliases go.
+              command:
+                - env
+                - OKG_RENAMED_FLAG_WARNINGS=0
+                - okg
+                - deployment
+                - ready
+                - {{ .Values.okg.deployment | quote }}
+                - --profile
+                - {{ .Values.okg.readinessProfile | quote }}
+                - --json
+            periodSeconds: {{ .Values.runtime.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.runtime.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.runtime.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.runtime.resources | nindent 12 }}
+          volumeMounts:
+            - name: runtime-data
+              mountPath: {{ .Values.okg.environmentDataRoot }}
+            - name: tmp
+              mountPath: /tmp
+            {{- range .Values.worker.secretMounts }}
+            - name: worker-secrets
+              mountPath: {{ .mountDir }}
+              subPath: {{ .name }}
+              readOnly: true
+            {{- end }}
+        - name: mcp
+          image: {{ include "okg.runtimeImage" . | quote }}
+          imagePullPolicy: {{ .Values.images.okg.pullPolicy }}
+          command: ["okg"]
+          args:
+            - mcp-serve
+            - --deployment
+            - {{ .Values.okg.deployment | quote }}
+            - --transport
+            - streamable-http
+            - --host
+            - 0.0.0.0
+            - --port
+            - {{ .Values.mcp.port | quote }}
+            - --allowed-host
+            - {{ printf "%s-mcp:*" (include "okg.fullname" .) | quote }}
+            - --allowed-host
+            - {{ printf "%s-mcp.%s.svc:*" (include "okg.fullname" .) .Release.Namespace | quote }}
+            - --allowed-host
+            - {{ printf "%s-mcp.%s.svc.cluster.local:*" (include "okg.fullname" .) .Release.Namespace | quote }}
+            - --allowed-host
+            - "localhost:*"
+            - --allowed-host
+            - "127.0.0.1:*"
+            - --allowed-host
+            - "[::1]:*"
+            {{- range .Values.mcp.allowedHosts }}
+            - --allowed-host
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- include "okg.commonEnv" . | nindent 12 }}
+            {{- include "okg.mcpSubjectEnv" . | nindent 12 }}
+            {{- with (include "okg.extraEnvFor" (list $ "mcp") | trim) }}{{ . | nindent 12 }}{{- end }}
+            {{- include "okg.readerDsnEnv" . | nindent 12 }}
+          ports:
+            - name: mcp
+              containerPort: {{ .Values.mcp.port }}
+              protocol: TCP
+          securityContext:
+            {{- include "okg.containerSecurityContext" . | nindent 12 }}
+          startupProbe:
+            tcpSocket:
+              port: mcp
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: mcp
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+          volumeMounts:
+            - name: runtime-data
+              mountPath: {{ .Values.okg.environmentDataRoot }}
+            - name: tmp
+              mountPath: /tmp
+        {{- if .Values.mirror.enabled }}
+        - name: mirror
+          image: {{ include "okg.runtimeImage" . | quote }}
+          imagePullPolicy: {{ .Values.images.okg.pullPolicy }}
+          command:
+            {{- toYaml .Values.mirror.command | nindent 12 }}
+          args:
+            {{- toYaml .Values.mirror.args | nindent 12 }}
+          env:
+            {{- include "okg.commonEnv" . | nindent 12 }}
+            {{- include "okg.runtimeSubjectEnv" . | nindent 12 }}
+            {{- with (include "okg.extraEnvFor" (list $ "mirror") | trim) }}{{ . | nindent 12 }}{{- end }}
+            {{- include "okg.extraSecretEnvFor" (list . "mirror") | nindent 12 }}
+            {{- include "okg.readerDsnEnv" . | nindent 12 }}
+          securityContext:
+            {{- include "okg.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.mirror.resources | nindent 12 }}
+          volumeMounts:
+            - name: runtime-data
+              mountPath: {{ .Values.okg.environmentDataRoot }}
+            - name: tmp
+              mountPath: /tmp
+        {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.worker.secretMounts }}
+        - name: worker-secrets
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Mi
+        {{- end }}
+        {{- range .Values.worker.secretMounts }}
+        - name: worker-secret-source-{{ .name }}
+          secret:
+            secretName: {{ $.Values.secrets.existingSecret }}
+            defaultMode: 288
+            items:
+              {{- range .files }}
+              - key: {{ .secretKey }}
+                path: {{ .fileName }}
+                mode: 288
+              {{- end }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: runtime-data
+        # Only labels with no chart or app version: Kubernetes forbids any
+        # change to volumeClaimTemplates, so a version label here would make
+        # every chart upgrade fail (issue 2842).
+        labels:
+          {{- include "okg.selectorLabels" . | nindent 10 }}
+          app.kubernetes.io/component: runtime
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.runtime.storage.storageClassName | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.runtime.storage.size }}

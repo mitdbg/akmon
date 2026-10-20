@@ -1,0 +1,50 @@
+# Cross-link rules: agent_memory -> code_graph.
+rules:
+  - id: agent_records_reference_code_graph
+    src:
+      subtype:
+        - agent_claim
+        - agent_observation
+        - agent_experiment
+        - verification_result
+        - agent_decision
+      field: code_refs
+    dst:
+      subtype:
+        - code_symbol
+        - code_reference
+        - code_import
+        - interface_endpoint
+        - config_key
+        - package_manifest
+        - dependency_package
+      field: node_id
+    matcher: exact
+    edge: references
+    bidirectional: false
+  - id: agent_records_reference_data_assets
+    src:
+      subtype:
+        - agent_claim
+        - agent_observation
+        - agent_experiment
+        - verification_result
+        - agent_decision
+      field: artifact_refs
+    dst:
+      subtype:
+        - data_asset
+      field: node_id
+    matcher: exact
+    edge: references
+    bidirectional: false
+  - id: agent_experiments_produce_data_assets
+    src:
+      subtype: agent_experiment
+      field: produced_refs
+    dst:
+      subtype: data_asset
+      field: node_id
+    matcher: exact
+    edge: produces
+    bidirectional: false

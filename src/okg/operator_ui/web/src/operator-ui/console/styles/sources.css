@@ -1,0 +1,302 @@
+/* --- Sources ---------------------------------------------------------- */
+
+/* The same shell again: one column, hairlines, the chip strip Updates uses
+ * and a table in the attempts table's clothes. What is new is that the
+ * table has columns that exist only when some row fills them, so five
+ * never-run sources on `empty` are three columns and a 220-source deployment
+ * is seven. */
+
+.okg-console__sources-bar { margin: 24px 0 0; }
+
+.okg-console__sources-bar .okg-console__statebar { margin-bottom: 0; }
+
+.okg-console__sources-bar + .okg-console__filters { margin-top: 16px; }
+
+/* Two groups on one line: kinds, then states, 24 px apart. */
+.okg-console__chipgroup {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.okg-console__chipgroup + .okg-console__chipgroup { margin-left: 16px; }
+
+/* "9 failed · repository not found (404) on all 9": the one cause behind
+ * every failure, above the table rather than nine times inside it. */
+.okg-console__sharedcause { margin: 0 0 12px; color: var(--okg-color-text); }
+
+/* A read that came back short. Stated, not coloured: the sentence is
+ * the whole signal, and it sits above the table it qualifies. */
+.okg-console__partialread { margin: 0 0 12px; color: var(--okg-color-text); }
+
+/* The name box on the left, the page count on the right, on the table's own
+ * top edge. */
+.okg-console__tablebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 8px;
+  min-height: 32px;
+}
+
+.okg-console .okg-console__namefilter {
+  width: 320px;
+  padding: 4px 0;
+  border: 0;
+  border-bottom: 1px solid var(--okg-color-line);
+  background: transparent;
+  font-size: 13px;
+  font-family: var(--okg-font-sans);
+  color: var(--okg-color-text);
+}
+
+.okg-console .okg-console__namefilter:focus {
+  outline: none;
+  border-bottom-color: var(--okg-color-link);
+}
+
+.okg-console__tablebar .okg-console__tablecount { margin: 0; }
+
+.okg-console__ptable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.okg-console__ptable th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--okg-color-muted);
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--okg-color-line);
+  white-space: nowrap;
+}
+
+/* A header that sorts is a button in the header's own clothes. */
+.okg-console__sortbutton {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.okg-console__sortbutton:hover,
+.okg-console__sortbutton[data-active="true"] { color: var(--okg-color-text); }
+
+.okg-console__sortmark { margin-left: 4px; font-size: 12px; }
+
+.okg-console__ptable td {
+  padding: 0 12px 0 0;
+  height: 44px;
+  border-bottom: 1px solid var(--okg-color-line-soft);
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-console__prow { cursor: pointer; }
+
+.okg-console__prow:hover td { background: var(--okg-color-surface-muted); }
+
+/* Column widths at 912 px, by data-column and never by nth-child: a column
+ * this view can cut would shift every rule after it.
+ *
+ * State holds the LONGEST phrase the view can print, not the longest one a
+ * particular deployment happens to show. Every phrase, enumerated from
+ * PRODUCER_GLYPHS: "Updated", "Failed", "Running", "Never run", "Excluded",
+ * "Withheld" and "State not recorded" -- the last is the longest at 18
+ * characters, and it is the one a deployment with no runtime shows on every
+ * row. At 104px it was clipped to "State not reco" and ran into Last run
+ * with no gap. 168px holds it beside its icon with the 12px gutter intact.
+ *
+ * Name 224 holds a folded 40-character name beside the kind word, Last run
+ * 92 holds "never run", Freshness 116 holds "not evaluated", Records 80
+ * "3,641" and Relationships 104 "17,753". */
+.okg-console__ptable [data-col="name"] { width: 224px; }
+.okg-console__ptable [data-col="state"] { width: 168px; }
+.okg-console__ptable [data-col="lastrun"] { width: 92px; }
+.okg-console__ptable [data-col="freshness"] { width: 116px; }
+.okg-console__ptable [data-col="records"] { width: 80px; text-align: right; }
+.okg-console__ptable [data-col="relationships"] { width: 104px; text-align: right; }
+.okg-console__ptable [data-col="open"] { width: 14px; padding-right: 0; text-align: right; }
+
+/* A state word must never be cut: a reader cannot tell "State not reco" from
+ * a state whose name really is that. The column is sized for the longest
+ * phrase above, and this keeps the cell honest if a deployment ever records
+ * a state longer than any of them -- it wraps the column rather than
+ * trimming the word. */
+.okg-console__ptable td[data-col="state"] { overflow: visible; text-overflow: clip; }
+
+/* The name must truncate INSIDE its cell. The cell hides its overflow, but a
+ * mono name is one unbreakable run and does not shrink, so at 390 it slid
+ * under the state icon: "deployment_con(-) State not recorded", with the
+ * text 29px past the cell edge. Truncating the name element itself keeps the
+ * 12px gutter, and the whole name stays in the cell's title. Selected by
+ * data-column, so cutting a column cannot move it. */
+.okg-console__ptable td[data-col="name"] { overflow: hidden; }
+
+.okg-console__ptable td[data-col="name"] .okg-console__prow-name {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-console__ptable td[data-col="lastrun"],
+.okg-console__ptable td[data-col="freshness"],
+.okg-console__ptable td[data-col="records"],
+.okg-console__ptable td[data-col="relationships"] { color: var(--okg-color-muted); }
+
+/* The subject of the row: the registry name, in mono, in the row-subject
+ * weight. */
+.okg-console .okg-console__prow-name {
+  font-weight: 500;
+  color: var(--okg-color-text);
+}
+
+.okg-console__prow-kind {
+  margin-left: 8px;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__ptable td[data-col="name"] .okg-console__tag { margin-left: 8px; }
+
+.okg-console__ptable td[data-col="open"] a {
+  font-size: 15px;
+  color: var(--okg-color-muted);
+}
+
+/* --- the producer detail ------------------------------------------------ */
+
+.okg-console__detail-name { display: inline-flex; align-items: center; }
+
+.okg-console__detail-id { font-size: 22px; font-weight: 600; }
+
+.okg-console__detail-kind {
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__header-row .okg-console__status { font-size: 13px; }
+
+.okg-console__figures--detail { margin-top: 0; }
+
+.okg-console__recordtypes { margin-top: 16px; font-size: 13px; }
+
+/* Run history: the same table form, six fixed columns. */
+.okg-console__rtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.okg-console__rtable th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--okg-color-muted);
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--okg-color-line);
+}
+
+.okg-console__rtable td {
+  padding: 0 12px 0 0;
+  height: 44px;
+  border-bottom: 1px solid var(--okg-color-line-soft);
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* By data-column, not nth-child: this table can cut its item columns at
+ * narrow width, and an nth-child rule then styles whichever column slid into
+ * that position. When holds "2026-09-21 02:48:08 UTC" -- a recorded time to
+ * the second, because a producer can run several times inside one minute and
+ * three runs 33 seconds apart all read "13 h ago". At 112px it was cut. */
+.okg-console__rtable [data-col="when"] { width: 180px; }
+.okg-console__rtable [data-col="outcome"] { width: 132px; }
+.okg-console__rtable [data-col="itemsin"],
+.okg-console__rtable [data-col="itemsout"] { width: 100px; }
+.okg-console__rtable [data-col="duration"] { width: 100px; }
+
+.okg-console__rtable-num { text-align: right; color: var(--okg-color-muted); }
+
+.okg-console__rtable th[data-col="itemsin"],
+.okg-console__rtable th[data-col="itemsout"],
+.okg-console__rtable th[data-col="duration"] { text-align: right; }
+
+/* No producer page renders a settings list any more; the rules that painted
+ * Ant Design's Descriptions went with it. */
+.okg-console__settings-note { margin-top: 8px; }
+
+/* Run history, When: the recorded UTC time to the second is what tells two
+ * runs apart, and the age sits under it, muted. At narrow width they stack
+ * the same way rather than the age being dropped -- the age is the reader's
+ * orientation and the stamp is the fact, and neither replaces the other. */
+.okg-console__run-when {
+  display: block;
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-console__run-age {
+  display: block;
+  color: var(--okg-color-muted);
+  font-size: 12px;
+}
+
+/* Records by type on a producer page: the same hairline table the rest of
+ * the console uses, by data-column. */
+.okg-console__typecount { width: 100%; border-collapse: collapse; }
+
+.okg-console__typecount td {
+  padding: 0 12px 0 0;
+  height: 32px;
+  border-bottom: 1px solid var(--okg-color-line-soft);
+  vertical-align: middle;
+}
+
+.okg-console__typecount td[data-col="count"] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  width: 96px;
+}
+
+/* A page whose whole content is one sentence has no header to space it, so
+ * the sentence sat directly under the back link while every other page of
+ * this console starts 28px below it. Same figure as `.okg-console__header`. */
+.okg-console__fact--page { padding-top: 28px; }
+
+/* The footer states the read time twice -- joined to the contribution clause
+ * and standing alone -- because `narrow.css` hides that clause at 390 and a
+ * lower-case "as of ..." was then the whole sentence. Exactly one is drawn:
+ * at full width the joined wording, so the standalone copy beside it is
+ * hidden. The selector is the separator's sibling, so a footer with no
+ * clause (no published version to name) shows the standalone one. */
+[data-testid="sources-footer"] [data-part="sep"] ~ [data-part="asof"] {
+  display: none;
+}
+
+/* The state code the read served, once, under the words that say it
+   (PACT console-archiv3-view-fixes). Muted and smaller: it is for a reader
+   matching the page to a log, not the statement itself. */
+.okg-console__state-code {
+  margin-top: 2px;
+  font-size: 12px;
+}

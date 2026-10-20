@@ -1,0 +1,219 @@
+schema: okg.deployment_product.composition_diagnostics_success/v1
+deployment: diagnostics-product
+catalog_version_id: 4242
+generation_id: gen-diagnostics-001
+semantic_definition_kinds:
+  - module
+  - subtype
+  - attribute
+  - inheritance
+  - annotation
+  - archetype
+  - narrowing
+  - alias
+  - identifier_pattern
+  - concept_seed
+  - identity_policy
+  - catalog_migration
+expected_semantic_definitions:
+  - {kind: alias, id: paper-short, owner: diagnostics, asset_id: aliases, source_asset: diagnostics:aliases}
+  - {kind: attribute, id: artifact.title, owner: diagnostics, asset_id: ontology, source_asset: diagnostics:ontology}
+  - {kind: attribute, id: paper.doi, owner: diagnostics, asset_id: ontology, source_asset: diagnostics:ontology}
+  - {kind: attribute, id: paper.title, owner: diagnostics, asset_id: ontology, source_asset: diagnostics:ontology}
+  - {kind: attribute, id: work.title, owner: diagnostics, asset_id: works, source_asset: diagnostics:works}
+  - {kind: archetype, id: paper.archetype, owner: diagnostics, asset_id: ontology, source_asset: diagnostics:ontology}
+  - {kind: annotation, id: paper.searchable_text_fields, owner: diagnostics, asset_id: ontology, source_asset: diagnostics:ontology}
+  - {kind: catalog_migration, id: paper-v2, owner: diagnostics, asset_id: migration, source_asset: diagnostics:migration}
+  - {kind: concept_seed, id: paper, owner: diagnostics, asset_id: concepts, source_asset: diagnostics:concepts}
+  - {kind: identifier_pattern, id: doi, owner: diagnostics, asset_id: identifiers, source_asset: diagnostics:identifiers}
+  - {kind: identity_policy, id: paper-identity, owner: diagnostics, asset_id: identity, source_asset: diagnostics:identity}
+  - {kind: inheritance, id: paper->artifact, owner: diagnostics, asset_id: ontology, source_asset: diagnostics:ontology}
+  - {kind: module, id: diagnostics:ontology, owner: diagnostics, asset_id: ontology, source_asset: diagnostics:ontology}
+  - {kind: module, id: diagnostics:works, owner: diagnostics, asset_id: works, source_asset: diagnostics:works}
+  - {kind: narrowing, id: paper:references:work, owner: diagnostics, asset_id: bridge, source_asset: diagnostics:bridge}
+  - {kind: subtype, id: artifact, owner: diagnostics, asset_id: ontology, source_asset: diagnostics:ontology}
+  - {kind: subtype, id: paper, owner: diagnostics, asset_id: ontology, source_asset: diagnostics:ontology}
+  - {kind: subtype, id: work, owner: diagnostics, asset_id: works, source_asset: diagnostics:works}
+secrets:
+  compatibility: TOP-SECRET-COMPATIBILITY
+  default: TOP-SECRET-DEFAULT
+  instance: TOP-SECRET-INSTANCE
+assets:
+  - owner: diagnostics
+    id: ontology
+    kind: ontology
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+    schema: okg.deployment_product.asset.ontology/v1
+    merge_identity: diagnostics-ontology
+    merge_rule: refuse
+    provenance: {source: distribution}
+    compatibility:
+      semantic:
+        module_id: diagnostics:ontology
+        subtypes:
+          Artifact:
+            attributes:
+              title: {type: string, required: true}
+            identity: {fields: [title], cardinality: one}
+          Paper:
+            parent: Artifact
+            archetype: scholarly_work
+            annotations:
+              searchable_text_fields: [title]
+            attributes:
+              doi: {type: string, required: true}
+              title: {type: string}
+            identity: {fields: [doi], cardinality: one}
+  - owner: diagnostics
+    id: bridge
+    kind: bridge
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+    schema: okg.deployment_product.asset.bridge/v1
+    merge_identity: diagnostics-bridge
+    merge_rule: refuse
+    provenance: {source: bundle}
+    compatibility:
+      semantic:
+        endpoint_modules: [diagnostics:ontology, diagnostics:works]
+        narrowings:
+          - {parent: Paper, edge: references, child: Work, cardinality: many}
+  - owner: diagnostics
+    id: works
+    kind: ontology
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+    schema: okg.deployment_product.asset.ontology/v1
+    merge_identity: diagnostics-works
+    merge_rule: refuse
+    provenance: {source: distribution}
+    compatibility:
+      semantic:
+        module_id: diagnostics:works
+        subtypes:
+          Work:
+            attributes: [title]
+  - owner: diagnostics
+    id: aliases
+    kind: alias
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+    schema: okg.deployment_product.asset.alias/v1
+    merge_identity: diagnostics-aliases
+    merge_rule: refuse
+    provenance: {source: definition}
+    compatibility:
+      semantic:
+        aliases: [{id: paper-short, alias: paper, canonical: Paper, scope: global}]
+  - owner: diagnostics
+    id: identifiers
+    kind: identifier-pattern
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    schema: okg.deployment_product.asset.identifier-pattern/v1
+    merge_identity: diagnostics-identifiers
+    merge_rule: refuse
+    provenance: {source: definition}
+    compatibility:
+      semantic:
+        patterns: [{id: doi, id_type: doi, regex: '^10\\..+$'}]
+  - owner: diagnostics
+    id: concepts
+    kind: concept-seed
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+    schema: okg.deployment_product.asset.concept-seed/v1
+    merge_identity: diagnostics-concepts
+    merge_rule: refuse
+    provenance: {source: definition}
+    compatibility:
+      semantic:
+        seeds: [{id: paper, name: Paper, description: 'A paper', node_id: concept:paper}]
+  - owner: diagnostics
+    id: identity
+    kind: identity-policy
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:6666666666666666666666666666666666666666666666666666666666666666
+    schema: okg.deployment_product.asset.identity-policy/v1
+    merge_identity: diagnostics-identity
+    merge_rule: refuse
+    provenance: {source: definition}
+    compatibility:
+      semantic:
+        policies: [{id: paper-identity, subtype: Paper, fields: [doi], cardinality: one}]
+  - owner: diagnostics
+    id: migration
+    kind: catalog-migration
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:7777777777777777777777777777777777777777777777777777777777777777
+    schema: okg.deployment_product.asset.catalog-migration/v1
+    merge_identity: diagnostics-migration
+    merge_rule: refuse
+    provenance: {source: definition}
+    compatibility:
+      semantic:
+        migrations: [{id: paper-v2, old_identity: doi, new_identity: doi_v2, evolution: additive}]
+  - owner: diagnostics
+    id: secret-source
+    kind: source
+    plane: ingestion-projection
+    version: v1
+    digest: sha256:8888888888888888888888888888888888888888888888888888888888888888
+    schema: okg.deployment_product.asset.source/v1
+    merge_identity: diagnostics-secret-source
+    merge_rule: refuse
+    provenance: {source: bundle}
+    compatibility: {credential: TOP-SECRET-COMPATIBILITY}
+    override_slots:
+      - {slot_id: token, value_type: string, default: TOP-SECRET-DEFAULT}
+  - owner: diagnostics
+    id: overlay-a
+    kind: source
+    plane: ingestion-projection
+    version: v1
+    digest: sha256:9999999999999999999999999999999999999999999999999999999999999999
+    schema: okg.deployment_product.asset.source/v1
+    merge_identity: diagnostics-overlay
+    merge_rule: overlay
+    provenance: {source: bundle}
+  - owner: diagnostics
+    id: overlay-b
+    kind: source
+    plane: ingestion-projection
+    version: v1
+    digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    schema: okg.deployment_product.asset.source/v1
+    merge_identity: diagnostics-overlay
+    merge_rule: overlay
+    provenance: {source: bundle}
+  - owner: diagnostics
+    id: disabled-source
+    kind: source
+    plane: ingestion-projection
+    version: v1
+    digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    schema: okg.deployment_product.asset.source/v1
+    merge_identity: diagnostics-disabled
+    merge_rule: refuse
+    state: disabled
+    provenance: {source: local}
+  - owner: diagnostics
+    id: tombstone-source
+    kind: source
+    plane: ingestion-projection
+    version: v1
+    digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    schema: okg.deployment_product.asset.source/v1
+    merge_identity: diagnostics-tombstone
+    merge_rule: refuse
+    state: tombstone
+    provenance: {source: local}

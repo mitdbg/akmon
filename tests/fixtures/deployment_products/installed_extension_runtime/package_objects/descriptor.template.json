@@ -1,0 +1,69 @@
+{
+  "entries": [
+    {
+      "declared_capabilities": [
+        "filesystem.read",
+        "graph.output.propose"
+      ],
+      "extension_id": "neutral.connector",
+      "function": "extract",
+      "kind": "connector",
+      "module": "neutral_extension.entry",
+      "output_policy": {
+        "allowed_edge_types": [
+          "References"
+        ],
+        "allowed_node_subtypes": [
+          "Document"
+        ],
+        "max_edges": 8,
+        "max_nodes": 8,
+        "max_observation_bytes": 1024,
+        "max_total_bytes": 8192,
+        "sensitive_value_policy_digest": "sha256:__SENSITIVE_POLICY_DIGEST__"
+      },
+      "provider_effects": {
+        "network": "denied",
+        "writes": "proposal-only"
+      },
+      "public_selector": {
+        "api_version": "v2",
+        "entry_point_group": "okg.extensions",
+        "entry_point_name": "neutral-connector"
+      },
+      "requirements": {
+        "capabilities": [
+          {
+            "name": "filesystem.read",
+            "owner": "neutral-fixture"
+          },
+          {
+            "name": "graph.output.propose",
+            "owner": "neutral-fixture"
+          }
+        ],
+        "provider_effects": [],
+        "quantities": []
+      },
+      "subject": {
+        "kind": "source",
+        "owner": "neutral-fixture",
+        "ref": "documents",
+        "typed_asset_digest": "sha256:__SUBJECT_DIGEST__",
+        "version": "1"
+      }
+    }
+  ],
+  "package_ref": {
+    "kind": "wheel",
+    "owner": "neutral-fixture",
+    "raw_blob": {
+      "digest": "sha256:__EXTENSION_WHEEL_DIGEST__",
+      "digest_domain": "raw-bytes/v1",
+      "size": "__EXTENSION_WHEEL_SIZE__"
+    },
+    "ref": "neutral-extension",
+    "version": "1.0.0"
+  },
+  "schema_version": "okg.extension_package/v2"
+}

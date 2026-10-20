@@ -1,0 +1,62 @@
+module: okg_example_records.reader
+class: RecordSource
+ownership_id: example.records
+source_class: discovery_crawl
+record_identity_kind: scoped_locator
+source_revision_kind: content_hash
+deletion_semantics: missing_from_completed_scope
+publication_mode: published_generation
+description: Bounded JSON records; complete scans authorize disappearance.
+record_identity_fields:
+- id
+admission_policy:
+  producer_id: example_records
+  producer_kind: source
+  trust_label: curated
+  admission_mode: direct
+  output_signature:
+    nodes:
+    - subtype: example_collection
+    - subtype: example_record
+    edges:
+    - src_subtype: example_collection
+      edge_type: contains
+      dst_subtype: example_record
+configuration_hints:
+  okg_connector:
+    connector_type: example_records
+    connector_version: 0.1.0
+    sdk_min_version: 1.0.0
+    sdk_max_version_exclusive: 2.0.0
+    auth_modes:
+    - none
+    capabilities:
+    - cancellation
+    - checkpoint_resume
+    - partial_health
+    - record_set_authority
+    required_modules: []
+    config_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          minLength: 1
+      required:
+      - path
+      additionalProperties: false
+params:
+  path: ${HOME}/.okg/example-records/records.json
+source_policy:
+  store_raw: true
+  sensitivity: local_private
+  data_classification: internal
+  credential_ref_policy: none
+  live_call_allowed: false
+  exportability: no_export
+  retention: source_defined
+  provenance: local_filesystem
+  pii_classes: {}
+  privacy_obligations:
+  - audit
+  - no_export

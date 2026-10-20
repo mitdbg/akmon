@@ -1,0 +1,5 @@
+name = "concord-currency"
+defaultTargets = ["Currency"]
+
+[[lean_lib]]
+name = "Currency"

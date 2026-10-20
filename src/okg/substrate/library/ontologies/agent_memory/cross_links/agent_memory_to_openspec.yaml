@@ -1,0 +1,34 @@
+# Cross-link rules: agent_memory -> openspec.
+rules:
+  - id: agent_records_reference_openspec_context
+    src:
+      subtype:
+        - agent_claim
+        - agent_observation
+        - agent_experiment
+        - verification_result
+        - agent_decision
+      field: reference_refs
+    dst:
+      subtype:
+        - open_spec_change
+        - proposal_task
+        - acceptance_criterion
+        - acceptance_scenario
+      field: node_id
+    matcher: exact
+    edge: references
+    bidirectional: false
+  - id: agent_verifications_verify_openspec_targets
+    src:
+      subtype: verification_result
+      field: target_refs
+    dst:
+      subtype:
+        - proposal_task
+        - acceptance_criterion
+        - acceptance_scenario
+      field: node_id
+    matcher: exact
+    edge: verifies
+    bidirectional: false

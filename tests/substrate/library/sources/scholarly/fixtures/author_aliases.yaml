@@ -1,0 +1,15 @@
+- canonical: "Morgan Vale"
+  aliases:
+    - "M. Vale"
+    - "Vale, M."
+    - "M. R. Vale"
+  external_ids:
+    dblp: "v/MorganVale"
+    orcid: "0000-0001-2345-6789"
+
+- canonical: "E. F. Codd"
+  aliases:
+    - "Edgar F. Codd"
+    - "Codd, E. F."
+  external_ids:
+    dblp: "c/EdgarFCodd"

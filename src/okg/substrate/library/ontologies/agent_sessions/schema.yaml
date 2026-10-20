@@ -1,0 +1,846 @@
+id: https://palimpzest.mit.edu/okg/modules/agent_sessions
+name: agent_sessions
+title: "Agent Session Graph \u2014 sessions, messages, tools, skills, permissions"
+description: 'Coarse-grained representation of Claude Code (and compatible harness)
+  session JSONL transcripts. Captures sessions, subagents, bounded transcript
+  messages, opt-in tool_use events, chapters, skills, spawned task chips, briefs,
+  and high-signal permission events. Full transcript payloads are not stored;
+  message nodes carry bounded excerpts and content hashes.'
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  asg: https://palimpzest.mit.edu/okg/modules/agent_sessions/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Agent:
+    description: A (model, harness) identity that ran one or more sessions. Deduplicated
+      across all sessions.
+    class_uri: asg:Agent
+    attributes:
+      agent_id:
+        required: true
+        description: Composite identity, conventionally `<model>:<harness>`.
+      model_name:
+        required: true
+        description: e.g. `claude-opus-4-7`.
+      harness:
+        required: true
+        description: AgentHarness enum (claude_code, sdk, api).
+    annotations:
+      archetype: actor
+      transient: 'false'
+  AgentSession:
+    description: "One Claude Code session, identified by sessionId UUID. The transcript_path\
+      \ attribute points to the source JSONL \u2014 no transcript text is stored on\
+      \ the node."
+    class_uri: asg:AgentSession
+    attributes:
+      session_id:
+        required: true
+        description: Claude Code sessionId UUID.
+      transcript_path:
+        required: true
+        description: Absolute path to the source JSONL file on disk.
+      cwd:
+        required: true
+        description: Working directory the session ran in.
+      cc_version:
+        description: Claude Code CLI version (from JSONL `version` field).
+      os:
+        description: Best-effort OS heuristic from cwd path (darwin, linux, windows);
+          null if uncertain.
+      git_branch:
+        description: Branch reported by Claude Code at session start.
+      started_at:
+        range: datetime
+        description: Timestamp of the first event in the transcript.
+      ended_at:
+        range: datetime
+        description: Timestamp of the last event in the transcript.
+      model:
+        description: Model name (denormalized from Agent for fast filtering).
+      turn_count:
+        range: integer
+        description: Number of assistant turns observed.
+      tool_call_count:
+        range: integer
+        description: Total tool_use blocks across all turns.
+      total_tokens:
+        range: integer
+        description: Sum of input + output tokens across the session (includes subagent
+          contributions).
+      input_tokens:
+        range: integer
+        description: Sum of message.usage.input_tokens across assistant turns (includes
+          subagents).
+      output_tokens:
+        range: integer
+        description: Sum of message.usage.output_tokens across assistant turns (includes
+          subagents).
+      cache_read_tokens:
+        range: integer
+        description: Sum of cache_read_input_tokens across assistant turns (includes
+          subagents).
+      cache_creation_tokens:
+        range: integer
+        description: Sum of cache_creation_input_tokens across assistant turns (includes
+          subagents).
+      model_calls:
+        range: integer
+        description: Number of assistant turns whose message carried a usage block
+          (includes subagents).
+      cost_usd_estimate:
+        range: float
+        description: USD estimate computed from token counters via the deployment's
+          cost table; null when model is unknown to the table.
+      cost_table_version:
+        description: Short hash of the cost table that produced cost_usd_estimate;
+          lets re-costing detect drift.
+      auto_allow_count:
+        range: integer
+        description: Number of tool calls that were silently auto-approved.
+      denial_count:
+        range: integer
+        description: Number of PermissionEvent children with kind=denied.
+      hook_block_count:
+        range: integer
+        description: Number of PermissionEvent children with kind=hook_blocked.
+      tool_error_count:
+        range: integer
+        description: Number of tool results the harness marked as errors
+          (is_error tool_results / nonzero exit codes), regardless of
+          permission classification. Derived from events at scan time, so
+          friction analyses query attributes instead of text-scraping
+          (reduce-agent-friction req.friction.event-observability).
+      interrupt_count:
+        range: integer
+        description: Number of PermissionEvent children with kind=interrupted.
+      permission_mode:
+        description: Last observed PermissionMode (default or auto).
+      ingest_in_progress:
+        range: boolean
+        description: True while the session's transcript has only been read up
+          to ingest_consumed_bytes. A large transcript is consumed across
+          successive runs under a per-run budget, so the cumulative counters
+          above (turn_count, tool_call_count, denial_count, tool_error_count,
+          interrupt_count) and ended_at describe the consumed prefix, not the
+          whole session. Absent once the transcript is fully read.
+      ingest_consumed_bytes:
+        range: integer
+        description: Bytes of the transcript read so far, when
+          ingest_in_progress is true. Absent once the transcript is fully read.
+      text:
+        description: Searchable text for this node (currently unused; reserved).
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      okg_path_from: transcript_path
+      archetype: process
+      okg_created_at_from: started_at
+      okg_last_modified_at_from: ended_at
+      transient: 'false'
+  SubAgentSession:
+    description: A subagent spawned by a parent session via the Task / Agent tool.
+      Has its own transcript at <parent>/subagents/agent-<id>.jsonl with a paired
+      .meta.json describing the subagent_type.
+    class_uri: asg:SubAgentSession
+    attributes:
+      subagent_id:
+        required: true
+      parent_session_id:
+        required: true
+      agent_type:
+        required: true
+        description: SubAgentType enum (Explore, Plan, etc.).
+      transcript_path:
+        required: true
+      description:
+        description: One-line task description from .meta.json.
+      input_tokens:
+        range: integer
+        description: Sum of message.usage.input_tokens across this subagent's own
+          assistant turns.
+      output_tokens:
+        range: integer
+        description: Sum of message.usage.output_tokens across this subagent's own
+          assistant turns.
+      cache_read_tokens:
+        range: integer
+        description: Sum of cache_read_input_tokens across this subagent's own assistant
+          turns.
+      cache_creation_tokens:
+        range: integer
+        description: Sum of cache_creation_input_tokens across this subagent's own
+          assistant turns.
+      total_tokens:
+        range: integer
+        description: input_tokens + output_tokens for this subagent only.
+      model_calls:
+        range: integer
+        description: Number of assistant turns with usage data on this subagent's
+          transcript.
+      cost_usd_estimate:
+        range: float
+        description: USD estimate for this subagent only; null when model is unknown
+          to the table.
+      cost_table_version:
+        description: Cost-table version hash, mirrors the parent session's field.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: process
+      # No okg_created_at_from / okg_last_modified_at_from: the class has no
+      # started_at or ended_at attribute and the adapter emits neither, so
+      # those annotations never fired (now refused by compose, PACT
+      # read-model-s1-catalog-fields).
+      okg_path_from: transcript_path
+      transient: 'false'
+  AgentChapter:
+    description: A named span of work within a session, marked by an mcp__ccd_session__mark_chapter
+      tool call.
+    class_uri: asg:AgentChapter
+    attributes:
+      chapter_id:
+        required: true
+        description: Conventionally `chapter:<sessionId>:<index>`.
+      session_id:
+        required: true
+      title:
+        required: true
+      summary:
+        description: Optional one-line summary from the mark_chapter call.
+      index:
+        required: true
+        range: integer
+        description: 0-based ordering within the session.
+      started_at:
+        range: datetime
+        description: Timestamp of the mark_chapter event.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      okg_title_from: title
+      archetype: artifact
+      okg_created_at_from: started_at
+      transient: 'false'
+  SpawnedTaskChip:
+    description: "A chip the agent emitted via mcp__ccd_session__spawn_task \u2014\
+      \ something the user might choose to spawn into its own session."
+    class_uri: asg:SpawnedTaskChip
+    attributes:
+      chip_id:
+        required: true
+      session_id:
+        required: true
+      title:
+        required: true
+      prompt:
+        required: true
+        description: The full prompt the spawned session would receive.
+      tldr:
+        description: Plain-language summary shown to the user.
+      accepted:
+        range: boolean
+        description: Whether the user accepted the chip (null if unknown).
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: proposal
+      transient: 'false'
+  Skill:
+    description: A named skill the agent invoked (review-panel, ship-check, etc.).
+      Deduplicated by name across all sessions.
+    class_uri: asg:Skill
+    attributes:
+      name:
+        required: true
+        description: Skill name as referenced in tool calls / slash commands.
+      description:
+        description: Last-seen description text, if surfaced in invocation.
+      plugin:
+        description: Plugin namespace if the skill is plugin-scoped (e.g., "anthropic-skills").
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  PermissionEvent:
+    description: "A sparse, high-signal event where the user (or system policy) halted\
+      \ the agent: a denial, a hook block, a user interrupt, or a permission-mode\
+      \ change. Auto-allowed tool calls are NOT modeled as PermissionEvents \u2014\
+      \ they are aggregated as AgentSession.auto_allow_count."
+    class_uri: asg:PermissionEvent
+    attributes:
+      event_id:
+        required: true
+        description: Conventionally `pevent:<sessionId>:<index>`.
+      session_id:
+        required: true
+      kind:
+        required: true
+        description: PermissionEventKind enum.
+      timestamp:
+        required: true
+        range: datetime
+      tool_name:
+        description: Tool the denial/block applied to (Bash, Edit, etc.); null for
+          interrupts and mode_changed.
+      excerpt:
+        description: First ~200 chars of the tool_result content explaining the decision.
+      tool_input_summary:
+        description: First ~100 chars of the preceding tool_use input (the action
+          that was halted).
+      chapter_index:
+        range: integer
+        description: Index of the AgentChapter that contained this event, if identifiable.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  AgentMessage:
+    description: |
+      One bounded transcript message from an agent session or sub-agent
+      transcript. This is a navigation and alignment surface, not a raw chat
+      archive: content is represented by a short excerpt and stable hash.
+    class_uri: asg:AgentMessage
+    attributes:
+      message_id:
+        required: true
+        description: Conventionally `message:<sessionId>:<message_index>`.
+      session_id:
+        required: true
+        description: Parent AgentSession.session_id or SubAgentSession.subagent_id.
+      harness:
+        required: true
+        description: Agent harness that produced the message, e.g. claude_code or codex.
+      role:
+        required: true
+        description: Transcript role, usually user, assistant, or system.
+      message_index:
+        required: true
+        range: integer
+        description: 0-based message order within the parent transcript.
+      line_index:
+        required: true
+        range: integer
+        description: Source JSONL line index for provenance and stable ordering.
+      timestamp:
+        required: true
+        range: datetime
+        description: Timestamp carried by the transcript row.
+      message_kind:
+        required: true
+        description: >-
+          Normalized kind such as user_prompt, assistant_text,
+          assistant_tool_request, assistant_redacted_thinking, tool_result, or
+          system. assistant_redacted_thinking marks a turn whose reasoning the
+          harness encrypted, so no body is stored because none is recoverable.
+          It is deliberately distinct from assistant_text, which asserts a
+          readable body.
+      content_hash:
+        required: true
+        description: SHA-256 hash of the normalized source message content.
+      content_excerpt:
+        description: Bounded, redacted excerpt for review and matching.
+      tool_call_count:
+        range: integer
+        description: Number of tool calls associated with this message when known.
+      redaction_policy:
+        required: true
+        description: Policy used to store content, currently bounded_excerpt_sha256.
+      parent_message_id:
+        description: Parent message id from the source transcript when present.
+      chapter_index:
+        range: integer
+        description: Index of the AgentChapter that contained this message, if identifiable.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain via the okg_created_at_from annotation.
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Same as created_at for message
+          events.
+    annotations:
+      archetype: artifact
+      okg_created_at_from: timestamp
+      okg_last_modified_at_from: timestamp
+      okg_searchable_text_fields: content_excerpt
+      transient: 'false'
+  ToolUseEvent:
+    description: "One per tool_use block in an assistant turn, opt-in only.\
+      \ Emitted when the source's `capture_tool_use_events` allowlist names\
+      \ this tool's name, or when the tool is an MCP call with a parseable server\
+      \ namespace. Default-off for native harness tools; MCP calls bypass the\
+      \ native allowlist so self-observation telemetry remains visible. node_id\
+      \ is composite: `tool_use:<sessionId>:<turn_index>:<block_index>`,\
+      \ deterministic so re-ingest is idempotent."
+    class_uri: asg:ToolUseEvent
+    attributes:
+      event_id:
+        required: true
+        description: Conventionally `tool_use:<sessionId>:<turn_index>:<block_index>`.
+      session_id:
+        required: true
+        description: sessionId of the parent AgentSession or SubAgentSession.
+      tool_name:
+        required: true
+        description: Name of the tool that fired (Edit, Write, Bash, etc.).
+          Codex MCP calls preserve the raw bare operator name when the transcript
+          carries server identity separately in the namespace field.
+      mcp_server:
+        description: MCP server namespace when this event came from an MCP tool
+          call. Null for native harness tools.
+      mcp_deployment:
+        description: OKG deployment inferred from an okg-* MCP server name. Null
+          for non-OKG MCP servers such as playwright.
+      mcp_operator:
+        description: MCP operator/function name, parsed from either an explicit
+          mcp__server__operator tool name or a Codex bare-name function call with
+          an MCP namespace.
+      turn_index:
+        required: true
+        range: integer
+        description: 0-based assistant turn index within the parent session.
+      block_index:
+        required: true
+        range: integer
+        description: 0-based tool_use block index within the assistant turn.
+      timestamp:
+        required: true
+        range: datetime
+        description: Timestamp of the assistant turn that emitted this tool_use.
+      file_path:
+        description: For file-touching tools (Edit, Write, NotebookEdit), the absolute
+          or repo-relative file path. Null otherwise.
+      command:
+        description: For Bash, the command string (truncated to ~500 chars at extraction
+          time for prompt-budget hygiene). Null for non-Bash tools.
+      input_excerpt:
+        description: Tool-aware short summary of the input (truncated to ~500 chars).
+          Reuses the same _summarize_tool_input helper that powers
+          permission_event.tool_input_summary.
+      chapter_index:
+        range: integer
+        description: Index of the AgentChapter that contained this event, if identifiable.
+      is_error:
+        range: boolean
+        description: Native error signal from the matching tool result
+          (reduce-agent-friction req.friction.event-observability). True when
+          the harness marked the result as an error (Claude is_error
+          tool_result; Codex nonzero exit / failure marker). Absent when no
+          result was observed in the scanned chunk — an honest unknown,
+          never a guessed default.
+      error_kind:
+        description: 'Classification of an is_error result: denied,
+          hook_blocked, interrupted, or error (hard failure without a
+          permission classification). Absent for successes and unknowns.'
+      exit_code:
+        range: integer
+        description: Process exit code for shell-family calls when the
+          harness exposes it (Codex function_call_output metadata). Absent
+          when the harness does not report one.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain via the okg_created_at_from annotation.
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Same as created_at for events
+          (single-instant entities).
+    annotations:
+      archetype: process
+      okg_created_at_from: timestamp
+      okg_searchable_text_fields: command,input_excerpt
+      transient: 'false'
+
+  InstrumentationGap:
+    description: |
+      Standing register row for telemetry fields the workspace graph cannot
+      fully see, including validity windows, coverage, and the decision
+      consequence of the blind spot. Rows are seeded from the 2026-06
+      operator transcript economics study and maintained with telemetry
+      changes so readiness surfaces can cite known gaps.
+    class_uri: asg:InstrumentationGap
+    attributes:
+      gap_id:
+        required: true
+        description: Stable deployment-scoped id for this register row.
+      field:
+        required: true
+        description: Telemetry field or graph surface with incomplete coverage.
+      valid_from:
+        required: true
+        description: Date the coverage statement became true.
+      valid_to:
+        description: Date the gap stopped applying; null while open.
+      coverage:
+        required: true
+        description: Observed coverage from the study's instrument_log table.
+      consequence:
+        required: true
+        description: Decision or measurement consequence of the gap.
+      status:
+        required: true
+        description: open or closed, derived from valid_to.
+      closed_at:
+        description: Closure date for fixed gaps; same as valid_to.
+      closed_by:
+        description: PACT or change id that closed the gap.
+      source_report:
+        description: Study report or artifact that introduced the row.
+      register_path:
+        description: Deployment-local register artifact that emitted the row.
+      text:
+        description: Queryable summary text for search/readiness surfaces.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: gap_id,field
+      okg_searchable_text_fields: field,coverage,consequence,text
+
+  Brief:
+    description: |
+      Per-child instruction packet produced by the Sealed Brief
+      MethodCard pattern (see
+      `openspec/changes/expand-memex-to-personal-okg/methodology-seed/sealed-brief.md`).
+      A Brief carries the inputs an agent or sub-agent needs to start
+      one slice of a multi-agent fan-out: pinned umbrella commit hash,
+      scope boundary, owned files, verification gates, commit cadence.
+
+      Lives in `agent_sessions` so its surrounding context
+      (SubAgentSession placeholders, AgentSession lineage) sits in one
+      module. Substrate `fan_out_sealed_brief` MCP tool consumes a
+      Brief node and writes one BriefDispatch + N SubAgentSession
+      placeholders (per add-substrate-pre-join-mcp-framework / S-A7-R4).
+    class_uri: asg:Brief
+    attributes:
+      brief_id:
+        required: true
+        description: Alias prefix `brief:<slug>`. Slug is operator-curated.
+      title:
+        required: true
+        description: One-line label.
+      umbrella_ref:
+        description: Stable reference to the umbrella the brief slices.
+          Conventionally `change:<umbrella-slug>` or a commit hash.
+      umbrella_commit:
+        description: Pinned commit hash of the umbrella content. The
+          Sealed Brief pattern requires a stable hash so all workers
+          read the same authority artifact.
+      child_slug:
+        description: Slug of the child this brief targets within the
+          umbrella.
+      pre_join_tool_for_per_worker_context:
+        required: true
+        description: Name of a registered pre-join MCP tool the
+          substrate invokes per worker to build the worker's context
+          bundle. fan_out_sealed_brief falls back to this attr when
+          the call does not declare a per-worker pre_join_tool.
+      scope_boundary:
+        description: Free-form description of what the worker owns vs
+          may not touch; lifted into the bundle summary.
+      verification_gate:
+        description: How the worker proves the child is done.
+      commit_cadence:
+        description: Recommended commit cadence for the worker.
+      body_text:
+        description: Full brief body (markdown). Stored for read-side
+          retrieval; the pre-join framework typically excerpts via
+          summary_template.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: brief_id
+      okg_searchable_text_fields: title,body_text,scope_boundary
+      okg_created_at_from: created_at
+      okg_last_modified_at_from: last_modified_at
+
+  BriefDispatch:
+    description: |
+      Audit-only record of one `fan_out_sealed_brief` MCP call. Per
+      add-substrate-pre-join-mcp-framework / D5: the substrate writes
+      one BriefDispatch per fan-out call recording brief_node_ref,
+      worker_count, the pre-join tool used, dispatched_by, and a
+      deterministic dispatch_id so retries within the same observed
+      second collapse.
+
+      Lifecycle: experimental — the audit-trail shape may iterate as
+      workflow tooling lands.
+    class_uri: asg:BriefDispatch
+    attributes:
+      dispatch_id:
+        required: true
+        description: |
+          Deterministic id
+          `dispatch:<sha256(brief_id|sorted(worker_ids)|observed_at_round_to_second)>`
+          so retries within the same wall-clock second collapse via
+          wire-level dedup.
+      brief_node_ref:
+        required: true
+        description: Backref to the Brief node fanned out.
+      worker_count:
+        required: true
+        range: integer
+        description: N workers in the dispatch.
+      pre_join_tool_used:
+        required: true
+        description: Resolved name of the pre-join MCP tool that
+          produced each worker's bundle.
+      dispatched_by:
+        description: Operator identity or agent session id that fired
+          the call.
+      created_at:
+        range: datetime
+        required: true
+        description: Wall-clock at emit time.
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: dispatch_id
+      okg_searchable_text_fields: dispatch_id,brief_node_ref
+      okg_created_at_from: created_at
+
+  EdgeNarrowings:
+    description: Intra-module + cross-module edge narrowings for agent_sessions.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      agent_assigned_to_session:
+        description: An Agent identity ran a session.
+        annotations:
+          edge_archetype: assigned_to
+          src_subtypes: Agent
+          dst_subtypes: AgentSession
+      session_contains_chapter:
+        description: A session contains a chapter.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AgentSession
+          dst_subtypes: AgentChapter
+      session_contains_subagent:
+        description: A session contains a subagent invocation.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AgentSession
+          dst_subtypes: SubAgentSession
+      session_contains_chip:
+        description: A session contains a spawn-task chip.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AgentSession
+          dst_subtypes: SpawnedTaskChip
+      session_contains_permission_event:
+        description: A session contains a permission/denial/interrupt event.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AgentSession
+          dst_subtypes: PermissionEvent
+      session_contains_agent_message:
+        description: A session contains bounded transcript messages.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AgentSession
+          dst_subtypes: AgentMessage
+      subagent_contains_agent_message:
+        description: A subagent session contains bounded transcript messages from
+          its own transcript.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: SubAgentSession
+          dst_subtypes: AgentMessage
+      chapter_contains_chip:
+        description: A chapter contains a spawn-task chip emitted within its span.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AgentChapter
+          dst_subtypes: SpawnedTaskChip
+      chapter_contains_agent_message:
+        description: A chapter contains transcript messages observed within its span.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AgentChapter
+          dst_subtypes: AgentMessage
+      chapter_contains_permission_event:
+        description: A chapter contains a permission event from its span.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AgentChapter
+          dst_subtypes: PermissionEvent
+      subagent_member_of_parent:
+        description: A subagent is a member of its parent session.
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: SubAgentSession
+          dst_subtypes: AgentSession
+      session_supersedes_session:
+        description: A resumed session supersedes its predecessor (emission deferred).
+        annotations:
+          edge_archetype: supersedes
+          src_subtypes: AgentSession
+          dst_subtypes: AgentSession
+      session_references_skill:
+        description: A session invoked a skill.
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentSession
+          dst_subtypes: Skill
+      session_affects_source_file:
+        description: A session edited a tracked source file.
+        annotations:
+          edge_archetype: affects
+          src_subtypes: AgentSession
+          dst_subtypes: SourceFile
+      subagent_affects_source_file:
+        description: A subagent edited a tracked source file.
+        annotations:
+          edge_archetype: affects
+          src_subtypes: SubAgentSession
+          dst_subtypes: SourceFile
+      subagent_references_skill:
+        description: A subagent invoked a skill.
+        annotations:
+          edge_archetype: references
+          src_subtypes: SubAgentSession
+          dst_subtypes: Skill
+      permission_event_references_file:
+        description: A halted tool call targeted this source file.
+        annotations:
+          edge_archetype: references
+          src_subtypes: PermissionEvent
+          dst_subtypes: SourceFile
+      # AgentSession / SubAgentSession → open_spec_change is
+      # auto-derived from `session_edits_file_under_change_dir`
+      # in `agent_sessions/cross_links/sessions_to_openspec.yaml`
+      # (per `declarative-cross-source-linker`, 2026-04-26;
+      # path updated per `add-module-manifests-and-composition`,
+      # 2026-05-19).
+      chapter_references_open_spec_change:
+        description: A chapter mentions or works on an OpenSpec change.
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentChapter
+          dst_subtypes: OpenSpecChange
+      session_references_remote_host:
+        description: A session SSH'd into a remote host. Cross-module to compute_env.
+          Mined from `ssh user@host` patterns in Bash tool calls. Resolves to compute_env's
+          RemoteHost subtype when compute_env is also loaded; pending otherwise.
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentSession
+          dst_subtypes: RemoteHost
+      session_contains_tool_use_event:
+        description: A session contains an opt-in fine-grained tool_use event.
+          Per `add-tool-use-event-capture` (2026-04-27); emission is gated by the
+          source's `capture_tool_use_events` allowlist.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AgentSession
+          dst_subtypes: ToolUseEvent
+      subagent_contains_tool_use_event:
+        description: A subagent's transcript can also emit ToolUseEvents under the
+          same opt-in allowlist (narrowing declared in v1; emitter changes for
+          subagents are deferred per the proposal's non-goals).
+        annotations:
+          edge_archetype: contains
+          src_subtypes: SubAgentSession
+          dst_subtypes: ToolUseEvent
+      chapter_contains_tool_use_event:
+        description: A chapter contains a tool_use_event whose chapter_index
+          matches the chapter's index.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AgentChapter
+          dst_subtypes: ToolUseEvent
+      agent_message_contains_tool_use_event:
+        description: A message contains the tool_use_event blocks emitted by that
+          assistant message when fine-grained tool capture is enabled.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AgentMessage
+          dst_subtypes: ToolUseEvent
+      agent_message_references_source_file:
+        description: A message excerpt or linked tool context references a source file.
+          Usually materialized by declarative cross-link rules rather than direct
+          source emission.
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentMessage
+          dst_subtypes: SourceFile
+      agent_message_references_open_spec_change:
+        description: A message excerpt or command mentions an OpenSpec change slug.
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentMessage
+          dst_subtypes: OpenSpecChange
+      agent_message_references_pact_change:
+        description: A message excerpt or command mentions a PACT change slug.
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentMessage
+          dst_subtypes: PactChange
+      tool_use_event_affects_source_file:
+        description: A tool_use_event with a file_path matching a tracked SourceFile's
+          path edits / writes that file. Materialized by the substrate's declarative
+          cross-link rule (or its fallback enricher) — not the source.
+        annotations:
+          edge_archetype: affects
+          src_subtypes: ToolUseEvent
+          dst_subtypes: SourceFile
+      dispatch_references_brief:
+        description: |
+          Audit-trail edge written by `fan_out_sealed_brief` linking
+          the dispatch event to the Brief whose content fanned out.
+          Per add-substrate-pre-join-mcp-framework / S-A7-R4.
+        annotations:
+          edge_archetype: references
+          src_subtypes: BriefDispatch
+          dst_subtypes: Brief
+      dispatch_references_subagent:
+        description: |
+          One edge per worker placeholder in the dispatch (N total).
+          Per add-substrate-pre-join-mcp-framework / S-A7-R4.
+        annotations:
+          edge_archetype: references
+          src_subtypes: BriefDispatch
+          dst_subtypes: SubAgentSession

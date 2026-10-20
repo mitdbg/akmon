@@ -1,0 +1,100 @@
+{
+  "schema": "okg.live_mcp_proof.expectations.v1",
+  "deployment": "submit-cluster",
+  "live": {
+    "max_observed_age_seconds": 300,
+    "expand": {"direction": "out", "limit": 1},
+    "calls": [
+      {
+        "name": "partition_now_all",
+        "node_id": "FILL: a batch_queue node id, e.g. from search(query=\"partition\")",
+        "relation": "partition_now",
+        "args": {"partition": "all"},
+        "min_rows": 1,
+        "max_rows": 16,
+        "required_row_keys": [],
+        "b_expect_state": "ok"
+      },
+      {
+        "name": "node_now_one",
+        "node_id": "FILL: a compute_node node id",
+        "relation": "node_now",
+        "args": {"node": "FILL: that node's node_name"},
+        "min_rows": 1,
+        "max_rows": 1,
+        "required_row_keys": []
+      },
+      {
+        "name": "storage_now_all",
+        "node_id": "FILL: a storage_area node id",
+        "relation": "storage_now",
+        "args": {"filesystem": "all"},
+        "min_rows": 1,
+        "max_rows": 4,
+        "required_row_keys": []
+      }
+    ],
+    "refusals": [
+      {
+        "name": "bad_argument_pattern",
+        "node_id": "FILL: the same batch_queue node id",
+        "relation": "partition_now",
+        "args": {"partition": "no spaces allowed"},
+        "expect_code": "live_arguments_invalid"
+      },
+      {
+        "name": "unknown_argument_key",
+        "node_id": "FILL: the same batch_queue node id",
+        "relation": "partition_now",
+        "args": {"partition": "all", "sizee": 1},
+        "expect_code": "live_arguments_invalid"
+      },
+      {
+        "name": "enum_out_of_range",
+        "node_id": "FILL: the same storage_area node id",
+        "relation": "storage_now",
+        "args": {"filesystem": "tmp"},
+        "expect_code": "live_arguments_invalid"
+      },
+      {
+        "name": "relation_not_declared_on_subtype",
+        "node_id": "FILL: the same batch_queue node id",
+        "relation": "node_now",
+        "args": {"node": "FILL: any node name"},
+        "expect_code": "live_relation_undeclared"
+      }
+    ]
+  },
+  "multi_user": {
+    "denied_node_ids": ["FILL: node ids principal A reads and principal B is denied by policy"],
+    "shared_values": [],
+    "calls": [
+      {
+        "name": "filter_denied_subtype",
+        "tool": "filter",
+        "arguments": {
+          "input": {"kind": "nodes", "subtype": "FILL: the subtype holding the denied nodes"},
+          "predicate": {},
+          "select": ["node_id", "attrs"],
+          "limit": 50
+        },
+        "a": {"node_ids_include": []},
+        "b": {"node_ids_include": ["FILL: at least one node id B also reads (required)"]}
+      }
+    ],
+    "refusal": {
+      "tool": "inspect",
+      "arguments": {"target": {"kind": "node", "node_id": "FILL: one denied node id"}},
+      "b_expect_code": "node_not_found",
+      "_note": "Required and explicit. A node B's policy denies reads as not found, so B is not told it exists."
+    },
+    "mask": {
+      "tool": "inspect",
+      "arguments": {"target": {"kind": "node", "node_id": "FILL: the node whose attribute is redacted for B"}},
+      "node_id": "FILL: that node id",
+      "attribute": "FILL: the attribute B sees masked"
+    },
+    "unidentified_expect_code": "nomos_principal_unidentified"
+  },
+  "concurrency": {"calls_per_principal": 20, "parallelism": 10}
+}

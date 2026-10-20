@@ -1,0 +1,925 @@
+version: 1
+migrations:
+- migration_id: backfill_edge_fact_strandings
+  file: backfill_edge_fact_strandings.sql
+  checksum_sha256: b2566f6d730a83564c4bc5d60e01d879522529e5d0849cf951cac97ec0511c82
+  title: Backfill edge fact strandings from historical edge facts
+  applicability: legacy_live_runtime
+  prerequisites:
+  - okg.edge_fact_strandings exists
+  - okg.edge_facts exists
+  - okg.edges_live exists
+  - okg.graph_generations has a published generation
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: not_applicable
+    reason: Data backfill only; no target schema shape is changed.
+- migration_id: edge_fact_strandings
+  file: edge_fact_strandings.sql
+  checksum_sha256: 4f2ace815aff33990fae6d1487a6eec70d0bb5f36aff19f7de5deb166575e1c9
+  title: Add edge-fact stranding sentinel table
+  applicability: legacy_live_runtime
+  prerequisites:
+  - okg.edge_facts exists
+  - okg.graph_generations exists
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: require-timeout-settings
+      reason: Historical migration predates the timeout lint gate.
+    - rule: prefer-bigint-over-int
+      reason: retry_count is bounded operational metadata, not an unbounded identifier.
+    - rule: require-concurrent-index-creation
+      reason: Indexes are on a newly created empty sentinel table in the migration.
+  schema_diff:
+    mode: advisory
+    reason: Declarative table/index addition; useful as advisory drift output.
+- migration_id: nodes_live_cascade_source
+  file: nodes_live_cascade_source.sql
+  checksum_sha256: c70f70148685761ded285043bbf18d0ff39818f182e2ab3b05469e3f4b08a4cd
+  title: Add cascade-source attribution to legacy nodes_live
+  applicability: legacy_live_runtime
+  prerequisites:
+  - okg.nodes_live exists
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: require-timeout-settings
+      reason: Historical migration predates the timeout lint gate.
+    - rule: require-concurrent-index-creation
+      reason: Existing deployments apply this as an operator migration; future repair should add CONCURRENTLY when applicable.
+  schema_diff:
+    mode: advisory
+    reason: Simple column/index addition, but only applies before live-table retirement.
+- migration_id: retire_legacy_runtime
+  file: retire_legacy_runtime.sql
+  checksum_sha256: 6384bf5c183a91e65cbea641bc1d8a05c3a98e5457d6f9ccb289a960fe31a4db
+  title: Retire legacy jobs runtime tables and cron schedules
+  applicability: operator_confirmed_legacy_retirement
+  prerequisites:
+  - okg.jobs absent or has no queued/leased rows
+  - operator has confirmed legacy job history retention policy
+  - pg_cron objects are present only when the extension is installed
+  destructive: true
+  destructive_approval: requires_explicit_operator_confirm
+  squawk:
+    expected_findings:
+    - rule: require-concurrent-index-deletion
+      reason: Destructive retirement is operator-confirmed and not part of normal online migrations.
+    - rule: require-timeout-settings
+      reason: Historical destructive migration predates the timeout lint gate.
+    - rule: ban-drop-table
+      reason: This migration intentionally retires legacy runtime tables after safety preflight.
+  schema_diff:
+    mode: not_applicable
+    reason: Destructive retirement with procedural safety checks; generated SQL must not be auto-applied.
+- migration_id: 0002_remove_job_runtime_subsystem
+  file: 0002_remove_job_runtime_subsystem.sql
+  checksum_sha256: d9eb400b8ca520f4eedd878ddb14e3e208a2cb33ef562a5cc441a8b92e032b40
+  title: Remove the obsolete OKG job-runtime subsystem
+  applicability: operator_confirmed_legacy_retirement
+  prerequisites:
+  - replacement runtime code is deployed and old workers are stopped
+  - DBOS source-sync, publisher, and generic-workload workflows are drained
+  - legacy queued, running, and retryable rows are absent
+  - a backup exists if historical job-runtime rows must be recoverable
+  destructive: true
+  destructive_approval: requires_explicit_operator_confirm
+  squawk:
+    expected_findings:
+    - rule: ban-drop-table
+      reason: This migration intentionally drops the obsolete job-runtime subsystem.
+  schema_diff:
+    mode: not_applicable
+    reason: Destructive removal with explicit operator approval; generated SQL must not be auto-applied.
+- migration_id: 0003_deployment_promotion_fence
+  file: 0003_deployment_promotion_fence.sql
+  checksum_sha256: 2189be32b689869225a5b75b23ae8f99cf733b79d5ec250f518edfb3817fcd86
+  title: Add the durable deployment promotion fence
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  - DBOS tables may be installed before or after this migration
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: prefer-bigint-over-int
+      reason: schedules_removed is bounded operational metadata, not an identifier.
+  schema_diff:
+    mode: required
+    reason: Promotion ownership must exist before promotion-capable code is deployed.
+- migration_id: 0004_effective_view_raw_attrs_nullable
+  file: 0004_effective_view_raw_attrs_nullable.sql
+  checksum_sha256: a9dc10e8301304e41f297857d5c5b997b679eb3db0357852b2c0e0c2b0f82af9
+  title: Make effective-view raw_attrs nullable (presence-means-overlay)
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  - okg.attribute_effective_view and _intervals exist or are absent (ALTER IF EXISTS)
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: raw_attrs must be nullable before the presence-means-overlay writer stores NULL and the bounded-batch dedup backfill NULLs existing duplicates.
+- migration_id: 0005_chronos_hot_index_manifest
+  file: 0005_chronos_hot_index_manifest.sql
+  checksum_sha256: b14694f70cf1653ec3b63f9a9e72eb382ee976bc61b065d7fffa8c7e001e84f3
+  title: Add runtime-derived Chronos hot-index authority manifest
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  - Chronos interval tables may be registered before or after this migration
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: require-concurrent-index-creation
+      reason: The index is created on the new, empty maintenance manifest table.
+  schema_diff:
+    mode: required
+    reason: Online live-front index rotation needs durable floor, definition, and activation state so schema reconciliation and doctor fail loudly on partial migrations.
+- migration_id: 0006_chronos_history_compaction
+  file: 0006_chronos_history_compaction.sql
+  checksum_sha256: 5327c5f4d060cb995ff4de87b37b7272b6ab48701f4ad0cb68fac2ccca198bbf
+  title: Add persisted Chronos history-compaction plans, tombstones, and pins
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  - Chronos interval tables may be registered before or after this migration
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: require-concurrent-index-creation
+      reason: The index is created on the new, empty generation-pin table.
+  schema_diff:
+    mode: required
+    reason: Tombstone-first compaction needs durable plans, progress, refusal records, and protection pins.
+- migration_id: 0007_chronos_history_read_coordination
+  file: 0007_chronos_history_read_coordination.sql
+  checksum_sha256: 218c26e043f32c181047eb8452506333524741bdd1e76732f31afe531b65c423
+  title: Coordinate historical read leases with compaction tombstones
+  applicability: always
+  prerequisites:
+  - migration 0006_chronos_history_compaction is applied
+  - Chronos interval tables may be registered before or after this migration
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: require-concurrent-index-creation
+      reason: The partial index is added to the new and initially empty compaction tombstone table.
+  schema_diff:
+    mode: required
+    reason: Stable numeric refusal and race-free read, pin, branch, and checkpoint protection require a tombstone target id plus a shared transaction lock.
+- migration_id: 0008_history_read_lease_role_api
+  file: 0008_history_read_lease_role_api.sql
+  checksum_sha256: a6ba9ad926fe4e53e2ea9253c3d8818fb314788367a2c1b5099f329b997d052c
+  title: Add least-privilege historical read lease functions
+  applicability: always
+  prerequisites:
+  - migration 0007_chronos_history_read_coordination is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Read-only graph clients need a bounded security-definer API to acquire and release their own compaction protection leases without table-write privileges.
+- migration_id: 0009_compacted_generation_read_api
+  file: 0009_compacted_generation_read_api.sql
+  checksum_sha256: bdf7190e2824ea9b217709dd5285f9b90e45a5b0d24e942cd9f9f5a37b5a8a9b
+  title: Add least-privilege compacted-generation refusal lookup
+  applicability: always
+  prerequisites:
+  - migration 0008_history_read_lease_role_api is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Read-only clients need a registered security-definer lookup for tombstones while direct base-table access remains denied.
+- migration_id: 0010_compacted_generation_safe_numeric
+  file: 0010_compacted_generation_safe_numeric.sql
+  checksum_sha256: 2c85effe7d9852422bcf0934ea4e5e7a32dba7f02de6696e0f1dea4dcd09671e
+  title: Make legacy numeric tombstone lookup safe for nonnumeric checkpoints
+  applicability: always
+  prerequisites:
+  - migration 0009_compacted_generation_read_api is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: SQL expression order must never cast a native Chronos checkpoint id to bigint while probing its optional compatibility id.
+- migration_id: 0011_compacted_generation_deployment_scope
+  file: 0011_compacted_generation_deployment_scope.sql
+  checksum_sha256: f4fdfae1e43a7c83f02cb6f9f836f8a7812b294ebf6f7307d2222b3aaaae67e4
+  title: Scope compatibility-id tombstones to the selected deployment
+  applicability: always
+  prerequisites:
+  - migration 0010_compacted_generation_safe_numeric is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Numeric target generation ids are deployment-local and must never resolve another deployment's retirement record.
+- migration_id: 0012_history_read_lease_scope
+  file: 0012_history_read_lease_scope.sql
+  checksum_sha256: 45024de03ba4fd5660bad2e262789db119cc359094fc214e3ce8d226ce34ed74
+  title: Validate and bound historical read leases
+  applicability: always
+  prerequisites:
+  - migration 0011_compacted_generation_deployment_scope is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Least-privilege leases must match checkpoint deployment and branch metadata and clean expired reader rows in bounded batches.
+- migration_id: 0013_attribute_integrity_receipts
+  file: 0013_attribute_integrity_receipts.sql
+  checksum_sha256: bce81a578940dafa440c305dd7393f6531d4e0afcb6b0673e16b9a9172fc4f80
+  title: Add mutation-invalidated effective-attribute integrity receipts
+  applicability: always
+  prerequisites:
+  - migration 0012_history_read_lease_scope is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Deployment startup needs an append-only publisher receipt chain and same-transaction dirtying for every protected read-model write.
+- migration_id: 0014_attribute_integrity_transition_token
+  file: 0014_attribute_integrity_transition_token.sql
+  checksum_sha256: 930c12cd8072b672525ad68706a5fc341d7e53884bd5df66b3e37ceb140086e6
+  title: Prevent concurrent writes from being blessed by attribute receipts
+  applicability: always
+  prerequisites:
+  - migration 0013_attribute_integrity_receipts is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Publisher receipt finalization needs a compare-and-set token that untrusted protected-table writes invalidate in the same transaction.
+- migration_id: 0015_attribute_integrity_authority_hardening
+  file: 0015_attribute_integrity_authority_hardening.sql
+  checksum_sha256: 8c473680bd28f1bfb00fd51b11b9eaa0046b2383e598463ad7d2e3fa9b8acfb1
+  title: Scope integrity invalidation and close finalizer authority edges
+  applicability: always
+  prerequisites:
+  - migration 0014_attribute_integrity_transition_token is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Protected-table writes must dirty exactly the scopes they touch, the finalizer must refuse chain-dangling receipts server-side, and app_rw loses transition/finalizer authority.
+- migration_id: 0016_effective_attribute_recovery_attempt
+  file: 0016_effective_attribute_recovery_attempt.sql
+  checksum_sha256: b20a23bbffac69374d15b208055b4d45b85b29ca4437047cd97453d14e8f1b8e
+  title: Add crash-safe effective-attribute recovery journal
+  applicability: always
+  prerequisites:
+  - migration 0015_attribute_integrity_authority_hardening is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Recovery retries must prove ownership of partial derived-state mutations.
+- migration_id: 0017_effective_attribute_recovery_consumption
+  file: 0017_effective_attribute_recovery_consumption.sql
+  checksum_sha256: 26aa2fefe4b3af82d01aa8d5fda9e0391f956e74e75e07d53fa745c96987af5a
+  title: Consume count-stamp recovery authority exactly once
+  applicability: always
+  prerequisites:
+  - migration 0016_effective_attribute_recovery_attempt is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Publisher recovery must bind and consume one durable prepared attempt.
+- migration_id: 0018_promotion_fence_release_receipt
+  file: 0018_promotion_fence_release_receipt.sql
+  checksum_sha256: c4e39374f546a8bdf1470a6623d73e1d67a5f38b17fdc3ffb05ced3ae0c9fcf4
+  title: Preserve crash-idempotent promotion fence release receipts
+  applicability: always
+  prerequisites:
+  - migration 0003_deployment_promotion_fence is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Deployment resume must distinguish a committed writer reopen from a release that never happened.
+- migration_id: 0019_runtime_dlq_acknowledgement_events
+  file: 0019_runtime_dlq_acknowledgement_events.sql
+  checksum_sha256: 49a812cd5b9f13d675f33549d482eae821e05419eb348f60947d5a81cca406c6
+  title: Add append-only runtime DLQ acknowledgement events
+  applicability: always
+  prerequisites:
+  - migration 0018_promotion_fence_release_receipt is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Repaired terminal DBOS failures need an exact auditable disposition without mutating execution history.
+- migration_id: 0020_interval_narrow_split
+  file: 0020_interval_narrow_split.sql
+  checksum_sha256: 0fb391996cef32cad9d0c3c589b5841c47cce9ad79d708eabe34ad4ba7aca257
+  title: Split effective-attr intervals into narrow rows + content-addressed versions
+  applicability: always
+  # phase-interval-narrow-split-migration (#1143): the original
+  # single-transaction DO block never completed on a real database (1.35 TB
+  # of reads against a 12 GB working set). The data motion now runs through
+  # the checkpointed multi-phase driver; the SQL file carries only the
+  # schema-shape DDL the driver's ensure_infra phase executes. Databases
+  # that applied the atomic variant are absorbed by the audited
+  # checksum-compatibility entry in db/management.py.
+  class: multi_phase
+  prerequisites:
+  - migration 0017_effective_attribute_recovery_consumption is applied
+  - okg.attribute_effective_view and _intervals exist or are absent (every phase
+    of the registered spec is shape-guarded)
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Interval and snapshot rows must reference okg.attribute_versions through the composite FK before the narrow-shape writers deploy; a populated wide shape refuses loudly at ensure time and converges only through the multi-phase driver.
+- migration_id: 0021_attr_filter_index
+  file: 0021_attr_filter_index.sql
+  checksum_sha256: 2d9520b4c08af331db537f83acaea5931199ec47da193cfa884a7cc0490c707e
+  title: Author okg.attr_index and its typed partial indexes for declared attributes
+  applicability: always
+  prerequisites:
+  - migration 0020_interval_narrow_split is applied
+  - okg.attribute_effective_view_intervals and okg.attribute_versions exist
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: prefer-robust-stmts
+      reason: Every statement is CREATE ... IF NOT EXISTS or CREATE OR REPLACE, and the grants are role-guarded, so a partial apply is re-runnable without manual repair.
+    - rule: prefer-bigint-over-int
+      reason: The ordinal columns are BIGINT already; no integer column is added.
+  schema_diff:
+    mode: required
+    reason: The publish derivation and the operator pushdown both write and read okg.attr_index by name, so the table and its typed partial indexes must exist before either deploys; the table starts empty and is populated by the first full-scope derivation or by the rebuild verb.
+- migration_id: 0022_pact_ledger_schema_qualification
+  file: 0022_pact_ledger_schema_qualification.sql
+  checksum_sha256: 0d8af5573a8e685773d4bc84c0214482201067e3a51537436cab27c3956901b3
+  title: Move the PACT ledger relations from public into the okg schema
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  - the schema snapshot has run in this transaction, so a fresh install already
+    created the okg-qualified ledger and this migration is a no-op
+  - 'numbered 0022 to sit behind 0021_attr_index (PR #1069), which is ahead of
+    this change in the merge queue; 0020_interval_narrow_split (PR #1055) has
+    landed. This migration touches neither, so the ordinal records merge order
+    rather than a data dependency, and the ordered runner tolerates the 0021
+    gap while #1069 is unmerged'
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: A pre-qualification deployment keeps the ledger in public until this
+      runs, so the namespace audit query and the okg_mcp writer grant both read
+      the wrong relation without it.
+- migration_id: 0023_generation_identity_text_refs
+  file: 0023_generation_identity_text_refs.sql
+  checksum_sha256: 1970747d6b6349651bcddd7c053f964220207b113dbffb0925f3d62f59220ba0
+  title: Key the granted surface's generation references on the TEXT checkpoint ref
+  applicability: always
+  prerequisites:
+  - migration 0018_promotion_fence_release_receipt is applied
+  - the okg schema exists
+  # Merge-train position, not a code dependency. Quoted because a bare "#" opens
+  # a YAML comment and would silently eat the PR numbers. PR #1074 took 0019,
+  # PR #1055 took 0020, PR #1069 took 0021 and PR #1064 took 0022; all four are
+  # now on dev, so this migration lands last in the train.
+  - 'merge after PR "#1069" (0021), PR "#1064" (0022)'
+  # NOT flagged destructive, deliberately and against first instinct: this
+  # migration DROPs okg.admission_envelopes.target_generation_id. The runner
+  # derives `destructive` from the filename heuristic (retire_/drop_/remove_
+  # prefixes) and refuses a manifest entry that disagrees with it, and a
+  # destructive migration is auto-SKIPPED — which would leave the upgrade path
+  # permanently diverged from a fresh install and red the migration-convergence
+  # lane. That argues the heuristic is too coarse, not that a DROP COLUMN is
+  # harmless, so the drop is made non-destructive IN FACT rather than by label:
+  # the guarded UPDATE above it copies the token into target_generation_ref for
+  # every envelope that carries only the token, so no row loses its generation
+  # linkage. The publisher's lens-promotion finalize pass keeps a per-cycle
+  # correlator (verdict.applied.cycle_token) that used to live in this column;
+  # that is provenance payload, not a generation identity column.
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: ban-drop-column
+      reason: >-
+        okg.admission_envelopes.target_generation_id is the legacy numeric
+        compatibility token that D2 retires; target_generation_ref carries the
+        same fact and is written by every producer path.
+    - rule: require-concurrent-index-creation
+      reason: >-
+        The dedupe and pin indexes are re-created inside the same transaction
+        that retypes their column, so CONCURRENTLY is not available.
+  schema_diff:
+    mode: required
+    reason: >-
+      Fresh install and upgraded database must agree on the generation-reference
+      column types, or the migration-convergence lane diverges.
+- migration_id: 0024_canonical_read_path_view_cleanup
+  file: 0024_canonical_read_path_view_cleanup.sql
+  checksum_sha256: 61a5b79c3e5bb59bf317714432d76b44356a2e9ea5decb9e3e364560d38700d1
+  title: Retire the fake history views and the projectable-fact stubs
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  # NOT flagged destructive, for the reason 0023 records: the generic runner
+  # auto-SKIPS a destructive migration, which would leave every upgraded
+  # database carrying views a fresh install does not have — permanent
+  # divergence, and a red migration-convergence lane. The label must describe
+  # the effect. The effect is five view drops and one function drop; no table,
+  # no column, no row. Every fact these views projected stays readable from the
+  # relations they read, which is what makes the drop non-destructive IN FACT
+  # rather than by label. The filename avoids the `retire_` prefix for the same
+  # reason: the runner refuses when the manifest and the filename heuristic
+  # disagree, and the heuristic reads that prefix as destructive.
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: >-
+      Decision D6 retires these views from the v1.0 surface. A fresh install
+      never creates them; an upgraded database must not keep them, or the two
+      disagree about what the granted read surface contains.
+- migration_id: 0025_dead_relation_and_constraint_convergence
+  file: 0025_dead_relation_and_constraint_convergence.sql
+  checksum_sha256: e1a404c7a16853526110032ebf7e25e43174a0af574206226b2bdc91568e3409
+  title: Retire the zero-consumer relations and validate the born-VALID constraints
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  # Ordinal reservation, not a code dependency. Quoted because a bare "#" opens
+  # a YAML comment and would silently eat the PR numbers. 0024 is held by the
+  # canonical-read-path lane, which is in flight and unmerged; this change was
+  # assigned 0025 up front so the two cannot collide. 0024 being absent from
+  # the tree when this lands is expected and harmless -- the runner enumerates
+  # the NNNN files that exist and orders them, it does not require a dense
+  # sequence. Resolve any merge conflict in the pinned lists by TAKING BOTH
+  # SIDES and recomputing the count from the migrations directory; never
+  # renumber an ordinal that has already been applied to a database.
+  - 'ordinal "#0024" is reserved by the canonical-read-path lane'
+  # NOT flagged destructive, deliberately: this migration DROPs two tables and
+  # two functions. The runner derives `destructive` from the filename heuristic
+  # (retire_/drop_/remove_ slug prefixes) and refuses a manifest entry that
+  # disagrees with it, and a destructive migration is auto-SKIPPED behind an
+  # operator-confirmed adapter -- which would leave every upgraded database
+  # carrying relations no fresh install has, permanently reddening the
+  # migration-convergence lane with nothing able to clear it. Same argument as
+  # 0023. The drops are made safe IN FACT rather than by label: a per-relation
+  # consumer re-verification at HEAD (rg over src/, tests/, deployments/,
+  # scripts/, ops/) found no reader, no writer, and no dependent view for any
+  # of the four objects, and the drops are RESTRICT (the default), so an
+  # unaudited dependency BLOCKS the migration instead of being silently removed
+  # by CASCADE. okg.lease_audit -- the audit's third named table -- is NOT
+  # dropped, and NOT because anything depends on it in the catalog sense: the
+  # inventory view that names it stores a string, never selects it, so the
+  # drop would succeed. It is kept because four places still reference it
+  # (the app_ro-published okg.v_runtime_lock_surface_inventory row marked
+  # table_backed = true, the test that pins that row, the conftest truncation
+  # list, and the clone/relation-family dispositions), and dropping the table
+  # without fixing the inventory would leave app_ro readers told a relation
+  # exists that no longer resolves. The inventory row lives in views.sql,
+  # owned by the canonical-read-path lane.
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: ban-drop-table
+      reason: >-
+        okg.pagerank_scores and okg.verifier_runs are the audited zero-consumer
+        relations this change retires; the drop is the whole point of the
+        migration, and RESTRICT blocks on any dependency the audit missed.
+  schema_diff:
+    mode: required
+    reason: >-
+      A fresh install no longer creates these relations and now creates six of
+      the seven formerly-NOT VALID CHECK constraints born VALID; an upgraded
+      database must reach the same shape or the migration-convergence lane
+      diverges. The seventh is a registered exemption
+      (src/okg/substrate/db/not_valid_exemptions.yaml) and is NOT VALID on
+      both sides, so it converges too.
+- migration_id: 0026_identity_branch_and_deployment_names
+  file: 0026_identity_branch_and_deployment_names.sql
+  checksum_sha256: bbac38c18509f8f039d1b6929cf3102fee3810e415e051a03a2f5af97dac32b9
+  title: Rename chronos branch ids and bare deployment columns to the v1.0 convention
+  applicability: always
+  prerequisites:
+  - migration 0023_generation_identity_text_refs is applied
+  - the okg schema exists
+  # Ordinal pinned from disk: 0023 is the highest ordinal on dev, and 0024 and
+  # 0025 are RESERVED by the two sibling lanes running concurrently against this
+  # same freeze --- schema-canonical-read-path (0024) and
+  # schema-dead-weight-retirement (0025). Quoted because a bare "#" would open a
+  # YAML comment and silently eat the PR numbers.
+  - 'ordinals "#0024" and "#0025" are reserved by the canonical-read-path and
+    dead-weight-retirement lanes; this migration takes 0026 and depends on
+    neither'
+  # TWO-ORDER REQUIREMENT, stated because the runner does not enforce it.
+  # Reserving a LOWER ordinal for an unwritten migration inverts the usual
+  # guarantee: on a FRESH install 0024/0025 execute BEFORE 0026, but on a
+  # database that already applied 0026 they execute AFTER it. The runner
+  # validates checksum, destructive flag, class and explicit "migration <id> is
+  # applied" prerequisites only -- it has no ordinal-regression refusal -- so
+  # nothing mechanically stops a sibling migration that is correct in one order
+  # and wrong in the other. Both sibling lanes must therefore be correct against
+  # BOTH the pre-rename and the post-rename shape of the ten deployment_name
+  # tables and okg.history_compaction_plans, or must declare an explicit
+  # "0026_identity_branch_and_deployment_names is applied" prerequisite to pin
+  # the order.
+  - 'siblings taking "#0024"/"#0025" must be correct BOTH before and after this
+    migration, or declare it as an explicit prerequisite'
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: >-
+      Fresh install and upgraded database must agree on the branch and
+      deployment column NAMES, or the migration-convergence lane diverges. The
+      renames are catalog-only (ALTER TABLE ... RENAME COLUMN carries dependent
+      indexes, constraints and view bodies), so no table is rewritten.
+- migration_id: 0027_grant_registry
+  file: 0027_grant_registry.sql
+  checksum_sha256: fe41e6747d22171d90d1901216ec57136b537cac30287f3e1d43d04b290551ea
+  title: Add the explicit grant registry and the durable pending-grant queue
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  # Ordinal pinned from disk at HEAD, not inferred: 0026 is the highest ordinal
+  # present in src/okg/substrate/db/migrations, so this takes 0027. Quoted
+  # because a bare "#" would open a YAML comment and silently eat the numbers.
+  - 'ordinal "#0027" recomputed from the migrations directory at HEAD; the
+    runner orders the NNNN files that exist and does not require a dense
+    sequence'
+  # ORDER-INDEPENDENT BY CONSTRUCTION. Both statements are CREATE ... IF NOT
+  # EXISTS against relations schema.sql already authors, so this migration is
+  # correct whether it runs before or after any sibling ordinal, and is a no-op
+  # on a fresh install.
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: >-
+      A fresh install (schema.sql) and an upgraded database (this migration)
+      must agree on okg.grant_registry and okg.pending_grants, or views.sql's
+      registry seed applies on one and silently no-ops on the other --- which
+      is exactly the order-dependent grant surface this PACT removes.
+- migration_id: 0028_enricher_input_quarantine
+  file: 0028_enricher_input_quarantine.sql
+  checksum_sha256: 6c0b7f62f87c02b7cf733b907f4bb0942d415d00420bd0a68177fef9b88f625f
+  title: Bound deterministic model-enricher retries with a durable item ledger
+  applicability: always
+  prerequisites:
+  - migration 0026_identity_branch_and_deployment_names is applied
+  - migration 0027_grant_registry is applied
+  - the okg schema exists
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: >-
+      Fresh installs and upgraded deployments must expose the same explicit
+      per-item retry/quarantine state or watermark behavior diverges.
+- migration_id: connection_reservations
+  file: connection_reservations.sql
+  checksum_sha256: 22f9925c536df06c0ed3a3e4296aa74571d1ed6c184fa52fa637a60f1927033a
+  title: Record host-wide connection reservations before pools open
+  applicability: always
+  prerequisites:
+  - okg schema exists
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Concurrent boots must not each be admitted against the same free connections.
+- migration_id: 0029_workflow_operational_outcomes
+  file: 0029_workflow_operational_outcomes.sql
+  checksum_sha256: 873498657e23b1bdc94286ae97d8e0b8bf6352ce975f9719e2bfbc5c59ebbe5d
+  title: Add typed queryable DBOS operational outcomes
+  applicability: always
+  prerequisites:
+  - okg schema exists
+  - DBOS workflow_status is available before participant workflows run
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: Successful participant workflows need attributable evidence outside opaque DBOS output.
+- migration_id: 0030_external_action_review
+  file: 0030_external_action_review.sql
+  checksum_sha256: 3e5d1ddb348a6fb15bd985ed80abff9bd1f4f33afa2de96eba6a433d85bc1f91
+  title: Add the authenticated external-action review and restore ledger
+  applicability: always
+  prerequisites:
+  - migration 0029_workflow_operational_outcomes is applied
+  - the okg schema exists
+  - okg.nomos_decisions, okg.nomos_identity_providers, and okg.nomos_subject_bindings exist
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: >-
+      External review, claim, outcome, and restore rows are deployment-bound
+      audit state. Fresh installs and upgrades must expose the same twenty
+      relations, append-only constraints, decision references, and closed API
+      role surface before the service can accept a request.
+- migration_id: 0031_bounded_record_authority
+  file: 0031_bounded_record_authority.sql
+  checksum_sha256: b3a549fe0c7c81187ac1dd3e22e57ecaeb19fe48fc997f592f175a07589de0cd
+  title: Add opt-in bounded indexed source record authority
+  applicability: always
+  prerequisites:
+  - migration 0030_external_action_review is applied
+  - the okg schema exists
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: >-
+      Fresh installs and upgraded deployments must expose the same private
+      staging, sealed authority, bounded payload and public reference tables.
+- migration_id: 0032_withheld_enricher_progress_status
+  file: 0032_withheld_enricher_progress_status.sql
+  checksum_sha256: 3384d30ae31b04bdc25427f31e0ec7c267c1fe0897c5a9a5ac85035cb723e94f
+  title: Admit a withheld enricher run into the enricher_progress status vocabulary
+  applicability: always
+  prerequisites:
+  - migration 0031_bounded_record_authority is applied
+  - okg.enricher_progress exists
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: constraint-missing-not-valid
+      reason: >-
+        Warning-only. The CHECK is added without NOT VALID on purpose: it only
+        WIDENS the accepted set (it adds `withheld:%` to the existing
+        'never'/'success'/`failed:%`), so no existing row can violate it and
+        the validating scan cannot fail. Splitting into NOT VALID + VALIDATE
+        would take the same ACCESS EXCLUSIVE lock to attach the constraint
+        while leaving a window in which the publisher's new `withheld:%` write
+        is rejected. enricher_progress holds one row per enricher per
+        deployment -- tens of rows -- so the scan is bounded, and the migration
+        caps its exposure with lock_timeout 5s / statement_timeout 30s.
+  schema_diff:
+    mode: required
+    reason: >-
+      Fresh installs and upgraded deployments must accept the same
+      enricher_progress.last_status values. Without this a deployment that was
+      upgraded rather than reinstalled rejects the withheld status the
+      publisher now writes, and the publish fails on the constraint.
+
+- migration_id: 0033_external_automation_run_identity
+  file: 0033_external_automation_run_identity.sql
+  checksum_sha256: f0bf95d04e07ebf71af2b9ec8d80b92290a86a8f9f0441fb1893e287160edae1
+  title: Register immutable authenticated external automation run identity
+  applicability: always
+  prerequisites:
+  - migration 0030_external_action_review is applied
+  - okg.v_generations exists
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: prefer-robust-stmts
+      reason: The two ENABLE ROW LEVEL SECURITY statements are idempotent; tables use IF NOT EXISTS and policies use DROP IF EXISTS before replacement, so interrupted application is safely rerunnable. The migration runner supplies its guarded transaction.
+  schema_diff:
+    mode: required
+    reason: Fresh and upgraded databases require identical run records and fixed authority RPCs.
+- migration_id: 0034_external_action_claim_expiry
+  file: 0034_external_action_claim_expiry.sql
+  checksum_sha256: bedbec57193d80667ba4f67b867d690a2a4880c1fe7a96d575d1d31c0ec48ae8
+  title: Record a late claim's execution-deadline expiry instead of raising
+  applicability: always
+  prerequisites:
+  - migration 0030_external_action_review is applied
+  - okg.external_action_materialize_expiry exists
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: >-
+      Fresh and upgraded databases must run the same prepare-claim and claim
+      bodies. Without this file a database that applies 0030 after schema.sql
+      keeps the older bodies, which raise on a passed deadline and record no
+      approval_expired event (issue #1925).
+- migration_id: 0035_record_set_blob_pieces
+  file: 0035_record_set_blob_pieces.sql
+  checksum_sha256: c80540e64997441a1e6e15b507309a42ec9b1d70a8a702b187e49b939412a1c6
+  title: Store large source record-set authority in bounded pieces
+  applicability: always
+  prerequisites:
+  - okg.source_record_set_blobs exists
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: >-
+      Fresh and upgraded databases must have the same pieced record-set
+      columns, constraints and table, or the source runner's pieced reads and
+      writes (issue #3008) would differ between them.
+- migration_id: 0036_attr_index_coverage
+  file: 0036_attr_index_coverage.sql
+  checksum_sha256: a65fd8c58b15f28989e742dde7665d751a8d789bf860dd58be5948b0042c7f54
+  title: Record per-attribute attr_index coverage and queue the one-off rebuild
+  applicability: always
+  prerequisites:
+  - migration 0021_attr_filter_index is applied
+  - okg.subtypes and okg.catalog_versions exist
+  - migration 0035_record_set_blob_pieces is applied (ordering only; no data dependency)
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: prefer-robust-stmts
+      reason: Every table is CREATE TABLE IF NOT EXISTS, the grant is role-guarded, and the queue insert is ON CONFLICT DO NOTHING, so a partial apply is re-runnable without manual repair.
+  schema_diff:
+    mode: required
+    reason: >-
+      The publisher writes and the MCP pushdown reads okg.attr_index_coverage
+      by name (issue #3029), so fresh and upgraded databases must both carry
+      the three coverage tables. The coverage table starts empty, so every
+      declared attribute reads not covered and its reads scan until the
+      rebuild this migration queues has run.
+- migration_id: 0037_declared_attr_indexes
+  file: 0037_declared_attr_indexes.sql
+  checksum_sha256: 8acd1172b9fde5afb2ca2d976d7909c2d5fe987e4f36675b681ef88043e9a3c5
+  title: Author the declared-attribute index functions, manifest and drift record
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  - migration 0036_attr_index_coverage is applied (ordering only; no data dependency)
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: require-concurrent-index-creation
+      reason: Both indexes are on tables this migration creates, so they are empty when indexed.
+  schema_diff:
+    mode: required
+    reason: >-
+      The declared-attribute reconciler (okg#3112 step 2) reads and writes
+      okg.declared_attr_indexes, okg.declared_attr_index_state and
+      okg.declared_attr_index_drift_checks by name, and its index expressions
+      call okg.attr_num_key and okg.attr_ts_v4, so fresh and upgraded
+      databases must both carry them. Every table starts empty and no index
+      is built until an operator runs okg db attr-index reconcile --apply.
+- migration_id: 0039_external_action_snapshot_columns
+  file: 0039_external_action_snapshot_columns.sql
+  checksum_sha256: 368b7efeb704e9aefa9d25a1965181c5647b035d01126371810c39288c6ff0d0
+  title: Build the external-action snapshot's lifecycle records from their columns
+  applicability: always
+  prerequisites:
+  - migration 0030_external_action_review is applied
+  - migration 0033_external_automation_run_identity is applied
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: >-
+      Fresh and upgraded databases must run the same snapshot body. Without
+      this file a database that applies 0030 or 0033 after schema.sql keeps an
+      older body, which returns the original submit, review, claim or outcome
+      command as the record, so a hydrated store sees an approved proposal as
+      pending and cannot load its decision or execution (issue #2341).
+- migration_id: 0040_nomos_read_classes
+  file: 0040_nomos_read_classes.sql
+  checksum_sha256: fed8b941d4e3a8cda303b13d72a977cb99a49e19b0c3b1bafae6ed33a6c29f4d
+  title: Add the catalog of stored Nomos read classes
+  applicability: always
+  prerequisites:
+  - migration 0039_external_action_snapshot_columns is applied (ordering only; no data dependency)
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: prefer-bigint-over-int
+      reason: vocabulary_version is the small Nomos class vocabulary counter, not an unbounded identifier.
+  schema_diff:
+    mode: required
+    reason: >-
+      The graph writers insert into and the reader's view reads
+      okg.nomos_read_classes by name (PACT lane-h-nomos-read-class-sql), so
+      fresh and upgraded databases must both carry it. Rows stamped before it
+      existed have no catalog row and are read on the exact per-row path.
+- migration_id: 0041_blob_store
+  file: 0041_blob_store.sql
+  checksum_sha256: caae8dc4df129f9a9ac213db2e3336be716dcb71c31c4bc6075c43188d87d905
+  title: Add the general blob store okg.blobs and its image-only view
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  - migration 0040_nomos_read_classes is applied (ordering only; no data dependency)
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: >-
+      Ingest writes rendered images to okg.blobs and the MCP read path reads
+      them through okg.image_blobs (issue #3046), so fresh and upgraded
+      databases must both carry the table, its checks, the cleanup index and
+      the view.
+- migration_id: 0043_attr_index_teardown
+  file: 0043_attr_index_teardown.sql
+  checksum_sha256: da7e12760f892a4922f815dba5b754b5ed25fd5199ee9b3ee2e82f1aa7b94fae
+  title: Drop okg.attr_index, its coverage markers, rebuild queue and derive front
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  - migration 0041_blob_store is applied (ordering only; no data dependency)
+  # Ordinal reservation, not a code dependency. Quoted because a bare "#" opens
+  # a YAML comment. 0038 is reserved by lane C (#3157) and 0042 is taken by
+  # 0042_catalog_ownership_events on another branch, so this change takes 0043.
+  # Resolve any merge conflict in the pinned lists by taking both sides and
+  # recounting the migrations directory; never renumber an applied ordinal.
+  - 'ordinals "#0038" and "#0042" are reserved by other lanes; this migration takes 0043'
+  # NOT flagged destructive, by decision 304 (D4), on the argument of
+  # 0023-0025: a destructive migration is auto-skipped behind an
+  # operator-confirmed adapter, so upgraded databases would keep tables a
+  # fresh install drops and the migration-convergence lane would stay red.
+  # The rows are derived: each was projected from the interval rows in
+  # okg.attribute_effective_view_intervals, which stay. okg#3112 step 4b
+  # removed every reader and writer, and the drops are RESTRICT, so an
+  # unaudited dependency blocks the migration. It frees about 11.7 GB on
+  # krama; the operator approves it knowing that.
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: ban-drop-table
+      reason: >-
+        okg.attr_index and its three issue-#3029 side tables are the derived
+        filter index okg#3112 step 4 retires; the drop is the whole point of
+        the migration, nothing reads or writes them after step 4b, and RESTRICT
+        blocks on any dependency the audit missed.
+  schema_diff:
+    mode: required
+    reason: >-
+      The runtime schema ensure no longer creates these objects, and 0021 and
+      0036 still create them on a fresh install, so fresh and upgraded
+      databases must both run this drop to converge on their absence.

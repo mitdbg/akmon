@@ -1,0 +1,6 @@
+{
+  "agf": "openspec_change:add-greeting-feature",
+  "afg": "openspec_change:add-formal-greeting",
+  "staging": "remote_host:staging.example.com",
+  "prod": "remote_host:prod.example.com"
+}

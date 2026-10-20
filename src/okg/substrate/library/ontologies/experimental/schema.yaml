@@ -1,0 +1,269 @@
+id: https://palimpzest.mit.edu/okg/modules/experimental
+name: experimental
+title: "Experimental Module — designed empirical inquiry: Experiment / Trial / Result"
+description: 'Substrate ontology for the operator''s empirical work: ML training
+  runs, benchmark sweeps, ablation studies, profiling runs. Three subtypes (Experiment,
+  Trial, Result) form a three-level structure matching MLflow / WandB / Hydra
+  conventions. Experiment is the designed inquiry; Trial is one specific run instance
+  with parameter bindings; Result is a raw measurement produced by one Trial. The
+  interpreted record ("the model improved by 5%") is an Observation in the reasoning
+  module, linked via the experimental_to_reasoning cross-link rule
+  (Observation derives_from Result).'
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  expt: https://palimpzest.mit.edu/okg/modules/experimental/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Experiment:
+    description: A designed empirical inquiry. Carries the hypothesis under test,
+      design rationale, kind, and status. One Experiment is realized by one or more
+      Trials.
+    class_uri: expt:Experiment
+    attributes:
+      experiment_id:
+        required: true
+        description: Canonical identity. Source adapters emit deterministic IDs
+          (e.g. `exp:<slug>`).
+      slug:
+        required: true
+        description: Human-readable slug; primary alias field.
+      title:
+        required: true
+        description: One-line description of the experiment.
+      design:
+        description: Narrative description of what's varied, what's held constant,
+          what's measured. Searchable.
+      hypothesis_ref:
+        description: Slug of the Hypothesis (in the reasoning module) this
+          Experiment was designed to test. Enables a future
+          `Experiment investigates Hypothesis` enricher; not load-bearing for this
+          module's own narrowings.
+      kind:
+        description: Free-form category (benchmark, ablation, profile, sweep,
+          training). Avoids subtype proliferation per the umbrella's D10 additive-
+          only discipline.
+      status:
+        description: Lifecycle marker — planned, running, complete, abandoned.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp. Populated by the pipeline's
+          TimeResolver chain.
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the
+          pipeline's TimeResolver chain.
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: experiment_id,slug,title
+      okg_searchable_text_fields: title,design
+  Trial:
+    description: One specific instance/run of an Experiment's design. Carries the
+      variable bindings (seed, hyperparameters, dataset version) that distinguish
+      it from sibling trials.
+    class_uri: expt:Trial
+    attributes:
+      trial_id:
+        required: true
+        description: Canonical identity. Source adapters emit deterministic IDs
+          (e.g. `trial:<experiment_slug>:<index>` or `trial:<run_id>`).
+      experiment_id:
+        required: true
+        description: Parent Experiment reference. The declarative substrate linker
+          materializes the `experiment_produces_result` alias edge from this field.
+      trial_index:
+        range: integer
+        description: Ordinal within the parent Experiment; null for sweep trials
+          identified by parameter combination.
+      parameters:
+        description: Variable bindings (seed, hyperparameters, dataset version)
+          serialized as a JSON string. LinkML has no native JSON range; future
+          extensions may split into typed sub-attributes.
+      status:
+        description: pending, running, complete, failed.
+      started_at:
+        range: datetime
+      ended_at:
+        range: datetime
+      created_at:
+        range: datetime
+        description: Populated by TimeResolver chain.
+      last_modified_at:
+        range: datetime
+        description: Populated by TimeResolver chain.
+    annotations:
+      archetype: process
+      okg_created_at_from: started_at
+      okg_last_modified_at_from: ended_at
+      transient: 'false'
+      okg_alias_fields: trial_id
+  Result:
+    description: A raw measurement produced by one Trial (metric name + value + unit
+      + optional step). The interpreted record is an Observation in the reasoning
+      module via the cross-link `Observation derives_from Result` (matched on
+      Result.result_id == Observation.result_ref).
+    class_uri: expt:Result
+    attributes:
+      result_id:
+        required: true
+        description: Canonical identity. Referenced by `reasoning.Observation.result_ref`
+          via the `observation_derives_from_result` cross-link rule.
+      trial_id:
+        required: true
+        description: Parent Trial reference.
+      metric_name:
+        required: true
+        description: What is being measured (accuracy, latency, F1, throughput,
+          loss, etc.).
+      metric_value:
+        required: true
+        range: float
+        description: The measurement. Load-bearing for any quantitative query;
+          integer metrics fit as floats.
+      metric_unit:
+        description: Units (%, ms, tokens/s, MiB). Important for cross-experiment
+          comparison.
+      metric_step:
+        range: integer
+        description: Step index for series metrics (training step, epoch).
+      provenance_path:
+        description: File path to the underlying log, artifact, or output
+          directory. Reasoning-Observation rationale lives in
+          openspec/observations/, not here.
+      created_at:
+        range: datetime
+        description: Populated by TimeResolver chain.
+      last_modified_at:
+        range: datetime
+        description: Populated by TimeResolver chain.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: result_id
+      okg_searchable_text_fields: metric_name
+  EdgeNarrowings:
+    description: |-
+      Intra-module + cross-module edge narrowings for the experimental
+      ontology.
+
+      Intra-module: `experiment_contains_trial`,
+      `trial_produces_result`, `experiment_produces_result`.
+
+      Cross-module — declared here per the
+      `extend-substrate-experimental-with-compute-job-and-sources` D6
+      decision (the experimental module is the contract owner for these
+      bindings; deployments composing `experimental` must also compose
+      the referenced modules):
+
+      - `experiment_tests_hypothesis` references `reasoning.Hypothesis`
+      - `result_supports_hypothesis` references `reasoning.Hypothesis`
+        (emitted by the `success_condition_eval` matcher when a Result's
+        metric_value satisfies the parent Experiment's success_condition
+        predicate)
+      - `result_contradicts_hypothesis` references `reasoning.Hypothesis`
+        (emitted when the predicate fails)
+      - `experiment_uses_dataset` references `dataset.Dataset`
+      - `experiment_ran_on_compute_job` references `compute_env.ComputeJob`
+
+      The `Observation derives_from Result` cross-link rule lives in
+      `library/ontologies/experimental/cross_links/experimental_to_reasoning.yaml`
+      (declarative-linker injection path; wired via experimental's
+      `module.yaml` `extends.reasoning` block).
+
+      `experiment_concerns_concept` (Experiment, concerns, Concept) is
+      declared by A3's `concepts` module per umbrella coordination, NOT here.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      experiment_contains_trial:
+        description: An Experiment contains its run instances (trials).
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Experiment
+          dst_subtypes: Trial
+      trial_produces_result:
+        description: A Trial produces one or more raw Results.
+        annotations:
+          edge_archetype: produces
+          src_subtypes: Trial
+          dst_subtypes: Result
+      experiment_produces_result:
+        description: One-hop alias narrowing from Experiment to Result for
+          cross-trial queries. This child declares the narrowing as permitted;
+          materialization is the source adapter's responsibility (emit the alias
+          edge alongside trial_produces_result) or a future enricher's
+          responsibility. The substrate's existing DeclarativeLinker cannot
+          materialize this because it is a two-hop derivation (Experiment ←
+          Trial.experiment_id, Trial → Result), and the matcher vocabulary
+          (exact, subject_prefix, word_boundary, derive_from_path, alias_table)
+          is one-hop only.
+        annotations:
+          edge_archetype: produces
+          src_subtypes: Experiment
+          dst_subtypes: Result
+      experiment_tests_hypothesis:
+        description: |-
+          An Experiment was designed to test a Hypothesis (in the
+          `reasoning` module). Materialization: source adapters
+          (e.g. ExperimentRecordsSource) emit an explicit edge by reading
+          the `tests_hypothesis` frontmatter slug. Edge archetype `tests`
+          is introduced by this proposal per umbrella D7.
+        annotations:
+          edge_archetype: tests
+          src_subtypes: Experiment
+          dst_subtypes: Hypothesis
+          optional_when_subtypes_missing: 'true'
+      result_supports_hypothesis:
+        description: |-
+          A Result's metric_value satisfied the parent Experiment's
+          `success_condition` predicate against the Hypothesis under test.
+          Materialization: the `success_condition_eval` matcher
+          (substrate cross-link library) reads `Experiment.success_condition`,
+          filters Results by `metric_name`, evaluates the predicate, and
+          emits this edge for each Result that passes. Edge archetype
+          `supports` is introduced by this proposal per umbrella D7 (the
+          reverse direction `supported_by` is already in the substrate
+          vocabulary and used by the reasoning ring).
+        annotations:
+          edge_archetype: supports
+          src_subtypes: Result
+          dst_subtypes: Hypothesis
+          optional_when_subtypes_missing: 'true'
+      result_contradicts_hypothesis:
+        description: |-
+          A Result's metric_value failed the parent Experiment's
+          `success_condition` predicate. Emitted by the same matcher as
+          `result_supports_hypothesis`, in the negative branch.
+          Edge archetype `contradicts` is introduced per umbrella D7
+          (reverse direction `contradicted_by` already exists).
+        annotations:
+          edge_archetype: contradicts
+          src_subtypes: Result
+          dst_subtypes: Hypothesis
+          optional_when_subtypes_missing: 'true'
+      experiment_uses_dataset:
+        description: |-
+          An Experiment uses a Dataset (from the `dataset` module).
+          Materialization: source adapters emit the edge by reading the
+          `uses_dataset` frontmatter slug. Edge archetype `uses` is
+          introduced by this proposal per umbrella D7.
+        annotations:
+          edge_archetype: uses
+          src_subtypes: Experiment
+          dst_subtypes: Dataset
+          optional_when_subtypes_missing: 'true'
+      experiment_ran_on_compute_job:
+        description: |-
+          An Experiment ran on a ComputeJob (in `compute_env` per D1).
+          Materialization: ExperimentRecordsSource emits the edge from
+          the `ran_on_compute_job` frontmatter block, resolving to a
+          ComputeJob node by cluster + job_id. Edge archetype `ran_on`
+          is introduced by this proposal per umbrella D7.
+        annotations:
+          edge_archetype: ran_on
+          src_subtypes: Experiment
+          dst_subtypes: ComputeJob
+          optional_when_subtypes_missing: 'true'

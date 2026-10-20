@@ -1,0 +1,584 @@
+{
+  ".plugins-ml-config": {
+    "mappings": {
+      "_meta": {
+        "schema_version": 5
+      },
+      "properties": {
+        "config_type": {
+          "type": "keyword"
+        },
+        "create_time": {
+          "type": "date",
+          "format": "strict_date_time||epoch_millis"
+        },
+        "last_updated_time": {
+          "type": "date",
+          "format": "strict_date_time||epoch_millis"
+        },
+        "master_key": {
+          "type": "keyword"
+        },
+        "ml_configuration": {
+          "type": "flat_object"
+        },
+        "tenant_id": {
+          "type": "keyword"
+        }
+      }
+    }
+  },
+  ".opensearch-observability": {
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "access": {
+          "type": "keyword"
+        },
+        "application": {
+          "properties": {
+            "name": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        },
+        "createdTimeMs": {
+          "type": "date",
+          "format": "epoch_millis"
+        },
+        "lastUpdatedTimeMs": {
+          "type": "date",
+          "format": "epoch_millis"
+        },
+        "notebook": {
+          "properties": {
+            "name": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        },
+        "operationalPanel": {
+          "properties": {
+            "name": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        },
+        "savedQuery": {
+          "properties": {
+            "name": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        },
+        "savedVisualization": {
+          "properties": {
+            "name": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        },
+        "tenant": {
+          "type": "keyword"
+        },
+        "timestamp": {
+          "properties": {
+            "name": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        },
+        "type": {
+          "type": "keyword"
+        }
+      }
+    }
+  },
+  "ingest-events-2026.09": {
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "duration_ms": {
+          "type": "float"
+        },
+        "generation": {
+          "type": "long"
+        },
+        "outcome": {
+          "type": "keyword"
+        },
+        "records": {
+          "type": "long"
+        },
+        "run_id": {
+          "type": "keyword"
+        },
+        "source_name": {
+          "type": "keyword"
+        }
+      }
+    }
+  },
+  "app-logs-2026.09": {
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "duration_ms": {
+          "type": "float"
+        },
+        "http": {
+          "properties": {
+            "method": {
+              "type": "keyword"
+            },
+            "path": {
+              "type": "keyword"
+            },
+            "status": {
+              "type": "integer"
+            }
+          }
+        },
+        "level": {
+          "type": "keyword"
+        },
+        "message": {
+          "type": "text"
+        },
+        "service": {
+          "type": "keyword"
+        },
+        "trace_id": {
+          "type": "keyword"
+        }
+      }
+    }
+  },
+  "top_queries-2026.09.20-04119": {
+    "mappings": {
+      "dynamic": "true",
+      "_meta": {
+        "schema_version": 1,
+        "query_insights_feature_space": "top_n_queries"
+      },
+      "properties": {
+        "group_by": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "id": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "indices": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "labels": {
+          "type": "object"
+        },
+        "measurements": {
+          "properties": {
+            "cpu": {
+              "properties": {
+                "aggregationType": {
+                  "type": "text",
+                  "fields": {
+                    "keyword": {
+                      "type": "keyword",
+                      "ignore_above": 256
+                    }
+                  }
+                },
+                "count": {
+                  "type": "long"
+                },
+                "number": {
+                  "type": "double"
+                }
+              }
+            },
+            "latency": {
+              "properties": {
+                "aggregationType": {
+                  "type": "text",
+                  "fields": {
+                    "keyword": {
+                      "type": "keyword",
+                      "ignore_above": 256
+                    }
+                  }
+                },
+                "count": {
+                  "type": "long"
+                },
+                "number": {
+                  "type": "double"
+                }
+              }
+            },
+            "memory": {
+              "properties": {
+                "aggregationType": {
+                  "type": "text",
+                  "fields": {
+                    "keyword": {
+                      "type": "keyword",
+                      "ignore_above": 256
+                    }
+                  }
+                },
+                "count": {
+                  "type": "long"
+                },
+                "number": {
+                  "type": "double"
+                }
+              }
+            }
+          }
+        },
+        "node_id": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "phase_latency_map": {
+          "properties": {
+            "expand": {
+              "type": "long"
+            },
+            "fetch": {
+              "type": "long"
+            },
+            "query": {
+              "type": "long"
+            }
+          }
+        },
+        "search_type": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "source": {
+          "properties": {
+            "_source": {
+              "type": "boolean"
+            },
+            "aggregations": {
+              "properties": {
+                "logTypes": {
+                  "properties": {
+                    "terms": {
+                      "properties": {
+                        "field": {
+                          "type": "text",
+                          "fields": {
+                            "keyword": {
+                              "type": "keyword",
+                              "ignore_above": 256
+                            }
+                          }
+                        },
+                        "min_doc_count": {
+                          "type": "long"
+                        },
+                        "order": {
+                          "properties": {
+                            "_count": {
+                              "type": "text",
+                              "fields": {
+                                "keyword": {
+                                  "type": "keyword",
+                                  "ignore_above": 256
+                                }
+                              }
+                            },
+                            "_key": {
+                              "type": "text",
+                              "fields": {
+                                "keyword": {
+                                  "type": "keyword",
+                                  "ignore_above": 256
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "shard_min_doc_count": {
+                          "type": "long"
+                        },
+                        "show_term_doc_count_error": {
+                          "type": "boolean"
+                        },
+                        "size": {
+                          "type": "long"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "query": {
+              "properties": {
+                "bool": {
+                  "properties": {
+                    "adjust_pure_negative": {
+                      "type": "boolean"
+                    },
+                    "boost": {
+                      "type": "float"
+                    },
+                    "must": {
+                      "properties": {
+                        "exists": {
+                          "properties": {
+                            "boost": {
+                              "type": "float"
+                            },
+                            "field": {
+                              "type": "text",
+                              "fields": {
+                                "keyword": {
+                                  "type": "keyword",
+                                  "ignore_above": 256
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "must_not": {
+                      "properties": {
+                        "exists": {
+                          "properties": {
+                            "boost": {
+                              "type": "float"
+                            },
+                            "field": {
+                              "type": "text",
+                              "fields": {
+                                "keyword": {
+                                  "type": "keyword",
+                                  "ignore_above": 256
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "exists": {
+                  "properties": {
+                    "boost": {
+                      "type": "float"
+                    },
+                    "field": {
+                      "type": "text",
+                      "fields": {
+                        "keyword": {
+                          "type": "keyword",
+                          "ignore_above": 256
+                        }
+                      }
+                    }
+                  }
+                },
+                "match_all": {
+                  "properties": {
+                    "boost": {
+                      "type": "float"
+                    }
+                  }
+                }
+              }
+            },
+            "search_after": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            },
+            "seq_no_primary_term": {
+              "type": "boolean"
+            },
+            "size": {
+              "type": "long"
+            },
+            "sort": {
+              "properties": {
+                "_id": {
+                  "properties": {
+                    "missing": {
+                      "type": "text",
+                      "fields": {
+                        "keyword": {
+                          "type": "keyword",
+                          "ignore_above": 256
+                        }
+                      }
+                    },
+                    "order": {
+                      "type": "text",
+                      "fields": {
+                        "keyword": {
+                          "type": "keyword",
+                          "ignore_above": 256
+                        }
+                      }
+                    },
+                    "unmapped_type": {
+                      "type": "text",
+                      "fields": {
+                        "keyword": {
+                          "type": "keyword",
+                          "ignore_above": 256
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "track_total_hits": {
+              "type": "long"
+            },
+            "version": {
+              "type": "boolean"
+            }
+          }
+        },
+        "task_resource_usages": {
+          "properties": {
+            "action": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            },
+            "nodeId": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            },
+            "parentTaskId": {
+              "type": "long"
+            },
+            "taskId": {
+              "type": "long"
+            },
+            "taskResourceUsage": {
+              "properties": {
+                "cpu_time_in_nanos": {
+                  "type": "long"
+                },
+                "memory_in_bytes": {
+                  "type": "long"
+                }
+              }
+            }
+          }
+        },
+        "timestamp": {
+          "type": "long"
+        },
+        "total_shards": {
+          "type": "long"
+        }
+      }
+    }
+  },
+  "audit-trail-2026.09": {
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "action": {
+          "type": "keyword"
+        },
+        "decision": {
+          "type": "keyword"
+        },
+        "principal": {
+          "type": "keyword"
+        },
+        "resource": {
+          "type": "keyword"
+        }
+      }
+    }
+  }
+}

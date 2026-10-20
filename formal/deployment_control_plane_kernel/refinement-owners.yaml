@@ -1,0 +1,23 @@
+version: 1
+claim: concrete_controller_mapping
+runtime_refinement_execution: bounded_recovery_trace_and_concrete_controller
+obligations:
+  - id: refinement.external-controller-protocol
+    excluded_fields:
+      - controller-package-layout
+      - os-sandbox-implementation
+      - runtime-cutover
+    owner_change: externalize-local-okg-lifecycle-controller
+    requirement: req.local-controller.stable-boundary
+    proof: formal.local-controller.safety
+    planned_test: tests/substrate/test_local_fleet_controller.py
+  - id: refinement.sole-ledger-authority
+    excluded_fields:
+      - controller-package-layout
+      - sql-ddl
+      - adapter-payloads
+      - runtime-cutover
+    owner_change: unify-deployment-control-plane-authority
+    requirement: req.deployment-control-plane.program-design
+    proof: review.deployment-control-plane.program-design
+    planned_test: tests/substrate/test_local_fleet_controller.py

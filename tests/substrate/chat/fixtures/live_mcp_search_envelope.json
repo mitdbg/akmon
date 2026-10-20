@@ -1,0 +1,89 @@
+{
+  "query": "region",
+  "method": "lexical",
+  "generation_id": "okg:cooper:branch:default:gen:20260804T055159225061Z:0856b0921eaf",
+  "pinned_generation_id": "okg:cooper:branch:default:gen:20260804T055159225061Z:0856b0921eaf",
+  "limit": 3,
+  "offset": 0,
+  "next_offset": 3,
+  "results": [
+    {
+      "node_id": "cooper_alias:region:b019f80109e3d484",
+      "canonical_node_id": "cooper_alias:region:b019f80109e3d484",
+      "subtype": "cooper_alias",
+      "excerpt": "Region Verification Region verification region verification-region Alternative CMS terminology for validation-region-like regions",
+      "score": -4.9192423820495605,
+      "method": "lexical",
+      "match_kind": "lexical",
+      "provenance": {
+        "source": "cooper.aliases",
+        "trust": "trusted"
+      }
+    },
+    {
+      "node_id": "cooper_alias:region:a1ed38dd7f15c3d3",
+      "canonical_node_id": "cooper_alias:region:a1ed38dd7f15c3d3",
+      "subtype": "cooper_alias",
+      "excerpt": "Region Signal Region signal region SR signal-region Universal CMS terminology for the primary analysis region",
+      "score": -4.805609703063965,
+      "method": "lexical",
+      "match_kind": "lexical",
+      "provenance": {
+        "source": "cooper.aliases",
+        "trust": "trusted"
+      }
+    },
+    {
+      "node_id": "region:Verification_Region",
+      "canonical_node_id": "region:Verification_Region",
+      "subtype": "region",
+      "excerpt": "Verification Region verification region verification-region Alternative CMS terminology for validation-region-like regions",
+      "score": -4.805609703063965,
+      "method": "lexical",
+      "match_kind": "lexical",
+      "provenance": {
+        "source": "cooper.aliases",
+        "trust": "trusted"
+      }
+    }
+  ],
+  "total_count": 200,
+  "truncated": true,
+  "rank_capped": true,
+  "search_profile": null,
+  "scoped_subtypes": null,
+  "operator_name": "search",
+  "pagination": {
+    "truncated": true,
+    "offset": 0,
+    "limit": 3,
+    "next_offset": 3,
+    "operator": "search",
+    "parameter": "offset"
+  },
+  "pagination_hint": "Results are truncated. To continue this same result set, call search again with offset=3 and the same filters/projection.",
+  "source_freshness": {
+    "sources_checked": 9,
+    "threshold_hours": 6.0,
+    "stale": [
+      {
+        "source": "cooper.openspec",
+        "age_hours": 152.8
+      },
+      {
+        "source": "cooper.bib_references",
+        "age_hours": 12.7
+      }
+    ],
+    "stale_count": 2,
+    "warning": "2 source(s) exceed the 6.0h freshness threshold: cooper.openspec (152.8h), cooper.bib_references (12.7h) - rows from their subtypes reflect the last sync, not the present"
+  },
+  "publish_freshness": {
+    "latest_published_at": "2026-08-04T05:51:59.225061+00:00",
+    "publish_age_seconds": 147.2,
+    "newest_source_poll_at": "2026-08-04T04:01:38.347581+00:00",
+    "publish_lag_seconds": 0.0,
+    "threshold_seconds": 1800.0,
+    "stale": false
+  }
+}

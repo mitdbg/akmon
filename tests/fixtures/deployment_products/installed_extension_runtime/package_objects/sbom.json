@@ -1,0 +1,15 @@
+{
+  "components": [
+    {
+      "name": "neutral-extension",
+      "type": "library",
+      "version": "1.0.0"
+    },
+    {
+      "name": "neutral-dependency",
+      "type": "library",
+      "version": "1.0.0"
+    }
+  ],
+  "schema_version": "okg.extension_runtime.fixture_sbom/v1"
+}

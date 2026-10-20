@@ -1,0 +1,50 @@
+# Engram-runs ↔ bookkeeping cross-link rules.
+#
+# Per `add-engram-run-artifact-sources` (Layer 3A): when the
+# `bookkeeping` module is composed, each Engram run materializes
+# as a `bookkeeping.Project` so run-level provenance integrates
+# with the deployment's project hierarchy. The cross-link rules
+# emit `produced_by` edges from a Project to the run's
+# ResearchDigest and FinalResult.
+#
+# Direction: src is `bookkeeping.Project`, dst is the engram
+# artifact. The Project carries a `produced_engram_digest_ref`
+# attribute pointing at the digest's identity (and similarly for
+# FinalResult). The source materializes the Project alongside the
+# digest — minting a `proj:engram:<run_id>` slug — populating the
+# refs at emit time. The rule resolves on the same cycle (both
+# nodes are emitted together) but re-evaluates on subsequent
+# cycles too, so a later operator who renames the project's slug
+# doesn't break the edge — the cross-link recomputes from the
+# stamped ref attr.
+#
+# When `bookkeeping` is NOT loaded, the resolver's
+# `extends: bookkeeping` block silently skips (matching the
+# bookkeeping module's pattern). The source-side
+# `_bookkeeping_loaded(...)` check additionally suppresses
+# Project materialization + the explicit Project NodeFact, so the
+# engram_runs nodes still land cleanly without referencing
+# undefined subtypes.
+
+rules:
+  - id: project_produced_by_research_digest
+    src:
+      subtype: project
+      field: produced_engram_digest_ref
+    dst:
+      subtype: research_digest
+      field: research_digest_id
+    matcher: exact
+    edge: produced_by
+    bidirectional: false
+
+  - id: project_produced_by_final_result
+    src:
+      subtype: project
+      field: produced_engram_final_ref
+    dst:
+      subtype: final_result
+      field: final_result_id
+    matcher: exact
+    edge: produced_by
+    bidirectional: false

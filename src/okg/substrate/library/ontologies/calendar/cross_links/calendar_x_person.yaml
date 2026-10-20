@@ -1,0 +1,11 @@
+rules:
+  - id: person_attended_calendar_event
+    src:
+      subtype: person
+      field: person_id
+    dst:
+      subtype: calendar_event
+      field: participants_refs
+    matcher: exact
+    edge: attended
+    bidirectional: false

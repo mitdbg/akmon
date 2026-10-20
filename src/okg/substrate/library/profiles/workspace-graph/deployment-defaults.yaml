@@ -1,0 +1,117 @@
+embeddings:
+  enabled: false
+  reason: deterministic MCP traversal and lexical search are sufficient for the default Workspace Graph profile
+
+enrichers:
+  - class: okg.substrate.library.linkers.declarative.DeclarativeLinker
+  - class: okg.substrate.library.linkers.acceptance_criteria.AcceptanceCriteriaLinker
+  - class: okg.substrate.library.linkers.tool_use_symbol.ToolUseSymbolLinker
+  - class: okg.substrate.library.linkers.code_reference.CodeReferenceResolver
+  - class: okg.substrate.library.linkers.test_symbol.TestSymbolLinker
+  - class: okg.substrate.library.linkers.coverage_symbol.CoverageSymbolLinker
+  - class: okg.substrate.library.linkers.interface_handler.InterfaceHandlerLinker
+  - class: okg.substrate.library.linkers.data_asset.DataAssetLinker
+  - class: okg.substrate.library.linkers.data_flow_evidence.DataFlowEvidenceLinker
+  - class: okg.substrate.library.linkers.security_finding.SecurityFindingLinker
+  - class: okg.substrate.library.linkers.profile_hotspot.ProfileHotspotLinker
+
+viz:
+  port: ${mcp_port}
+  use_presentation_presets: true
+  presentation:
+    explore: cluster
+    ontology: groups
+
+nomos:
+  # Runtime enforcement is `off`: a fresh install leaves Nomos runtime
+  # checks off when the deployment declares no access rules (issue #3414,
+  # Jason 2026-10-05 `nomosdefault A`). Audit and enforce are opt-in; set
+  # `audit` or `enforce` here once the deployment has access rules to check.
+  # The posture and source policy defaults below apply in every mode.
+  runtime_enforcement: "off"
+  deployment_posture:
+    deployment_class: dogfood_workspace
+    read_principals:
+      - human_operator
+      - agent
+      - okg_service
+      - mcp_client
+    write_principals:
+      - human_operator
+      - okg_service
+      - source_adapter
+    mcp_write_default: review
+    export_policy: internal_only
+    secret_handling: secret_ref_required
+    live_call_default: review
+    allowed_source_sensitivities:
+      - public
+      - internal
+      - local_private
+      - credentialed_external
+      - private
+      - restricted
+    allowed_data_classifications:
+      - public
+      - internal
+      - private
+      - restricted
+      - confidential
+    allowed_exportability:
+      - internal
+      - no_export
+    privacy_obligations:
+      - audit
+      - review
+      - secret_ref_required
+    readiness_profiles:
+      - dogfood
+  source_policy_defaults:
+    by_source_class:
+      discovery_crawl:
+        store_raw: true
+        sensitivity: local_private
+        data_classification: private
+        credential_ref_policy: none
+        live_call_allowed: false
+        exportability: no_export
+        retention: source_defined
+        provenance: local_filesystem
+        privacy_obligations:
+          - audit
+          - no_export
+      reference_catalog:
+        store_raw: true
+        sensitivity: internal
+        data_classification: internal
+        credential_ref_policy: none
+        live_call_allowed: false
+        exportability: internal
+        retention: normal
+        provenance: declared
+        privacy_obligations:
+          - audit
+
+# Free-disk floors for the filesystems this deployment writes to, in percent
+# available. `okg doctor` warns below the first and treats the second as a
+# blocker, and big writes (backups, scratch databases) refuse to start below
+# it. Without this block doctor reports its own check as misconfigured
+# (issue #3578). Same values as okg's own deployments; tune them to the host.
+host_storage:
+  warn_available_pct: 15
+  blocker_available_pct: 6
+
+runtime:
+  # To refresh the graph on each source's sync.poll schedule: set this to
+  # true, add `database: <name>` to the postgres block (lint requires it for a
+  # runtime-enabled deployment), run `okg catalog ownership claim` and
+  # `okg runtime bootstrap`, and keep `okg runtime worker` running.
+  enabled: false
+  source_sync:
+    poll:
+      # A backstop reconcile re-reads a whole source even when its change
+      # probe saw nothing; on a large repository that read alone takes tens
+      # of minutes. Run it once a day (288 x the 300 s poll) for that source
+      # only, instead of every 25 minutes for it and every source after it.
+      backstop_multiplier: 288
+      backstop_dependent_fanout: none

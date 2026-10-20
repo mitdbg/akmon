@@ -1,0 +1,49 @@
+# Registered exemptions from the born-VALID constraint contract.
+#
+# `okg schema quality`'s relation-hygiene section
+# (scripts/check_schema_relation_hygiene.py) enforces that every CHECK
+# constraint the schema ships is ENFORCED, not merely present:
+#
+#   * static arm  -- schema.sql adds no constraint `NOT VALID` unless an
+#                    ordered migration pairs it with `VALIDATE CONSTRAINT`,
+#                    or it is registered below
+#   * catalog arm -- no `pg_constraint` row in okg/okg_derived has
+#                    `convalidated = false` unless it is registered below
+#
+# Why the registry exists at all. A constraint added `NOT VALID` and never
+# validated is decoration: Postgres enforces it on new rows but never checks
+# the ones already there, and nothing in the tree said so out loud. The audit
+# The schema review found seven such
+# constraints. Six were validated outright --- their tables trivially conform.
+# The seventh turned out to be NOT VALID ON PURPOSE, which is the case this
+# file is for: NOT VALID is occasionally the correct engineering answer, and
+# the gate must be able to tell "deliberate, argued, owned" apart from
+# "forgotten". An UNREGISTERED NOT VALID reds the build.
+#
+# A row must carry `owner` (the PACT accountable for it) and `reason` (why
+# validating it is wrong, not merely inconvenient). Silence is a gate failure.
+# Deleting a row is how a lane proves it converged; the gate then refuses to
+# let the exemption come back.
+
+version: 1
+
+exemptions:
+  - relation: okg.admission_envelopes
+    constraint: admission_envelopes_target_generation_ref_nonempty_chk
+    owner: schema-dead-weight-retirement
+    reason: >-
+      NOT VALID is the behavior, not an oversight. A database that already
+      carries an admission envelope with a blank `target_generation_ref` must
+      keep that row readable --- it is the sole record of an admission that
+      happened --- while every NEW blank insert is refused. That is precisely
+      the semantics of NOT VALID, and both halves are pinned by
+      tests/substrate/db/test_generation_reference_contract.py
+      (`test_schema_replay_appends_view_columns_and_handles_dirty_blank_refs`
+      asserts the legacy row still reads as '' AND that `convalidated` is
+      false). VALIDATE would fail on exactly the databases the constraint was
+      written for; DROP would stop refusing new blanks, which is strictly
+      worse than the status quo. Converging this one means backfilling the
+      legacy blanks to NULL first --- a data rewrite with its own evidence
+      burden, and a decision about whether '' and NULL mean the same thing to
+      the admission reader --- which belongs to the lane that owns admission
+      identity, not to a dead-weight sweep.

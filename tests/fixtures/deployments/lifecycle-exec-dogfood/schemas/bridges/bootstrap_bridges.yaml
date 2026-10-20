@@ -1,0 +1,28 @@
+id: https://palimpzest.mit.edu/okg/deployments/lifecycle-exec/bootstrap_bridges
+name: lifecycle-exec_bootstrap_bridges
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+default_range: string
+imports:
+- linkml:types
+classes:
+  EdgeNarrowings:
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      lifecycle_exec_record_contains_lifecycle_exec_finding:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: LifecycleExecRecord
+          dst_subtypes: LifecycleExecFinding
+      lifecycle_exec_record_references_document:
+        annotations:
+          edge_archetype: references
+          src_subtypes: LifecycleExecRecord
+          dst_subtypes: Document
+      document_references_lifecycle_exec_record:
+        annotations:
+          edge_archetype: references
+          src_subtypes: Document
+          dst_subtypes: LifecycleExecRecord

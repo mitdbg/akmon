@@ -1,0 +1,49 @@
+security_analysis:
+  module: okg.substrate.library.sources.security_analysis
+  class: SecurityAnalysisSource
+  ownership_id: ${deployment_name}.security_analysis
+  predecessor_source: ${deployment_name}.git_files
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [repo, artifact]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    repo: ${deployment_name}
+    repo_root: ${repo_root}
+    artifact_paths: []
+    artifact_globs:
+      - reports/**/*semgrep*.json
+      - reports/**/*quality*.json
+      - reports/**/*quality*.sarif
+      - reports/**/*code-quality*.json
+      - reports/**/*codeql*.sarif
+      - reports/**/*bandit*.json
+      - reports/**/*gitleaks*.json
+      - reports/**/*pip-audit*.json
+      - reports/**/*osv*.json
+      - reports/**/*trivy*.json
+      - reports/**/*bom*.json
+      - .artifacts/**/*semgrep*.json
+      - .artifacts/**/*quality*.json
+      - .artifacts/**/*quality*.sarif
+      - .artifacts/**/*code-quality*.json
+      - .artifacts/**/*codeql*.sarif
+      - .artifacts/**/*bandit*.json
+      - .artifacts/**/*gitleaks*.json
+      - .artifacts/**/*pip-audit*.json
+      - .artifacts/**/*osv*.json
+      - .artifacts/**/*trivy*.json
+      - .artifacts/**/*bom*.json
+    max_artifacts: 200
+  # `okg runtime worker` checks this source every poll.interval_seconds and
+  # re-reads it only when its change probe reports a change. Without the
+  # worker, nothing here runs; `okg ingest` still refreshes on demand.
+  sync:
+    triggers: [poll, manual, reconcile]
+    default_event_mode: scope_complete
+    reconcile_mode: scope_complete
+    poll:
+      probe: change_probe
+      interval_seconds: 300

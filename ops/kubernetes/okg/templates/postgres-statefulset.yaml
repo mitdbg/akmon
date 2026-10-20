@@ -1,0 +1,121 @@
+{{- if .Values.postgresql.internal.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "okg.fullname" . }}-postgres
+  labels:
+    {{- include "okg.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: {{ include "okg.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "okg.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        {{- include "okg.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.images.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: postgres
+          image: {{ include "okg.postgresImage" . | quote }}
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.postgresPasswordKey }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.database | quote }}
+            - name: POSTGRES_INITDB_ARGS
+              value: "--locale=C --encoding=UTF8"
+            - name: PGDATA
+              value: /home/postgres/pgdata/data
+          args:
+            - postgres
+            - -c
+            - shared_preload_libraries=timescaledb,pg_textsearch
+            - -c
+            - max_connections={{ .Values.postgresql.settings.maxConnections }}
+            - -c
+            - max_worker_processes={{ .Values.postgresql.settings.maxWorkerProcesses }}
+            - -c
+            - timescaledb.max_background_workers={{ .Values.postgresql.settings.timescaledbMaxBackgroundWorkers }}
+            - -c
+            - max_locks_per_transaction={{ .Values.postgresql.settings.maxLocksPerTransaction }}
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.postgresql.port }}
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", {{ .Values.postgresql.database | quote }}]
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", {{ .Values.postgresql.database | quote }}]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", {{ .Values.postgresql.database | quote }}]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.postgresql.resources | nindent 12 }}
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /home/postgres/pgdata
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.postgresql.shmSizeLimit }}
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+        # Only labels with no chart or app version: Kubernetes forbids any
+        # change to volumeClaimTemplates, so a version label here would make
+        # every chart upgrade fail (issue 2842).
+        labels:
+          {{- include "okg.selectorLabels" . | nindent 10 }}
+          app.kubernetes.io/component: postgres
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.postgresql.storage.storageClassName | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.storage.size }}
+{{- end }}

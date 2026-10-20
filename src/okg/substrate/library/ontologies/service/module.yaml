@@ -1,0 +1,5 @@
+name: service
+version: 1.0.0
+description: Services, endpoints, environments.
+provides:
+  subtypes_file: schema.yaml

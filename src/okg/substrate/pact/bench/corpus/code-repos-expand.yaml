@@ -1,0 +1,72 @@
+pact_version: 4
+target_pact_version: 4
+change:
+  id: code-repos-expand
+  title: 'code_repos.expand: render a configurable set of per-repo blocks'
+  status: proposal
+  tier: 1
+  rationale: >-
+    code_repos expansion was hardcoded to render only the git-files +
+    code-structure template blocks per repo. Other codebase-index extractors
+    (interfaces, doc-corpus, ...) could only be applied by hand-writing an
+    explicit ~180-line block per repo — so in practice they were grafted onto a
+    single seed repo (WMCore) and never propagated, leaving coverage asymmetric.
+    Let code_repos declare `expand: [...]` to choose which template blocks to
+    render for EVERY declared repo, so e.g. doc/interface indexing applies
+    uniformly across all repos from one line.
+  affected_areas:
+  - source-registry loading
+  affected_code:
+  - src/okg/substrate/sources/registry.py
+hierarchy:
+  role: child
+  parent: simplify-repo-deployment
+  children: []
+  integration_acceptance: []
+requirements:
+- id: req.cre.expand
+  title: 'code_repos.expand selects which template blocks to render per repo'
+  statement: >-
+    A code_repos block MAY declare `expand: [<block>...]`. For each declared repo
+    and each listed block B, the loader MUST produce a source named `B-<slug>`
+    rendered from the codebase-index template (predecessors auto-wired via the
+    template's per-repo references). When `expand` is absent it MUST default to
+    `[git-files, code-structure]` (unchanged behavior). An entry naming a block
+    the template does not provide MUST raise a clear error.
+  evidence_policy:
+    required:
+    - executed_test
+  scenarios: []
+  acceptance: []
+tasks:
+- id: task.cre.expand
+  title: Render code_repos.expand blocks per repo (default git-files+code-structure)
+  status: todo
+  verification: >-
+    Unit tests: expand=[git-files,code-structure,interfaces,doc-corpus] over 2
+    repos yields 8 sources with interfaces predecessors wired to <slug>.git-files
+    + <slug>.code-structure; no `expand` yields only the 2 base blocks; an unknown
+    block name raises ValueError.
+  requirements:
+  - req.cre.expand
+  evidence: []
+  environment: []
+dependencies: []
+test_plan:
+- id: tp.cre.expand
+  requirement: req.cre.expand
+  test_id: tests/substrate/test_code_repos_expand.py::test_expand_list_renders_extra_blocks_per_repo
+  command: uv run --extra dev pytest tests/substrate/test_code_repos_expand.py -q
+- id: tp.cre.default
+  requirement: req.cre.expand
+  test_id: tests/substrate/test_code_repos_expand.py::test_expand_defaults_to_git_files_and_code_structure
+  command: uv run --extra dev pytest tests/substrate/test_code_repos_expand.py -k default -q
+- id: tp.cre.unknown
+  requirement: req.cre.expand
+  test_id: tests/substrate/test_code_repos_expand.py::test_expand_unknown_block_errors
+  command: uv run --extra dev pytest tests/substrate/test_code_repos_expand.py -k unknown -q
+formal: []
+waivers: []
+evidence: []
+edits: []
+prose: {}

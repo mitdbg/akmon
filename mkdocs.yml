@@ -1,0 +1,118 @@
+site_name: AKMON Documentation
+site_description: Build a versioned, checked knowledge graph from your own sources and query it from people and coding agents.
+site_url: https://docs.example.invalid/
+repo_url: https://github.com/mitdbg/akmon
+docs_dir: docs
+site_dir: .scratch/docs-site
+strict: true
+use_directory_urls: true
+# The agent-workflow, CI and QA runbooks stay on disk (PACT tier rules, CI
+# tooling and tests name those paths) but the site publishes product pages
+# only. documentation.yaml lists the same prefixes under `unpublished`.
+
+theme:
+  name: mkdocs
+  locale: en
+
+plugins:
+  - search
+
+# SuperFences renders fenced code nested inside list items; MkDocs' built-in
+# fenced_code only recognizes fences at the top level of a page. Highlight with
+# use_pygments: false keeps the class="language-<name>" output the theme's
+# highlight.js reads; without it Pygments drops the language and highlight.js
+# guesses (SQL shown as vbnet).
+markdown_extensions:
+  - pymdownx.highlight:
+      use_pygments: false
+  - pymdownx.superfences
+
+nav:
+  - Get started:
+      - What AKMON is: README.md
+      - Quickstart: start/quickstart.md
+      - The AKMON model: start/concepts.md
+      - How information becomes searchable: start/data-lifecycle.md
+      - Install and build a first graph: operate/install.md
+      - Evaluate from source (optional): start/evaluate-from-source.md
+  - Connect your data:
+      - Choose a route and add a source: use/sources/index.md
+      - Local folder source: use/sources/local-folder.md
+      - GitHub source: use/sources/github.md
+      - Bring your own data with a manifest: use/sources/manifest.md
+      - Source manifest reference: reference/source-manifest.md
+      - Configure a deployment: operate/configure.md
+      - Profiles:
+          - Choose a profile: use/profiles/index.md
+          - Academic researcher: use/profiles/academic-researcher.md
+  - Connect agents:
+      - Connect an agent: use/agents/index.md
+      - Query and trace the graph: use/search/index.md
+      - Set up chat: operate/chat.md
+  - Run it as a service:
+      - Plan a deployment: operate/plan.md
+      - Run it as a service: operate/index.md
+      - Install from a wheel or release: operate/install-packaged.md
+      - Back up, upgrade, restore, retire: operate/lifecycle.md
+      - Live relations: operate/live-relations.md
+      - Operator UI: operate/operator-ui.md
+      - Deployments:
+          - Background worker: operate/deployments/runtime.md
+          - External deployments: operate/deployments/external.md
+          - Database: operate/deployments/database.md
+          - Kubernetes: operate/deployments/kubernetes.md
+          - OpenSearch reference: operate/deployments/opensearch-reference.md
+          - Adopt an existing deployment: runbooks/deployments/deployment-bootstrap.md
+          - Authority and admission: runbooks/deployments/authority.md
+      - Security:
+          - Access policy: runbooks/security/nomos.md
+          - Institutional identity: runbooks/security/nomos-iam.md
+      - Troubleshooting:
+          - Runbooks: runbooks/index.md
+          - First run: runbooks/troubleshooting/first-run.md
+          - Publication keeps failing: runbooks/troubleshooting/generation-blocked.md
+          - Source stopped updating: runbooks/troubleshooting/source-sync.md
+          - Invalid source output: runbooks/troubleshooting/source-poisoning.md
+          - Runtime queue recovery: runbooks/troubleshooting/runtime-queue.md
+          - Publication lock: runbooks/troubleshooting/publisher-lock.md
+          - Interrupted catalog change: runbooks/troubleshooting/ontology-rollback.md
+          - Storage and history: runbooks/troubleshooting/storage.md
+  - Reference:
+      - Glossary: reference/glossary.md
+      - CLI: reference/cli.md
+      - MCP: reference/mcp.md
+      - MCP results: reference/mcp-results.md
+      - Capabilities: reference/capabilities.md
+      - Security: reference/security.md
+      - Observability: reference/observability.md
+      - Database schema: reference/database-schema.md
+      - SDK API: reference/sdk-api.md
+      - Live HTTP bindings: reference/live-http-bindings.md
+  - Develop AKMON:
+      - Overview: develop/index.md
+      - Architecture:
+          - System overview: develop/architecture/overview.md
+          - Code architecture: develop/architecture/pipeline.md
+          - Responsibility map: develop/architecture/responsibility-map.md
+          - Runtime: develop/architecture/runtime.md
+          - Privacy: develop/architecture/privacy.md
+          - Consistency: develop/architecture/consistency.md
+          - Policy: develop/architecture/policy.md
+      - Extensions:
+          - Consistency API: develop/extensions/consistency-api.md
+          - Immutable distribution packages: develop/extensions/distributions.md
+          - Ontologies and profiles: develop/extensions/ontologies.md
+      - Python SDK: develop/sdk/index.md
+      - Operator UI contract: develop/ui/operator-contract.md
+      - Operator console contract: develop/ui/operator-console.md
+      - Set up the contributor Workspace Graph: runbooks/workspace-graph/setup.md
+
+validation:
+  nav:
+    omitted_files: ignore
+    not_found: warn
+  links:
+    not_found: warn
+    absolute_links: ignore
+    unrecognized_links: warn
+    anchors: warn

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dblpperson name="Test Person" pid="000/0000-0001">
+  <r>
+    <inproceedings key="conf/sosp/AlphaB23" mdate="2023-12-01">
+      <author>Alpha Beta</author>
+      <author>Charlie Delta</author>
+      <title>Cache-Coherent Throughput for Persistent Workflows.</title>
+      <pages>1-12</pages>
+      <year>2023</year>
+      <booktitle>SOSP</booktitle>
+      <ee>https://doi.org/10.0000/sosp.2023.1</ee>
+      <url>db/conf/sosp/sosp2023.html#AlphaB23</url>
+    </inproceedings>
+  </r>
+  <r>
+    <article key="journals/vldb/Alpha22" mdate="2022-08-10">
+      <author>Alpha Beta</author>
+      <title>Bounded Staleness via Lattice Joins.</title>
+      <year>2022</year>
+      <journal>PVLDB</journal>
+      <volume>15</volume>
+      <ee>https://doi.org/10.0000/pvldb.2022.42</ee>
+    </article>
+  </r>
+  <r>
+    <inproceedings key="conf/nips/AlphaG24" mdate="2024-11-15">
+      <author>Alpha Beta</author>
+      <author>Gamma Epsilon</author>
+      <title>Scaling Mixture Routing With Sparse Gradients.</title>
+      <year>2024</year>
+      <booktitle>NeurIPS</booktitle>
+    </inproceedings>
+  </r>
+  <r>
+    <article key="journals/jacm/Markup25" mdate="2025-01-10">
+      <author>Alpha Beta</author>
+      <title>Inference for <i>T</i>-shaped Distributions on <i>R</i><sup>n</sup>.</title>
+      <year>2025</year>
+      <journal>J. ACM</journal>
+    </article>
+  </r>
+</dblpperson>

@@ -1,0 +1,18 @@
+# Optional SourceFile owner for a complete LaTeX papers directory. Its repo
+# authority and root exactly match latex_project_doc_corpus.
+latex_project_git_files:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.git_graph_files
+  class: GitFilesSource
+  ownership_id: ${deployment_name}.latex_project_git_files
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [repo, path]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    repo: ${deployment_name}.papers
+    repo_root: ${papers_dir}
+    include_untracked: true
+    exclude_globs: [".git/**", "**/.git/**", "**/build/**", "**/.latexmk/**"]

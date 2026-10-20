@@ -1,0 +1,66 @@
+/* Recovery, click targets and long text (audit 2026-09-23, PACT
+ * console-read-failure-recovery). Kept in its own file so these rules do not
+ * collide with the console-styling change working in the other sheets. */
+
+/* "Read again" under a failed read: the console's text-button style, on a
+ * line of its own, with room to be pressed. */
+.okg-console__read-failed-again { margin: 8px 0 0; }
+.okg-console__read-again {
+  font: inherit;
+  font-size: 13px;
+  min-height: 24px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--okg-color-link);
+  cursor: pointer;
+}
+.okg-console__read-again:hover:not(:disabled) { text-decoration: underline; }
+.okg-console__read-again:disabled { color: var(--okg-color-muted); cursor: default; }
+
+/* The failure's own detail can carry a route and a long reason with no
+ * break opportunity; it wraps rather than widening the page. */
+.okg-console__read-failed-detail { overflow-wrap: anywhere; }
+
+/* The whole row opens the attempt or the producer. The chevron stays as the
+ * keyboard's way in; its link fills a 24 px square. */
+.okg-console__urow:not(.okg-console__urow--member),
+.okg-console__prow { cursor: pointer; }
+.okg-console__urow-open a,
+.okg-console__prow [data-col="open"] a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+/* A copy icon is 12 px; its hit area is 24 by 24 px of padding, pulled back
+ * by a negative margin so the text beside it does not move. */
+.okg-console__copy--icon {
+  min-width: 24px;
+  min-height: 24px;
+  margin: -6px -6px -6px -2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Sort headers: at least 24 px to press. */
+.okg-console__sortbutton { min-height: 24px; }
+
+/* An echoed search query has no break opportunity of its own; a 10,000
+ * character one widened the page to 76,018 px. */
+.okg-console__results .okg-console__fact,
+.okg-console__about,
+.okg-console__status-note { overflow-wrap: anywhere; }
+
+/* Text for a screen reader only: the polite "copied" announcement. */
+.okg-console__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

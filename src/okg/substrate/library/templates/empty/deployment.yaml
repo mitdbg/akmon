@@ -1,0 +1,17 @@
+# Empty template — smallest viable deployment. Publishes
+# generation 1 with no sources and no edges.
+#
+# Per `unify-ontology-systems` (2026-04-26): templates use
+# the canonical `modules:` shape.
+# `okg init --template empty` writes the deployment name below
+# (`--deployment-name`, or the template name when it is not given).
+name: "{{ deployment_name }}"
+postgres:
+  dsn: ${OKG_DSN}
+# Every command that loads a deployment requires both keys. schemas/ holds
+# deployment-local schema files; the starter ships none, so the directory
+# holds only a .gitkeep and the ontology comes from `modules:` below.
+schema_dir: schemas
+source_registry: source_registry.yaml
+modules:
+  - document_starter

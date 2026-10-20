@@ -1,0 +1,5 @@
+# Source-less by design: this fixture seeds consistency_claim / predicate_policy
+# / claim_precedent nodes directly (via ChronosGraphStore.apply_facts in the
+# wire test), then publishes to exercise the claim derivations + IR check. It
+# ingests no external sources, so the lint envelope advisory never fires.
+sources: {}

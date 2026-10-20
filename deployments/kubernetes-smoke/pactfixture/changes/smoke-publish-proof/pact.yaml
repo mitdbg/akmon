@@ -1,0 +1,21 @@
+pact_version: 5
+id: smoke-publish-proof
+title: Prove the published generation is not empty
+tier: 1
+why: >-
+  Fixture content for the kubernetes-smoke deployment. A publish that adds no
+  rows proves nothing about the image, so the proof counts the nodes and
+  edges the published generation added.
+affected_code:
+- deployments/kubernetes-smoke/
+requirements:
+- id: req.smoke-publish-proof.rows
+  statement: >-
+    The first publish adds at least one node and one edge, and the failure
+    queue is empty.
+tasks:
+- id: task.smoke-publish-proof.rows
+  requirement: req.smoke-publish-proof.rows
+  verification: okg provision reports ok with a positive node and edge delta
+evidence: []
+decisions: []

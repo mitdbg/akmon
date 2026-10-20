@@ -1,0 +1,65 @@
+# Cross-link rule: code_graph → concepts.
+#
+# Per `extend-substrate-concepts-as-universal-hub` and umbrella
+# D5 (declared, not inferred): a CodeSymbol whose docstring
+# contains a line of the exact form
+#
+#     @implements_concept: <slug>
+#
+# gets an `implements_concept` edge into the named Concept.
+# The slug must match the kebab-case regex
+# `[a-z][a-z0-9-]*` and is resolved by exact match against
+# `Concept.name`.
+#
+# Why a docstring tag (not LLM-judged correspondence): inferring
+# code-to-concept correspondence from naming + neighborhood is
+# exactly the fuzzy semantic match the substrate's no-silent-
+# fallback discipline forbids. The tag is auditable; inference
+# is not.
+#
+# Dst field: `slug` (kebab-case identity), NOT `name` (human-
+# readable). The captured slug from the regex is matched by
+# exact lookup against `Concept.attrs.slug`. The earlier draft
+# of this rule pointed at `name`, which never matched because
+# `name` is the human-readable form ("happens-before ordering")
+# and the regex captures the kebab form ("happens-before-
+# ordering"). Fixed per dogfood-canary finding.
+#
+# Tag-syntax discipline:
+# - Lowercase exact match on `@implements_concept`.
+# - A single colon separates tag and slug.
+# - Slug is kebab-case (`[a-z][a-z0-9-]*`).
+# - One tag per line; multiple Concepts implemented by one
+#   symbol means multiple lines in the docstring.
+# - Near-misses (uppercase, missing colon, prose mention) emit
+#   nothing — fail closed.
+#
+# Regex shape: the substrate's DeclarativeLinker applies
+# `re.match` (anchored at start of string). The `(?s).*`
+# prefix enables DOTALL (`.` matches newlines) so the tag
+# can appear anywhere in a multi-line docstring, not only
+# on the first line. Matches the convention used by
+# tool_use_to_files / sessions_to_openspec rules.
+
+rules:
+  - id: code_symbol_implements_concept
+    src:
+      subtype: code_symbol
+      field: docstring
+    dst:
+      subtype: concept
+      field: slug
+      derive_from_path:
+        attr: docstring
+        # `multi_capture: true` enables `re.findall` semantics over
+        # the whole docstring so a single symbol can claim multiple
+        # `@implements_concept:` tags (one edge per tag). The regex
+        # is plain (no `(?s).*` prefix); findall scans the full
+        # string and natively handles multi-line docstrings.
+        # Per dogfood-canary follow-up gap #4 (2026-05-18).
+        regex: '@implements_concept:\s*([a-z][a-z0-9-]*)'
+        capture_field: slug
+        multi_capture: true
+    matcher: derive_from_path
+    edge: implements_concept
+    bidirectional: false

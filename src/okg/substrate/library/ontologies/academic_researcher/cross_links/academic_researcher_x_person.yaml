@@ -1,0 +1,47 @@
+# academic_researcher ↔ person cross-link rules.
+#
+# Per `add-academic-pi-ontology-module` (Child 1 of
+# `add-academic-pi-profile`): two narrowings between academic_researcher
+# subtypes and the person module.
+#
+#   - `person_advises_advisee`. The deployment's operator (a
+#     Person node) advises Advisee nodes — this is the canonical
+#     lab-membership edge. Sources (group_webpage_scrape,
+#     advisees_dir) emit the edge directly with full src + dst
+#     IDs at projection time; the rule's `field` attributes are
+#     set to deterministic-but-non-matching pairs so the
+#     deferred-resolution pass emits zero spurious edges (no
+#     Person.person_id == Advisee.person_id matches across
+#     subtypes in practice).
+#
+#   - `person_owns_action_item`. ActionItem.owner_ref points at
+#     a Person; the typed slot lets the narrowing trigger accept
+#     `Person owns ActionItem` edges emitted by notes_dir.
+#
+# Both rules silently skip when `person` isn't loaded — the
+# composition resolver's `extends: person` block in module.yaml
+# only fires its cross_link_rules when person is in the
+# deployment's `modules:` list.
+
+rules:
+  - id: person_advises_advisee
+    src:
+      subtype: person
+      field: person_id
+    dst:
+      subtype: advisee
+      field: advisor_ref
+    matcher: exact
+    edge: advises
+    bidirectional: false
+
+  - id: person_owns_action_item
+    src:
+      subtype: person
+      field: person_id
+    dst:
+      subtype: action_item
+      field: owner_ref
+    matcher: exact
+    edge: owns
+    bidirectional: false

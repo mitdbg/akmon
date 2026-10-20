@@ -1,0 +1,28 @@
+# Majority-clean control for majority_wrong.yaml. IDENTICAL world, seed, scale
+# and corruption classes; the ONLY difference is visibility_corrupted, so the
+# corrupted value is stated once against two clean renderings and corroboration
+# settles on the truth.
+#
+# The pair is the measurement. majority_wrong alone would show a non-zero
+# mis_repaired without establishing that the metric can also read zero -- this
+# arm is what makes the comparison evidence rather than an anecdote.
+#
+# See majority_wrong.yaml for why the arm uses cardinality_violation (the only
+# expressible class when the arm was built; kept after the referral_letter
+# widening for a small, stable, golden-friendly pool).
+preset_name: majority_clean
+seed: "majority-arm-1"
+world_path: world_smoke
+redundancy:
+  renderings_per_fact_min: 3
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    cardinality_violation: {count: 4, visibility_corrupted: 1}
+benign_variation:
+  unit_rescale_rate: 0.0
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+materialize_pdf: false

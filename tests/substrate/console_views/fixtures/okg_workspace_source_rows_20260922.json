@@ -1,0 +1,1859 @@
+{
+ "captured_at": "2026-09-22",
+ "captured_from": "okg-workspace GET /viz/api/console/source-diagnostics",
+ "fields_kept": "every field the health rule reads; the per-producer liveness list and the workflow stage map are dropped, nothing is edited",
+ "generation_id": "okg:okg-workspace:branch:default:gen:20260908T045336779290Z:8c64bbc20bb1",
+ "runtime_readiness_status": "available",
+ "sources": [
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 810039,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 617772,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source": "okg-workspace.code-structure",
+    "source_name": "code-structure",
+    "status": "stale"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "stale"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "source_freshness_stale",
+     "label": "stale",
+     "severity": "warn"
+    }
+   ],
+   "latest_run": {
+    "edge_retractions": 0,
+    "edges_appended": 0,
+    "input_count": 1,
+    "node_retractions": 0,
+    "nodes_appended": 0,
+    "observed_at": "2026-09-07T20:59:52.286595+00:00",
+    "output_count": 0,
+    "run_id": "45f0ab8b-0e38-50c6-9496-bebcfa977ab8",
+    "run_mode": "scope_complete",
+    "run_status": "OK",
+    "slowest_phase": "source_runner",
+    "slowest_phase_ms": 605947.29,
+    "status": "available",
+    "timing_status": "available",
+    "total_ms": 606817.59,
+    "unavailable_reason": null
+   },
+   "name": "code-structure",
+   "producers": {
+    "configured_count": 2,
+    "healthy_count": 1,
+    "status": "stale"
+   },
+   "source_key": "okg-workspace.code-structure",
+   "workflow": {
+    "active": false,
+    "blocking_stage": "planned_action",
+    "reason": "completed_scope_watermark_stale",
+    "state": "blocked",
+    "status": "blocked"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 49720,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 35796,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source": "okg-workspace.pact",
+    "source_name": "pact",
+    "status": "stale"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "stale"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "source_freshness_stale",
+     "label": "stale",
+     "severity": "warn"
+    }
+   ],
+   "latest_run": {
+    "edge_retractions": 0,
+    "edges_appended": 49720,
+    "input_count": 2,
+    "node_retractions": 0,
+    "nodes_appended": 35796,
+    "observed_at": "2026-09-07T14:46:45.444289+00:00",
+    "output_count": 85516,
+    "run_id": "1678ee6a-3d48-5e71-9f7c-caa2d4146b31",
+    "run_mode": "scope_complete",
+    "run_status": "OK",
+    "slowest_phase": "source_runner",
+    "slowest_phase_ms": 631874.704,
+    "status": "available",
+    "timing_status": "available",
+    "total_ms": 639334.666,
+    "unavailable_reason": null
+   },
+   "name": "pact",
+   "producers": {
+    "configured_count": 2,
+    "healthy_count": 1,
+    "status": "stale"
+   },
+   "source_key": "okg-workspace.pact",
+   "workflow": {
+    "active": false,
+    "blocking_stage": "planned_action",
+    "reason": "completed_scope_watermark_stale",
+    "state": "blocked",
+    "status": "blocked"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 22754,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 22696,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source": "okg-workspace.openspec",
+    "source_name": "openspec",
+    "status": "stale"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "stale"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "source_freshness_stale",
+     "label": "stale",
+     "severity": "warn"
+    }
+   ],
+   "latest_run": {
+    "edge_retractions": 0,
+    "edges_appended": 0,
+    "input_count": 2,
+    "node_retractions": 0,
+    "nodes_appended": 0,
+    "observed_at": "2026-09-07T14:37:13.544481+00:00",
+    "output_count": 0,
+    "run_id": "ff3e96b1-81a2-504c-8308-58b1e83effdc",
+    "run_mode": "scope_complete",
+    "run_status": "OK",
+    "slowest_phase": "source_runner",
+    "slowest_phase_ms": 71072.374,
+    "status": "available",
+    "timing_status": "available",
+    "total_ms": 71703.05,
+    "unavailable_reason": null
+   },
+   "name": "openspec",
+   "producers": {
+    "configured_count": 2,
+    "healthy_count": 1,
+    "status": "stale"
+   },
+   "source_key": "okg-workspace.openspec",
+   "workflow": {
+    "active": false,
+    "blocking_stage": "planned_action",
+    "reason": "completed_scope_watermark_stale",
+    "state": "blocked",
+    "status": "blocked"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 11756,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 11757,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source": "okg-workspace.git-files",
+    "source_name": "git-files",
+    "status": "stale"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "stale"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "source_freshness_stale",
+     "label": "stale",
+     "severity": "warn"
+    }
+   ],
+   "latest_run": {
+    "edge_retractions": 0,
+    "edges_appended": 0,
+    "input_count": 0,
+    "node_retractions": 0,
+    "nodes_appended": 0,
+    "observed_at": "2026-09-08T04:54:43.171060+00:00",
+    "output_count": 0,
+    "run_id": "9613c9a9-28fc-59e4-bb3c-36bb82f2a0cb",
+    "run_mode": "scope_complete",
+    "run_status": "OK",
+    "slowest_phase": "source_runner",
+    "slowest_phase_ms": 2810.706,
+    "status": "available",
+    "timing_status": "available",
+    "total_ms": 2988.015,
+    "unavailable_reason": null
+   },
+   "name": "git-files",
+   "producers": {
+    "configured_count": 2,
+    "healthy_count": 1,
+    "status": "stale"
+   },
+   "source_key": "okg-workspace.git-files",
+   "workflow": {
+    "active": false,
+    "blocking_stage": "planned_action",
+    "reason": "completed_scope_watermark_stale",
+    "state": "blocked",
+    "status": "blocked"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 7317,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 6991,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source": "okg-workspace.agent-sessions",
+    "source_name": "agent-sessions",
+    "status": "missing"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "missing"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "source_freshness_missing",
+     "label": "missing",
+     "severity": "warn"
+    }
+   ],
+   "latest_run": {
+    "edge_retractions": 0,
+    "edges_appended": 2334,
+    "input_count": 8,
+    "node_retractions": 0,
+    "nodes_appended": 2130,
+    "observed_at": "2026-09-08T04:55:05.172437+00:00",
+    "output_count": 4464,
+    "run_id": "43e2eb43-b93e-57e6-8d92-6e5ac953b6d7",
+    "run_mode": "scope_incomplete",
+    "run_status": "OK",
+    "slowest_phase": "source_runner",
+    "slowest_phase_ms": 21550.412,
+    "status": "available",
+    "timing_status": "available",
+    "total_ms": 21996.16,
+    "unavailable_reason": null
+   },
+   "name": "agent-sessions",
+   "producers": {
+    "configured_count": 2,
+    "healthy_count": 1,
+    "status": "stale"
+   },
+   "source_key": "okg-workspace.agent-sessions",
+   "workflow": {
+    "active": false,
+    "blocking_stage": "planned_action",
+    "reason": "completed_scope_watermark_missing",
+    "state": "blocked",
+    "status": "blocked"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 25,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source": "okg-workspace.coordination-config",
+    "source_name": "coordination-config",
+    "status": "stale"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "stale"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "source_freshness_stale",
+     "label": "stale",
+     "severity": "warn"
+    }
+   ],
+   "latest_run": {
+    "edge_retractions": 0,
+    "edges_appended": 0,
+    "input_count": 2,
+    "node_retractions": 0,
+    "nodes_appended": 0,
+    "observed_at": "2026-09-07T20:38:24.722730+00:00",
+    "output_count": 0,
+    "run_id": "46be4051-b7a0-59d0-8d5f-2125cc00e2c7",
+    "run_mode": "scope_complete",
+    "run_status": "OK",
+    "slowest_phase": "source_runner",
+    "slowest_phase_ms": 187026.548,
+    "status": "available",
+    "timing_status": "available",
+    "total_ms": 196938.536,
+    "unavailable_reason": null
+   },
+   "name": "coordination-config",
+   "producers": {
+    "configured_count": 2,
+    "healthy_count": 1,
+    "status": "stale"
+   },
+   "source_key": "okg-workspace.coordination-config",
+   "workflow": {
+    "active": false,
+    "blocking_stage": "planned_action",
+    "reason": "completed_scope_watermark_stale",
+    "state": "blocked",
+    "status": "blocked"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "agent-memory",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "agent-memory",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.agent-memory",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "agent-runtime-security-monitor",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "agent-runtime-security-monitor",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.agent-runtime-security-monitor",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": null,
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "bib-references",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "bib-references",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "okg-workspace.bib_references",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "2d ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "branch-dispositions",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "degraded"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "branch-dispositions",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 0,
+    "status": "stale"
+   },
+   "source_key": "okg-workspace.branch-dispositions",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": null,
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "chat-sessions",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "chat-sessions",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "okg-workspace.chat-sessions",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": null,
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "code-data-flow",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "code-data-flow",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "okg-workspace.code-data-flow",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "code-lsp-resolution",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "code-lsp-resolution",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "okg-workspace.code-lsp-resolution",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "codeql-data-flow",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "codeql-data-flow",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.codeql-data-flow",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source": "okg-workspace.codex-sessions",
+    "source_name": "codex-sessions",
+    "status": "missing"
+   },
+   "health": {
+    "incident_count": 2,
+    "status": "missing"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "source_freshness_missing",
+     "label": "missing",
+     "severity": "warn"
+    },
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "codex-sessions",
+   "producers": {
+    "configured_count": 2,
+    "healthy_count": 1,
+    "status": "stale"
+   },
+   "source_key": "okg-workspace.codex-sessions",
+   "workflow": {
+    "active": false,
+    "blocking_stage": "planned_action",
+    "reason": "completed_scope_watermark_missing",
+    "state": "blocked",
+    "status": "blocked"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "2d ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "compute-env-local",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "degraded"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "compute-env-local",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 0,
+    "status": "stale"
+   },
+   "source_key": "okg-workspace.compute-env-local",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "2d ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source": "okg-workspace.coordination-native",
+    "source_name": "coordination-native",
+    "status": "stale"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "stale"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "source_freshness_stale",
+     "label": "stale",
+     "severity": "warn"
+    }
+   ],
+   "latest_run": {
+    "edge_retractions": 0,
+    "edges_appended": 0,
+    "input_count": 1,
+    "node_retractions": 0,
+    "nodes_appended": 0,
+    "observed_at": "2026-09-06T15:33:20.969934+00:00",
+    "output_count": 0,
+    "run_id": "ece2ea22-2d71-5c5a-bc62-5d80e6786967",
+    "run_mode": "reconcile",
+    "run_status": "OK",
+    "slowest_phase": "source_runner",
+    "slowest_phase_ms": 965.167,
+    "status": "available",
+    "timing_status": "available",
+    "total_ms": 1173.952,
+    "unavailable_reason": null
+   },
+   "name": "coordination-native",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 0,
+    "status": "stale"
+   },
+   "source_key": "okg-workspace.coordination-native",
+   "workflow": {
+    "active": false,
+    "blocking_stage": "planned_action",
+    "reason": "completed_scope_watermark_stale",
+    "state": "blocked",
+    "status": "blocked"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": null,
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "coordination-packets",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "coordination-packets",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "okg-workspace.coordination-packets",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "doc-corpus",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "doc-corpus",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.doc-corpus",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "git-history",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "git-history",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.git-history",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "2d ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "github-issues",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "degraded"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "github-issues",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 0,
+    "status": "stale"
+   },
+   "source_key": "okg-workspace.github-issues",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "instrumentation-log",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "instrumentation-log",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.instrumentation-log",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "interfaces",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "interfaces",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.interfaces",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "junit-xml",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "junit-xml",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.junit-xml",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": null,
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "latex-project",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "latex-project",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "okg-workspace.latex_project",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": null,
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "latex-project-doc-corpus",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "latex-project-doc-corpus",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "okg-workspace.latex-project-doc-corpus",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "package-manifests",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "package-manifests",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.package-manifests",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": null,
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "papers-git-files",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "papers-git-files",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "okg-workspace.papers-git-files",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "profile-measurements",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "profile-measurements",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.profile-measurements",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "security-analysis",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "security-analysis",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.security-analysis",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "self-play-reports",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "self-play-reports",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.self-play-reports",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "semgrep-data-flow",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "semgrep-data-flow",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.semgrep-data-flow",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": "20s ago",
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "test-reports",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": true,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "test-reports",
+   "producers": {
+    "configured_count": 1,
+    "healthy_count": 1,
+    "status": "healthy"
+   },
+   "source_key": "okg-workspace.test-reports",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_required_for_readiness",
+    "state": "fresh",
+    "status": "fresh"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": null,
+    "records_in_gen": 8,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "_system:native_views",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": false,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "_system:native_views",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "_system:native_views",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_in_convergence_status",
+    "state": "unsupported",
+    "status": "unsupported"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 0,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": null,
+    "records_in_gen": 7,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "system:external_backed_collector",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": false,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "system:external_backed_collector",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "system:external_backed_collector",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_in_convergence_status",
+    "state": "unsupported",
+    "status": "unsupported"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 135499,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": null,
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "_enricher:code_reference",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": false,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "_enricher:code_reference",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "_enricher:code_reference",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_in_convergence_status",
+    "state": "unsupported",
+    "status": "unsupported"
+   }
+  },
+  {
+   "contribution": {
+    "authority": "compose_sources",
+    "edges_in_gen": 8,
+    "fact_counts_available": false,
+    "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+    "horizon": "pinned_generation",
+    "last_sync_age": null,
+    "records_in_gen": 0,
+    "total_edge_facts": null,
+    "total_facts": null
+   },
+   "freshness": {
+    "source_name": "_enricher:declarative:agent_message_mentions_pact_change_dir",
+    "status": "not_configured"
+   },
+   "health": {
+    "incident_count": 1,
+    "status": "healthy"
+   },
+   "in_registry": false,
+   "incidents": [
+    {
+     "code": "latest_run_telemetry_unavailable",
+     "label": "not_observed",
+     "severity": "info"
+    }
+   ],
+   "latest_run": {
+    "status": "not_observed",
+    "unavailable_reason": "no_source_run_diagnostics_rows"
+   },
+   "name": "_enricher:declarative:agent_message_mentions_pact_change_dir",
+   "producers": {
+    "configured_count": 0,
+    "healthy_count": 0,
+    "status": "not_configured"
+   },
+   "source_key": "_enricher:declarative:agent_message_mentions_pact_change_dir",
+   "workflow": {
+    "active": false,
+    "blocking_stage": null,
+    "reason": "source_not_in_convergence_status",
+    "state": "unsupported",
+    "status": "unsupported"
+   }
+  }
+ ]
+}

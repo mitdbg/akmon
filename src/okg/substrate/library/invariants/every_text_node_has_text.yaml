@@ -1,0 +1,13 @@
+invariants:
+  - name: every_text_node_has_text
+    severity: warn
+    scope: cross
+    sql: |
+      -- A node whose subtype is text-bearing (document, section,
+      -- comment, postmortem) but attrs->>'text' is NULL is
+      -- flagged. Severity=warn: it signals an extractor /
+      -- adapter that didn't populate text, not a fatal problem.
+      SELECT node_id, subtype
+        FROM okg.v_nodes
+       WHERE subtype IN ('document', 'section', 'comment', 'postmortem')
+         AND (attrs->>'text') IS NULL

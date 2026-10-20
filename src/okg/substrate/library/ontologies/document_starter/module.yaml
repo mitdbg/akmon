@@ -1,0 +1,6 @@
+name: document_starter
+version: 1.0.0
+description: Document subtype with sections + links — minimal starter ontology
+  for documentation-shaped deployments.
+provides:
+  subtypes_file: schema.yaml

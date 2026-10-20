@@ -1,0 +1,43 @@
+# Nomos (the access-policy layer) runs with runtime enforcement `off`: a
+# fresh install leaves runtime checks off when the deployment declares no
+# access rules (issue #3414, Jason 2026-10-05 `nomosdefault A`). Audit and
+# enforce are opt-in: set `runtime_enforcement: audit` or `enforce` once the
+# deployment has access rules to check.
+#
+# The posture below is still required. `okg ingest` audits each source's
+# privacy policy against it whatever the runtime mode, and
+# `okg deployment add-source` proposes the change when a new source needs a
+# sensitivity this posture does not yet allow.
+nomos:
+  runtime_enforcement: "off"
+  deployment_posture:
+    deployment_class: org_operational_private
+    read_principals: [human_operator, agent, okg_service, mcp_client]
+    write_principals: [human_operator, okg_service, source_adapter]
+    mcp_write_default: review
+    export_policy: no_export
+    secret_handling: secret_ref_required
+    live_call_default: review
+    allowed_source_sensitivities: [public, internal, local_private, private, credentialed_external]
+    allowed_data_classifications: [public, internal, private]
+    allowed_exportability: [internal, no_export]
+    privacy_obligations: [audit, review, no_export, secret_ref_required]
+    readiness_profiles: [general]
+
+chronos:
+  # How long superseded graph history is kept; without this block every
+  # superseded node and edge version accumulates forever (issue #1309).
+  # Same default `okg deployment new` writes.
+  history_retention:
+    default:
+      horizon: 14d
+    audit_tail_generations: 50
+
+# Free-disk floors for the filesystems this deployment writes to, in percent
+# available. `okg doctor` warns below the first and treats the second as a
+# blocker, and big writes (backups, scratch databases) refuse to start below
+# it. Without this block doctor reports its own check as misconfigured
+# (issue #3578). Same values as okg's own deployments; tune them to the host.
+host_storage:
+  warn_available_pct: 15
+  blocker_available_pct: 6

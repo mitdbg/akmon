@@ -1,0 +1,21 @@
+schema: okg.workspace-fixture.v1
+upstream:
+  name: TinyDB
+  repository: https://github.com/msiemens/tinydb
+bundle:
+  file: tinydb-v4.8.1-v4.8.2.bundle
+  sha256: fc6f123ff056425014bfd291aa1872ec8402d2e89650eaec31fd65236c9992d2
+revisions:
+  initial:
+    ref: v4.8.1
+    commit: ad63e2e670b02ac1e9ed7f3130f6de53ec8d5bce
+  updated:
+    ref: v4.8.2
+    commit: 10644a0e07ad180c5b756aba272ee6b0dbd12df8
+expected_changed_paths:
+  - README.rst
+  - docs/changelog.rst
+  - pyproject.toml
+  - tests/test_utils.py
+  - tinydb/utils.py
+  - tinydb/version.py

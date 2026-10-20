@@ -1,0 +1,555 @@
+id: https://palimpzest.mit.edu/okg/modules/nomos
+name: nomos
+title: "Nomos — policy, configuration, and identity authority"
+description: |-
+  Graph-native control-plane records for Nomos. These nodes describe
+  policy bundles, rules, scoped configuration, subject bindings,
+  permission grants, identity providers, verified claim assertions, and
+  durable policy decisions. Runtime truth is the compiled Postgres
+  state; the graph keeps provenance, review, and linkage evidence.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  nomos: https://palimpzest.mit.edu/okg/modules/nomos/
+default_range: string
+imports:
+- linkml:types
+enums:
+  NomosAction:
+    permissible_values:
+      admin.override: {}
+      agent.bypass: {}
+      agent.launch: {}
+      config.activate: {}
+      declassify: {}
+      deployment.posture.audit: {}
+      docker.run: {}
+      external_action.attest_owner_unavailable: {}
+      external_action.cancel: {}
+      external_action.decide: {}
+      external_action.execute: {}
+      external_action.propose: {}
+      external_automation.register: {}
+      external_automation.read: {}
+      external_automation.link: {}
+      external_action.read: {}
+      external_action.read_payload: {}
+      external_action.reconcile: {}
+      external_action.report: {}
+      external_action.restore_reconcile: {}
+      file.read: {}
+      file.write: {}
+      generation.publish: {}
+      graph.export: {}
+      graph.read: {}
+      graph.read.audit: {}
+      graph.read.cli_search: {}
+      graph.read.export_like: {}
+      graph.read.local_operator: {}
+      graph.read.mcp: {}
+      graph.read.public_demo: {}
+      graph.read.sql_admin: {}
+      mcp.record: {}
+      mcp.tool.call: {}
+      network.egress: {}
+      policy.activate: {}
+      poros.graph.submit: {}
+      quarantine.release: {}
+      redact: {}
+      secret.use: {}
+      service.persist: {}
+      source.emit: {}
+      source.ingest: {}
+      source.live_call: {}
+      ssh.use: {}
+      transcript.persist: {}
+  NomosDataClassification:
+    permissible_values:
+      confidential: {}
+      internal: {}
+      private: {}
+      public: {}
+      regulated_metadata: {}
+      restricted: {}
+      secret: {}
+      synthetic_phi: {}
+  NomosDeploymentClass:
+    permissible_values:
+      ci_authority: {}
+      dogfood_workspace: {}
+      governed_research_metadata: {}
+      org_operational_private: {}
+      personal_okg: {}
+      private_product_engineering: {}
+      public_reference_demo: {}
+      synthetic_healthcare_demo: {}
+  NomosEffect:
+    permissible_values:
+      allow: {}
+      declassify: {}
+      deny: {}
+      quarantine: {}
+      redact: {}
+      review: {}
+  NomosObligationType:
+    permissible_values:
+      audit: {}
+      break_glass_review: {}
+      declassification: {}
+      no_export: {}
+      quarantine: {}
+      redaction: {}
+      review: {}
+      secret_ref_required: {}
+      source_retention: {}
+  NomosPiiClass:
+    description: >-
+      Privacy class of a single graph attribute -- what kind of personal data
+      it is, and therefore how it is transformed at rest and at read. Only
+      non_pii reveals by default; every other class masks. Unclassified
+      attributes fail safe to sensitive_attribute, never non_pii.
+    permissible_values:
+      direct_identifier: {}
+      free_text: {}
+      non_pii: {}
+      quasi_identifier: {}
+      sensitive_attribute: {}
+  NomosPrincipalKind:
+    permissible_values:
+      agent: {}
+      automation: {}
+      ci_runner: {}
+      external_identity: {}
+      human_operator: {}
+      mcp_client: {}
+      okg_service: {}
+      source_adapter: {}
+      system: {}
+  NomosResourceKind:
+    permissible_values:
+      agent_run: {}
+      agent_runtime: {}
+      config_set: {}
+      container: {}
+      deployment: {}
+      edge: {}
+      external_action: {}
+      external_automation_run: {}
+      external_endpoint: {}
+      file: {}
+      generation: {}
+      graph: {}
+      graph_export: {}
+      local_service: {}
+      mcp_tool: {}
+      network_destination: {}
+      node: {}
+      policy_bundle: {}
+      secret: {}
+      source: {}
+      ssh_identity: {}
+      transcript: {}
+  NomosSourceSensitivity:
+    permissible_values:
+      credentialed_external: {}
+      internal: {}
+      local_private: {}
+      phi_synthetic: {}
+      private: {}
+      public: {}
+      regulated_metadata: {}
+      restricted: {}
+      secret: {}
+classes:
+  PolicyBundle:
+    description: Source graph node for a compiled Nomos policy bundle.
+    class_uri: nomos:PolicyBundle
+    attributes:
+      policy_bundle_id:
+        required: true
+      policy_version:
+        required: true
+      policy_fingerprint:
+      compiler_version:
+      default_effect:
+        required: true
+        range: NomosEffect
+      scope:
+      status:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: policy_bundle_id,policy_fingerprint
+      okg_searchable_text_fields: policy_bundle_id,policy_version,scope,status,text
+  PolicyRule:
+    description: Ordered rule inside a Nomos policy bundle.
+    class_uri: nomos:PolicyRule
+    attributes:
+      rule_id:
+        required: true
+      policy_bundle_id:
+        required: true
+      effect:
+        required: true
+        range: NomosEffect
+      actions:
+        required: true
+        range: NomosAction
+        multivalued: true
+      subjects:
+      priority:
+        range: integer
+      reason_code:
+        pattern: "^nomos(?:\\.[a-z][a-z0-9_]*)+$"
+      match:
+      obligation_types:
+        range: NomosObligationType
+        multivalued: true
+      obligations:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: rule_id
+      okg_searchable_text_fields: rule_id,effect,actions,subjects,reason_code,text
+  PolicyScope:
+    description: Named control-plane scope, usually deployment- or team-scoped.
+    class_uri: nomos:PolicyScope
+    attributes:
+      scope_id:
+        required: true
+      scope_kind:
+      deployment_class:
+        range: NomosDeploymentClass
+      owner:
+      description:
+      text:
+    annotations:
+      archetype: resource
+      transient: 'false'
+      okg_alias_fields: scope_id
+      okg_searchable_text_fields: scope_id,scope_kind,owner,description,text
+  PolicySubject:
+    description: Nomos subject after identity binding resolution.
+    class_uri: nomos:PolicySubject
+    attributes:
+      subject_id:
+        required: true
+      subject_kind:
+        range: NomosPrincipalKind
+      display_name:
+      scope:
+      text:
+    annotations:
+      archetype: actor
+      transient: 'false'
+      okg_alias_fields: subject_id
+      okg_searchable_text_fields: subject_id,subject_kind,display_name,scope,text
+  PolicyAction:
+    description: Controlled action vocabulary entry.
+    class_uri: nomos:PolicyAction
+    attributes:
+      action_id:
+        required: true
+        range: NomosAction
+      surface:
+      description:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: action_id
+      okg_searchable_text_fields: action_id,surface,description,text
+  PolicyResource:
+    description: Controlled resource pattern or concrete protected resource.
+    class_uri: nomos:PolicyResource
+    attributes:
+      resource_id:
+        required: true
+      resource_kind:
+        range: NomosResourceKind
+      classification:
+        range: NomosDataClassification
+      source_sensitivity:
+        range: NomosSourceSensitivity
+      scope:
+      match:
+      text:
+    annotations:
+      archetype: resource
+      transient: 'false'
+      okg_alias_fields: resource_id
+      okg_searchable_text_fields: resource_id,resource_kind,classification,scope,text
+  PolicyDecision:
+    description: Durable Nomos evaluation result.
+    class_uri: nomos:PolicyDecision
+    attributes:
+      decision_id:
+        required: true
+      policy_fingerprint:
+      input_hash:
+        required: true
+      subject:
+        required: true
+      action:
+        required: true
+        range: NomosAction
+      effect:
+        required: true
+        range: NomosEffect
+      reason_code:
+        required: true
+        pattern: "^nomos(?:\\.[a-z][a-z0-9_]*)+$"
+      enforcement_point:
+      target:
+      text:
+    annotations:
+      archetype: evidence
+      transient: 'false'
+      okg_alias_fields: decision_id,input_hash
+      okg_searchable_text_fields: decision_id,subject,action,effect,reason_code,enforcement_point,text
+  NomosConfig:
+    description: Compiled or source configuration set governed by Nomos.
+    class_uri: nomos:NomosConfig
+    attributes:
+      config_set_id:
+        required: true
+      config_version:
+        required: true
+      config_fingerprint:
+      scope:
+      status:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: config_set_id,config_fingerprint
+      okg_searchable_text_fields: config_set_id,config_version,scope,status,text
+  NomosConfigScope:
+    description: Nomos-owned runtime configuration scope.
+    class_uri: nomos:NomosConfigScope
+    attributes:
+      config_scope_id:
+        required: true
+      owner:
+      fallback_policy:
+      text:
+    annotations:
+      archetype: resource
+      transient: 'false'
+      okg_alias_fields: config_scope_id
+      okg_searchable_text_fields: config_scope_id,owner,fallback_policy,text
+  SubjectBinding:
+    description: Issuer-scoped mapping from external claim value to Nomos subject.
+    class_uri: nomos:SubjectBinding
+    attributes:
+      binding_id:
+        required: true
+      provider_id:
+        required: true
+      issuer:
+        required: true
+      claim_path:
+        required: true
+      claim_value:
+        required: true
+      subject:
+        required: true
+      scope:
+        required: true
+      status:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: binding_id
+      okg_searchable_text_fields: binding_id,provider_id,issuer,claim_path,claim_value,subject,scope,text
+  PermissionGrant:
+    description: Normalized grant consumed by Nomos subject authorization.
+    class_uri: nomos:PermissionGrant
+    attributes:
+      grant_id:
+        required: true
+      subject:
+        required: true
+      actions:
+        required: true
+        range: NomosAction
+        multivalued: true
+      scope:
+        required: true
+      effect:
+        required: true
+        range: NomosEffect
+      classifications:
+        range: NomosDataClassification
+        multivalued: true
+      resource_match:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: grant_id
+      okg_searchable_text_fields: grant_id,subject,actions,scope,effect,classifications,text
+  IdentityProvider:
+    description: External identity provider trusted by one deployment.
+    class_uri: nomos:IdentityProvider
+    attributes:
+      provider_id:
+        required: true
+      provider_type:
+        required: true
+      issuer:
+        required: true
+      audiences:
+        required: true
+      key_reference:
+      freshness_seconds:
+        range: integer
+      status:
+      text:
+    annotations:
+      archetype: resource
+      transient: 'false'
+      okg_alias_fields: provider_id,issuer
+      okg_searchable_text_fields: provider_id,provider_type,issuer,audiences,status,text
+  ExternalPrincipal:
+    description: Redacted external subject known through verified claims.
+    class_uri: nomos:ExternalPrincipal
+    attributes:
+      principal_id:
+        required: true
+      provider_id:
+        required: true
+      issuer:
+        required: true
+      subject_fingerprint:
+        required: true
+      text:
+    annotations:
+      archetype: actor
+      transient: 'false'
+      okg_alias_fields: principal_id,subject_fingerprint
+      okg_searchable_text_fields: principal_id,provider_id,issuer,text
+  ExternalGroupOrRole:
+    description: External group, role, entitlement, or directory label.
+    class_uri: nomos:ExternalGroupOrRole
+    attributes:
+      external_group_or_role_id:
+        required: true
+      provider_id:
+        required: true
+      issuer:
+        required: true
+      claim_path:
+        required: true
+      claim_value:
+        required: true
+      text:
+    annotations:
+      archetype: resource
+      transient: 'false'
+      okg_alias_fields: external_group_or_role_id
+      okg_searchable_text_fields: external_group_or_role_id,provider_id,issuer,claim_path,claim_value,text
+  AuthClaimAssertion:
+    description: Redacted/fingerprinted external auth claim evidence.
+    class_uri: nomos:AuthClaimAssertion
+    attributes:
+      claim_fingerprint:
+        required: true
+      provider_id:
+        required: true
+      issuer:
+        required: true
+      external_subject:
+      verification_status:
+        required: true
+      observed_at:
+        range: datetime
+      text:
+    annotations:
+      archetype: evidence
+      transient: 'false'
+      okg_alias_fields: claim_fingerprint
+      okg_searchable_text_fields: claim_fingerprint,provider_id,issuer,verification_status,text
+  EdgeNarrowings:
+    description: Intra-module narrowings for Nomos control-plane graph records.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      policy_bundle_contains_policy_rule:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PolicyBundle
+          dst_subtypes: PolicyRule
+      policy_bundle_applies_to_policy_scope:
+        annotations:
+          edge_archetype: applies_to
+          src_subtypes: PolicyBundle
+          dst_subtypes: PolicyScope
+      policy_rule_references_policy_subject:
+        annotations:
+          edge_archetype: references
+          src_subtypes: PolicyRule
+          dst_subtypes: PolicySubject
+      policy_rule_references_policy_action:
+        annotations:
+          edge_archetype: references
+          src_subtypes: PolicyRule
+          dst_subtypes: PolicyAction
+      policy_rule_references_policy_resource:
+        annotations:
+          edge_archetype: references
+          src_subtypes: PolicyRule
+          dst_subtypes: PolicyResource
+      policy_decision_references_policy_bundle:
+        annotations:
+          edge_archetype: references
+          src_subtypes: PolicyDecision
+          dst_subtypes: PolicyBundle
+      policy_decision_references_policy_subject:
+        annotations:
+          edge_archetype: references
+          src_subtypes: PolicyDecision
+          dst_subtypes: PolicySubject
+      nomos_config_applies_to_nomos_config_scope:
+        annotations:
+          edge_archetype: applies_to
+          src_subtypes: NomosConfig
+          dst_subtypes: NomosConfigScope
+      subject_binding_references_identity_provider:
+        annotations:
+          edge_archetype: references
+          src_subtypes: SubjectBinding
+          dst_subtypes: IdentityProvider
+      subject_binding_references_policy_subject:
+        annotations:
+          edge_archetype: references
+          src_subtypes: SubjectBinding
+          dst_subtypes: PolicySubject
+      permission_grant_references_policy_subject:
+        annotations:
+          edge_archetype: references
+          src_subtypes: PermissionGrant
+          dst_subtypes: PolicySubject
+      permission_grant_references_policy_action:
+        annotations:
+          edge_archetype: references
+          src_subtypes: PermissionGrant
+          dst_subtypes: PolicyAction
+      auth_claim_assertion_references_identity_provider:
+        annotations:
+          edge_archetype: references
+          src_subtypes: AuthClaimAssertion
+          dst_subtypes: IdentityProvider
+      auth_claim_assertion_references_external_principal:
+        annotations:
+          edge_archetype: references
+          src_subtypes: AuthClaimAssertion
+          dst_subtypes: ExternalPrincipal
+      external_group_or_role_member_of_identity_provider:
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: ExternalGroupOrRole
+          dst_subtypes: IdentityProvider

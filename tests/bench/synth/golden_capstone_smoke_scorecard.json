@@ -1,0 +1,378 @@
+{
+ "clean_fp_ceiling": 0,
+ "clean_gate_passed": true,
+ "clean_run_fp": 0,
+ "config_digest": "9788a2af97232c68e77e67349cc43d561bf53977ba78ca202b8c82e340955b8f",
+ "corrupted_unexpected_findings": {
+  "engine_attributed": [],
+  "extractor_attributed": []
+ },
+ "cost_model": {
+  "action_prices": {
+   "check": 0.0,
+   "correction": 0.0,
+   "extract_document": 0.0,
+   "parse": 0.0,
+   "publish": 0.0
+  },
+  "default_error_cost": 1.0,
+  "error_costs": {
+   "ambiguous_subject": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "broken_reference": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "cardinality_violation": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "dangling_entity": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "derived_value": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "digit_transposition": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "entity_swap": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "incompatible_status_pair": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "label_value_mismatch": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "linked_reference": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "polarity_flip": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "unit_conversion_error": {
+    "error_cost": 1.0,
+    "mandatory": false
+   },
+   "value_perturbation": {
+    "error_cost": 1.0,
+    "mandatory": false
+   }
+  },
+  "mandatory_classes": []
+ },
+ "cross_doc_recall": {
+  "denominator": 28,
+  "recovered": 23
+ },
+ "extraction": {
+  "denominator": 388,
+  "missed": [],
+  "recovered": 388
+ },
+ "funnel": {
+  "detection_recall": {
+   "conditional": {
+    "denominator": 27,
+    "detected": 23
+   },
+   "end_to_end": {
+    "denominator": 27,
+    "detected": 23
+   }
+  },
+  "partition_state": {
+   "cross_doc": {
+    "detected_only": 6,
+    "mis_repaired": 6,
+    "not_detected": 3,
+    "repaired": 10
+   },
+   "internal_only": {
+    "detected_only": 1,
+    "not_detected": 1
+   }
+  },
+  "repair_rate": {
+   "conditional": {
+    "denominator": 23,
+    "repaired": 10
+   },
+   "end_to_end": {
+    "denominator": 27,
+    "repaired": 10
+   }
+  },
+  "states": {
+   "counterpart_lost": 0,
+   "detected_only": 7,
+   "laundered_at_extraction": 0,
+   "mis_repaired": 6,
+   "missed_at_extraction": 0,
+   "not_detected": 4,
+   "removed_from_scope": 0,
+   "repaired": 10
+  },
+  "total": 27
+ },
+ "majority_flavor": {
+  "copy": {
+   "mis_repaired": 0,
+   "preserved": 0
+  },
+  "independent": {
+   "mis_repaired": 0,
+   "preserved": 0
+  }
+ },
+ "manifest_digest": "69438113f41fea4413ea3f64ab26ed2109a4d4bcb5d92cbfcc7ce7a4d24692e0",
+ "per_class": {
+  "ambiguous_subject": {
+   "candidate": 0,
+   "denominator": 1,
+   "layer": "kg_fork",
+   "missed_buckets": [
+    "body_height:patient_kam191_emerita401_wuckert783"
+   ],
+   "routed": 0,
+   "verdict": 0
+  },
+  "cardinality_violation": {
+   "candidate": 4,
+   "denominator": 8,
+   "layer": "kg_fork",
+   "missed_buckets": [
+    "care_provider:patient_kam191_emerita401_wuckert783",
+    "care_provider:patient_margret280_sherell789_daniel959"
+   ],
+   "routed": 0,
+   "verdict": 4
+  },
+  "incompatible_status_pair": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "kg_fork",
+   "missed_buckets": [],
+   "routed": 0,
+   "verdict": 1
+  },
+  "linked_reference": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "kg_fork",
+   "missed_buckets": [],
+   "routed": 0,
+   "verdict": 1
+  },
+  "value_perturbation": {
+   "candidate": 19,
+   "denominator": 20,
+   "layer": "kg_fork",
+   "missed_buckets": [
+    "body_weight:patient_kam191_emerita401_wuckert783",
+    "hemoglobin_a1c:patient_kam191_emerita401_wuckert783"
+   ],
+   "routed": 5,
+   "verdict": 18
+  }
+ },
+ "per_class_survival": {
+  "by_class": {
+   "ambiguous_subject": {
+    "sites": 1,
+    "survived": 1
+   },
+   "cardinality_violation": {
+    "sites": 4,
+    "survived": 4
+   },
+   "incompatible_status_pair": {
+    "sites": 1,
+    "survived": 1
+   },
+   "linked_reference": {
+    "sites": 1,
+    "survived": 1
+   },
+   "value_perturbation": {
+    "sites": 20,
+    "survived": 20
+   }
+  },
+  "non_surviving_sites": []
+ },
+ "per_kind_detection": {
+  "by_kind": {
+   "functional": {
+    "conditional": {
+     "denominator": 24,
+     "detected": 20
+    },
+    "end_to_end": {
+     "denominator": 24,
+     "detected": 20
+    }
+   },
+   "incompatible_pair": {
+    "conditional": {
+     "denominator": 1,
+     "detected": 1
+    },
+    "end_to_end": {
+     "denominator": 1,
+     "detected": 1
+    }
+   },
+   "linked_pair": {
+    "conditional": {
+     "denominator": 1,
+     "detected": 1
+    },
+    "end_to_end": {
+     "denominator": 1,
+     "detected": 1
+    }
+   },
+   "unresolved_key": {
+    "conditional": {
+     "denominator": 1,
+     "detected": 1
+    },
+    "end_to_end": {
+     "denominator": 1,
+     "detected": 1
+    }
+   }
+  },
+  "linked_cross_bucket": [
+   {
+    "finding_id": "conflict:linked_record_reference_birthdate:93e3ef0f4ddc",
+    "member_buckets": [
+     "birthdate:patient_kam191_emerita401_wuckert783",
+     "record_reference:patient_kam191_emerita401_wuckert783"
+    ]
+   },
+   {
+    "finding_id": "conflict:linked_record_reference_birthdate:d9b8bff04578",
+    "member_buckets": [
+     "birthdate:patient_kam191_emerita401_wuckert783",
+     "record_reference:patient_kam191_emerita401_wuckert783"
+    ]
+   }
+  ]
+ },
+ "per_partition": {
+  "cross_doc": {
+   "denominator": 28,
+   "verdict": 23
+  },
+  "internal_only": {
+   "denominator": 3,
+   "verdict": 1
+  }
+ },
+ "poisoning": {
+  "all_flips_on_authority": true,
+  "by_basis": {},
+  "eligible": 11,
+  "enabled": false,
+  "expected_basis": "declared_source_authority",
+  "flip_rate": 0.0,
+  "flipped": 0,
+  "per_bucket": [],
+  "poison_rate": 0.0,
+  "poisoned": 0
+ },
+ "qualification": {
+  "mandatory_planted": 0,
+  "mandatory_unresolved": 0,
+  "qualified": true,
+  "reason": "the corpus plants no mandatory violation",
+  "unresolved_mandatory_corruptions": []
+ },
+ "qualified": true,
+ "remaining_error_cost": {
+  "by_stage": {
+   "detection": {
+    "corruptions": 4,
+    "cost": 4.0,
+    "mandatory_unresolved": 0
+   },
+   "extraction": {
+    "corruptions": 0,
+    "cost": 0.0,
+    "mandatory_unresolved": 0
+   },
+   "repair": {
+    "corruptions": 13,
+    "cost": 13.0,
+    "mandatory_unresolved": 0
+   }
+  },
+  "corruptions": 17,
+  "infinite": false,
+  "mandatory_unresolved": 0,
+  "scale": 1.0,
+  "total": 17.0,
+  "unresolved_mandatory_corruptions": []
+ },
+ "repair": {
+  "detected": 22,
+  "detected_only": 5,
+  "mis_repaired": 6,
+  "repaired": 10,
+  "total": 27,
+  "unadjudicated": 6
+ },
+ "schema": "okg.synth.scorecard.v1",
+ "spent_action_cost": {
+  "by_class": {
+   "check": {
+    "cost": 0.0,
+    "count": 83,
+    "unit_price": 0.0
+   },
+   "correction": {
+    "cost": 0.0,
+    "count": 0,
+    "unit_price": 0.0
+   },
+   "extract_document": {
+    "cost": 0.0,
+    "count": 60,
+    "unit_price": 0.0
+   },
+   "parse": {
+    "cost": 0.0,
+    "count": 64,
+    "unit_price": 0.0
+   },
+   "publish": {
+    "cost": 0.0,
+    "count": 2,
+    "unit_price": 0.0
+   }
+  },
+  "total": 0.0
+ },
+ "twins": {
+  "denominator": 0,
+  "flagged": 0
+ },
+ "undetectable_flagged_fp": 0,
+ "world_knowledge": {
+  "denominator": 0,
+  "verdict": 0
+ }
+}

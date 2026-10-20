@@ -1,0 +1,38 @@
+[
+  {
+    "index": ".plugins-ml-config",
+    "uuid": "JPVEmpHVT26HF0AT0zmb6Q",
+    "docs.count": "1",
+    "store.size": "4071"
+  },
+  {
+    "index": ".opensearch-observability",
+    "uuid": "hx8FAaugQMKuWvsCSVckWQ",
+    "docs.count": "0",
+    "store.size": "208"
+  },
+  {
+    "index": "ingest-events-2026.09",
+    "uuid": "vc4aScx4QLmVi8MfO42aeA",
+    "docs.count": "25",
+    "store.size": "7709"
+  },
+  {
+    "index": "app-logs-2026.09",
+    "uuid": "fekz5gsFSFenauLOAxodUA",
+    "docs.count": "40",
+    "store.size": "10076"
+  },
+  {
+    "index": "top_queries-2026.09.20-04119",
+    "uuid": "IGd9GcxNTBWpRO48kMg8kw",
+    "docs.count": "13",
+    "store.size": "125057"
+  },
+  {
+    "index": "audit-trail-2026.09",
+    "uuid": "CISD7BoLSOqCGTtSDXwiCA",
+    "docs.count": "12",
+    "store.size": "6604"
+  }
+]

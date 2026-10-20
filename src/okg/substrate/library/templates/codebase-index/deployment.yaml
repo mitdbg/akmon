@@ -1,0 +1,137 @@
+# Workspace Graph template — code, tests, quality evidence, and agent sessions.
+#
+# `okg install --profile workspace-graph --repo-root <path>` replaces
+# "{{ repo_root }}" with the target repository path.
+name: "{{ deployment_name }}"
+description: Local codebase deployment with git, OpenSpec, Codex sessions, code graph, tests, security, profiling, and benchmarks.
+
+postgres:
+  dsn: ${OKG_DSN}
+
+embeddings:
+  enabled: false
+  reason: deterministic MCP traversal and lexical search are sufficient
+
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+doctor_checks:
+  - name: "{{ deployment_name }}"
+    handler: doctor_checks:doctor_okg_workspace
+    help: Report coding-context quality regressions.
+  - name: coding-context
+    handler: doctor_checks:doctor_okg_workspace
+    help: Report coding-context quality regressions.
+
+modules:
+  - git_graph
+  - openspec
+  - agent_sessions
+  - compute_env
+  - code_graph
+  - extraction
+  - forge
+  - ci
+  - quality_evidence
+  - views
+
+enrichers:
+  - class: okg.substrate.library.linkers.declarative.DeclarativeLinker
+  - class: okg.substrate.library.linkers.acceptance_criteria.AcceptanceCriteriaLinker
+  - class: okg.substrate.library.linkers.tool_use_symbol.ToolUseSymbolLinker
+  - class: okg.substrate.library.linkers.code_reference.CodeReferenceResolver
+  - class: okg.substrate.library.linkers.test_symbol.TestSymbolLinker
+  - class: okg.substrate.library.linkers.coverage_symbol.CoverageSymbolLinker
+  - class: okg.substrate.library.linkers.interface_handler.InterfaceHandlerLinker
+  - class: okg.substrate.library.linkers.data_asset.DataAssetLinker
+  - class: okg.substrate.library.linkers.data_flow_evidence.DataFlowEvidenceLinker
+  - class: okg.substrate.library.linkers.security_finding.SecurityFindingLinker
+  - class: okg.substrate.library.linkers.profile_hotspot.ProfileHotspotLinker
+
+modules_config:
+  git_graph:
+    repo: "{{ deployment_name }}"
+    repo_root: "{{ repo_root }}"
+    include_untracked: true
+  openspec:
+    openspec_root: "{{ openspec_root }}"
+    repo: "{{ deployment_name }}"
+    include_archived: true
+  agent_sessions:
+    cwd_filter:
+      - "{{ repo_root }}"
+    since: "{{ since }}"
+  compute_env:
+    cwd_filter:
+      - "{{ repo_root }}"
+  code_graph:
+    repo: "{{ deployment_name }}"
+    repo_root: "{{ repo_root }}"
+    codex_sessions_root: ~/.codex/sessions
+    codex_archived_sessions_root: ~/.codex/archived_sessions
+    codex_cwd_filter:
+      - "{{ repo_root }}"
+    since: "{{ since }}"
+
+viz:
+  port: 18770
+  use_presentation_presets: true
+  presentation:
+    explore: cluster
+    ontology: groups
+
+# Nomos privacy posture (issue #2694). Without it `okg ingest` refuses every
+# source before reading a file: the source audit needs a deployment posture and
+# a source policy for each source class this template uses (discovery_crawl for
+# the repository, session and evidence sources; reference_catalog for
+# compute-env-local). The shape and values follow the academic-researcher
+# starter: a local, no-export personal deployment that keeps source text
+# (store_raw: true).
+#
+# Runtime enforcement is `off`: a fresh install leaves Nomos runtime checks
+# off when the deployment declares no access rules (issue #3414, Jason
+# 2026-10-05 `nomosdefault A`). The posture and source policies below still
+# apply in every mode: `okg ingest` audits each source against them. Audit
+# and enforce are opt-in. `audit` records every runtime decision without
+# blocking; `enforce` refuses denied effects and needs a policy bundle, which
+# `okg up`, `okg provision`, `okg deployment nomos-rollout-audit
+# --apply-baseline` and `okg init`'s first publish seed in either mode.
+# Readiness for the ci, dogfood and production profiles requires `enforce`
+# (`nomos.runtime.mode_not_blocking`).
+nomos:
+  runtime_enforcement: "off"
+  deployment_posture:
+    deployment_class: personal_okg
+    read_principals: [human_operator, agent, okg_service, mcp_client]
+    write_principals: [human_operator, okg_service, source_adapter]
+    mcp_write_default: review
+    export_policy: no_export
+    secret_handling: secret_ref_required
+    live_call_default: review
+    allowed_source_sensitivities: [public, internal, local_private, private]
+    allowed_data_classifications: [public, internal, private]
+    allowed_exportability: [no_export]
+    privacy_obligations: [no_export, audit, review, secret_ref_required]
+    readiness_profiles: [personal]
+  source_policy_defaults:
+    by_source_class:
+      discovery_crawl:
+        store_raw: true
+        sensitivity: local_private
+        data_classification: private
+        credential_ref_policy: none
+        live_call_allowed: false
+        exportability: no_export
+        retention: source_defined
+        provenance: local_filesystem
+        privacy_obligations: [audit, no_export]
+      reference_catalog:
+        store_raw: true
+        sensitivity: local_private
+        data_classification: private
+        credential_ref_policy: none
+        live_call_allowed: false
+        exportability: no_export
+        retention: normal
+        provenance: declared
+        privacy_obligations: [audit, no_export]

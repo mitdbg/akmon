@@ -1,0 +1,600 @@
+id: https://palimpzest.mit.edu/okg/modules/quality_evidence
+name: quality_evidence
+title: "Quality Evidence — security, SBOM, profiling, and benchmarks"
+description: >-
+  Evidence nodes for scanner findings, dependency vulnerabilities, SBOMs,
+  profile runs, hotspots, benchmark measurements, and performance budgets.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  quality: https://palimpzest.mit.edu/okg/modules/quality_evidence/
+default_range: string
+imports:
+- linkml:types
+classes:
+
+  SecurityFinding:
+    description: One SAST, IaC, config, or general security scanner finding.
+    class_uri: quality:SecurityFinding
+    attributes:
+      finding_id:
+        required: true
+      repo:
+        required: true
+      tool:
+        required: true
+      rule_id:
+        required: true
+      severity:
+        required: true
+      confidence:
+        required: true
+      path:
+        required: true
+      start_line:
+        range: integer
+        required: true
+      end_line:
+        range: integer
+        required: true
+      status:
+        required: true
+      tool_version:
+      rule_version:
+      message:
+      cwe:
+      owasp:
+      help_uri:
+      fingerprint:
+      baseline_state:
+      suppression:
+      artifact:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: finding_id,rule_id,fingerprint
+      okg_searchable_text_fields: rule_id,severity,message,cwe,owasp,text
+
+  CodeQualityFinding:
+    description: One maintainability, reliability, or correctness finding from a code-quality analyzer.
+    class_uri: quality:CodeQualityFinding
+    attributes:
+      finding_id:
+        required: true
+      repo:
+        required: true
+      tool:
+        required: true
+      rule_id:
+        required: true
+      rule_name:
+      language:
+      category:
+        required: true
+      severity:
+        required: true
+      level:
+      status:
+        required: true
+      path:
+        required: true
+      start_line:
+        range: integer
+        required: true
+      end_line:
+        range: integer
+        required: true
+      start_column:
+        range: integer
+      end_column:
+        range: integer
+      message:
+      fingerprint:
+        required: true
+      baseline_state:
+      help_uri:
+      sha:
+      ref:
+      branch:
+      workflow_name:
+      workflow_run_id:
+      run_attempt:
+      source_sarif:
+      artifact:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: finding_id,rule_id,fingerprint
+      okg_searchable_text_fields: rule_id,rule_name,category,severity,path,message,text
+
+  SecretFinding:
+    description: One secret-scanner finding with redacted secret material.
+    class_uri: quality:SecretFinding
+    attributes:
+      finding_id:
+        required: true
+      repo:
+        required: true
+      tool:
+        required: true
+      rule_id:
+        required: true
+      path:
+        required: true
+      start_line:
+        range: integer
+        required: true
+      fingerprint:
+        required: true
+      status:
+        required: true
+      baseline_state:
+      suppression:
+      entropy:
+        range: float
+      redacted_context:
+      commit:
+      ref:
+      artifact:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: finding_id,rule_id,fingerprint
+      okg_searchable_text_fields: rule_id,path,redacted_context,text
+
+  DependencyVulnerability:
+    description: One package vulnerability finding from an advisory database or scanner.
+    class_uri: quality:DependencyVulnerability
+    attributes:
+      vuln_id:
+        required: true
+      package_name:
+        required: true
+      ecosystem:
+        required: true
+      installed_version:
+        required: true
+      severity:
+        required: true
+      source:
+        required: true
+      status:
+        required: true
+      fix_versions:
+      aliases:
+      cvss:
+      published_at:
+        range: datetime
+      modified_at:
+        range: datetime
+      package_id:
+      artifact:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: vuln_id,package_name,aliases
+      okg_searchable_text_fields: vuln_id,package_name,severity,aliases,text
+
+  SbomArtifact:
+    description: One SBOM or dependency inventory artifact.
+    class_uri: quality:SbomArtifact
+    attributes:
+      sbom_id:
+        required: true
+      repo:
+        required: true
+      path:
+        required: true
+      format:
+        required: true
+      generated_at:
+        range: datetime
+        required: true
+      tool:
+      tool_version:
+      component_count:
+      components:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: sbom_id,path
+      okg_searchable_text_fields: path,format,tool,text
+
+  ProfileRun:
+    description: One profiling capture.
+    class_uri: quality:ProfileRun
+    attributes:
+      profile_run_id:
+        required: true
+      deployment:
+        required: true
+      target_kind:
+        required: true
+      command:
+        required: true
+      started_at:
+        range: datetime
+        required: true
+      duration_ms:
+        range: integer
+        required: true
+      generation_id:
+        range: integer
+      policy:
+      collectors:
+      summary:
+      artifact:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: profile_run_id,command
+      okg_searchable_text_fields: command,target_kind,summary,text
+
+  ProfileStage:
+    description: One timed stage inside a profile run.
+    class_uri: quality:ProfileStage
+    attributes:
+      stage_id:
+        required: true
+      profile_run_id:
+        required: true
+      name:
+        required: true
+      duration_ms:
+        range: integer
+        required: true
+      parent:
+      artifact:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: stage_id,name
+      okg_searchable_text_fields: name,text
+
+  ProfileQuery:
+    description: One SQL/query timing inside a profile run.
+    class_uri: quality:ProfileQuery
+    attributes:
+      query_id:
+        required: true
+      profile_run_id:
+        required: true
+      fingerprint:
+        required: true
+      duration_ms:
+        range: integer
+        required: true
+      stage:
+      rowcount:
+        range: integer
+      sql_shape:
+      artifact:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: query_id,fingerprint
+      okg_searchable_text_fields: fingerprint,stage,sql_shape,text
+
+  ProfileHotspot:
+    description: One normalized expensive function, stage, query, or frame.
+    class_uri: quality:ProfileHotspot
+    attributes:
+      hotspot_id:
+        required: true
+      profile_run_id:
+        required: true
+      kind:
+        required: true
+      name:
+        required: true
+      duration_ms:
+        range: integer
+        required: true
+      rank:
+        range: integer
+        required: true
+      path:
+      line:
+        range: integer
+      symbol_hint:
+      asset_hint:
+      artifact:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: hotspot_id,name,symbol_hint
+      okg_searchable_text_fields: kind,name,symbol_hint,path,text
+
+  BenchmarkMeasurement:
+    description: One benchmark or performance test result.
+    class_uri: quality:BenchmarkMeasurement
+    attributes:
+      measurement_id:
+        required: true
+      repo:
+        required: true
+      scenario:
+        required: true
+      metric:
+        required: true
+      value:
+        range: float
+        required: true
+      unit:
+        required: true
+      status:
+        required: true
+      baseline_value:
+        range: float
+      threshold:
+        range: float
+      generation_id:
+        range: integer
+      profile_run_id:
+      artifact:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: measurement_id,scenario,metric
+      okg_searchable_text_fields: scenario,metric,status,text
+
+  PerformanceBudget:
+    description: A declared performance threshold from OpenSpec or deployment config.
+    class_uri: quality:PerformanceBudget
+    attributes:
+      budget_id:
+        required: true
+      repo:
+        required: true
+      scope:
+        required: true
+      metric:
+        required: true
+      threshold:
+        range: float
+        required: true
+      unit:
+        required: true
+      operator:
+      source:
+      criterion_id:
+      artifact_hash:
+      observed_at:
+        range: datetime
+      mtime:
+        range: datetime
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: budget_id,scope,metric
+      okg_searchable_text_fields: scope,metric,unit,text
+
+  EdgeNarrowings:
+    description: Cross-module narrowings for quality evidence.
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        measured_by: references
+        budgeted_by: references
+    attributes:
+      security_finding_affects_source_file:
+        annotations:
+          edge_archetype: affects
+          src_subtypes: SecurityFinding
+          dst_subtypes: SourceFile
+      security_finding_affects_code_symbol:
+        annotations:
+          edge_archetype: affects
+          src_subtypes: SecurityFinding
+          dst_subtypes: CodeSymbol
+      security_finding_affects_dependency_package:
+        annotations:
+          edge_archetype: affects
+          src_subtypes: SecurityFinding
+          dst_subtypes: DependencyPackage
+      code_quality_finding_affects_source_file:
+        annotations:
+          edge_archetype: affects
+          src_subtypes: CodeQualityFinding
+          dst_subtypes: SourceFile
+      code_quality_finding_affects_code_symbol:
+        annotations:
+          edge_archetype: affects
+          src_subtypes: CodeQualityFinding
+          dst_subtypes: CodeSymbol
+      code_quality_finding_affects_git_commit:
+        annotations:
+          edge_archetype: affects
+          src_subtypes: CodeQualityFinding
+          dst_subtypes: GitCommit
+      security_finding_references_package_manifest:
+        annotations:
+          edge_archetype: references
+          src_subtypes: SecurityFinding
+          dst_subtypes: PackageManifest
+      security_finding_references_data_asset:
+        annotations:
+          edge_archetype: references
+          src_subtypes: SecurityFinding
+          dst_subtypes: DataAsset
+      security_finding_references_acceptance_criterion:
+        annotations:
+          edge_archetype: references
+          src_subtypes: SecurityFinding
+          dst_subtypes: AcceptanceCriterion
+      security_finding_references_agent_session:
+        annotations:
+          edge_archetype: references
+          src_subtypes: SecurityFinding
+          dst_subtypes: AgentSession
+      security_finding_references_tool_use_event:
+        annotations:
+          edge_archetype: references
+          src_subtypes: SecurityFinding
+          dst_subtypes: ToolUseEvent
+      secret_finding_affects_source_file:
+        annotations:
+          edge_archetype: affects
+          src_subtypes: SecretFinding
+          dst_subtypes: SourceFile
+      secret_finding_references_config_key:
+        annotations:
+          edge_archetype: references
+          src_subtypes: SecretFinding
+          dst_subtypes: ConfigKey
+      secret_finding_references_data_asset:
+        annotations:
+          edge_archetype: references
+          src_subtypes: SecretFinding
+          dst_subtypes: DataAsset
+      dependency_vulnerability_affects_dependency_package:
+        annotations:
+          edge_archetype: affects
+          src_subtypes: DependencyVulnerability
+          dst_subtypes: DependencyPackage
+      dependency_vulnerability_references_package_manifest:
+        annotations:
+          edge_archetype: references
+          src_subtypes: DependencyVulnerability
+          dst_subtypes: PackageManifest
+      dependency_vulnerability_references_code_symbol:
+        annotations:
+          edge_archetype: references
+          src_subtypes: DependencyVulnerability
+          dst_subtypes: CodeSymbol
+      sbom_artifact_references_package_manifest:
+        annotations:
+          edge_archetype: references
+          src_subtypes: SbomArtifact
+          dst_subtypes: PackageManifest
+      sbom_artifact_references_dependency_package:
+        annotations:
+          edge_archetype: references
+          src_subtypes: SbomArtifact
+          dst_subtypes: DependencyPackage
+      profile_run_contains_profile_stage:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: ProfileRun
+          dst_subtypes: ProfileStage
+      profile_run_contains_profile_query:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: ProfileRun
+          dst_subtypes: ProfileQuery
+      profile_run_contains_profile_hotspot:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: ProfileRun
+          dst_subtypes: ProfileHotspot
+      profile_hotspot_affects_code_symbol:
+        annotations:
+          edge_archetype: affects
+          src_subtypes: ProfileHotspot
+          dst_subtypes: CodeSymbol
+      profile_hotspot_references_interface_endpoint:
+        annotations:
+          edge_archetype: references
+          src_subtypes: ProfileHotspot
+          dst_subtypes: InterfaceEndpoint
+      profile_hotspot_references_data_asset:
+        annotations:
+          edge_archetype: references
+          src_subtypes: ProfileHotspot
+          dst_subtypes: DataAsset
+      benchmark_measurement_references_profile_run:
+        annotations:
+          edge_archetype: references
+          src_subtypes: BenchmarkMeasurement
+          dst_subtypes: ProfileRun
+      benchmark_measurement_references_performance_budget:
+        annotations:
+          edge_archetype: references
+          src_subtypes: BenchmarkMeasurement
+          dst_subtypes: PerformanceBudget
+      benchmark_measurement_measured_by_test_case:
+        annotations:
+          edge_archetype: measured_by
+          src_subtypes: BenchmarkMeasurement
+          dst_subtypes: TestCase
+      benchmark_measurement_measured_by_test_report:
+        annotations:
+          edge_archetype: measured_by
+          src_subtypes: BenchmarkMeasurement
+          dst_subtypes: TestReport
+      benchmark_measurement_references_acceptance_criterion:
+        annotations:
+          edge_archetype: references
+          src_subtypes: BenchmarkMeasurement
+          dst_subtypes: AcceptanceCriterion
+      performance_budget_budgeted_by_acceptance_criterion:
+        annotations:
+          edge_archetype: budgeted_by
+          src_subtypes: PerformanceBudget
+          dst_subtypes: AcceptanceCriterion
+      performance_budget_references_interface_endpoint:
+        annotations:
+          edge_archetype: references
+          src_subtypes: PerformanceBudget
+          dst_subtypes: InterfaceEndpoint

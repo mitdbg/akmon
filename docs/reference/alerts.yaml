@@ -1,0 +1,203 @@
+# OKG substrate alert thresholds.
+#
+# Each condition is a predicate over a named deployment signal. The current
+# CLI snapshot shapes are defined in docs/reference/observability.md#metrics-snapshot.
+# No alert depends on an English-only condition.
+#
+# Every alert has a current runbook. Unsupported signals are not listed.
+#
+# Thresholds are starting defaults sized to the workload envelope below.
+# Deployments tune them from measured traffic and recovery objectives.
+
+version: 1
+
+# Workload envelope used to explain the default thresholds.
+envelope:
+  concurrent_agent_sessions: "10-200"
+  session_length:            "30s-10m"
+  typed_tool_read_qps:       "10-500"
+  fact_append_rate:          "10-1000 /s"
+  publish_cadence:           "seconds-to-minutes"
+  live_nodes:                "1e5-1e7"
+  live_edges:                "1e6-1e8"
+
+alerts:
+
+  # ---------- publishing health ----------
+
+  - name: projection_lag_high
+    metric: projection_lag_seconds
+    condition: "> 120"
+    for: "5m"
+    severity: page
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/publisher-lock.md
+    # envelope: publish_cadence seconds-to-minutes; 120s is ~= 4x
+    # the seconds-cadence p99 target from performance budgets.
+    description: |
+      The pending generation is more than 120 s behind wall clock.
+      Usually a stuck publisher, slow source preparation, or a stalled
+      source. Go to the runbook; diagnose lock holder first.
+
+  - name: projection_lag_extreme
+    metric: projection_lag_seconds
+    condition: "> 600"
+    for: "1m"
+    severity: page
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/publisher-lock.md
+    # envelope: 10+ minutes of lag is ~= the max session length; a
+    # session pinned at this lag will see severely stale reads.
+    description: |
+      10+ minutes of lag. Escalate immediately; the read surface
+      is increasingly stale relative to live sessions.
+
+  # publish_cadence_regressed is intentionally dropped: it is a
+  # symptom of projection_lag_high at a weaker threshold, so it
+  # was firing as a near-duplicate. Rely on projection_lag_high +
+  # projection_lag_extreme.
+
+  # ---------- queue health ----------
+
+  - name: queue_depth_link_climbing
+    metric: queue_depth{job_kind="link"}
+    condition: "> 5000"
+    for: "10m"
+    severity: warn
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/runtime-queue.md
+    # envelope: fact_append_rate 10-1000/s; if the ratio of
+    # appends to projections climbs, link backlog grows. 5000 is
+    # ~1 hour of work at 1.5 jobs/s of worker capacity.
+    description: |
+      Link jobs accumulating faster than workers consume them.
+      Scale worker concurrency or investigate extractor latency.
+
+  - name: queue_depth_link_extreme
+    metric: queue_depth{job_kind="link"}
+    condition: "> 50000"
+    for: "5m"
+    severity: page
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/runtime-queue.md
+
+  - name: queue_depth_ingest_climbing
+    metric: queue_depth{job_kind="ingest"}
+    condition: "> 500"
+    for: "10m"
+    severity: warn
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/runtime-queue.md
+    # envelope: ingest jobs are one-per-cron-tick per source, so
+    # 500 backed up implies many missed ticks or a slow adapter.
+
+  - name: queue_depth_publish_any
+    metric: queue_depth{job_kind="publish"}
+    condition: "> 5"
+    for: "3m"
+    severity: page
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/publisher-lock.md
+    # envelope: publish kickoff is 30s-cadence; more than 5 backed
+    # up means 2.5+ minutes of missed publishes.
+    description: |
+      Multiple publish jobs backed up. The publisher lock is
+      probably held; readers are staring at an increasingly
+      stale generation.
+
+  # ---------- dead-letter health ----------
+
+  - name: dlq_growth_rate
+    metric: 'rate(dlq_count[5m])'
+    condition: "> 1.0"
+    for: "5m"
+    severity: warn
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/runtime-queue.md
+    # envelope: sustained > 1 dead-letter per second. Normal
+    # steady-state is near-zero for healthy sources.
+    description: |
+      More than 1 dead-letter per second sustained. Usually a
+      specific source is poisoned; drop into the poisoning
+      runbook.
+
+  - name: dlq_growth_rate_extreme
+    metric: 'rate(dlq_count[5m])'
+    condition: "> 10.0"
+    for: "2m"
+    severity: page
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/source-poisoning.md
+
+  # ---------- gate / invariant health ----------
+
+  - name: blocked_generation_streak_short
+    metric: blocked_generation_streak
+    condition: ">= 3"
+    for: "0s"
+    severity: warn
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/generation-blocked.md
+    description: |
+      Three consecutive publish attempts blocked on the same
+      invariant. Either the upstream regressed or the invariant
+      is too strict. The runbook distinguishes.
+
+  - name: blocked_generation_streak_long
+    metric: blocked_generation_streak
+    condition: ">= 10"
+    for: "0s"
+    severity: page
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/generation-blocked.md
+    description: |
+      10+ consecutive blocked generations. The read surface is
+      stuck on an increasingly old generation. Act.
+
+  - name: gate_timeout_rate
+    metric: 'rate(gate_timeout_total[15m])'
+    condition: "> 0.1"
+    for: "15m"
+    severity: warn
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/generation-blocked.md
+    # envelope: per-invariant timeout default is 5s; hitting it
+    # more than 6 times/hour indicates a slow invariant body or
+    # an oversized pending projection.
+    description: |
+      Publication checks timing out more than 6/hour. Either the
+      invariant SQL is too slow or the pending projection is
+      too large for the gate budget.
+
+  # ---------- catalog health ----------
+
+  - name: catalog_migration_stuck
+    metric: pending_catalog_version_age_seconds
+    condition: "> 300"
+    for: "1m"
+    severity: page
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/ontology-rollback.md
+    description: |
+      A catalog_versions row has been `pending` for > 5 min.
+      Either a reconcile crashed or is legitimately slow on a
+      large table. Go to the runbook.
+
+  # ---------- extension / infra health ----------
+
+  - name: extension_version_drift
+    metric: extension_version_mismatch
+    condition: "== 1"
+    for: "0s"
+    severity: page
+    owner: substrate-oncall
+    runbook: docs/runbooks/troubleshooting/publisher-lock.md
+    # Extension drift prevents safe publication, so this uses the publisher
+    # diagnosis path.
+    description: |
+      An extension's installed version no longer matches the
+      version `okg migrate` pinned. Rolling Postgres upgrades
+      can trigger this. Cross-check compatibility before any
+      writes.
+
+# Do not add an alert until both its signal and response runbook exist.

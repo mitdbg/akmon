@@ -1,0 +1,18 @@
+{
+  "nodes": [
+    {"node_id": "jira:PROJ-1", "subtype": "ticket",
+     "attrs": {"summary": "example bug", "text": "example bug summary"}},
+    {"node_id": "jira:PROJ-2", "subtype": "ticket",
+     "attrs": {"summary": "followup work", "text": "followup work description"}},
+    {"node_id": "person:alice", "subtype": "person",
+     "ownership_mode": "substitute",
+     "attrs": {"name": "alice"}},
+    {"node_id": "person:bob", "subtype": "person",
+     "ownership_mode": "substitute",
+     "attrs": {"name": "bob"}}
+  ],
+  "edges": [
+    {"src": "jira:PROJ-1", "dst": "person:alice", "edge_type": "reported_by"},
+    {"src": "jira:PROJ-2", "dst": "person:bob", "edge_type": "reported_by"}
+  ]
+}

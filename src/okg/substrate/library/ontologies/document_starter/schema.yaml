@@ -1,0 +1,80 @@
+id: https://palimpzest.mit.edu/okg/modules/document_starter
+name: document_starter
+title: "Document (starter) — generic docs, sections, links"
+description: |-
+  Starter ontology for authored content (pages, READMEs,
+  knowledge-base articles) with section + outbound-link
+  structure. Distinct from `extraction.Document` (which is
+  the production document subtype emitted by the doc-corpus
+  source). Subtypes here are intentionally bare for
+  templates that only need a small docs ontology. Promoted
+  from the legacy `okg.ontology.document` fragment (per
+  `unify-ontology-systems`, 2026-04-26).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  docs: https://palimpzest.mit.edu/okg/modules/document_starter/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Document:
+    description: A discrete piece of authored content (page, doc, README).
+    class_uri: docs:Document
+    attributes:
+      document_id:
+        required: true
+      title:
+      body:
+    annotations:
+      archetype: artifact
+      okg_searchable_text_fields: title,body
+      transient: 'false'
+  Section:
+    description: A heading-bounded region of a document.
+    class_uri: docs:Section
+    attributes:
+      section_id:
+        required: true
+      heading:
+      body:
+    annotations:
+      okg_title_from: heading
+      archetype: artifact
+      okg_searchable_text_fields: heading,body
+      transient: 'false'
+  Link:
+    description: An outbound URL mention extracted from a document.
+    class_uri: docs:Link
+    attributes:
+      link_id:
+        required: true
+      url:
+    annotations:
+      archetype: observation
+      transient: 'false'
+  EdgeNarrowings:
+    description: Intra-module narrowings for document_starter.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      document_contains_section:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Document
+          dst_subtypes: Section
+      document_links_to_document:
+        annotations:
+          edge_archetype: links_to
+          src_subtypes: Document
+          dst_subtypes: Document
+      document_mentions_link:
+        annotations:
+          edge_archetype: mentions
+          src_subtypes: Document
+          dst_subtypes: Link
+      section_references_document:
+        annotations:
+          edge_archetype: references
+          src_subtypes: Section
+          dst_subtypes: Document

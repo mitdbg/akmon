@@ -1,0 +1,65 @@
+# Local dev OpenSearch for the reference integration.
+#
+# Per the convention stated in ops/pg/docker-compose.yaml, each deployment
+# stands up its own container under deployments/<name>/.
+#
+# Usage: don't run this directly. `deployments/opensearch-reference/up.sh`
+# brings it up, waits for health, seeds it, and publishes the graph.
+#
+# Stop:  docker compose -f this file down
+# Reset: docker compose -f this file down -v   (drops the volume)
+#
+# Named so Compose never treats another app's project called `opensearch`
+# (this folder's name) as this one; up.sh --down runs `down -v` (issue #3639).
+# A stack started before this ran in project `opensearch`; stop it once with
+# `docker compose -p opensearch -f this file down -v` (up.sh reseeds anyway).
+name: okg-opensearch-reference
+
+services:
+  opensearch:
+    # PINNED BY DIGEST, not by tag. A tag would let the reference drift
+    # under a future reader, and the committed test fixtures were captured
+    # from exactly this image. 2.19.1, resolved 2026-09-20.
+    image: opensearchproject/opensearch:2.19.1@sha256:72fe2fc84be8295906b8efca020b46c58ed45c8da60cd9b8b49e1991e38e89a4
+    container_name: okg-opensearch-reference
+    environment:
+      discovery.type: single-node
+      cluster.name: okg-reference
+      node.name: okg-reference-node
+      # A local, unauthenticated dev container: there is no credential in
+      # this repository and none is needed. DISABLE_SECURITY_PLUGIN alone
+      # still runs the demo-certificate installer at boot, which costs
+      # seconds and writes a config nobody uses, so both are set.
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      # Small heap inside a container with headroom around it. The JVM
+      # needs metaspace, direct buffers, and room for the OS on top of the
+      # heap; 512 MiB of heap in a 1 GiB container OOMs on boot.
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      bootstrap.memory_lock: "false"
+    ulimits:
+      memlock: {soft: -1, hard: -1}
+      nofile: {soft: 65536, hard: 65536}
+    # The stated cap. This laptop's Docker is shared with other sessions:
+    # the container is single-node, capped here, loopback-only, and stopped
+    # as soon as a proof finishes.
+    mem_limit: 2g
+    ports:
+      # 9209, not 9200, so a developer's own OpenSearch is not shadowed.
+      # Literal 127.0.0.1 rather than a parameterized host, for the same
+      # reason ops/pg pins it: the binding must not be overridable to
+      # 0.0.0.0 by an environment variable.
+      - "127.0.0.1:9209:9200"
+    volumes:
+      - okg_opensearch_reference_data:/usr/share/opensearch/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"
+      interval: 5s
+      timeout: 10s
+      retries: 40
+      start_period: 20s
+
+volumes:
+  okg_opensearch_reference_data:

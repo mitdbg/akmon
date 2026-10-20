@@ -1,0 +1,20 @@
+# Cross-link rule: experimental → concepts.
+#
+# Per `extend-substrate-concepts-as-universal-hub`: an Experiment
+# whose record declares `concerns: <name>` gets a `concerns`
+# edge into the named Concept. Resolution is exact match against
+# `Concept.name`.
+#
+# Declared, not inferred (umbrella D5).
+
+rules:
+  - id: experiment_concerns_concept
+    src:
+      subtype: experiment
+      field: concerns
+    dst:
+      subtype: concept
+      field: name
+    matcher: exact
+    edge: concerns
+    bidirectional: false

@@ -1,0 +1,164 @@
+metadata:
+  provenance: Redacted patterns observed across local Codex and Claude Code sessions on 2026-08-22.
+  privacy: No transcript text, session identifier, user path, credential, or private repository content is stored here.
+  method: Examples preserve recurring report shapes, not the wording of any one conversation.
+
+examples:
+  - id: status.good
+    kind: status
+    quality: good
+    text: |-
+      The settings cleanup is complete. Claude now loads no custom chat hooks, and both writing guides pass validation.
+
+      Proof: the settings parser and both skill validators passed.
+    measurement: "Measured: active custom chat hooks fell from six to zero."
+    observed_facts:
+      - Six hook files were removed from the active directory.
+      - The settings parser passed.
+    hypotheses: []
+    problems: []
+  - id: status.bad
+    kind: status
+    quality: bad
+    text: The agent-OS remediation lane is progressing through its post-edit convergence phase with graph-readiness context remaining partial.
+    measurement: "Not measured: no count or comparison was reported."
+    observed_facts:
+      - Work was still in progress.
+    hypotheses:
+      - The writer may have assumed that internal workflow names helped the reader.
+    problems: [jargon_first, machine_state_first, padded]
+
+  - id: blocker.good
+    kind: blocker
+    quality: good
+    text: |-
+      Three old credential files remain. I did not delete them because I cannot prove the credentials were revoked.
+
+      Next: revoke or rotate the credentials, then remove the files.
+    measurement: "Measured: three files remain."
+    observed_facts:
+      - Three credential files remain on disk.
+      - Revocation could not be verified locally.
+    hypotheses: []
+    problems: []
+  - id: blocker.bad
+    kind: blocker
+    quality: bad
+    text: It appears that closure may potentially be blocked by an unresolved authority condition in the credential lifecycle surface.
+    measurement: "Not measured: the affected files and failed check were not named."
+    observed_facts:
+      - A credential question was unresolved.
+    hypotheses:
+      - Revocation may not have occurred.
+    problems: [passive_voice, padded, undefined_term]
+
+  - id: decision.good
+    kind: decision
+    quality: good
+    text: Keep explicit PACT, Git, test, and CI checks. Remove hidden chat hooks because they duplicate those visible checks and make failures harder to explain.
+    measurement: "Not measured: this is a design decision, not a performance claim."
+    observed_facts:
+      - The repository already has explicit PACT, Git, test, and CI checks.
+    hypotheses:
+      - Removing duplicate chat hooks should make failures easier to understand.
+    problems: []
+  - id: decision.bad
+    kind: decision
+    quality: bad
+    text: We will preserve the deterministic enforcement substrate while deleting the conversational interception tier in order to optimize operator legibility.
+    measurement: "Not measured: the expected behavior change was not stated concretely."
+    observed_facts:
+      - Some checks will stay and some hooks will be removed.
+    hypotheses:
+      - The change may improve reports.
+    problems: [jargon_first, padded, undefined_term]
+
+  - id: handoff.good
+    kind: handoff
+    quality: good
+    text: |-
+      The instruction rewrite is unfinished. The branch has edits in the reporting runbook and its tests; the focused test has not run.
+
+      Resume with: `uv run --extra dev pytest tests/docs/test_human_writing_contract.py -q`.
+    measurement: "Measured: one named check remains unrun."
+    observed_facts:
+      - The named files have uncommitted edits.
+      - The focused test has not run.
+    hypotheses: []
+    problems: []
+  - id: handoff.bad
+    kind: handoff
+    quality: bad
+    text: report_kind=handoff; current_mode=context-limit; confidence=medium; coordination state refs and proof packets are available in the usual locations.
+    measurement: "Not measured: the remaining work and first recovery command were omitted."
+    observed_facts:
+      - Work stopped before completion.
+    hypotheses:
+      - A later agent may be able to find the missing state.
+    problems: [machine_state_first, jargon_first, undefined_term]
+
+  - id: review.good
+    kind: review
+    quality: good
+    text: "One problem remains: the tracked server file contains a private-key path. Remove the path and make the server read machine-specific settings from ignored local configuration."
+    measurement: "Measured: one unsafe tracked path remains."
+    observed_facts:
+      - A tracked configuration file contains a private-key path.
+    hypotheses: []
+    problems: []
+  - id: review.bad
+    kind: review
+    quality: bad
+    text: The implementation is robust and production-ready, with only a minor portability nit in the MCP authority plane.
+    measurement: "Not measured: readiness and severity were asserted without proof."
+    observed_facts:
+      - A portability problem was found.
+    hypotheses:
+      - The rest of the change may be ready.
+    problems: [unsupported_claim, undefined_term, padded]
+
+  - id: closeout.good
+    kind: closeout
+    quality: good
+    text: |-
+      Agents now report the result first and keep internal state in a short proof line or recovery note.
+
+      Before → after: routine reports required fifteen fields; they now require two core statements and only the details needed for the situation.
+
+      Proof: 18 focused tests passed. No known work remains.
+    measurement: "Measured: required routine fields fell from fifteen to two."
+    observed_facts:
+      - The focused test suite passed 18 tests.
+      - The routine report contract has two required statements.
+    hypotheses: []
+    problems: []
+  - id: closeout.bad
+    kind: closeout
+    quality: bad
+    text: I first audited the surfaces, then iterated on the contract, and finally achieved a comprehensive end-to-end agent workflow modernization across the relevant artifacts.
+    measurement: "Not measured: no before-to-after behavior or test result was given."
+    observed_facts:
+      - Several workflow files changed.
+    hypotheses:
+      - The writer believes the work is complete.
+    problems: [work_history, padded, unsupported_claim]
+
+  - id: child_rollup.good
+    kind: child_rollup
+    quality: good
+    text: The scout found one remaining private-key path, which I confirmed in the tracked server file. No other scout finding changed the plan.
+    measurement: "Measured: one finding changed the final edit."
+    observed_facts:
+      - The parent confirmed the private-key path in a tracked file.
+    hypotheses: []
+    problems: []
+  - id: child_rollup.bad
+    kind: child_rollup
+    quality: bad
+    text: "Subagent rollup: explorer-config completed at high confidence; explorer-transcripts timed out with medium confidence impact; worker-docs returned three findings and two touched files."
+    measurement: "Not measured: the human consequence of the findings was omitted."
+    observed_facts:
+      - One child finished and one timed out.
+    hypotheses:
+      - The missing child result may matter.
+    problems: [machine_state_first, jargon_first, undefined_term]

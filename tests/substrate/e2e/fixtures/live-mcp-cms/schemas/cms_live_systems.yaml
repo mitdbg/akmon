@@ -1,0 +1,113 @@
+# Two deployment-private system subtypes and the live relations each may be
+# asked (PACT live-relation-mcp-adapter, req.mcp.real-upstream).
+#
+# A TEST FIXTURE. The CMS wiring that ships -- the Rucio and DBS system
+# nodes, their relations and the policy bundle -- is a separate change in the
+# deployments repository and is not claimed here. These two classes exist so
+# the `kind: mcp` adapter can be proved against the two MCP servers an
+# operator already runs (by hand) and against the fake server (in CI).
+#
+# Both classes are new to the catalog, so the composer copies them in whole;
+# `archetype` is what makes a class a subtype at all.
+#
+# `retention_class: hot` on both: the answers are read with one person's
+# credential (see `upstream_credential` in deployment.yaml), and the sample is
+# kept for seven days to prove the call happened, not to build a history of
+# what the catalog held.
+id: https://palimpzest.mit.edu/okg/deployments/live_mcp_cms
+name: live_mcp_cms_systems
+title: "Two catalog systems and what each may be asked"
+description: |-
+  A dataset catalog (DBS) and a replica catalog (Rucio), each with live
+  relations served by the built-in `mcp` adapter.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+default_range: string
+imports:
+- linkml:types
+classes:
+  DbsInstance:
+    description: >-
+      One DBS dataset catalog instance. The graph keeps that it exists; the
+      datasets it lists are read live.
+    annotations:
+      archetype: resource
+      transient: 'false'
+      okg_searchable_text_fields: instance_name
+      okg_live_relations:
+        datasets:
+          action: external.cms.dbs.read
+          principal_mode: service
+          sample_policy: inline
+          retention_class: hot
+          # The longest deadline a relation may declare. A wide dataset
+          # query is assembled on the server before its first byte arrives;
+          # the byte cap, not the clock, is what bounds the answer.
+          deadline_seconds: 120
+          args:
+            # DBS accepts `*` as a wildcard in a primary dataset name.
+            primary_ds_name:
+              type: string
+              required: true
+              maxLength: 99
+              pattern: '^[A-Za-z0-9_*-]{1,99}$'
+            detail:
+              type: boolean
+              default: false
+        # The narrow question: datasets matching a full dataset path, `*`
+        # allowed in each part, listed WITHOUT detail (the binding fixes
+        # detail=false). An exact path is one dataset. Same tool, a
+        # different relation, so a caller cannot widen it into the detailed
+        # search above.
+        dataset:
+          action: external.cms.dbs.read
+          principal_mode: service
+          sample_policy: inline
+          retention_class: hot
+          deadline_seconds: 60
+          args:
+            dataset:
+              type: string
+              required: true
+              maxLength: 350
+              pattern: '^/[A-Za-z0-9_.*-]{1,99}/[A-Za-z0-9_.*-]{1,199}/[A-Z0-9*-]{1,49}$'
+    attributes:
+      instance_name:
+        range: string
+  RucioInstance:
+    description: >-
+      One Rucio replica catalog instance. Its storage elements (RSEs) are
+      read live, filtered by an RSE expression. The storage-type attribute is
+      `rse_type` (rse_type=DISK, rse_type=TAPE), never `type`; atoms combine
+      with `&`, `|` and parentheses, as in `tier=1&rse_type=DISK`.
+    annotations:
+      archetype: resource
+      transient: 'false'
+      okg_searchable_text_fields: instance_name
+      okg_live_relations:
+        rses:
+          action: external.cms.rucio.read
+          principal_mode: service
+          sample_policy: inline
+          retention_class: hot
+          deadline_seconds: 60
+          args:
+            # Rucio's RSE expression grammar: attribute atoms combined with
+            # `&`, `|` and parentheses, such as `tier=1`, `country=US` or
+            # `rse_type=DISK` / `rse_type=TAPE`. The storage-type attribute
+            # is `rse_type`, NEVER `type`: in the C4 eval a `type=` atom was
+            # the commonest cause of an invalid-RSE-expression error.
+            rse_expression:
+              type: string
+              required: true
+              maxLength: 128
+              pattern: '^[A-Za-z0-9_=&|()-]{1,128}$'
+            limit:
+              type: integer
+              default: 50
+              minimum: 1
+              maximum: 500
+    attributes:
+      instance_name:
+        range: string

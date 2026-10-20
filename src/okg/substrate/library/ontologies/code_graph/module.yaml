@@ -1,0 +1,13 @@
+name: code_graph
+version: 1.0.0
+description: 'Deterministic code structure: imports, references, symbols,
+  manifests, dependency packages, data flow.'
+provides:
+  subtypes_file: schema.yaml
+extends:
+  concepts:
+    description: CodeSymbols can declare `@implements_concept:` tags in their
+      docstrings; the resolver materializes an `implements_concept` edge into
+      the named Concept node.
+    cross_link_rules:
+    - cross_links/code_symbol_implements_concept.yaml

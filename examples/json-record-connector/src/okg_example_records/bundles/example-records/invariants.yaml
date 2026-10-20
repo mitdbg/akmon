@@ -1,0 +1,8 @@
+invariants:
+  - name: example_record_requires_text
+    severity: error
+    scope: cross
+    sql: >-
+      SELECT node_id FROM okg.graph_nodes
+      WHERE subtype = 'example_record'
+        AND coalesce(attrs->>'text', '') = ''

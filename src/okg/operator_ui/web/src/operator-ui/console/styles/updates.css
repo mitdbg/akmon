@@ -1,0 +1,409 @@
+/* --- Updates ---------------------------------------------------------- */
+
+/* The same shell as Home: one 960 px column, one left edge, hairlines, no
+ * boxes. What is new is a table, and the table's job is that six attempts and
+ * six hundred read the same way -- fixed columns, one row per attempt, the
+ * newest first.
+ */
+
+/* Beside the h1, not under it: the note is the scope of the page, and a line
+ * of its own would make it look like news. Updates no longer sets one -- its
+ * count was the chip strip's and its "newest" was row one's -- but Sources
+ * and Explore do, and the rule is declared here with the rest of the shell. */
+.okg-console__header-note {
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__none { margin-top: 24px; }
+
+.okg-console__filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 24px 0 16px;
+}
+
+/* A count that is also a switch. A real button, so Tab reaches it; at rest it
+ * must read as one of Home's counts and not as a blue pill. */
+.okg-console .okg-console__chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 0;
+  padding: 3px 10px;
+  border: 1px solid var(--okg-color-line);
+  border-radius: var(--okg-radius-pill);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--okg-color-text);
+  cursor: pointer;
+}
+
+.okg-console .okg-console__chip:hover {
+  background: var(--okg-color-surface-muted);
+  color: var(--okg-color-text);
+}
+
+.okg-console .okg-console__chip:focus-visible {
+  outline: 2px solid var(--okg-color-link);
+  outline-offset: 1px;
+}
+
+/* Checked is a border and a fill, with the word still there: rule 2 holds for
+ * a filter as much as for a status. */
+.okg-console .okg-console__chip[data-checked="true"] {
+  background: var(--okg-color-surface-muted);
+  border-color: var(--okg-color-text);
+  color: var(--okg-color-text);
+}
+
+.okg-console .okg-console__chipfilter[data-severity="ok"] .okg-console__icon {
+  color: var(--okg-color-ok);
+}
+
+.okg-console .okg-console__chipfilter[data-severity="blocked"] .okg-console__icon {
+  color: var(--okg-color-bad);
+}
+
+.okg-console .okg-console__chipfilter[data-severity="running"] .okg-console__icon {
+  color: var(--okg-color-info);
+}
+
+/* "all on cmssw_releases" after the blocked count: the repeat offender,
+ * without opening a row. */
+.okg-console__count-note { color: var(--okg-color-muted); }
+
+/* A filter that came in on the URL rather than from a chip -- a producer or a
+ * version -- with the way back out of it. */
+.okg-console__chipclear {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--okg-color-line);
+  border-radius: var(--okg-radius-pill);
+  font-size: 13px;
+}
+
+.okg-console__tablecount {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+/* --- the attempts table ----------------------------------------------- */
+
+.okg-console__utable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.okg-console__utable th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--okg-color-muted);
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--okg-color-line);
+}
+
+.okg-console__utable td {
+  padding: 0 12px 0 0;
+  height: 44px;
+  border-bottom: 1px solid var(--okg-color-line-soft);
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Fixed columns, selected by data-column rather than by position.
+ *
+ * These were nth-child selectors over a six-column table. The Duration column
+ * was cut and every selector after it shifted onto the wrong cell: the
+ * chevron took Duration's 76 px right-aligned rule and the last selector
+ * matched nothing at all. Positional selectors make a column a stylesheet
+ * dependency; these do not.
+ *
+ * Widths are held by measurement, not by comment: When 128 holds "4 d ago to
+ * 2 h ago", Version 188 a 12-hex id beside the "reading" tag, Change 262
+ * "+18,400 records \u00b7 +41,200 relationships", and Outcome takes what is
+ * left, which holds "Blocked on cmssw_releases" with the expander. */
+.okg-console__utable [data-column="when"] { width: 128px; }
+
+.okg-console__utable [data-column="version"] { width: 188px; }
+
+.okg-console__utable [data-column="change"] { width: 262px; }
+
+.okg-console__utable [data-column="open"] {
+  width: 14px;
+  padding-right: 0;
+  text-align: right;
+}
+
+/* The second-line Change, for narrow widths only. It is in the markup on
+ * every row so the narrow rule has something to show; at this width the
+ * Change column carries it instead. */
+.okg-console__urow-change-narrow { display: none; }
+
+.okg-console__urow-when,
+.okg-console__urow-change,
+.okg-console__urow-duration { color: var(--okg-color-muted); }
+
+/* The subject of the row: the outcome word, and what it stopped on. 15/500 is
+ * Home's row subject, and these two pages are one product. */
+.okg-console__urow-outcome .okg-console__status { font-size: 15px; font-weight: 500; }
+
+.okg-console__urow-stopped {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* The elapsed time and this deployment's normal, after the outcome word.
+ * Amber past three times the normal: it has not failed, it is late. */
+.okg-console__urow-pace { font-size: 13px; color: var(--okg-color-muted); }
+
+.okg-console__urow-pace[data-late="true"] {
+  color: var(--okg-color-warn-text);
+  font-weight: 500;
+}
+
+.okg-console__urow-open a {
+  font-size: 15px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__urow--member td { color: var(--okg-color-muted); }
+
+/* --- the newest blocked attempt, inline ------------------------------- */
+
+/* The attempt detail's own blocks, under the table, with a title that says
+ * which attempt this is and a link to its page. */
+.okg-console__inline {
+  margin-top: 40px;
+  padding-top: 40px;
+  border-top: 1px solid var(--okg-color-line-soft);
+}
+
+.okg-console__inline-head { margin-bottom: 12px; }
+
+.okg-console__inline-headline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.okg-console__inline .okg-console__section:first-of-type { margin-top: 8px; }
+
+/* --- the attempt detail ----------------------------------------------- */
+
+.okg-console__back {
+  margin: 20px 0 0;
+  font-size: 13px;
+}
+
+.okg-console__detail-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.okg-console__detail-title .okg-console__icon { font-size: 20px; top: 0; }
+
+.okg-console__readbutton {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 12px;
+  border: 1px solid var(--okg-color-line);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-surface);
+  color: var(--okg-color-link);
+  cursor: pointer;
+}
+
+.okg-console__readbutton:hover { background: var(--okg-color-surface-muted); }
+
+.okg-console__stages { list-style: none; margin: 0; padding: 0; }
+
+/* Stage name, status, then the one fact the attempt recorded about it. The
+ * stages are an ORDER, so they are rows in that order and nothing else. */
+.okg-console__stage {
+  display: grid;
+  grid-template-columns: 220px 130px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 0;
+  border-top: 1px solid var(--okg-color-line-soft);
+}
+
+.okg-console__stage:first-child { border-top: 0; }
+
+.okg-console__stage-name { font-size: 15px; font-weight: 500; }
+
+/* The producers inside a stage, on the one attempt the diagnostics reads
+ * describe. Indented under their stage, on the stage's own three columns. */
+.okg-console__stage-rows {
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0 0 0 16px;
+  border-left: 1px solid var(--okg-color-line-soft);
+}
+
+.okg-console__stage-row {
+  display: grid;
+  grid-template-columns: 204px 130px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+}
+
+.okg-console__stage-row .okg-console__status { font-size: 13px; }
+
+/* The Publish fact, where the five stage rows collapse to one line. */
+.okg-console__stage-publish {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__stage-publish code { font-family: var(--okg-font-mono); }
+
+.okg-console__stage-detail {
+  font-size: 13px;
+  color: var(--okg-color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.okg-console__stage[data-failed="true"] .okg-console__stage-detail {
+  font-family: var(--okg-font-mono);
+  color: var(--okg-color-text);
+}
+
+/* One sentence, then the recorded text. Rule 3. */
+.okg-console__cause {
+  margin: 0 0 12px;
+  font-size: 14px;
+  max-width: 78ch;
+}
+
+/* Every line, unedited. No clamp and no toggle: scale-200's forty lines are
+ * the proof the reference asks for, and a block that showed twelve of them
+ * would prove nothing in a capture. */
+.okg-console__verbatim {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-surface-muted);
+  font-family: var(--okg-font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The attempt page's count tables: one dimension's rows at this version
+ * against its parent's.
+ *
+ * Same hairline density as the attempts table above, three columns rather
+ * than five, and selected by data-column for the same reason: a column cut
+ * later must not shift a rule onto its neighbour. The delta column is right
+ * aligned and tabular so +903 and -1,818 line up on the digit rather than on
+ * the sign. */
+.okg-console__ctable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.okg-console__ctable th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--okg-color-muted);
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--okg-color-line);
+}
+
+.okg-console__ctable td {
+  padding: 0 12px 0 0;
+  height: 36px;
+  border-bottom: 1px solid var(--okg-color-line-soft);
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-console__ctable [data-column="count"],
+.okg-console__ctable [data-column="delta"] {
+  width: 168px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.okg-console__ctable td[data-column="delta"] { color: var(--okg-color-muted); }
+
+/* Drawn at every width, shown only where the delta column is cut.
+ * The mirror of `__urow-change-narrow` on the attempts list. */
+.okg-console__crow-delta-narrow { display: none; }
+
+/* The gate and producer rows on the attempt page.
+ *
+ * NOT the five-stage row layout: that gives its first column a fixed 204 px,
+ * and the live deployment's only producer is
+ * `transform.consistency.no_dangling+narrowing+cardinality+derived_node_liveness.v4`
+ * -- 78 characters, which slid straight under the status word and the kind
+ * tag. Here the name takes the column that is left over and wraps inside it;
+ * the status word keeps its own column; everything else drops to its own
+ * line. */
+.okg-console__rrows {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0 0 0 16px;
+  border-left: 1px solid var(--okg-color-line-soft);
+}
+
+.okg-console__rrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--okg-color-line-soft);
+}
+
+.okg-console__rrow:last-child { border-bottom: 0; }
+
+.okg-console__rrow-name {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.okg-console__rrow-detail {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__rrow .okg-console__status { font-size: 13px; }

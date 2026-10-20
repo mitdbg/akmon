@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://okg.invalid/schemas/external-action-contracts/v1",
+  "title": "Deployment-pinned external-action contracts",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "actions"],
+  "properties": {
+    "schema": {"const": "okg.external_action_contracts/v1"},
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/action"}
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action_type", "action_schema", "action_schema_digest", "executor_contract", "executor_contract_digest", "payload_renderer", "payload_renderer_digest", "governed_tool_binding_ref", "governed_tool_binding_digest", "provider_connection_ref", "provider_connection_contract_digest", "provider_capability_digest", "provider_operation_descriptor", "provider_operation_id", "provider_operation_descriptor_digest", "provider_replay_mode", "target_constraint", "minimum_risk_tier", "review_and_execution_limits", "diff_field_codes", "allowed_summary_codes", "transition_reason_codes", "outcome_reason_rules"],
+      "properties": {
+        "action_type": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255}$"},
+        "action_schema": {"type": "object"},
+        "action_schema_digest": {"$ref": "#/$defs/digest"},
+        "executor_contract": {
+          "type": "object", "additionalProperties": false,
+          "required": ["journal_protocol", "provider_replay_mode", "worker_protocol"],
+          "properties": {
+            "journal_protocol": {"const": "okg-external-action-worker-journal/v1"},
+            "provider_replay_mode": {"enum": ["none", "lookup_only", "idempotent_retry", "lookup_or_idempotent_retry"]},
+            "worker_protocol": {"const": "okg-external-action-worker/v1"}
+          }
+        },
+        "executor_contract_digest": {"$ref": "#/$defs/digest"},
+        "payload_renderer": {
+          "type": "object", "additionalProperties": false,
+          "required": ["version", "method", "operation", "target", "body"],
+          "properties": {
+            "version": {"const": 1},
+            "method": {"enum": ["POST", "PUT", "PATCH", "DELETE"]},
+            "operation": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+\\-]{0,127}$"},
+            "target": {"const": "target_ref"},
+            "body": {"const": "canonical_payload_bytes"}
+          }
+        },
+        "payload_renderer_digest": {"$ref": "#/$defs/digest"},
+        "governed_tool_binding_ref": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255}$"},
+        "governed_tool_binding_digest": {"$ref": "#/$defs/digest"},
+        "provider_connection_ref": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255}$"},
+        "provider_connection_contract_digest": {"$ref": "#/$defs/digest"},
+        "provider_capability_digest": {"$ref": "#/$defs/digest"},
+        "provider_operation_descriptor": {
+          "type": "object", "additionalProperties": false,
+          "required": ["operation_id", "effect_kind", "effect_phase", "required_capabilities", "request_media_type", "executor_contract_digest", "payload_renderer_digest", "provider_replay_mode"],
+          "properties": {
+            "operation_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+\\-]{0,127}$"},
+            "effect_kind": {"const": "write"},
+            "effect_phase": {"const": "execute"},
+            "required_capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+\\-]{0,127}$"}},
+            "request_media_type": {"const": "application/json"},
+            "executor_contract_digest": {"$ref": "#/$defs/digest"},
+            "payload_renderer_digest": {"$ref": "#/$defs/digest"},
+            "provider_replay_mode": {"enum": ["none", "lookup_only", "idempotent_retry", "lookup_or_idempotent_retry"]}
+          }
+        },
+        "provider_operation_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255}$"},
+        "provider_operation_descriptor_digest": {"$ref": "#/$defs/digest"},
+        "provider_replay_mode": {"enum": ["none", "lookup_only", "idempotent_retry", "lookup_or_idempotent_retry"]},
+        "minimum_risk_tier": {"enum": ["low", "moderate", "high", "critical"]},
+        "target_constraint": {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "prefix", "decimal_digits_minimum", "decimal_digits_maximum", "leading_zeroes", "full_match", "normalization", "input_encoding", "ascii_only"],
+          "properties": {
+            "kind": {"const": "ascii_prefix_decimal_v1"}, "prefix": {"type": "string", "maxLength": 256},
+            "decimal_digits_minimum": {"type": "integer", "minimum": 1, "maximum": 256}, "decimal_digits_maximum": {"type": "integer", "minimum": 1, "maximum": 256},
+            "leading_zeroes": {"enum": ["allowed", "forbidden"]}, "full_match": {"const": true}, "normalization": {"const": "none"}, "input_encoding": {"const": "UTF-8"}, "ascii_only": {"const": true}
+          }
+        },
+        "review_and_execution_limits": {
+          "type": "object", "additionalProperties": false,
+          "required": ["maximum_execution_window_seconds", "maximum_review_lifetime_seconds", "reporting_attention_seconds", "reconcile_not_before_seconds"],
+          "properties": {
+            "maximum_execution_window_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}, "maximum_review_lifetime_seconds": {"type": "integer", "minimum": 1, "maximum": 604800}, "reporting_attention_seconds": {"type": "integer", "minimum": 1, "maximum": 604800}, "reconcile_not_before_seconds": {"type": "integer", "minimum": 1, "maximum": 2592000}
+          }
+        },
+        "diff_field_codes": {"type": "array", "items": {"$ref": "#/$defs/code"}, "maxItems": 128, "uniqueItems": true},
+        "allowed_summary_codes": {"type": "array", "items": {"$ref": "#/$defs/code"}, "maxItems": 128, "uniqueItems": true},
+        "transition_reason_codes": {"type": "array", "items": {"$ref": "#/$defs/code"}, "maxItems": 128, "uniqueItems": true},
+        "outcome_reason_rules": {
+          "type": "object", "minProperties": 1, "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["allowed_outcomes", "provider_receipt"], "properties": {"allowed_outcomes": {"type": "array", "items": {"enum": ["succeeded", "failed", "indeterminate"]}, "minItems": 1, "uniqueItems": true}, "provider_receipt": {"enum": ["required", "forbidden"]}}}
+        }
+      }
+    }
+  }
+}

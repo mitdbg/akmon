@@ -1,0 +1,37 @@
+# Cross-link rule: conference_edition -> conference (member_of).
+#
+# A conference_edition node carries `attrs.conference_id`
+# pointing at its parent conference (e.g. `confed:aaai-2000`
+# -> `conf:aaai`). The substrate sources (`inspire_hep`,
+# `openreview`, `dblp`, `bib_references`) emit the inverse
+# `conference -contains-> conference_edition` edge at source
+# time; this rule materializes the corresponding
+# `conference_edition -member_of-> conference` edge for any
+# edition whose `conference_id` resolves to a live conference
+# node.
+#
+# Why a cross-link AND source emission: per dogfood-canary DQ
+# audit (2026-05-19), bib_references already emitted both
+# directions, but inspire/openreview/dblp emitted only
+# `contains`. Source-side fixes prevent regression; this rule
+# back-fills the 5,158 existing editions that lack the edge
+# and protects against any future source author who forgets
+# to emit both directions.
+#
+# Direction: edition is `member_of` conference (the conference
+# is the structural parent). Matches the substrate's
+# bookkeeping convention where `member_of` walks UP the
+# containment hierarchy (proposal_task member_of task_group,
+# OpenSpecChange member_of Project, ...).
+
+rules:
+  - id: conference_edition_member_of_conference
+    src:
+      subtype: conference_edition
+      field: conference_id
+    dst:
+      subtype: conference
+      field: conference_id
+    matcher: exact
+    edge: member_of
+    bidirectional: false

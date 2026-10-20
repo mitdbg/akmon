@@ -1,0 +1,22 @@
+{
+ "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T182337941502Z:1717a7fb0196",
+ "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T182339213705Z:13378811e226",
+ "deployment": "synthetic-corpus-smoke",
+ "extraction_cost": null,
+ "extraction_failed_documents": [],
+ "extractor": "deterministic_labels",
+ "ledger": [
+  {
+   "latency_ms": 1341.2368750141468,
+   "stage": "clean_publish"
+  },
+  {
+   "latency_ms": 996.7915829911362,
+   "stage": "corrupted_publish"
+  }
+ ],
+ "schema": "okg.synth.run-binding.v1",
+ "surviving_conflict_floor": 0,
+ "surviving_conflict_floor_passed": true,
+ "surviving_conflict_realized": 6
+}

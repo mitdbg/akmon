@@ -1,0 +1,286 @@
+id: https://palimpzest.mit.edu/okg/modules/search_systems
+name: search_systems
+title: "Search systems — clusters, indices, and who writes to them"
+description: |-
+  Search clusters and their indices. The graph models the system, never
+  its contents: an index node carries the name, the aliases, a bounded
+  field-mapping summary, the retention policy, and the current document
+  count, so an agent can pick the right index and then query that system
+  directly.
+
+  PACT `opensearch-reference-integration` (issue #2014).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  srch: https://palimpzest.mit.edu/okg/modules/search_systems/
+default_range: string
+imports:
+- linkml:types
+classes:
+  SearchCluster:
+    description: A search cluster, identified by its own cluster UUID.
+    class_uri: srch:SearchCluster
+    attributes:
+      search_cluster_id:
+        required: true
+      name:
+      label:
+      cluster_uuid:
+        description: The cluster's own UUID; the identity this node keys on.
+      version:
+      health:
+        description: >-
+          Current cluster health (green/yellow/red). Volatile: recorded on
+          every run, deliberately excluded from the content hash so a
+          health flap does not mint a new revision for every node.
+      node_count:
+        description: Current node count. Volatile, as health.
+        range: integer
+      index_count:
+        description: In-scope indices seen by the last run.
+        range: integer
+      excluded_index_count:
+        description: >-
+          Indices the cluster holds that the declared scope excluded.
+          Volatile: a plugin minting a dated index would otherwise churn
+          this node's revision. Present so a reader who counts three
+          index nodes against a larger cluster can see why.
+        range: integer
+      read_anomaly_count:
+        description: >-
+          How many rows or fields the last read declined to use:
+          malformed index rows, unparsable document counts, mapping
+          properties with no readable body, and field names cut at the
+          length cap. Volatile, so it mints no revision.
+        range: integer
+      read_anomalies:
+        description: >-
+          The breakdown of read_anomaly_count, including how many
+          truncated field names collided with another.
+      excluded_index_globs:
+        description: >-
+          The declared exclusion patterns. Part of the content hash:
+          narrowing or widening the scope changes what this node claims
+          to model.
+        multivalued: true
+      namespace:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      # Without this the cluster is in the graph but nobody can find it:
+      # a node reachable only by id is no use to an agent that starts
+      # from a name.
+      okg_searchable_text_fields: name,version
+      okg_searchable_text_path_fields: name
+  SearchIndex:
+    description: >-
+      One index in a search cluster, identified by its index UUID. The
+      UUID survives a rename and changes on a rollover or a recreate,
+      which the index name does not.
+    class_uri: srch:SearchIndex
+    attributes:
+      search_index_id:
+        required: true
+      name:
+      label:
+      index_uuid:
+        description: The index's own UUID; the identity this node keys on.
+      cluster:
+      aliases:
+        description: Alias names pointing at this index.
+        multivalued: true
+      field_count:
+        description: >-
+          The TRUE number of mapping fields, before the summary below was
+          truncated, so a reader can see what was left out.
+        range: integer
+      field_summary:
+        description: >-
+          Bounded field-mapping summary: at most 40 entries of
+          {name, type}, sorted by name, flattened to dotted paths at most
+          four levels deep, names cut at 128 characters, the whole list
+          capped at 8192 bytes.
+        multivalued: true
+      field_summary_truncated:
+        description: Whether the summary above dropped any field.
+        range: boolean
+      mapping_read:
+        description: >-
+          Whether this index's mapping was actually present in the
+          cluster's response. False means unknown, never "no fields": a
+          filtered 200 that omits an index would otherwise report
+          field_count 0 and mint a revision claiming the mapping changed.
+        range: boolean
+      retention:
+        description: >-
+          The attached lifecycle or ISM policy name. Null means READ AND
+          ABSENT; `retention_read` below distinguishes that from not read
+          at all.
+      retention_read:
+        description: >-
+          Whether the settings carrying the retention policy were
+          actually read. False means unknown, never "no policy".
+        range: boolean
+      doc_count:
+        description: >-
+          Current document count. Volatile: recorded on every run,
+          deliberately excluded from the content hash so ordinary writes
+          do not mint a new revision.
+        range: integer
+      store_bytes:
+        description: Current store size in bytes. Volatile, as doc_count.
+        range: integer
+      logged_by_refs:
+        description: >-
+          Node ids of the services that write to this index. The match
+          field for the service cross-link rule, which compares it to
+          `service.service_id` -- so it holds node ids, not bare names.
+        multivalued: true
+      logged_by:
+        description: >-
+          The declared service ids, human-readable. Kept separate from
+          the match field above rather than overloading it.
+        multivalued: true
+      namespace:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      # The walk in the live half starts at a service, reaches an index,
+      # and asks it a question. It can only start if an index is findable
+      # by the name and the alias an operator would type.
+      okg_searchable_text_fields: name,cluster,retention,aliases
+      # An index name is a structured identifier: the BM25 `english`
+      # config lexes `app-logs-2026.09` as ONE token, so an operator
+      # typing `app-logs` would match nothing. The path form additionally
+      # contributes the component words.
+      okg_searchable_text_path_fields: name,aliases
+      # Two live relations (issue #2014, req.ori.relations). A SearchIndex
+      # node is a POINTER to a system this graph does not store: the rows
+      # live in OpenSearch and are fetched at call time, gated, sampled and
+      # returned beside the pinned graph rows rather than merged into them.
+      #
+      # Declared HERE, in the library module, rather than in the deployment,
+      # because what a search index can be ASKED is a property of the kind
+      # of thing it is. The deployment says only which cluster answers, in
+      # `agent_surface.live_bindings`.
+      #
+      # `principal_mode: service` is the only mode served this sprint
+      # (#2013 decision 4); `caller` is refused at deployment load.
+      # `sample_policy: inline` keeps the returned rows with the sample so a
+      # recorded finding can cite what was actually read; the 16 KiB inline
+      # cap in `call_sample.py` bounds it, and `max_rows` in the binding
+      # keeps a normal answer well under that.
+      #
+      # EVERY argument is constrained. An unbounded string is an unbounded
+      # query DSL fragment in somebody's cluster, and the HTTP adapter
+      # (#2100) relies on these bounds rather than re-deriving them.
+      okg_live_relations:
+        documents:
+          action: external.opensearch.search
+          principal_mode: service
+          sample_policy: inline
+          retention_class: warm
+          deadline_seconds: 10
+          args:
+            # The index to search. The adapter takes no node channel --
+            # `node_id` reaches it and is deliberately unused -- so the
+            # index this node stands for is passed as an ordinary argument
+            # and filtered on `_index`. A pattern rather than an enum:
+            # this module is a library module and must not name one
+            # deployment's indices.
+            index:
+              type: string
+              required: true
+              pattern: '^[a-z0-9][a-z0-9._\-]{0,127}$'
+              maxLength: 128
+            # Free text: an OpenSearch `query_string` fragment. The
+            # pattern excludes control characters and nothing else, and
+            # that is stated rather than dressed up -- a query language is
+            # not expressible as a regular expression. What it and the
+            # length together guarantee is that the value stays one
+            # printable, bounded JSON string in the position the operator
+            # chose. The adapter substitutes it structurally, so it can
+            # never become a key, an object, or part of a larger string.
+            query:
+              type: string
+              required: true
+              pattern: '^[^\x00-\x1f\x7f]+$'
+              maxLength: 512
+            time_window:
+              type: string
+              default: now-7d
+              pattern: '^now-[0-9]{1,4}[mhdwMy]$'
+              maxLength: 16
+            limit:
+              type: integer
+              default: 10
+              minimum: 1
+              maximum: 100
+        histogram:
+          action: external.opensearch.search
+          principal_mode: service
+          sample_policy: inline
+          retention_class: warm
+          deadline_seconds: 10
+          args:
+            index:
+              type: string
+              required: true
+              pattern: '^[a-z0-9][a-z0-9._\-]{0,127}$'
+              maxLength: 128
+            # Free text: an OpenSearch `query_string` fragment. The
+            # pattern excludes control characters and nothing else, and
+            # that is stated rather than dressed up -- a query language is
+            # not expressible as a regular expression. What it and the
+            # length together guarantee is that the value stays one
+            # printable, bounded JSON string in the position the operator
+            # chose. The adapter substitutes it structurally, so it can
+            # never become a key, an object, or part of a larger string.
+            query:
+              type: string
+              required: true
+              pattern: '^[^\x00-\x1f\x7f]+$'
+              maxLength: 512
+            time_window:
+              type: string
+              default: now-7d
+              pattern: '^now-[0-9]{1,4}[mhdwMy]$'
+              maxLength: 16
+            interval:
+              type: string
+              default: 1h
+              enum: [1m, 5m, 15m, 1h, 6h, 1d]
+              maxLength: 8
+            # The bucketing field. The time WINDOW above always bounds
+            # `@timestamp` -- a slot is legal only in value position, so a
+            # per-call window field is not expressible in the binding's
+            # mapping language and is not faked here.
+            field:
+              type: string
+              default: '@timestamp'
+              pattern: '^[@a-zA-Z][a-zA-Z0-9_.@\-]{0,127}$'
+              maxLength: 128
+  EdgeNarrowings:
+    description: |-
+      Intra-module narrowings for search_systems.
+
+      Only the intra-module one lives here. `Service -[logs_to]->
+      SearchIndex` crosses into the `service` module and is declared in
+      `module.yaml`'s `extends.service` cross-link rule instead; see the
+      note there.
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        contains: contains
+        # Stated, not inherited. `relation_kind.py` would classify an
+        # unknown archetype as `references` by default, which is the
+        # right answer -- a service writing to an index is lateral, not
+        # containment, and must stay out of the hierarchy walk -- but a
+        # default nobody sees is not a decision.
+        logs_to: references
+    attributes:
+      search_cluster_contains_search_index:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: SearchCluster
+          dst_subtypes: SearchIndex

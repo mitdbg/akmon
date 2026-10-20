@@ -1,0 +1,115 @@
+name: consistency-fixture
+description: >
+  The differential-consistency fixture deployment (PACT
+  consistency-claim-graph-binding, task.binding.wire-deployment). A deliberately
+  tiny, source-less deployment that loads the extraction + consistency ontology
+  modules, registers the claim_effective + claim_projection maintained
+  derivations (opting into repair-selection materialization), and declares ONE
+  claim-state IR check over okg.claim_projection as the read-side consumer — the
+  first live wiring of the differential claim plane. See README.md.
+
+# schema_dir + source_registry must exist (lint blocker otherwise). The ontology
+# comes entirely from modules:; this deployment contributes no local subtypes
+# and no sources.
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+postgres:
+  dsn: ${OKG_DSN}
+  database: okg_consistency_fixture
+
+modules:
+  - extraction        # ConsistencyClaim is_a extraction.Claim (hard dependency)
+  - consistency
+
+enrichers: []
+
+# Opt in to the resolution-aware reuse scheduler (PACT
+# consistency-resolution-aware-reuse, task.reuse.scheduler): the publish cycle
+# runs the claim-plane-cone reuse pass as a DBOS step, recording a certificate
+# behind every skip. Only this fixture opts in — every other deployment's cycle
+# is unchanged. Consumed by publisher/deployment_stack.py:
+# load_resolution_aware_reuse_enabled.
+consistency:
+  resolution_aware_reuse: true
+
+# Deferred posture — this is a fixture, not an operated deployment.
+nomos:
+  rollout:
+    status: deferred
+    owner:
+      name: consistency
+      contact: consistency-team@example.com
+    review_by: "2027-01-01"
+
+# The claim-model derivations, registered so a real publish cycle materializes
+# okg.claim_effective / okg.claim_projection AND records the selected repair
+# (r*) into okg.repair_selections under this deployment label.
+maintained_derivations:
+  registry: consistency_fixture_derivations:registry
+
+# The read-side consumer: one claim-state IR check bound to okg.claim_projection
+# (the post-resolution surface), so detection reads the resolved claim state.
+# normalized_value_columns + finding_scope_columns are declared in the program's
+# attrs (the finding-identity guard refuses otherwise).
+ir_consistency_checks:
+  - name: claim_bucket_contested_ir
+    check_id: consistency-fixture.ir.claim_state.contested_bucket.v1
+    predicate_family: claim_state_resolution_consistency
+    confidence_type: deterministic_boolean
+    program_ref: consistency_fixture_checks.contested_bucket_program
+    surfaces:
+      claim_projection_rows:
+        binding: okg.claim_projection
+        kind: live
+  # The dependent rule whose violation depends on WHICH claim is canonical: it
+  # flags a bucket whose canonical preferred_target is a retired endpoint. Reads
+  # the resolution projection (winner per bucket) JOINed to the effective claims
+  # (the winner's value). Column-renaming subquery bindings keep the two
+  # claim-state surfaces' columns disjoint (both are pinned to the run
+  # generation by the checkout, recognized by the okg.claim_* table each reads).
+  - name: claim_canonical_retired_target_ir
+    check_id: consistency-fixture.ir.claim_state.canonical_retired_target.v1
+    predicate_family: claim_state_resolution_consistency
+    confidence_type: deterministic_boolean
+    program_ref: consistency_fixture_checks.canonical_retired_target_program
+    surfaces:
+      canonical_effective_rows:
+        binding: >
+          (SELECT row_key AS eff_claim_id, predicate AS eff_predicate,
+                  normalized_key AS eff_key, value AS eff_value
+             FROM okg.claim_effective WHERE row_kind = 'effective_claim')
+        kind: live
+      canonical_resolution_rows:
+        binding: >
+          (SELECT predicate AS res_predicate, bucket_key AS res_bucket_key,
+                  winner_claim_id AS res_winner, outcome AS res_outcome
+             FROM okg.claim_projection WHERE row_kind = 'bucket_resolution')
+        kind: live
+
+# The declared agent surface (issue #2067). Migrated from the frozen
+# legacy path with no change in behaviour: `served` is exactly what
+# `okg mcp-serve --allow-writes` registered before the block existed, so no
+# launch loses a tool. A read-only launch still registers the seven read
+# operators; the write gate stays the launch operator's. No response budget
+# and no chat projection are declared, so both keep the substrate defaults.
+agent_surface:
+  served:
+    - inspect
+    - search
+    - expand
+    - filter
+    - map
+    - aggregate
+    - query
+    - record
+    - propose
+    - list_sources
+    - add_source
+    - remove_source
+    - source_status
+    - discover_sources
+    - propose_setup
+    - commit_setup
+    - connector_route_status
+    - connector_ingest_batch

@@ -1,0 +1,23 @@
+{
+  "policy_bundle_id": "live-http-ci.live-relations",
+  "policy_version": "1",
+  "default_effect": "deny",
+  "scope": {
+    "deployment": "live-http-ci"
+  },
+  "rules": [
+    {
+      "rule_id": "allow_host_telemetry_for_the_runtime_service",
+      "effect": "allow",
+      "priority": 100,
+      "actions": ["external.host.read_telemetry"],
+      "subjects": ["service:okg-runtime"],
+      "match": {
+        "deployment": "live-http-ci",
+        "subtype": "machine",
+        "relation": ["cpu_per_core", "top_processes"]
+      },
+      "reason_code": "live_http_ci.host_telemetry_allowed"
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+# Calendar ontology module.
+#
+# Per `refine-academic-pi-with-comms-and-calendar`:
+# CalendarEvent (broad-kind events) + CalendarFeed (per-source
+# tracking for multi-feed deployments).
+
+id: https://palimpzest.mit.edu/okg/modules/calendar
+name: calendar
+title: "Calendar — events + feeds"
+description: |-
+  Calendar-shaped events across all sources (iCal feed,
+  Google Calendar, Apple Calendar, hand-noted). One subtype
+  covers the surface; the kind enum captures variation.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  cal: https://palimpzest.mit.edu/okg/modules/calendar/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+
+  CalendarEvent:
+    description: |-
+      A calendar-shaped event. Broad kind enum covers lab
+      meetings, 1:1s, committee meetings, sponsor calls,
+      colloquia, seminars, conference days, travel, external
+      visits, office hours, personal blocks, and other.
+
+      Strict-allowlist filter applied source-side: only
+      events tagged `okg:` in DESCRIPTION/SUMMARY OR matching
+      a configured recurring-pattern regex emit nodes.
+      Personal events (dentist, family, etc.) filter out
+      cleanly with zero metadata retention.
+    class_uri: cal:CalendarEvent
+    attributes:
+      event_id:
+        required: true
+        description: |-
+          Stable identity; recommended prefix
+          `event:<source>:<external-id>`.
+      title:
+        required: true
+        description: Event title; searchable.
+      kind:
+        required: true
+        description: |-
+          Enum {lab_meeting, one_on_one, group_meeting,
+          committee, sponsor_call, colloquium, seminar,
+          conference_day, travel, external, office_hours,
+          personal_block, other}.
+      start_dt:
+        required: true
+        description: ISO datetime event begins.
+      end_dt:
+        description: ISO datetime event ends (NULL for all-day).
+      all_day:
+        description: Boolean; true if no specific time.
+      location:
+        description: Free-text location.
+      participants_refs:
+        multivalued: true
+        description: List of Person refs (attendees).
+      external_ref:
+        description: Source-side event ID (.ics UID, Google event ID, etc.).
+      feed_ref:
+        description: CalendarFeed ref this event belongs to.
+      notes_doc_ref:
+        description: extraction.Document carrying meeting notes.
+      recurrence_rule:
+        description: |-
+          RFC 5545 RRULE string for recurring events (e.g.,
+          "FREQ=WEEKLY;BYDAY=WE"). Flat — no RecurringPattern
+          subtype.
+    annotations:
+      archetype: event
+      transient: 'false'
+      okg_alias_fields: event_id,external_ref
+      okg_searchable_text_fields: title,kind,location
+      okg_created_at_from: start_dt
+
+  CalendarFeed:
+    description: |-
+      A configured calendar feed (one per .ics URL, Google
+      calendar, or Apple local calendar). Lets multi-feed
+      deployments trace each event back to its source for
+      filtering + re-sync.
+    class_uri: cal:CalendarFeed
+    attributes:
+      feed_id:
+        required: true
+      name:
+        required: true
+        description: Operator-friendly feed name.
+      source_kind:
+        required: true
+        description: |-
+          Enum {ics_file, ics_url, google_api,
+          apple_local, manual}.
+      last_sync_at:
+        description: ISO datetime of last successful sync.
+      external_ref:
+        description: |-
+          Provider-side feed id (Google calendar ID, .ics
+          URL, sqlite path).
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: feed_id
+      okg_searchable_text_fields: name,source_kind
+
+  EdgeNarrowings:
+    description: |-
+      Intra-module narrowings (CalendarEvent at_feed
+      CalendarFeed).
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        at_feed: references
+        attended: references
+        at: references
+        produces: contains
+        has_document: contains
+        presents: references
+        mentions: references
+    attributes:
+
+      calendar_event_at_feed:
+        annotations:
+          edge_archetype: at_feed
+          src_subtypes: CalendarEvent
+          dst_subtypes: CalendarFeed

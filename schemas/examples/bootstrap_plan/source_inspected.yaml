@@ -1,0 +1,58 @@
+version: 1
+deployment:
+  name: bootstrap-example
+  path: deployments/bootstrap-example
+  template_base: empty
+  description: Example deployment being prepared by the bootstrapper.
+  postgres:
+    dsn: ${OKG_DSN}
+domain_brief:
+  text: "Track changing operational documents and source records."
+  example_questions:
+    - "Which records mention a conflicting policy?"
+sources:
+  - id: records
+    kind: local_json
+    sample_path: fixtures/records.json
+    sample_format: json
+    sample_fingerprint: sha256:example
+    record_count: 2
+record_shapes:
+  - source_id: records
+    sample_format: json
+    sample_fingerprint: sha256:example
+    record_count: 2
+    fields:
+      - name: id
+        types: [string]
+        count: 2
+        frequency: 1.0
+        unique_count: 2
+        example: REC-1
+      - name: summary
+        types: [string]
+        count: 2
+        frequency: 1.0
+        unique_count: 2
+        example: "Primary record summary."
+    candidate_identifier_fields: [id]
+    candidate_text_fields: [summary]
+    examples:
+      - id: REC-1
+        summary: "Primary record summary."
+ontology_plan:
+  library_modules: []
+  subtypes: []
+narrowing_plan: []
+extractor_plan:
+  entity_patterns: []
+  linker_routes: []
+  aliases: []
+view_plan:
+  views: []
+quality_plan:
+  invariants: []
+  fixture_assertions: []
+verification:
+  status: unverified
+  checks: []

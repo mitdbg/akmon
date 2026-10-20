@@ -1,0 +1,51 @@
+{
+  "schema_version": "okg.external_distribution_conformance.receipt/v1",
+  "receipt_digest": "sha256:138d24f6115d0dc469e902f8cc604678931decfb052aa69161edd0386d38e4b2",
+  "request_digest": "sha256:704efadefc34964974d82770cfa64649679e4276187f02d539525dde33ce8aa1",
+  "verdict": "pass",
+  "harness": {
+    "okg_revision": "9615fcccaf698e4ef944ee66cc4bfa499aa39f38",
+    "package_version": "0.1.0",
+    "harness_protocol": "okg.external_distribution_conformance/v1",
+    "product_contract_api": "okg.deployment_product.api/v1"
+  },
+  "subject": {
+    "subject_kind": "hermetic_fixture",
+    "distribution_id": "okg-standard",
+    "distribution_version": "1.0",
+    "release_digest": "sha256:e140eb71fcf4262cf9c86eeced4880d05e946072eed2e8d29354fc1c6e90cda5",
+    "artifact": {
+      "package_schema": "okg.deployment_product.distribution_package/v1",
+      "media_type": "application/octet-stream",
+      "digest": "sha256:51a5619e2c5f0c63063f18db8b44edf8817e86a388a617568a839e994e96ca9a"
+    }
+  },
+  "authority": {
+    "extension_boundary_digest": "sha256:ea58f31099d307a65d3f0033c52568ec2b6238fe2217f82ca32f6970c40efca1",
+    "package_admission_digest": "sha256:dcd12913d4a9fdb53163e1530f27d9958e6d33a25801ef6552c95cfc999fbd3c",
+    "capability_digest": "sha256:fa98ece3d84ab74422eb2e470bdec948e121a5d8a424d3aea48336c05af9448f",
+    "resource_policy_digest": "sha256:5c0a76f055108b16f20a631d6fde94974c15bbdd9f440282582401b1c1012dfd"
+  },
+  "arms": [
+    {
+      "arm": "contract",
+      "status": "pass",
+      "mutation": "none",
+      "retry_classification": "not_applicable"
+    }
+  ],
+  "claim": {
+    "profile": "contract",
+    "subject_kind": "hermetic_fixture",
+    "requested_arms": [
+      "contract"
+    ],
+    "completed_arms": [
+      "contract"
+    ],
+    "satisfied": true,
+    "scope": "contract"
+  },
+  "evidence": {},
+  "diagnostics": []
+}

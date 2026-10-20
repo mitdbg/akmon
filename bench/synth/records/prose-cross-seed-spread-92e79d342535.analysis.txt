@@ -1,0 +1,38 @@
+synth CROSS-SEED spread  (N=3 seeds, seed-invariant config 09f2a9ccbe7b9c6e)
+  KIND: cross_seed_variation  — NOT decode noise on one corpus.
+  WHAT THIS MEASURES: How much does the result depend on WHICH draw we took? The draws differ only in the seed, which re-draws the corruption selection and the document assignment. This is NOT decode noise, and it is NOT variation across corpora: the seed re-draws inside ONE frozen world, and the benchmark has only two frozen worlds.
+  seeds: prose-749-1, prose-749-2, prose-749-3
+  draws (per-seed generation bindings):
+    seed=prose-749-3  config=44a5a9bb58db6158  clean=okg:synthetic-corpus-smoke:branch:default:gen:20260727T192816196287Z:6ea341727148  corrupted=okg:synthetic-corpus-smoke:branch:default:gen:20260727T195306942028Z:f3ec9659fd74
+    seed=prose-749-1  config=a482ca353494eb3a  clean=okg:synthetic-corpus-smoke:branch:default:gen:20260727T202523792601Z:b98997556a1c  corrupted=okg:synthetic-corpus-smoke:branch:default:gen:20260727T205448069749Z:cf910a2e45cb
+    seed=prose-749-2  config=ef1829af74c6d301  clean=okg:synthetic-corpus-smoke:branch:default:gen:20260727T192719337775Z:8cef236acf81  corrupted=okg:synthetic-corpus-smoke:branch:default:gen:20260727T200118017280Z:ef3a7ca95004
+  metrics omitted (present in some seeds, not all): none
+  headline metrics (min / mean / max / range / sd across draws):
+    extraction recall              min 0.8959  mean 0.9083  max 0.9168  range 0.0210  sd 0.0110
+    detection conditional          min 0.9907  mean 0.9969  max 1.0000  range 0.0093  sd 0.0054
+    detection end-to-end           min 0.7211  mean 0.7347  max 0.7483  range 0.0272  sd 0.0136
+  repair tally states:
+    repaired                       min 84  mean 91.0000  max 95  range 11  sd 6.0828
+    mis_repaired                   min 4  mean 7.0000  max 10  range 6  sd 3.0000
+    detected_only                  min 25  mean 30.3333  max 36  range 11  sd 5.5076
+    unadjudicated                  min 12  mean 18.6667  max 24  range 12  sd 6.1101
+  per-class injection survival (survived/sites rate):
+    broken_reference               min 0.7778  mean 0.8148  max 0.8889  range 0.1111  sd 0.0642
+    cardinality_violation          min 1.0000  mean 1.0000  max 1.0000  range 0.0000  sd 0.0000
+    dangling_entity                min 0.2667  mean 0.3111  max 0.4000  range 0.1333  sd 0.0770
+    derived_value                  min 0.8667  mean 0.9333  max 1.0000  range 0.1333  sd 0.0667
+    digit_transposition            min 0.8000  mean 0.9000  max 1.0000  range 0.2000  sd 0.1000
+    entity_swap                    min 0.0500  mean 0.0833  max 0.1500  range 0.1000  sd 0.0577
+    label_value_mismatch           min 0.8000  mean 0.9000  max 1.0000  range 0.2000  sd 0.1000
+    polarity_flip                  min 1.0000  mean 1.0000  max 1.0000  range 0.0000  sd 0.0000
+    unit_conversion_error          min 0.7500  mean 0.8750  max 1.0000  range 0.2500  sd 0.1250
+    value_perturbation             min 0.9211  mean 0.9298  max 0.9474  range 0.0263  sd 0.0152
+  majority-flavor mis-repair (count over preserved majorities):
+    copy preserved                 min 0  mean 0.0000  max 0  range 0  sd 0.0000
+    copy mis_repaired              min 0  mean 0.0000  max 0  range 0  sd 0.0000
+    independent preserved          min 0  mean 0.0000  max 0  range 0  sd 0.0000
+    independent mis_repaired       min 0  mean 0.0000  max 0  range 0  sd 0.0000
+  poisoning flip:
+    poisoned                       min 0  mean 0.0000  max 0  range 0  sd 0.0000
+    flipped                        min 0  mean 0.0000  max 0  range 0  sd 0.0000
+    flip_rate                      min 0.0000  mean 0.0000  max 0.0000  range 0.0000  sd 0.0000

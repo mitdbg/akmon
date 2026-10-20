@@ -1,0 +1,5 @@
+name: personas
+version: 1.0.0
+description: Persona subtype for canonical-reviewer artifacts.
+provides:
+  subtypes_file: schema.yaml

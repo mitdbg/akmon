@@ -1,0 +1,170 @@
+/* --- copy controls (rule 15) ------------------------------------------ */
+
+/* An identifier and its icon are one inline unit; the icon never wraps away
+ * from the text it copies. */
+.okg-console__copyable {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+}
+
+/* A full generation id -- `okg:<deployment>:gen:<64 hex>` -- is ONE word with
+ * no break opportunity in it, so at 390 px it did not wrap: it ran past the
+ * right edge and took the copy button with it, and the control could not be
+ * reached at all (documentElement.scrollWidth 509 against a 390 client width,
+ * measured on the attempt page on 2026-09-22). It wraps anywhere now. The
+ * button still copies the id WHOLE, and the `title` carries it whole for a
+ * reader who wants to see it in one piece. */
+.okg-console__copyable > .okg-console__id {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.okg-console__copy {
+  font: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  line-height: 1;
+}
+
+/* The icon: 12 px, muted, at 40 per cent until hovered or focused. Placed
+ * with the text's baseline so it reads as part of the identifier. */
+.okg-console__copy--icon {
+  color: var(--okg-color-muted);
+  opacity: 0.4;
+  font-size: 12px;
+  align-self: center;
+  transition: opacity var(--okg-motion-fast);
+}
+
+.okg-console__copy--icon:hover,
+.okg-console__copy--icon:focus-visible,
+.okg-console__copyable:hover .okg-console__copy--icon { opacity: 1; }
+
+.okg-console__copy-glyph { font-size: 12px; display: block; }
+
+/* In a table or list row the icon appears on row hover only. */
+.okg-console__copyable[data-reveal="row"] .okg-console__copy--icon { opacity: 0; }
+
+.okg-console__copyrow:hover .okg-console__copyable[data-reveal="row"] .okg-console__copy--icon { opacity: 0.4; }
+
+/* A focused icon is at full strength wherever it sits: at 40 per cent the
+ * keyboard reader could not see which control had focus (audit B10). */
+.okg-console__copyrow:hover .okg-console__copyable[data-reveal="row"] .okg-console__copy--icon:hover,
+.okg-console__copyable[data-reveal="row"] .okg-console__copy--icon:focus-visible,
+.okg-console__copyrow:hover .okg-console__copyable[data-reveal="row"] .okg-console__copy--icon:focus-visible { opacity: 1; }
+
+/* A version id inside a sentence: mono like every other id, at the
+ * sentence's own size. */
+.okg-console__version-id { font-family: var(--okg-font-mono); }
+
+/* "copied" for 1.5 s in the icon's place, 12 px so it changes no line. */
+.okg-console__copy-said {
+  font-size: 12px;
+  color: var(--okg-color-muted);
+  white-space: nowrap;
+}
+
+.okg-console__copy--icon[data-state="copied"],
+.okg-console__copy--icon[data-state="failed"] { opacity: 1; }
+
+.okg-console__copy--icon[data-state="failed"] .okg-console__copy-said { color: var(--okg-color-bad); }
+
+/* The text control: 13 px link colour, no box, the same as a link button. */
+.okg-console__copy--text {
+  font-size: 13px;
+  color: var(--okg-color-link);
+  white-space: nowrap;
+}
+
+.okg-console__copy--text:hover { text-decoration: underline; }
+
+.okg-console__copy--text[data-state="copied"] { color: var(--okg-color-muted); text-decoration: none; }
+
+.okg-console__copy--text[data-state="failed"] { color: var(--okg-color-bad); }
+
+/* "Copy as text" sits at the far right of the h1 row. */
+.okg-console__copy--page { margin-left: auto; }
+
+/* A section aside that carries both a fact and a copy control. */
+.okg-console__section-aside .okg-console__copy--text { margin-left: 12px; }
+
+/* Configuration: the YAML block is the verbatim block. */
+.okg-console__yaml { tab-size: 2; }
+
+@media (max-width: 760px) {
+  /* The h1 row is block at 390, so the control goes under the title -- on its
+   * OWN line. As inline-block it ran straight on from the header note with no
+   * space between them and the page read "newest 12 h agoCopy as text". The
+   * same rule covers the attempt detail, whose header has the same shape. */
+  .okg-console__copy--page {
+    margin-left: 0;
+    margin-top: 8px;
+    display: block;
+    width: fit-content;
+  }
+
+  .okg-console__header-note { display: block; }
+}
+
+@media (max-width: 760px) {
+  .okg-console__panes[data-panes="two"] { grid-template-columns: minmax(0, 1fr); }
+  .okg-console__content-actions { margin-left: 0; flex-wrap: wrap; }
+  .okg-console__related-bar { flex-wrap: wrap; }
+  .okg-console__ltable [data-col="dir"],
+  .okg-console__ltable [data-col="attempt"] { display: none; }
+}
+
+@media (max-width: 760px) {
+  .okg-console__results-page { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .okg-console__rail { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+  .okg-console__rail-section + .okg-console__rail-section { margin-top: 0; }
+  .okg-console__searchbox-field { height: 40px; }
+  .okg-console__help-panel { width: 300px; right: auto; left: -160px; }
+}
+
+/* --- the switcher ------------------------------------------------------- */
+
+/* Panes, direction, span: a small exclusive choice. This was Ant Design's
+ * Segmented; the parts that mattered -- a bordered track, a filled option in
+ * force -- are eight rules, and the ink block that slid between them was the
+ * rest of the component. */
+.okg-console__switcher {
+  display: inline-flex;
+  align-items: stretch;
+  padding: 2px;
+  border: 1px solid var(--okg-color-line);
+  border-radius: var(--okg-radius-pill);
+  background: var(--okg-color-surface-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.okg-console__switch {
+  padding: 2px 10px;
+  border: 0;
+  border-radius: var(--okg-radius-pill);
+  background: transparent;
+  font: inherit;
+  color: var(--okg-color-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.okg-console__switch:hover { color: var(--okg-color-text); }
+
+.okg-console__switch:focus-visible {
+  outline: 2px solid var(--okg-color-link);
+  outline-offset: 1px;
+}
+
+/* The option in force: the console's surface under it and the page's ink, so
+ * the choice reads from the words and not from a tint alone. */
+.okg-console__switch[data-checked="true"] {
+  background: var(--okg-color-surface);
+  color: var(--okg-color-text);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}

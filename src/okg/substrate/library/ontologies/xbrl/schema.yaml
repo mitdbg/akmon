@@ -1,0 +1,408 @@
+id: https://palimpzest.mit.edu/okg/modules/xbrl
+name: xbrl
+title: XBRL Graph — SEC filings, statements, concepts, contexts, and facts
+description: |-
+  SEC EDGAR/XBRL filing document sets ingested from operator-frozen
+  local snapshots by the edgar_xbrl source. A docset ships six document
+  kinds and all six are read: one `filing` node per document-set
+  directory, `xbrl_concept` nodes for concepts declared in the filing's
+  schema document (plus concepts referenced by facts, calculation /
+  presentation / definition arcs, and context members),
+  `xbrl_statement` nodes for the presentation linkbase's extended link
+  roles, `xbrl_context` nodes for the instance document's contexts, and
+  `xbrl_fact` nodes for the reported values.
+
+  Labels are ATTRIBUTES on XbrlConcept (`label`, `documentation`), not
+  nodes: a label names a concept and is never an endpoint a question
+  traverses through, so promoting it would add one degree-1 node per
+  concept per role and inflate the isolated fraction without creating a
+  single new path. A concept no ingested label linkbase names carries
+  NO `label` key — never an empty string, never the element name
+  substituted.
+
+  Definition-linkbase arcs are ONE edge type, `dim_related_to`,
+  carrying the XBRL `arcrole` as an edge attribute rather than one edge
+  type per arcrole: the arcrole vocabulary is open to filer extension,
+  so a per-arcrole model would meet an unanticipated arcrole with a
+  narrowing_violation at insert and fail the publish instead of
+  ingesting the relationship.
+
+  Eleven narrowings cover exactly the edges the source emits:
+  filing contains xbrl_fact / xbrl_context / xbrl_statement,
+  filing declares xbrl_concept (a filer schema's own xsd:element
+  declarations — emitted, but NOT a contract clause: measured against the
+  FinAuditing export, none of the 25 schemas declares one),
+  xbrl_fact reports xbrl_concept, xbrl_fact in_context xbrl_context,
+  xbrl_context has_member xbrl_concept,
+  xbrl_statement presents xbrl_concept,
+  xbrl_concept calc_sums_to xbrl_concept (calculation-linkbase arcs),
+  xbrl_concept presentation_parent_of xbrl_concept, and
+  xbrl_concept dim_related_to xbrl_concept.
+
+  Per `okg-bench-domain-adapters` / req.dom.finauditing (2026-07-27)
+  and `okg-corpus-xbrl` / req.xbrl.linkbases + req.xbrl.context
+  (2026-07-28).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  xbrl: https://palimpzest.mit.edu/okg/modules/xbrl/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Filing:
+    description: |-
+      One SEC filing's XBRL document set (schema / presentation /
+      calculation / definition / label / instance XML). Conventionally
+      node id filing:edgar:<filing_slug>, where the slug names the
+      per-filing docset directory.
+    class_uri: xbrl:Filing
+    attributes:
+      filing_id:
+        required: true
+        description: "The filing slug (docset directory name)."
+      doc_kinds:
+        required: true
+        description: Comma-separated document kinds present in the set.
+      fact_count:
+        range: integer
+        description: Facts emitted from the instance document.
+      facts_skipped:
+        range: integer
+        description: |-
+          Fact candidates skipped for missing identifying fields
+          (no contextRef, empty value, xsi:nil, or a contextRef naming
+          no context element) — counted loudly, never silently
+          defaulted.
+      facts_no_context:
+        range: integer
+        description: |-
+          The share of facts_skipped whose contextRef resolved to no
+          context element in the instance. Such a fact has no knowable
+          period, so it is skipped rather than emitted with a dangling
+          in_context edge.
+      concepts_skipped:
+        range: integer
+        description: Schema element declarations skipped (no name).
+      calc_arcs_skipped:
+        range: integer
+        description: |-
+          Calculation arcs skipped because a locator did not resolve
+          onto a concept or the weight was missing.
+      calc_locators_unresolved:
+        range: integer
+        description: |-
+          Calculation-linkbase locators whose href fragment resolved
+          neither against the filer's schema nor against a declared
+          namespace prefix.
+      context_count:
+        range: integer
+        description: Contexts emitted from the instance document.
+      contexts_skipped:
+        range: integer
+        description: Context elements skipped for want of an id.
+      context_members_emitted:
+        range: integer
+        description: Explicit segment/scenario dimension members emitted.
+      context_members_skipped:
+        range: integer
+        description: |-
+          Explicit members whose QName prefix was undeclared, so the
+          member concept could not be resolved.
+      statement_count:
+        range: integer
+        description: |-
+          Presentation-linkbase extended link roles emitted as
+          xbrl_statement nodes.
+      presentation_arcs_skipped:
+        range: integer
+        description: Presentation arcs whose endpoints did not resolve.
+      presentation_locators_unresolved:
+        range: integer
+        description: Presentation-linkbase locators that did not resolve.
+      definition_arcs_skipped:
+        range: integer
+        description: |-
+          Definition arcs skipped for a missing arcrole or an endpoint
+          that did not resolve. The arcrole is never defaulted.
+      definition_locators_unresolved:
+        range: integer
+        description: Definition-linkbase locators that did not resolve.
+      labels_parsed:
+        range: integer
+        description: |-
+          Standard-role and documentation-role labels read from this
+          filing's label linkbase.
+      labels_unmatched:
+        range: integer
+        description: |-
+          Labels that resolved to a concept id no document in the run
+          ever created. Counted rather than promoted into a degree-0
+          concept node whose only reason to exist is to be named.
+      label_locators_unresolved:
+        range: integer
+        description: Label-linkbase locators that did not resolve.
+      documents_truncated:
+        range: integer
+        description: |-
+          Documents skipped as unparseable under
+          truncated_documents='skip_counted'. Truncation is PER
+          DOCUMENT: a filing whose instance is capped still contributes
+          statement structure and concept relationships from its other
+          documents.
+      documents_unrecognized:
+        range: integer
+        description: |-
+          Docset files whose kind the source cannot read — counted,
+          never silently dropped.
+      structurally_stranded:
+        range: boolean
+        description: |-
+          True when NONE of the three documents that can anchor a filing
+          node is usable, so the filing has no source-carried structure
+          left and anchoring it would mean inventing a fact. The corpus
+          contract's negative probe uses this to tell "isolated because
+          upstream truncated it" from "isolated because we failed to read
+          it", instead of tolerating a blanket isolated-filing allowance.
+
+          Derived from the three conjuncts below, each of which is a
+          statement about the INPUT. An earlier form read
+          `documents_truncated and not statement_nodes and not
+          context_nodes`, which was partly emission-derived: the
+          truncation conjunct counted ANY document, so a filing with only
+          a capped label linkbase plus a parsing regression inside the
+          instance reader flipped the flag true and forgave itself.
+      instance_unusable:
+        range: boolean
+        description: The instance document is absent or truncated.
+      presentation_unusable:
+        range: boolean
+        description: The presentation linkbase is absent or truncated.
+      schema_declares_no_concepts:
+        range: boolean
+        description: |-
+          The filer's own schema declares no xsd:element. Measured against
+          the FinAuditing export this is true of all 25 filings, which is
+          why `filing declares xbrl_concept` is emitted but is not a
+          contract clause.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  XbrlConcept:
+    description: |-
+      One XBRL concept — an xsd:element declared in a filing's schema
+      document, or a standard-taxonomy concept (e.g. us-gaap)
+      referenced by a fact, an arc, or a context member. Conventionally
+      node id xbrl_concept:<namespace>#<name>; the same (namespace,
+      name) resolves to ONE node across filings.
+    class_uri: xbrl:XbrlConcept
+    attributes:
+      concept_id:
+        required: true
+        description: "xbrl_concept:<namespace>#<name>."
+      name:
+        required: true
+        description: The concept's element name, e.g. Assets.
+      namespace:
+        required: true
+        description: The concept's XML namespace URI.
+      declared:
+        range: boolean
+        description: |-
+          True when the concept is declared in an ingested schema
+          document; false when it is only referenced by facts, arcs or
+          context members (a standard-taxonomy concept the filing does
+          not re-declare).
+      label:
+        description: |-
+          The standard-role label (XBRL 2.1
+          http://www.xbrl.org/2003/role/label) from an ingested label
+          linkbase — the concept's name in prose, and the only join
+          between a question's wording and a concept id. ABSENT, with
+          no key at all, when no ingested label linkbase names the
+          concept: never an empty string and never the element name
+          substituted, either of which would be
+          default-value-as-fallback and would make the prose->concept
+          join untestable.
+      documentation:
+        description: |-
+          The documentation-role label
+          (http://www.xbrl.org/2003/role/documentation) — the concept's
+          definition text. Absent under the same rule as `label`.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  XbrlStatement:
+    description: |-
+      One extended link role of a filing's presentation linkbase — a
+      statement (balance sheet, income statement, a note's schedule).
+      Conventionally node id
+      xbrl_statement:<filing_slug>:<digest of the role URI>: identity
+      is (filing, role URI), because the role URI is the filer's own
+      and the same role in two filings is two statements.
+    class_uri: xbrl:XbrlStatement
+    attributes:
+      statement_id:
+        required: true
+        description: "xbrl_statement:<filing_slug>:<digest of role URI>."
+      role_uri:
+        required: true
+        description: The extended link role URI, verbatim.
+      filing_id:
+        required: true
+        description: |-
+          The owning filing's slug, carried so a statement is readable
+          without a traversal; the traversable form is the filing's
+          contains edge.
+      definition:
+        description: |-
+          The human definition of the role, read from the filer
+          schema's roleType/definition (e.g. "0000003 - Statement -
+          Consolidated Balance Sheets"). Absent when the schema is
+          truncated or declares no roleType — never the role URI
+          restated as if it were a human name.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  XbrlContext:
+    description: |-
+      One context element of a filing's instance document — the entity
+      and period a fact's value is reported for. Conventionally node id
+      xbrl_context:<filing_slug>:<context id>, because context ids are
+      unique only WITHIN an instance document. Promoting the context
+      from an opaque contextRef string to a node is what makes "the
+      value for period X" a traversal instead of a string match over
+      ids such as C_0000320193_20230101_20231231.
+    class_uri: xbrl:XbrlContext
+    attributes:
+      context_id:
+        required: true
+        description: "xbrl_context:<filing_slug>:<context id>."
+      context_ref:
+        required: true
+        description: |-
+          The instance-document context id, as the facts' contextRef
+          spells it.
+      filing_id:
+        required: true
+        description: The owning filing's slug.
+      entity_identifier:
+        description: |-
+          The reporting entity's identifier (e.g. the CIK). Absent when
+          the context carries no identifier element.
+      entity_scheme:
+        description: |-
+          The identifier's scheme URI (e.g. http://www.sec.gov/CIK).
+      period_type:
+        description: |-
+          `instant` or `duration`. ABSENT when the context's period
+          element carries no parseable ISO dates — an unknown period is
+          absent, never guessed at.
+      instant:
+        range: date
+        description: The instant date, for an instant-period context.
+      start_date:
+        range: date
+        description: The period start, for a duration-period context.
+      end_date:
+        range: date
+        description: The period end, for a duration-period context.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  XbrlFact:
+    description: |-
+      One reported fact from a filing's instance document.
+      Conventionally node id xbrl_fact:<filing_slug>:<index>, indexed
+      in document order (deterministic under a frozen snapshot).
+    class_uri: xbrl:XbrlFact
+    attributes:
+      fact_id:
+        required: true
+        description: "xbrl_fact:<filing_slug>:<index>."
+      concept_name:
+        required: true
+        description: The reported concept's element name.
+      concept_ns:
+        required: true
+        description: The reported concept's namespace URI.
+      context_ref:
+        required: true
+        description: |-
+          The instance context id the fact is reported in, kept for
+          provenance. The traversable handle is the in_context edge —
+          every emitted fact has exactly one.
+      unit:
+        description: |-
+          The unitRef, when the fact carries one; absent for
+          non-numeric facts — an honest absence, never defaulted.
+      value:
+        required: true
+        description: The fact's reported value text.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  EdgeNarrowings:
+    description: Edge narrowings emitted by the xbrl module.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      filing_contains_xbrl_fact:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Filing
+          dst_subtypes: XbrlFact
+      filing_contains_xbrl_context:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Filing
+          dst_subtypes: XbrlContext
+      filing_contains_xbrl_statement:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Filing
+          dst_subtypes: XbrlStatement
+      # A filing DECLARES its own extension concepts (schema document).
+      # Distinct from `contains`: a filing contains its facts, contexts and
+      # statements, but only declares the concepts its schema defines —
+      # standard-taxonomy concepts are referenced, never declared, by a filer.
+      filing_declares_xbrl_concept:
+        annotations:
+          edge_archetype: declares
+          src_subtypes: Filing
+          dst_subtypes: XbrlConcept
+      xbrl_fact_reports_xbrl_concept:
+        annotations:
+          edge_archetype: reports
+          src_subtypes: XbrlFact
+          dst_subtypes: XbrlConcept
+      xbrl_fact_in_context_xbrl_context:
+        annotations:
+          edge_archetype: in_context
+          src_subtypes: XbrlFact
+          dst_subtypes: XbrlContext
+      xbrl_context_has_member_xbrl_concept:
+        annotations:
+          edge_archetype: has_member
+          src_subtypes: XbrlContext
+          dst_subtypes: XbrlConcept
+      xbrl_statement_presents_xbrl_concept:
+        annotations:
+          edge_archetype: presents
+          src_subtypes: XbrlStatement
+          dst_subtypes: XbrlConcept
+      xbrl_concept_calc_sums_to_xbrl_concept:
+        annotations:
+          edge_archetype: calc_sums_to
+          src_subtypes: XbrlConcept
+          dst_subtypes: XbrlConcept
+      xbrl_concept_presentation_parent_of_xbrl_concept:
+        annotations:
+          edge_archetype: presentation_parent_of
+          src_subtypes: XbrlConcept
+          dst_subtypes: XbrlConcept
+      xbrl_concept_dim_related_to_xbrl_concept:
+        annotations:
+          edge_archetype: dim_related_to
+          src_subtypes: XbrlConcept
+          dst_subtypes: XbrlConcept

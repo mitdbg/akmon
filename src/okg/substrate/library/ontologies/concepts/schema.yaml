@@ -1,0 +1,313 @@
+id: https://palimpzest.mit.edu/okg/modules/concepts
+name: concepts
+title: "Concepts — operator-authored aggregators linked semantically"
+description: |
+  Substrate-shipped ontology module for the `Concept` subtype.
+  Per `add-substrate-semantic-concept-linking`: a deployment
+  imports this module, ships its own
+  `<deployment>/concepts/seed.yaml` (operator-authored
+  concepts with `name` + `description`), declares one or
+  more `<source_subtype> -mentions-> Concept` narrowings in
+  its bridge, and registers the
+  `okg.substrate.library.enrichers.semantic_concept_linker.SemanticConceptLinker`
+  in its `enrichers:` block. The substrate's
+  `okg catalog load --apply` step upserts one Concept node
+  per seed entry; the substrate's embed worker populates
+  each Concept's `embedding` from `description` (auto-
+  stamped to `attrs.text` per the
+  `okg_searchable_text_fields` annotation below). The
+  linker emits `mentions` edges via section-max cosine
+  similarity over pgvector embeddings.
+
+  Concepts live alongside but distinct from `Topic` (catalog
+  keyword tags) and `EntityMention` (extraction-time named
+  entities). Topics are first-class catalog metadata; entity
+  mentions are file-content tokens; concepts are an
+  operator-authored aggregator that lets queries cross-cut
+  the corpus's natural bureaucratic clustering.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  conc: https://palimpzest.mit.edu/okg/modules/concepts/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+
+  Concept:
+    description: |
+      Concept node. Concept is the universal cross-cutting
+      hub of the substrate: every other layer reaches into
+      Concept via the eight narrowings declared in
+      `EdgeNarrowings` below.
+
+      Two authoring paths land Concept rows:
+
+      1. **Operator-authored** (seed YAML at
+         `<deployment>/concepts/seed.yaml`). Carries `name` +
+         `description` (the embedding driver). `kind`,
+         `definition`, `confidence`, and
+         `extracted_from_paper_ref` are absent for seed
+         entries; the substrate treats this as
+         operator-authored with confidence 1.0.
+      2. **Extractor-emitted** (A2's `concept_extractor`
+         over Paper bodies). Carries the same `name` +
+         `description` plus `extracted_from_paper_ref`
+         pointing at the defining `scholarly.Paper`,
+         `confidence` < 1.0 per the per-extractor floor
+         (umbrella D8), and ideally a `kind` classification.
+
+      The `description` attribute drives the cosine-
+      similarity `mentions` edge from
+      SemanticConceptLinker; `definition` (added by
+      `extend-substrate-concepts-as-universal-hub`) is the
+      one-paragraph canonical definition taken from the
+      defining Paper. They are distinct — the embedding
+      lives on `description`.
+    class_uri: conc:Concept
+    attributes:
+      name:
+        required: true
+        description: >-
+          Short canonical label for the concept
+          (e.g. "flying in bad weather",
+          "happens-before-ordering"). This is the
+          canonical alias key: cross-link rules resolve
+          slug-valued source fields via `exact` match
+          against `Concept.name`. Operators using
+          kebab-case slugs in seed YAML and docstring tags
+          MUST use the same form here.
+      description:
+        required: true
+        description: >-
+          2-4 sentence natural-language definition of the
+          concept. This is the text that drives semantic
+          linking — write it as the description an SME
+          would give of when this concept applies.
+      kind:
+        description: >-
+          Optional semantic category. Permissible values:
+          `abstract`, `method`, `system`, `dataset`,
+          `metric`, `phenomenon`. Used by viz tier
+          assignment and by agent retrieval ("show me all
+          `method`-kind concepts"). Absent for legacy seed
+          entries; deployments can backfill via seed YAML.
+          Left as `range: string` for v1; LinkML enum is a
+          follow-up.
+      definition:
+        description: >-
+          Optional one-paragraph canonical definition,
+          typically lifted from the defining Paper.
+          Distinct from `description`: `description` is
+          the SME-flavored "when this concept applies"
+          text that drives the embedding, while
+          `definition` is the formal academic definition
+          from the literature. Both may coexist.
+      confidence:
+        range: float
+        description: >-
+          Optional extractor confidence in [0.0, 1.0].
+          Absent ≡ operator-authored ≡ confidence 1.0.
+          Below-floor extractions emit
+          `extraction_dropped` rather than landing a
+          Concept node (per umbrella D8); landed Concepts
+          therefore have `confidence >= per-extractor
+          floor`.
+      extracted_from_paper_ref:
+        description: >-
+          Optional node_id of the defining `scholarly.Paper`
+          for Concepts emitted by A2's `concept_extractor`.
+          Absent for operator-authored seed entries. Used
+          by Pattern A narrowings (`paper_defines_concept`)
+          to traverse from a Concept back to the paper that
+          introduced it.
+      text:
+        description: >-
+          Searchable + embedded text. Auto-stamped from
+          `description` (NOT name+description) per the
+          `okg_searchable_text_fields` annotation below.
+          Keeping `text` = `description` makes the
+          embedding represent the concept's MEANING
+          rather than the bare label, which improves
+          discrimination in the cosine-similarity link.
+    annotations:
+      archetype: artifact
+      transient: "false"
+      okg_searchable_text_fields: description
+      okg_alias_fields: name
+
+  EdgeNarrowings:
+    description: |
+      Cross-shared narrowings that wire `Concept` as the
+      universal cross-cutting hub of the substrate (umbrella
+      `evolve-memex-to-ai-scientist-substrate` decision D1).
+
+      Eight (src_subtype, edge_archetype, dst_subtype=Concept)
+      triples are declared here. The narrowings reference
+      subtypes that live in OTHER substrate modules
+      (`scholarly.Paper`, `methodology.MethodCard`,
+      `reasoning.Hypothesis`, `reasoning.Observation`,
+      `code_graph.CodeSymbol`, `experimental.Experiment`) plus
+      a self-referential `Concept refines Concept`. Concept is
+      the destination in seven of eight narrowings and source
+      in one; per the substrate convention (destination module
+      owns cross-module narrowings) the entries sit here.
+
+      Composition behavior: the seven CROSS-MODULE hub
+      narrowings (all except the self-referential
+      `concept_refines_concept`) are annotated
+      `optional_when_subtypes_missing`. When a deployment
+      composes `concepts` WITHOUT the module that owns a
+      narrowing's source subtype — `scholarly.Paper`,
+      `methodology.MethodCard`, `reasoning.Hypothesis` /
+      `reasoning.Observation`, `code_graph.CodeSymbol`,
+      `experimental.Experiment` — that narrowing is silently
+      skipped (`_extract_narrowings` omits the row before
+      `_validate_narrowing_subtypes` runs) instead of failing
+      composition with `BridgeSubtypeUnknown`. A full-stack
+      deployment that loads every source module still gets all
+      eight narrowings: the annotation is inert when the
+      subtypes are present. This supersedes the original
+      all-or-nothing contract (`extend-substrate-concepts-as-
+      universal-hub` R-A3-1) so linker-only consumers that
+      want only `<subtype> -mentions-> Concept` can compose
+      `concepts` standalone; it follows the cross-module-
+      narrowing convention already used by `scholarly`,
+      `experimental`, `ci`, and `extraction`.
+
+      Canonical-key convention: cross-link rules resolve a
+      slug-valued source attribute to a Concept by exact match
+      against `Concept.name`. Operator-curated
+      `concept_aliases.yaml` (ingested by
+      `ConceptAliasesSource`) uses `name` as the canonical key.
+
+      Edge-emission ownership (which child ships the rule):
+      - paper_defines_concept / paper_uses_concept /
+        concept_refines_concept — A2 (paper-semantic-extraction)
+        via the `concept_extractor` LLM enricher.
+      - method_card_embodies_concept,
+        hypothesis_predicts_about_concept,
+        code_symbol_implements_concept (declared, not inferred
+        — `@implements_concept: <slug>` docstring tag per D5),
+        observation_evidence_for_concept,
+        experiment_concerns_concept — THIS child, via the five
+        DeclarativeLinker rule files distributed across each
+        extending module's `cross_links/` subdir (code_graph,
+        methodology, reasoning, experimental) and wired via
+        `module.yaml` `extends.concepts` blocks.
+
+      Operator canonicalization workflow:
+      1. Each newly-emitted Concept lands with its own
+         node_id and provenance.
+      2. A7's discovery brief surfaces candidate alias pairs.
+      3. Operator edits `concept_aliases.yaml` to declare
+         canonical + aliases.
+      4. Next publish cycle re-runs `ConceptAliasesSource`;
+         alias-table rows merge the variants.
+      No fuzzy LLM-judged auto-merge.
+    class_uri: conc:EdgeNarrowings
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      paper_defines_concept:
+        description: >-
+          A Paper defines a Concept (the paper introduces or
+          formally states the Concept). Edge emission belongs
+          to A2's `concept_extractor`; this entry only
+          declares the triple legal at the narrowing trigger.
+        annotations:
+          edge_archetype: defines
+          src_subtypes: Paper
+          dst_subtypes: Concept
+          optional_when_subtypes_missing: 'true'
+      paper_uses_concept:
+        description: >-
+          A Paper uses a Concept (the paper applies the
+          Concept without introducing it). Edge emission
+          belongs to A2's `concept_extractor`.
+        annotations:
+          edge_archetype: uses
+          src_subtypes: Paper
+          dst_subtypes: Concept
+          optional_when_subtypes_missing: 'true'
+      concept_refines_concept:
+        description: >-
+          A Concept refines another Concept (cross-paper
+          evolution where one definition extends or
+          specializes an earlier one). Self-referential
+          narrowing. Edge emission belongs to A2's
+          `concept_extractor` per umbrella D-A3-4 (cross-
+          paper evolution is a semantic judgment requiring
+          paper-text evidence).
+        annotations:
+          edge_archetype: refines
+          src_subtypes: Concept
+          dst_subtypes: Concept
+      method_card_embodies_concept:
+        description: >-
+          A MethodCard embodies a Concept (the codified
+          method instantiates the abstract noun). Edge
+          emission via the `methodcard_embodies_concept`
+          cross-link rule reading the MethodCard's
+          `embodies_concept` frontmatter field.
+        annotations:
+          edge_archetype: embodies
+          src_subtypes: MethodCard
+          dst_subtypes: Concept
+          optional_when_subtypes_missing: 'true'
+      hypothesis_predicts_about_concept:
+        description: >-
+          A Hypothesis predicts about a Concept (the
+          conjecture's subject is the Concept). Edge emission
+          via the `hypothesis_predicts_about_concept`
+          cross-link rule reading the Hypothesis's
+          `predicts_about` frontmatter field.
+        annotations:
+          edge_archetype: predicts_about
+          src_subtypes: Hypothesis
+          dst_subtypes: Concept
+          optional_when_subtypes_missing: 'true'
+      code_symbol_implements_concept:
+        description: >-
+          A CodeSymbol implements a Concept (the function /
+          class is the operational realization of the
+          Concept). Declared per umbrella D5 via a docstring
+          tag of the exact form `@implements_concept: <slug>`
+          on a line of the CodeSymbol's docstring. Edge
+          emission via the `code_symbol_implements_concept`
+          cross-link rule using `matcher: derive_from_path`
+          with regex extraction of the slug. NO inference:
+          near-miss tags emit nothing.
+        annotations:
+          edge_archetype: implements_concept
+          src_subtypes: CodeSymbol
+          dst_subtypes: Concept
+          optional_when_subtypes_missing: 'true'
+      experiment_concerns_concept:
+        description: >-
+          An Experiment concerns a Concept (the experiment
+          tests or characterizes the Concept). Edge emission
+          via the `experiment_concerns_concept` cross-link
+          rule reading the Experiment's `concerns` attribute.
+        annotations:
+          edge_archetype: concerns
+          src_subtypes: Experiment
+          dst_subtypes: Concept
+          optional_when_subtypes_missing: 'true'
+      observation_evidence_for_concept:
+        description: >-
+          An Observation provides evidence for a Concept
+          (the empirical record supports or characterizes
+          the Concept). Edge emission via the
+          `observation_evidence_for_concept` cross-link rule
+          reading the Observation's `evidence_for`
+          frontmatter field.
+        annotations:
+          edge_archetype: evidence_for
+          src_subtypes: Observation
+          dst_subtypes: Concept
+          optional_when_subtypes_missing: 'true'

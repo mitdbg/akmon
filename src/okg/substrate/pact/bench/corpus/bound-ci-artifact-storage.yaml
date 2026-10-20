@@ -1,0 +1,86 @@
+pact_version: 4
+target_pact_version: 4
+change:
+  id: bound-ci-artifact-storage
+  title: Bound CI artifact storage below the Actions quota
+  status: verification
+  tier: 1
+  rationale: Per-lane CI artifacts uploaded at 14-day retention accumulated past the
+    GitHub Actions included-storage quota around 2026-07-06; from then on every lane's
+    artifact upload failed ("Artifact storage quota has been hit"), so test-results-gate
+    downloaded zero ci-* artifacts and the junit INFRA-vs-REAL honesty analysis ran
+    blind for two weeks. Once this lands, a full retention window of per-lane artifacts
+    stays well under the quota.
+  root_cause: "16+ per-run lane artifacts at retention-days 14, multiplied by dozens\
+    \ of runs per day across worktree branches, accrue several GiB of live storage\
+    \ \u2014 above the plan's included allowance. The uploads are soft-fail by design,\
+    \ so exhaustion degraded evidence silently instead of breaking a lane."
+  method_metadata:
+    pact_shape: fast_path
+    fast_path: Compact PACT for small nontrivial work. Upgrade when scope, risk, hierarchy,
+      formal proof, graph evidence, or review complexity increases.
+  affected_areas:
+  - ci-infrastructure
+  affected_code:
+  - .github/workflows/test.yml
+requirements:
+- id: req.bound-ci-artifact-storage
+  title: A full retention window of CI artifacts fits under the storage quota
+  statement: Per-lane debugging artifacts (ci-*, code-quality raw reports, runner
+    metadata) must retain no more than 5 days, so the steady-state live artifact volume
+    at observed run rates stays well below the included Actions storage allowance
+    and lane-artifact uploads never silently degrade the test-results gate again.
+  evidence_policy:
+    required:
+    - executed_test
+  scenarios:
+  - id: scn.bound-ci-artifact-storage.fast-path
+    title: Retention bounds steady-state storage
+    given:
+    - the Tests workflow uploads per-lane artifacts on every run
+    when:
+    - runs accumulate for a full retention window at observed daily rates
+    then:
+    - live artifact storage stays below the included quota and uploads keep succeeding
+    and: []
+  acceptance:
+  - id: acc.bound-ci-artifact-storage
+    description: No artifact upload in .github/workflows/test.yml declares a retention
+      longer than 7 days, and every upload step retains its artifact declaration (workflow
+      lint still passes).
+    evidence:
+    - executed_test
+tasks:
+- id: task.bound-ci-artifact-storage
+  title: Shorten per-lane artifact retention from 14 to 5 days
+  status: done
+  verification: rg 'retention-days' .github/workflows/test.yml shows no value above
+    7; the workflow-lint lane (actionlint) accepts the edited workflow; the first
+    post-merge Tests run uploads ci-* artifacts successfully once the storage meter
+    recalculates.
+  requirements:
+  - req.bound-ci-artifact-storage
+  evidence: []
+  environment: []
+dependencies: []
+test_plan:
+- id: test.bound-ci-artifact-storage
+  requirement: req.bound-ci-artifact-storage
+  test_id: ci-artifact-retention-bound
+  command: python3 .scratch/check_retention_bound.py
+  evidence:
+  - executed_test
+formal: []
+waivers: []
+evidence:
+- id: ev.pytest.req-bound-ci-artifact-storage.20260721T063919598180Z
+  kind: pytest
+  status: pass
+  refs:
+  - req.bound-ci-artifact-storage
+  artifact: test.bound-ci-artifact-storage
+  command: python3 .scratch/check_retention_bound.py
+  summary: retention-days values [1, 5, 7] across 25 uploads in .github/workflows/test.yml;
+    max 7, per-lane ci-* artifacts now 5 days (was 14).
+  data:
+    attached_at: '2026-07-21T06:39:19.598499+00:00'

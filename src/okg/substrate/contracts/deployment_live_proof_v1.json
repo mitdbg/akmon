@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "okg.deployment.live_proof.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "ok", "deployment", "profile", "operation", "observation",
+    "release", "generations", "metrics", "runtime", "sources", "queues",
+    "nomos", "doctor", "readiness", "mcp", "query", "checks", "failures",
+    "evidence"
+  ],
+  "properties": {
+    "schema": {"const": "okg.deployment.live_proof.v1"},
+    "ok": {"type": "boolean"},
+    "deployment": {"type": "string", "minLength": 1},
+    "profile": {"const": "ci"},
+    "operation": {"type": "object"},
+    "observation": {
+      "type": "object",
+      "required": ["started_at", "completed_at", "duration_seconds", "max_seconds"],
+      "properties": {
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"},
+        "duration_seconds": {"type": "number", "minimum": 0},
+        "max_seconds": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "release": {"type": "object"},
+    "release_binding": {
+      "type": "object",
+      "required": ["bound", "reason"],
+      "properties": {
+        "bound": {"type": "boolean"},
+        "reason": {"enum": ["revision_matches_receipt",
+                            "revision_differs_from_receipt",
+                            "standalone_no_repository_revision",
+                            "revision_unavailable"]},
+        "release_kind": {"type": ["string", "null"]},
+        "observed_revision": {"type": ["string", "null"]},
+        "expected_revision": {"type": ["string", "null"]}
+      }
+    },
+    "generations": {
+      "type": "object",
+      "required": ["predecessor", "successor"],
+      "properties": {
+        "predecessor": {"type": "object"},
+        "successor": {"type": "object"}
+      }
+    },
+    "metrics": {"type": "object"},
+    "runtime": {"type": "object"},
+    "sources": {"type": "object"},
+    "queues": {"type": "object"},
+    "nomos": {"type": "object"},
+    "doctor": {"type": "object"},
+    "readiness": {
+      "type": "object",
+      "required": ["before", "after"],
+      "properties": {"before": {"type": "object"}, "after": {"type": "object"}}
+    },
+    "mcp": {"type": "object"},
+    "query": {"type": "object"},
+    "checks": {"type": "object", "additionalProperties": {"type": "boolean"}},
+    "failures": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "evidence": {"type": "array", "items": {"type": "object"}}
+  }
+}

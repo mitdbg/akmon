@@ -1,0 +1,580 @@
+id: https://palimpzest.mit.edu/okg/modules/code_graph
+name: code_graph
+title: "Code Graph — coding-agent context"
+description: >-
+  Source-code structure and deterministic coding-context facts for
+  okg-workspace deployments: symbols, imports, references, entrypoints,
+  data/config touchpoints, package manifests, and dependencies.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  codeg: https://palimpzest.mit.edu/okg/modules/code_graph/
+default_range: string
+imports:
+- linkml:types
+classes:
+
+  CodeSymbol:
+    description: A declared function, method, class, module, constant, or language-equivalent symbol.
+    class_uri: codeg:CodeSymbol
+    attributes:
+      symbol_id:
+        required: true
+      repo:
+        required: true
+      path:
+        required: true
+      language:
+        required: true
+      kind:
+        required: true
+      symbol_kind:
+      name:
+        required: true
+      qualified_name:
+        required: true
+      # `<repo>:<relative path>::<symbol>` -- the alias key. A bare
+      # `qualified_name` repeats across files, so it is not an alias
+      # (issue #1747).
+      scoped_qualified_name:
+      canonical_name:
+      semantic_key:
+      semantic_key_version:
+      module_name:
+      package_name:
+      container_key:
+      start_line:
+        range: integer
+      end_line:
+        range: integer
+      start_col:
+        range: integer
+      end_col:
+        range: integer
+      signature:
+      docstring:
+      parent_symbol_id:
+      lsp_symbol_kind:
+        range: integer
+      lsp_symbol_kind_name:
+      visibility:
+      is_exported:
+        range: boolean
+      is_deprecated:
+        range: boolean
+      definition_uri:
+      definition_range:
+      selection_range:
+      identity_provenance:
+      resolver:
+      resolver_version:
+      legacy_symbol_id:
+      lsp_spec_version:
+      lsp_method:
+      server_capability:
+      text:
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      okg_title_from: qualified_name
+      okg_path_from: path
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: scoped_qualified_name,symbol_id,path
+      okg_searchable_text_fields: qualified_name,canonical_name,semantic_key,module_name,signature,docstring,text
+
+  CodeImport:
+    description: An import or dependency reference observed in source code.
+    class_uri: codeg:CodeImport
+    attributes:
+      import_id:
+        required: true
+      repo:
+        required: true
+      path:
+        required: true
+      language:
+        required: true
+      module:
+        required: true
+      name:
+      alias:
+      kind:
+      start_line:
+        range: integer
+      end_line:
+        range: integer
+      start_col:
+        range: integer
+      end_col:
+        range: integer
+      resolved_to_path:
+      semantic_target_key:
+      resolution_kind:
+      resolution_method:
+      resolver:
+      resolver_version:
+      confidence:
+      lsp_spec_version:
+      lsp_method:
+      server_capability:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: module,name,alias,text
+
+  CodeReference:
+    description: A call, type reference, or symbol reference observed in source code.
+    class_uri: codeg:CodeReference
+    attributes:
+      reference_id:
+        required: true
+      repo:
+        required: true
+      path:
+        required: true
+      language:
+        required: true
+      name:
+        required: true
+      lexical_name:
+      qualified_name:
+      raw_qualified_name:
+      caller_qname:
+      reference_kind:
+      resolution_kind:
+      resolution_method:
+      resolver:
+      resolver_version:
+      confidence:
+      semantic_target_key:
+      semantic_enclosing_key:
+      unresolved_reason:
+      candidate_count:
+        range: integer
+      workspace_root:
+      workspace_fingerprint:
+      source_frontier:
+      lsp_spec_version:
+      lsp_method:
+      server_capability:
+      syntax_optional_chain:
+        range: boolean
+      enclosing_symbol_id:
+      start_line:
+        range: integer
+      end_line:
+        range: integer
+      start_col:
+        range: integer
+      end_col:
+        range: integer
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_searchable_text_fields: qualified_name,name,text
+
+  InterfaceEndpoint:
+    description: A deterministic project entrypoint such as a CLI command, MCP tool, API route, job handler, or scheduled task.
+    class_uri: codeg:InterfaceEndpoint
+    attributes:
+      endpoint_id:
+        required: true
+      repo:
+        required: true
+      kind:
+        required: true
+      name:
+        required: true
+      path:
+      method:
+      route:
+      handler:
+      handler_symbol_id:
+      start_line:
+        range: integer
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: name,endpoint_id
+      okg_searchable_text_fields: name,route,handler,text
+
+  DataAsset:
+    description: A deterministic data touchpoint such as a SQL relation, file path literal, queue/job kind, external API host, or cache namespace.
+    class_uri: codeg:DataAsset
+    attributes:
+      asset_id:
+        required: true
+      repo:
+        required: true
+      kind:
+        required: true
+      name:
+        required: true
+      scope:
+      access_kind:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: name,asset_id
+      okg_searchable_text_fields: name,kind,scope,text
+
+  ConfigKey:
+    description: An environment variable, settings key, feature flag, or manifest key read by project code.
+    class_uri: codeg:ConfigKey
+    attributes:
+      config_id:
+        required: true
+      repo:
+        required: true
+      key:
+        required: true
+      source_kind:
+        required: true
+      default_value:
+      required:
+        range: boolean
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: key,config_id
+      okg_searchable_text_fields: key,source_kind,text
+
+  MarkdownHeading:
+    description: A heading (#, ##, ###, …) extracted from a Markdown source_file. Carries the heading's text + depth + a slugified anchor so cross-file references (e.g. `README.md#installation`) can be linked at the heading level. Per `cleanup-personal-okg-data-quality` C1 item 5.
+    class_uri: codeg:MarkdownHeading
+    attributes:
+      heading_id:
+        required: true
+      repo:
+        required: true
+      path:
+        required: true
+      depth:
+        required: true
+        range: integer
+      text:
+        required: true
+      slug:
+        required: true
+      span_start:
+        range: integer
+      span_end:
+        range: integer
+    annotations:
+      okg_path_from: path
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: slug,heading_id
+      okg_searchable_text_fields: text,slug
+
+  DataFlowObservation:
+    description: An analyzer or deterministic-extractor finding that describes a data-flow source, sink, propagation path, or direct data touchpoint.
+    class_uri: codeg:DataFlowObservation
+    attributes:
+      observation_id:
+        required: true
+      repo:
+        required: true
+      tool:
+        required: true
+      rule_id:
+        required: true
+      language:
+        required: true
+      path:
+        required: true
+      flow_kind:
+        required: true
+      start_line:
+        range: integer
+        required: true
+      end_line:
+        range: integer
+        required: true
+      confidence:
+        required: true
+      tool_version:
+      rule_version:
+      message:
+      source_span:
+      sink_span:
+      path_steps:
+      access_kind:
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: observation_id,rule_id,path
+      okg_searchable_text_fields: rule_id,flow_kind,message,text
+
+  DataFlowStep:
+    description: One ordered step inside a data-flow observation path.
+    class_uri: codeg:DataFlowStep
+    attributes:
+      step_id:
+        required: true
+      observation_id:
+        required: true
+      index:
+        range: integer
+        required: true
+      kind:
+        required: true
+      path:
+        required: true
+      start_line:
+        range: integer
+        required: true
+      end_line:
+        range: integer
+        required: true
+      symbol_hint:
+      asset_hint:
+      message:
+      text:
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: step_id,observation_id
+      okg_searchable_text_fields: kind,symbol_hint,asset_hint,message,text
+
+  PackageManifest:
+    description: A dependency manifest file such as pyproject.toml, package.json, go.mod, or Cargo.toml.
+    class_uri: codeg:PackageManifest
+    attributes:
+      manifest_id:
+        required: true
+      repo:
+        required: true
+      path:
+        required: true
+      format:
+        required: true
+      package_name:
+      text:
+    annotations:
+      okg_title_from: package_name
+      okg_path_from: path
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: path,package_name,manifest_id
+      okg_searchable_text_fields: path,package_name,text
+
+  DependencyPackage:
+    description: A declared external dependency package.
+    class_uri: codeg:DependencyPackage
+    attributes:
+      package_id:
+        required: true
+      name:
+        required: true
+      ecosystem:
+        required: true
+      version_spec:
+      source:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: name,package_id
+      okg_searchable_text_fields: name,ecosystem,version_spec,text
+
+  EdgeNarrowings:
+    description: Intra-module and standard cross-module narrowings for code graph context.
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        contains: contains
+        calls: references
+        extends: references
+        overrides: references
+        implements: references
+        has_type: references
+        reads: references
+        writes: references
+        routes_to: references
+        exercises: references
+    attributes:
+      source_file_contains_code_symbol:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: SourceFile
+          dst_subtypes: CodeSymbol
+      source_file_contains_code_import:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: SourceFile
+          dst_subtypes: CodeImport
+      source_file_contains_code_reference:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: SourceFile
+          dst_subtypes: CodeReference
+      source_file_contains_package_manifest:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: SourceFile
+          dst_subtypes: PackageManifest
+      source_file_contains_markdown_heading:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: SourceFile
+          dst_subtypes: MarkdownHeading
+      source_file_contains_config_key:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: SourceFile
+          dst_subtypes: ConfigKey
+      markdown_heading_contains_markdown_heading:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: MarkdownHeading
+          dst_subtypes: MarkdownHeading
+      code_symbol_member_of_code_symbol:
+        annotations:
+          edge_archetype: member_of
+          src_subtypes: CodeSymbol
+          dst_subtypes: CodeSymbol
+      code_symbol_calls_code_symbol:
+        annotations:
+          edge_archetype: calls
+          src_subtypes: CodeSymbol
+          dst_subtypes: CodeSymbol
+      code_symbol_extends_code_symbol:
+        annotations:
+          edge_archetype: extends
+          src_subtypes: CodeSymbol
+          dst_subtypes: CodeSymbol
+      code_symbol_overrides_code_symbol:
+        annotations:
+          edge_archetype: overrides
+          src_subtypes: CodeSymbol
+          dst_subtypes: CodeSymbol
+      code_symbol_implements_code_symbol:
+        annotations:
+          edge_archetype: implements
+          src_subtypes: CodeSymbol
+          dst_subtypes: CodeSymbol
+      code_symbol_has_type_code_symbol:
+        annotations:
+          edge_archetype: has_type
+          src_subtypes: CodeSymbol
+          dst_subtypes: CodeSymbol
+      code_symbol_references_code_symbol:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CodeSymbol
+          dst_subtypes: CodeSymbol
+      code_reference_references_code_symbol:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CodeReference
+          dst_subtypes: CodeSymbol
+      code_reference_has_type_code_symbol:
+        annotations:
+          edge_archetype: has_type
+          src_subtypes: CodeReference
+          dst_subtypes: CodeSymbol
+      code_import_references_code_symbol:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CodeImport
+          dst_subtypes: CodeSymbol
+      code_import_references_dependency_package:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CodeImport
+          dst_subtypes: DependencyPackage
+      package_manifest_contains_dependency_package:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PackageManifest
+          dst_subtypes: DependencyPackage
+      interface_endpoint_routes_to_code_symbol:
+        annotations:
+          edge_archetype: routes_to
+          src_subtypes: InterfaceEndpoint
+          dst_subtypes: CodeSymbol
+      code_symbol_reads_data_asset:
+        annotations:
+          edge_archetype: reads
+          src_subtypes: CodeSymbol
+          dst_subtypes: DataAsset
+      code_symbol_writes_data_asset:
+        annotations:
+          edge_archetype: writes
+          src_subtypes: CodeSymbol
+          dst_subtypes: DataAsset
+      code_symbol_references_data_asset:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CodeSymbol
+          dst_subtypes: DataAsset
+      code_symbol_references_config_key:
+        annotations:
+          edge_archetype: references
+          src_subtypes: CodeSymbol
+          dst_subtypes: ConfigKey
+      data_flow_observation_contains_data_flow_step:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: DataFlowObservation
+          dst_subtypes: DataFlowStep
+      data_flow_observation_references_code_symbol:
+        annotations:
+          edge_archetype: references
+          src_subtypes: DataFlowObservation
+          dst_subtypes: CodeSymbol
+      data_flow_observation_references_data_asset:
+        annotations:
+          edge_archetype: references
+          src_subtypes: DataFlowObservation
+          dst_subtypes: DataAsset
+      data_flow_observation_references_config_key:
+        annotations:
+          edge_archetype: references
+          src_subtypes: DataFlowObservation
+          dst_subtypes: ConfigKey
+      data_flow_step_references_code_symbol:
+        annotations:
+          edge_archetype: references
+          src_subtypes: DataFlowStep
+          dst_subtypes: CodeSymbol
+      data_flow_step_references_data_asset:
+        annotations:
+          edge_archetype: references
+          src_subtypes: DataFlowStep
+          dst_subtypes: DataAsset
+      data_flow_step_references_config_key:
+        annotations:
+          edge_archetype: references
+          src_subtypes: DataFlowStep
+          dst_subtypes: ConfigKey
+      tool_use_event_affects_code_symbol:
+        annotations:
+          edge_archetype: affects
+          src_subtypes: ToolUseEvent
+          dst_subtypes: CodeSymbol
+      test_case_references_code_symbol:
+        annotations:
+          edge_archetype: references
+          src_subtypes: TestCase
+          dst_subtypes: CodeSymbol
+      test_case_exercises_code_symbol:
+        annotations:
+          edge_archetype: exercises
+          src_subtypes: TestCase
+          dst_subtypes: CodeSymbol
+      open_spec_change_references_code_symbol:
+        annotations:
+          edge_archetype: references
+          src_subtypes: OpenSpecChange
+          dst_subtypes: CodeSymbol

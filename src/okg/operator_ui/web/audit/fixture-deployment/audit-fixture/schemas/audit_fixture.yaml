@@ -1,0 +1,8 @@
+id: https://okg.dev/schemas/audit_fixture
+name: audit_fixture
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+default_range: string
+classes: {}

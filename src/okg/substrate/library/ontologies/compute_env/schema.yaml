@@ -1,0 +1,233 @@
+id: https://palimpzest.mit.edu/okg/modules/compute_env
+name: compute_env
+title: "Compute Environment Graph \u2014 machines, runtimes, MCP servers, remote hosts"
+description: 'The local compute environment a deployment runs in (host machine, language
+  runtimes, MCP server inventory) plus the remote hosts the agent has SSH''d into.
+  Two ingest sources: LocalEnvSource (probes the local machine) and RemoteHostsFromSessions
+  (mines ssh patterns from agent transcripts).'
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  ce: https://palimpzest.mit.edu/okg/modules/compute_env/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Machine:
+    description: A host the deployment's pipeline runs on. Identified by hostname
+      + os family. Identity is `machine:<hostname>`.
+    class_uri: ce:Machine
+    attributes:
+      hostname:
+        required: true
+      os_family:
+        required: true
+        description: OSFamily enum (darwin, linux, windows, other).
+      os_release:
+        description: e.g. "Darwin 24.6.0" or "Ubuntu 22.04".
+      arch:
+        description: CPU architecture (arm64, x86_64, etc.).
+    annotations:
+      archetype: resource
+      transient: 'false'
+  Runtime:
+    description: A language or tool runtime installed on a Machine (Python, Node,
+      git, etc.). Identity is `runtime:<machine>:<name>:<version>`.
+    class_uri: ce:Runtime
+    attributes:
+      name:
+        required: true
+        description: e.g. "python", "node", "git".
+      version:
+        required: true
+      executable_path:
+        description: Absolute path to the executable, if known.
+    annotations:
+      archetype: resource
+      transient: 'false'
+  MCPServer:
+    description: An MCP server configured for the deployment (from `~/.claude/settings.json`).
+      Identity is `mcp:<machine>:<name>`.
+    class_uri: ce:MCPServer
+    attributes:
+      name:
+        required: true
+        description: Short name from the settings.json key.
+      command:
+        description: Command line that launches the server.
+      transport:
+        description: "stdio | http | sse \u2014 the transport protocol."
+    annotations:
+      archetype: resource
+      transient: 'false'
+  RemoteHost:
+    description: A remote host the agent has SSH'd into. Mined from `ssh user@host`
+      patterns in agent session transcripts. Identity is `host:<hostname>`. Multiple
+      usernames may use the same host; we record observed usernames as a list.
+    class_uri: ce:RemoteHost
+    attributes:
+      hostname:
+        required: true
+      observed_usernames:
+        description: List of distinct usernames observed in `ssh user@host` patterns.
+      first_observed_at:
+        range: datetime
+      last_observed_at:
+        range: datetime
+    annotations:
+      archetype: resource
+      transient: 'false'
+  ComputeHost:
+    description: An external compute host monitored by the resource-monitor
+      collector (external_backed/collector.py) — the deployment's own VM and the
+      hosts in its runner pool. Carries an external-backed handle (`_external`)
+      over live resource metrics (cpu/memory/disk/reachability) stored outside
+      the pinned graph in TimescaleDB and hydrated at read time. Identity is
+      `host:<hostname>`.
+    class_uri: ce:ComputeHost
+    attributes:
+      label:
+        description: Human-readable host label (defaults to the host name).
+      host_target:
+        description: The probe target (an ssh destination, or "local") the
+          collector reaches this host through.
+    annotations:
+      archetype: resource
+      transient: 'false'
+  Capability:
+    description: A feature flag declaring something a Machine or RemoteHost offers
+      ("has GPU", "has CMSSW", "has CERN auth"). Hand-rolled per deployment via Tier
+      2 enrichers or asserted by config. Identity is `capability:<host>:<name>`.
+    class_uri: ce:Capability
+    attributes:
+      name:
+        required: true
+      value:
+        description: Free-form value (string, number, boolean as text).
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  ComputeJob:
+    description: |-
+      One unit of cluster computation (Slurm / HTCondor / local subprocess)
+      identified by `cluster` slug + cluster-issued `job_id`. Carries
+      submission and execution timing plus exit accounting. Lives in
+      `compute_env` per the `extend-substrate-experimental-with-compute-job-and-sources`
+      D1 decision: ComputeJob is about *where computation happened*, not
+      about the empirical design (which stays in `experimental`). Reusable
+      beyond experiments — CI workflows, ETL runs, periodic ingest can all
+      attach to ComputeJob nodes. Identity is `job:<cluster>:<job_id>`.
+    class_uri: ce:ComputeJob
+    attributes:
+      compute_job_id:
+        required: true
+        description: Canonical identity, conventional form `job:<cluster>:<job_id>`.
+      cluster:
+        required: true
+        description: Cluster slug — operator-supplied via deployment config
+          (e.g. `cluster01`, `gridlogin`, `local`). No hosts are hardcoded in
+          substrate code.
+      job_id:
+        required: true
+        description: Cluster-issued job identifier (Slurm job number, HTCondor
+          cluster.proc id, local subprocess PID, etc.).
+      submitted_at:
+        range: datetime
+        description: When the job was submitted to the cluster scheduler.
+      started_at:
+        range: datetime
+        description: When the cluster scheduler started executing the job.
+      finished_at:
+        range: datetime
+        description: When the job finished (success or failure).
+      wall_clock_seconds:
+        range: integer
+        description: Wall-clock duration in seconds.
+      exit_status:
+        range: integer
+        description: Cluster-reported exit code; non-zero indicates failure.
+      gpu_hours:
+        range: float
+        description: Optional GPU usage accounting (hours of GPU time consumed).
+      submit_script_ref:
+        description: Path to the submit script under version control (e.g.
+          `slurm/runs/kramabench-2026-05-15.sbatch`).
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the
+          pipeline's TimeResolver chain or promoted from `submitted_at`.
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the
+          pipeline's TimeResolver chain or promoted from `finished_at`.
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: compute_job_id,cluster,job_id
+      okg_searchable_text_fields: submit_script_ref
+      okg_created_at_from: submitted_at
+      okg_last_modified_at_from: finished_at
+  EdgeNarrowings:
+    description: Intra-module + cross-module edge narrowings for compute_env.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      machine_executes_session:
+        description: A machine ran an agent session.
+        annotations:
+          edge_archetype: executes
+          src_subtypes: Machine
+          dst_subtypes: AgentSession
+      machine_contains_runtime:
+        description: A machine has a runtime installed.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Machine
+          dst_subtypes: Runtime
+      machine_contains_mcp_server:
+        description: A machine has an MCP server configured.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Machine
+          dst_subtypes: MCPServer
+      remote_host_hosts_capability:
+        description: A remote host offers a capability.
+        annotations:
+          edge_archetype: hosts
+          src_subtypes: RemoteHost
+          dst_subtypes: Capability
+      machine_hosts_capability:
+        description: The local machine offers a capability.
+        annotations:
+          edge_archetype: hosts
+          src_subtypes: Machine
+          dst_subtypes: Capability
+      session_references_remote_host:
+        description: An agent session SSH'd into a remote host.
+        annotations:
+          edge_archetype: references
+          src_subtypes: AgentSession
+          dst_subtypes: RemoteHost
+      machine_executes_compute_job:
+        description: The local machine executed a cluster/local compute job. Mirrors
+          `machine_executes_session` for cluster work.
+        annotations:
+          edge_archetype: executes
+          src_subtypes: Machine
+          dst_subtypes: ComputeJob
+      remote_host_executes_compute_job:
+        description: A remote host (typically a cluster login/compute node) executed
+          a compute job submitted from the local deployment.
+        annotations:
+          edge_archetype: executes
+          src_subtypes: RemoteHost
+          dst_subtypes: ComputeJob

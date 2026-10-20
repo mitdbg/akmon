@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://palimpzest.mit.edu/okg/schemas/plan.schema.json",
+  "title": "OKG reconcile plan (plan.yaml)",
+  "description": "Author-provided actions for non-additive ontology changes. Emitted by `okg catalog load --plan-out`; applied by `okg catalog load --reconcile`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reconcile"],
+  "properties": {
+    "reconcile": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {"$ref": "#/$defs/remove_narrowing"},
+          {"$ref": "#/$defs/remove_subtype"},
+          {"$ref": "#/$defs/remove_edge_type"},
+          {"$ref": "#/$defs/rename_subtype"},
+          {"$ref": "#/$defs/rename_edge_type"},
+          {"$ref": "#/$defs/tighten_attribute"}
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "remove_narrowing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change", "parent", "edge", "child", "violators", "action"],
+      "properties": {
+        "change":    {"const": "remove_narrowing"},
+        "parent":    {"type": "string"},
+        "edge":      {"type": "string"},
+        "child":     {"type": "string"},
+        "violators": {"type": "integer", "minimum": 0},
+        "action":    {"enum": ["retract", "keep_with_widened_narrowing", "abort"]}
+      }
+    },
+    "remove_subtype": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change", "subtype", "violators", "action"],
+      "properties": {
+        "change":    {"const": "remove_subtype"},
+        "subtype":   {"type": "string"},
+        "violators": {"type": "integer", "minimum": 0},
+        "action":    {"enum": ["apply", "retract", "require_prior_retraction", "abort"]}
+      }
+    },
+    "remove_edge_type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change", "edge_type", "violators", "action"],
+      "properties": {
+        "change":    {"const": "remove_edge_type"},
+        "edge_type": {"type": "string"},
+        "violators": {"type": "integer", "minimum": 0},
+        "action":    {"enum": ["apply", "retract", "require_prior_retraction", "abort"]}
+      }
+    },
+    "rename_subtype": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change", "from", "to", "violators", "action"],
+      "properties": {
+        "change":    {"const": "rename_subtype"},
+        "from":      {"type": "string"},
+        "to":        {"type": "string"},
+        "violators": {"type": "integer", "minimum": 0},
+        "action":    {"enum": ["rename", "abort"]}
+      }
+    },
+    "rename_edge_type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change", "from", "to", "violators", "action"],
+      "properties": {
+        "change":    {"const": "rename_edge_type"},
+        "from":      {"type": "string"},
+        "to":        {"type": "string"},
+        "violators": {"type": "integer", "minimum": 0},
+        "action":    {"enum": ["rename", "abort"]}
+      }
+    },
+    "tighten_attribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change", "subtype", "attribute", "violators", "action"],
+      "properties": {
+        "change":    {"const": "tighten_attribute"},
+        "subtype":   {"type": "string"},
+        "attribute": {"type": "string"},
+        "violators": {"type": "integer", "minimum": 0},
+        "action":    {"enum": ["retract", "keep_with_relaxed_constraint", "abort"]}
+      }
+    }
+  }
+}

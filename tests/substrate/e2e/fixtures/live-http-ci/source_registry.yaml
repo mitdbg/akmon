@@ -1,0 +1,93 @@
+# One source: the machine the test runs on.
+#
+# `compute_env`'s LocalEnvSource already probes hostname, OS family, OS
+# release and architecture and mints `machine:<hostname>`. Reusing it is the
+# point -- this change adds no source adapter, because a second live system
+# that needed one would not be testing the adapter's genericity.
+#
+# The source also emits `mcp_server` nodes from `~/.claude/settings.json`.
+# That is an inventory of the operator's own tooling and has no part in "what
+# is my machine doing", so it is left OUT of the admission policy below
+# rather than stored and ignored. An emission with no clause is refused by
+# name at ingest, which is the behaviour wanted: the omission is visible.
+sources:
+  local-env:
+    module: okg.substrate.library.sources.compute_env_local
+    class: LocalEnvSource
+    ownership_id: live-http-ci.local-env
+    params:
+      repo: okg
+      # Pointed at a path that does not exist, deliberately. The default is
+      # `~/.claude/settings.json`; reading it here would pull the operator's
+      # MCP server inventory into a demo graph for no reader. The source
+      # treats an unreadable settings file as "no MCP servers", which is the
+      # honest answer to a question this deployment never asks.
+      settings_path: tests/substrate/e2e/fixtures/live-http-ci/no-such-settings.json
+
+    source_class: reference_catalog
+    record_identity_kind: domain_key
+    record_identity_fields: [repo, node_id]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    admission_policy:
+      producer_id: live-http-ci.local-env
+      producer_kind: source
+      trust_label: repo-local-trusted
+      admission_mode: fast_track
+      authority_scope:
+        source_family: live_http_ci_local_env
+      allowed_record_kinds:
+        - node
+        - edge
+      output_signature:
+        nodes:
+          - subtype: machine
+            id_prefix: "machine:"
+            clause_id: live_http_ci.local_env.machine
+          - subtype: runtime
+            id_prefix: "runtime:"
+            clause_id: live_http_ci.local_env.runtime
+        edges:
+          - src_subtype: machine
+            edge_type: contains
+            dst_subtype: runtime
+            clause_id: live_http_ci.local_env.machine_contains_runtime
+      policy_clauses:
+        - id: live_http_ci.local_env.machine
+          effect: allow
+          record_kind: node
+          subtype: machine
+        - id: live_http_ci.local_env.runtime
+          effect: allow
+          record_kind: node
+          subtype: runtime
+        - id: live_http_ci.local_env.machine_contains_runtime
+          effect: allow
+          record_kind: edge
+          triple: [machine, contains, runtime]
+      output_scope_summary:
+        nodes:
+          - machine
+          - runtime
+        edges:
+          - machine contains runtime
+        scope: "The local machine's identity and installed runtimes; never its telemetry"
+    sync:
+      # LocalEnvSource probes the host as one current snapshot. There is no
+      # path key that stands for a partial machine probe, so no event trigger.
+      triggers: [poll, manual, reconcile]
+      default_event_mode: release_new
+      reconcile_mode: release_new
+      deletes_require_reconcile: true
+      cheap_probe: ttl
+      dependents:
+        on_event: none
+        on_reconcile: none
+      poll:
+        probe: change_probe
+        # A host's name and runtime set change on the order of days.
+        # The telemetry that changes by the second is not stored at all: it
+        # is read live, through the two relations, at the moment it is asked
+        # for. That split is the whole design.
+        interval_seconds: 3600

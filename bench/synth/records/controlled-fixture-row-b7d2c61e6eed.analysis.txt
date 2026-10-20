@@ -1,0 +1,80 @@
+Controlled fixture  (22 updates, history 6acc07903b1ff29a, manifest 8061128484ff195d)
+  every cell below is READ from run output; see .provenance in the JSON
+
+  DETECTION (at each mode's final published generation)
+    mode              recall cond   recall e2e    prec cond     prec e2e
+    complete                75.0%        57.1%        50.0%        50.0%
+                       detected 3/4 (conditional), 4/7 (end-to-end); flagged 8 bucket(s), 4 false positive(s)
+                       ENGINE precision 100.0% (4/4, 0 engine FP) vs RAW 50.0% (4/8) — neither replaces the other
+    dependency_only         75.0%        57.1%        50.0%        50.0%
+                       detected 3/4 (conditional), 4/7 (end-to-end); flagged 8 bucket(s), 4 false positive(s)
+                       ENGINE precision 100.0% (4/4, 0 engine FP) vs RAW 50.0% (4/8) — neither replaces the other
+    differential            75.0%        57.1%        50.0%        50.0%
+                       detected 3/4 (conditional), 4/7 (end-to-end); flagged 8 bucket(s), 4 false positive(s)
+                       ENGINE precision 100.0% (4/4, 0 engine FP) vs RAW 50.0% (4/8) — neither replaces the other
+
+  FLAGGED-BUCKET ATTRIBUTION (exact mode, every flagged bucket)
+    true_positive              allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783
+      channels definite; 3 claim(s): wuckert783_kam191_emerita401__discharge_summary.md=present; wuckert783_kam191_emerita401__medication_list.md=denied; wuckert783_kam191_emerita401__referral_letter.md=present
+      carries a corruption the history declares LIVE at this step
+    true_positive              body_height:patient_domenica436_sharen57_barrows492
+      channels definite; 2 claim(s): barrows492_domenica436_sharen57__discharge_summary.md=81.1 cm; barrows492_domenica436_sharen57__referral_letter.md=164.0 cm
+      carries a corruption the history declares LIVE at this step
+    roster_artifact            body_mass_index:patient_domenica436_sharen57_barrows492
+      channels definite; 3 claim(s): barrows492_domenica436_sharen57__clinic_note.md=30.1 kg/m2; barrows492_domenica436_sharen57__referral_letter.md=30.1 kg/m2; update_15_fresh.md=34.6 kg/m2
+      sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it
+    roster_artifact            body_mass_index:patient_katia630_guillermina633_berge125
+      channels definite; 3 claim(s): berge125_katia630_guillermina633__discharge_summary.md=27.7 kg/m2; berge125_katia630_guillermina633__referral_letter.md=27.7 kg/m2; update_13_fresh.md=31.9 kg/m2
+      sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it
+    true_positive              body_weight:patient_katia630_guillermina633_berge125
+      channels definite; 3 claim(s): berge125_katia630_guillermina633__clinic_note.md=77.2 kg; berge125_katia630_guillermina633__discharge_summary.md=77.2 kg; berge125_katia630_guillermina633__referral_letter.md=170.2 kg
+      carries a corruption the history declares LIVE at this step
+    true_positive              body_weight:patient_merideth332_leola603_dickinson688
+      channels definite; 2 claim(s): dickinson688_merideth332_leola603__discharge_summary.md=32.9 kg; dickinson688_merideth332_leola603__referral_letter.md=23.9 kg
+      carries a corruption the history declares LIVE at this step
+    roster_artifact            total_cholesterol:patient_deeann517_nader710
+      channels definite; 4 claim(s): nader710_deeann517__clinic_note.md=178.0 mg/dL; nader710_deeann517__discharge_summary.md=178.0 mg/dL; nader710_deeann517__referral_letter.md=178.0 mg/dL; update_19_fresh.md=204.7 mg/dL
+      sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it
+    roster_artifact            total_cholesterol:patient_domenica436_sharen57_barrows492
+      channels definite; 5 claim(s): barrows492_domenica436_sharen57__clinic_note.md=166.4 mg/dL; barrows492_domenica436_sharen57__discharge_summary.md=166.4 mg/dL; barrows492_domenica436_sharen57__referral_letter.md=166.4 mg/dL; update_00_fresh.md=191.4 mg/dL; update_01_increment.md=141.4 mg/dL
+      sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it
+    flagged 8 bucket(s); the sealed per-step gold declares 8 conflicted; 8 in common
+
+  GOLD-CORRECTION RESTORATION
+    complete         repaired    2   mis_repaired    0
+    dependency_only  repaired    2   mis_repaired    0
+    differential     repaired    2   mis_repaired    0
+
+  EXACT-MODE PARITY + QUALIFICATION
+    verdicts        {'EQUAL': 3, 'EQUAL-with-certified-differences': 19} over 22 update(s)
+    certified at    [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
+    silent diverge  0
+    qualified       True — the corpus plants no mandatory violation
+    unsound reuses  0  (evidence, not absence: 5 safety mutation(s) below)
+      dependency_fact_mutated      update 2   certificate for 'claim_source:barrows492_domenica436_sharen57__clinic_note.md' invalidated on ['constraint_set', 'input_digests']; 36 step(s) RAN
+      effects_envelope_violated    update 2   producer 'claim_source' violated its envelope; the pass DISCARDED into complete execution rather than approving a skip
+      prior_result_deleted         update 4   the stored prior result for 'barrows492_domenica436_sharen57__clinic_note.md' was gone; the executor REFUSED to publish a state that quietly drops the step's output
+      certificate_row_corrupted    update 2   the stored certificate for 'claim_source:barrows492_domenica436_sharen57__clinic_note.md' was tampered with after write; the store recomputed its digest on read and REFUSED the row
+      vacuous_change_statement     update 0   an EMPTY change statement made the ladder approve a skip for every reached step on a FIRST publish; the executor refused to absorb an update with no prior generation to carry forward
+
+  ACTION COST (work ledger x sealed action prices)
+    mode              steps run   skipped  publishes   extract     check        spent
+    complete                878         0         22       812       376        $0.00
+    dependency_only         120         0         22        54       376        $0.00
+    differential             96       764         16        48       217        $0.00
+    UNPRICED CORPUS: the $0.00 column is not a measured tie — this corpus seals no
+    action prices, so the comparison above is the ACTION COUNTS.
+    dependency_only bills 506 priced action(s), 25.0% of complete execution's 2022
+    differential bills 329 priced action(s), 16.3% of complete execution's 2022
+      exact-mode skip cause: certificate_degenerate_unchanged                47
+      exact-mode skip cause: certificate_valid                              711
+      exact-mode skip cause: skip_dominance                                   5
+      exact-mode skip cause: skip_justified                                   1
+
+  ERROR COST
+    remaining (unbudgeted)  $5.00 over 5 unresolved corruption(s); mandatory unresolved 0
+      extraction          $0.00  0 corruption(s)
+      detection           $3.00  3 corruption(s)
+      repair              $2.00  2 corruption(s)
+    remaining_at_declared_budgets DEFERRED — gated on concord-disclosure-budget / task.budget.gate (status: blocked)
+    disclosure_misses        DEFERRED — gated on concord-disclosure-budget / task.budget.gate (status: blocked)

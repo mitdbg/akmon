@@ -1,0 +1,179 @@
+id: https://palimpzest.mit.edu/okg/modules/literature
+name: literature
+title: Literature Graph — sentence-indexed paper abstracts from frozen corpora
+description: |-
+  Scientific-literature papers ingested from operator-frozen local
+  corpus snapshots (the paper_abstracts source over a corpus.jsonl of
+  sentence-indexed abstracts, e.g. the SciFact 5,183-abstract corpus).
+  Three subtypes: Paper, AbstractSentence, Concept. Three narrowings
+  cover exactly the edges the source emits: paper contains
+  abstract_sentence, abstract_sentence mentions concept, paper
+  shares_concept paper.
+
+  ANSWER UNIT. SciFact's gold evidence is a set of
+  (doc_id, sentence_index) pairs plus a SUPPORT/CONTRADICT verdict, so
+  the sentence — not the paper — is the unit the benchmark scores.
+  Earlier revisions of this module carried one subtype and stated that
+  "the source emits no edges, so the module declares no narrowings",
+  leaving sentence identity to "live in the corpus file". That doctrine
+  is overturned by `okg-corpus-design`: INGESTING IS NOT PRESUPPOSING.
+  The per-sentence `abstract` array is structure the PUBLISHER put in
+  the artifact; reading it is ingesting the source, and collapsing it
+  into a joined blob discarded exactly the index the benchmark scores
+  on. Sentence identity is therefore in the graph, addressable as
+  sentence:<repo>:<doc_id>:<index> from a gold pair alone.
+
+  DERIVED STRUCTURE. Concept and its two relations are DERIVED, not
+  read off the artifact, and are declared as such: the paper_abstracts
+  source bands terms by paper document frequency (>= 2 papers, <= 2%
+  of the corpus) over abstract text alone — no LLM, no embeddings, and
+  never claims or gold labels — so "which papers address this claim"
+  and "which papers disagree" are traversals rather than substring
+  scans. NOTE: the substrate also ships a `concepts` module owning a
+  differently-shaped `Concept` (operator-authored, embedding-driven).
+  The two are alternative populations of the same subtype name; a
+  deployment composes one or the other, not both.
+
+  Per `okg-bench-domain-adapters` (2026-07-27) and
+  `okg-corpus-literature` req.lit.sentence / req.lit.structure
+  (2026-07-28).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  literature: https://palimpzest.mit.edu/okg/modules/literature/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Paper:
+    description: |-
+      One paper from a frozen abstract corpus. Conventionally
+      node id paper:<repo>:<doc_id> (repo names the corpus, e.g.
+      allenai/scifact); the okg-bench scifact adapter's doc_ids
+      resolve onto these nodes.
+    class_uri: literature:Paper
+    attributes:
+      doc_id:
+        required: true
+        description: "The corpus document identifier, e.g. 4983."
+      title:
+        required: true
+      sentence_count:
+        required: true
+        range: integer
+        description: |-
+          Number of sentences in the abstract, equal to the number of
+          AbstractSentence children reachable by `contains`.
+      abstract:
+        description: |-
+          The abstract's sentences joined with spaces, truncated to
+          ~4000 chars; `truncated` records whether truncation applied.
+          A bounded excerpt for display only — the addressable text is
+          on the AbstractSentence children.
+      truncated:
+        range: boolean
+        description: True when the joined abstract exceeded the
+          truncation bound and was cut.
+      structured:
+        range: boolean
+        description: Whether the upstream corpus marks the abstract
+          as structured.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  AbstractSentence:
+    description: |-
+      One sentence of one abstract — the unit SciFact's gold names.
+      Conventionally node id sentence:<repo>:<doc_id>:<sentence_index>,
+      derivable from a gold (doc_id, sentence_index) pair without a
+      lookup and stable across runs.
+
+      `sentence_index` is the zero-based position in the RELEASED
+      `abstract` array, never a re-split of joined text: sentence N is
+      element N as the publisher shipped it.
+    class_uri: literature:AbstractSentence
+    attributes:
+      doc_id:
+        required: true
+        description: |-
+          The owning paper's corpus document identifier, carried on the
+          sentence so the gold pair resolves without a join.
+      sentence_index:
+        required: true
+        range: integer
+        description: Zero-based position in the released abstract array.
+      text:
+        required: true
+        description: |-
+          The sentence as released, truncated to ~4000 chars;
+          `truncated` records whether truncation applied.
+      truncated:
+        range: boolean
+        description: True when the sentence exceeded the truncation
+          bound and was cut.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Concept:
+    description: |-
+      One salient corpus term, derived deterministically from abstract
+      text. Conventionally node id concept:<repo>:<term>.
+
+      A term becomes a Concept only inside a document-frequency band:
+      held by at least 2 papers (below that it links nothing) and at
+      most 2% of the corpus (above that it is corpus-generic English or
+      generic scientific vocabulary and would link everything to
+      everything). `document_frequency` records where in the band the
+      term fell, so the ranking is auditable from the published
+      generation rather than trusted.
+    class_uri: literature:Concept
+    attributes:
+      term:
+        required: true
+        description: |-
+          The lowercased term (four or more characters, letters,
+          digits and interior hyphens).
+      document_frequency:
+        required: true
+        range: integer
+        description: Number of papers in the snapshot whose abstract
+          contains the term.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  EdgeNarrowings:
+    description: |-
+      Edge narrowings emitted by the literature module. Three triples,
+      matching exactly what the paper_abstracts source emits: the
+      source-carried containment, and the two derived concept
+      relations required by `okg-corpus-literature` req.lit.structure.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      paper_contains_abstract_sentence:
+        description: |-
+          A Paper contains its abstract's sentences, one edge per
+          element of the released abstract array.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Paper
+          dst_subtypes: AbstractSentence
+      abstract_sentence_mentions_concept:
+        description: |-
+          A sentence mentions a banded Concept. Derived
+          deterministically from the sentence's own text, capped at
+          the 8 rarest concepts per sentence.
+        annotations:
+          edge_archetype: mentions
+          src_subtypes: AbstractSentence
+          dst_subtypes: Concept
+      paper_shares_concept_paper:
+        description: |-
+          Two Papers share a Concept held by at most 8 papers. Pair
+          ordered by node id so each pair appears once; the edge
+          carries `shared_concept_count`. This is the one literature
+          shape that makes cross-paper agreement a traversal.
+        annotations:
+          edge_archetype: shares_concept
+          src_subtypes: Paper
+          dst_subtypes: Paper

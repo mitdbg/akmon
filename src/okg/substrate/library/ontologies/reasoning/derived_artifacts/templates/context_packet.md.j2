@@ -1,0 +1,94 @@
+{#- Engram Research Context Packet template.
+
+    Matches the section structure documented in
+    `Engram/docs/okg-context-packet.md`:
+      Problem Class / Design Principles / Mechanisms To Try /
+      Trade-Off Map / Experiment Advice / Anti-Patterns /
+      Evidence Index.
+
+    Section variables are passed in by the renderer
+    (`render_context_packet`) and are lists of dicts already
+    sorted by strength desc then observed_at desc. Empty sections
+    render an "(none indexed)" sentinel rather than an empty
+    bullet list so a downstream agent can see at a glance which
+    sections the graph has coverage on.
+
+    Evidence ids on each entry's `Evidence:` line are real
+    `node_id` values — agents can call back through MCP
+    (`inspect(target={"kind":"node", "node_id":...})`) to
+    inspect them.
+-#}
+# Research Context Packet
+
+**Problem:** {{ problem_name }}
+**Domain:** {{ domain }}
+**Topics:** {{ topic_slugs | join(', ') }}
+**Generation:** {{ generation_id }}
+
+## Problem Class
+
+{{ problem_class_summary(problem_name, domain) }}
+
+## Design Principles
+
+{% if design_principles -%}
+{% for p in design_principles -%}
+- {{ p.statement or '(no statement)' }}
+  - Why it matters: {{ p.why_it_matters or '(unrecorded)' }}
+  - Evidence: {{ (p.evidence_ids or []) | join(', ') or '(none linked)' }}
+{% endfor %}
+{%- else -%}
+- (none indexed for these topics in this generation)
+{%- endif %}
+
+## Mechanisms To Try
+
+{% if mechanisms -%}
+{% for m in mechanisms -%}
+- {{ m.name or '(unnamed mechanism)' }}
+  - Applicability: {{ m.applicability or '(unrecorded)' }}
+  - Known limits: {{ m.known_limits or '(unrecorded)' }}
+  - Evidence: {{ (m.evidence_ids or []) | join(', ') or '(none linked)' }}
+{% endfor %}
+{%- else -%}
+- (none indexed for these topics in this generation)
+{%- endif %}
+
+## Trade-Off Map
+
+{% if trade_offs -%}
+{% for t in trade_offs -%}
+- {{ t.objective_a or '(A)' }} vs {{ t.objective_b or '(B)' }}
+  - Tension: {{ t.tension or '(unrecorded)' }}
+  - Failure modes: {{ t.failure_modes or '(unrecorded)' }}
+  - Evidence: {{ (t.evidence_ids or []) | join(', ') or '(none linked)' }}
+{% endfor %}
+{%- else -%}
+- (none indexed for these topics in this generation)
+{%- endif %}
+
+## Experiment Advice
+
+{{ experiment_advice(problem_name, domain) }}
+
+## Anti-Patterns
+
+{% if anti_patterns -%}
+{% for a in anti_patterns -%}
+- {{ a.approach or '(unnamed approach)' }}
+  - Why it tends to fail: {{ a.why_it_tends_to_fail or '(unrecorded)' }}
+  - Evidence: {{ (a.evidence_ids or []) | join(', ') or '(none linked)' }}
+{% endfor %}
+{%- else -%}
+- (none indexed for these topics in this generation)
+{%- endif %}
+
+## Evidence Index
+
+{% if evidence -%}
+{% for e in evidence -%}
+- {{ e.node_id }}: {{ e.kind or 'evidence' }} — {{ e.statement or '(no statement)' }}
+{% endfor %}
+{%- else -%}
+- (no evidence nodes match these topics in this generation)
+{%- endif %}

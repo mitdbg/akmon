@@ -1,0 +1,1333 @@
+schema: okg.external_action_review.hash_vectors/v1
+construction: sha256(UTF-8(domain) || 0x00 || UTF-8(RFC-8785-JCS(value)))
+timestamp_format: YYYY-MM-DDTHH:MM:SS.ffffffZ
+key_fixture_safety: deterministic_public_test_material_only_never_valid_in_any_deployment
+signing_key_fixtures:
+- kid: support-prod/epoch/genesis
+  purpose: execution_epoch_lease
+  private_seed_b64: d1Gyvwhu5jsfu7pMr40pNZym8bdUTGz2HH4yFfnjH9c
+  public_key_b64: 8VHU0K13eJ2OTJv1QhEZkUrrU9qg5QO109tYDlw0QbM
+- kid: support-prod/epoch/17
+  purpose: execution_epoch_lease
+  private_seed_b64: UvSlCIBruV4OkdWVHqTmCiLVBHnapfzwylbdgA4R7wA
+  public_key_b64: ajVzoXiASs5YlRmIePMDOnt0tctq3RAob0DIJstwm5U
+- kid: support-prod/epoch/18
+  purpose: execution_epoch_lease
+  private_seed_b64: u2BIPZUYOJztV55q2SWo7GwrG8zYaWZI1Rw4AjkvRJk
+  public_key_b64: kx5jhiyBNiiTbXv4YkMMjrUgDxWIsZ0i8DhY2FHOJzU
+- kid: support-prod/epoch/19
+  purpose: execution_epoch_lease
+  private_seed_b64: UyalXtD7hs6n7bHwAZIlVYq3CPEI4kqcF7M5e8KHqnU
+  public_key_b64: eASCrpP2xnlBZ7-ZfX0uGjs4zcWitf-bWQ8-zoS9rJg
+- kid: support-prod/okg-review/v1
+  purpose: claim_and_restore_completion
+  private_seed_b64: N30By-Z7C25NFR0bWKI6fwIP0kSRiDzXvke2G8Tqf20
+  public_key_b64: PyPRgHeuUjCsmA1UF7H2pcbX227Hh7YQftAeW1Ixdqs
+- kid: support-prod/effect-ledger/v1
+  purpose: ledger_fence
+  private_seed_b64: KdhcIfkE44gJhlwrQNnE-_1KA7FK9Xi6YdzAgEsUOn0
+  public_key_b64: hZg2VZGBnsVDgF2rAuBoMMOJm_tlkv7pyFzbld3zjb8
+- kid: support-prod/worker-control/v1
+  purpose: worker_quiescence
+  private_seed_b64: cIhydaFLvbzHuH22IUp03pTgSSoVyb_Cen05yQ4E47c
+  public_key_b64: Nvg_2T4VUsiA0CTnRig-n1T6RAtNZ_HFSru12Uinr4U
+- kid: support-prod/provider-authority/v1
+  purpose: provider_authority_fence
+  private_seed_b64: eJOyeJSEXClfvhPAvfZWRg2H2tejiW1zGyHdX0hXBfU
+  public_key_b64: LGROSj22b8weShSoe1HEnQ5vKBF04x6ktzU0KtJwj2A
+- kid: support-prod/worker-checkpoint/v1
+  purpose: worker_checkpoint
+  private_seed_b64: zQeYH8qBmrAyzvTL8r315H7uuRbDg5natlWE7jYNoBs
+  public_key_b64: VPLSzvaJdnEs4KfYSQ-Yyqz5emz-FHwaBEFWdTD44c4
+- kid: support-prod/restore-operator/v1
+  purpose: restore_attestation
+  private_seed_b64: 5pXg7DVOt5bZX_s-pDBSDUIPUjIa-aF36FA5r0VSYAY
+  public_key_b64: L3RrN1vxl3aay23f2m78y1U874zh3H_PutRIypkINsQ
+- kid: support-prod/owner-attester/v1
+  purpose: owner_unavailability_attestation
+  private_seed_b64: r9ilSEG1nkM2aWt1aNmsdgUeNhULOukP2CEk6c0KgWw
+  public_key_b64: JpJG03kGkchDRSuZk3N6glVrsMZdxam2vKmbcLXj5gQ
+vectors:
+- id: payload_original
+  domain: okg-external-action-payload-v1
+  value:
+    ticket: T-42
+    status: resolved
+    comment: Deploy build 417
+  canonical_jcs: '{"comment":"Deploy build 417","status":"resolved","ticket":"T-42"}'
+  digest: sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a
+- id: payload_edited
+  domain: okg-external-action-payload-v1
+  value:
+    ticket: T-42
+    status: pending
+    comment: Deploy build 417 after final verification
+  canonical_jcs: '{"comment":"Deploy build 417 after final verification","status":"pending","ticket":"T-42"}'
+  digest: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+- id: action_schema
+  domain: okg-external-action-schema-v1
+  value:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    additionalProperties: false
+    properties:
+      comment:
+        maxLength: 120
+        type: string
+      status:
+        enum:
+        - pending
+        - resolved
+      ticket:
+        pattern: ^T-[0-9]+$
+        type: string
+    required:
+    - comment
+    - status
+    - ticket
+    type: object
+  canonical_jcs: '{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"comment":{"maxLength":120,"type":"string"},"status":{"enum":["pending","resolved"]},"ticket":{"pattern":"^T-[0-9]+$","type":"string"}},"required":["comment","status","ticket"],"type":"object"}'
+  digest: sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522
+- id: executor_contract
+  domain: okg-external-action-executor-contract-v1
+  value:
+    journal_protocol: okg-external-action-worker-journal/v1
+    provider_replay_mode: lookup_or_idempotent_retry
+    worker_protocol: okg-external-action-worker/v1
+  canonical_jcs: '{"journal_protocol":"okg-external-action-worker-journal/v1","provider_replay_mode":"lookup_or_idempotent_retry","worker_protocol":"okg-external-action-worker/v1"}'
+  digest: sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632
+- id: payload_renderer
+  domain: okg-external-action-payload-renderer-v1
+  value:
+    body: canonical_payload_bytes
+    method: PATCH
+    operation: ticket.update
+    target: target_ref
+    version: 1
+  canonical_jcs: '{"body":"canonical_payload_bytes","method":"PATCH","operation":"ticket.update","target":"target_ref","version":1}'
+  digest: sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600
+- id: governed_tool_binding_projection
+  domain: okg-external-action-governed-tool-binding-v1
+  value:
+    definition_digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+    binding_id: ticket-update
+    connection_ref:
+      owner: support
+      id: ticket-api
+      kind: provider-connection
+      version: null
+      digest: null
+    enabled: true
+    config: {}
+    readiness_policy: required
+    refresh_identity: ticket-update-v1
+    required_capabilities:
+    - ticket.update
+    binding_kind: tool
+    tool_ref:
+      owner: support
+      id: ticket-update
+      kind: tool
+      version: null
+      digest: null
+  canonical_jcs: '{"binding_id":"ticket-update","binding_kind":"tool","config":{},"connection_ref":{"digest":null,"id":"ticket-api","kind":"provider-connection","owner":"support","version":null},"definition_digest":"sha256:2222222222222222222222222222222222222222222222222222222222222222","enabled":true,"readiness_policy":"required","refresh_identity":"ticket-update-v1","required_capabilities":["ticket.update"],"tool_ref":{"digest":null,"id":"ticket-update","kind":"tool","owner":"support","version":null}}'
+  digest: sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde
+- id: provider_operation_descriptor
+  domain: okg-external-action-provider-operation-v1
+  value:
+    operation_id: ticket.update
+    effect_kind: write
+    effect_phase: execute
+    required_capabilities:
+    - ticket.update
+    request_media_type: application/json
+    executor_contract_digest: sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632
+    payload_renderer_digest: sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600
+    provider_replay_mode: lookup_or_idempotent_retry
+  canonical_jcs: '{"effect_kind":"write","effect_phase":"execute","executor_contract_digest":"sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632","operation_id":"ticket.update","payload_renderer_digest":"sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600","provider_replay_mode":"lookup_or_idempotent_retry","request_media_type":"application/json","required_capabilities":["ticket.update"]}'
+  digest: sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e
+- id: action_contract
+  domain: okg-external-action-contract-v1
+  value:
+    action_type: support.ticket.update/v1
+    action_schema_digest: sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522
+    executor_contract_digest: sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632
+    payload_renderer_digest: sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600
+    governed_tool_binding_ref: support:tool:ticket-update
+    governed_tool_binding_digest: sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde
+    provider_connection_ref: support:provider-connection:ticket-api
+    provider_connection_contract_digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    provider_capability_digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+    provider_operation_id: ticket.update
+    provider_operation_descriptor_digest: sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e
+    provider_replay_mode: lookup_or_idempotent_retry
+    target_constraint:
+      kind: ascii_prefix_decimal_v1
+      prefix: ticket:T-
+      decimal_digits_minimum: 1
+      decimal_digits_maximum: 20
+      leading_zeroes: allowed
+      full_match: true
+      normalization: none
+      input_encoding: UTF-8
+      ascii_only: true
+    minimum_risk_tier: high
+    review_and_execution_limits:
+      maximum_execution_window_seconds: 3600
+      maximum_review_lifetime_seconds: 7200
+      reporting_attention_seconds: 900
+      reconcile_not_before_seconds: 86400
+    diff_field_codes:
+    - ticket_comment
+    - ticket_id
+    - ticket_status
+    allowed_summary_codes:
+    - resolve_after_deploy
+    transition_reason_codes:
+    - automation_run_cancelled
+    - await_deployment_evidence
+    - unsafe_terminal_status
+    - verified_nonterminal_update
+    outcome_reason_rules:
+      claim_owner_unavailable:
+        allowed_outcomes:
+        - indeterminate
+        provider_receipt: forbidden
+      provider_explicit_failure:
+        allowed_outcomes:
+        - failed
+        provider_receipt: required
+      provider_receipt_missing:
+        allowed_outcomes:
+        - indeterminate
+        provider_receipt: forbidden
+      provider_receipt_observed:
+        allowed_outcomes:
+        - succeeded
+        provider_receipt: required
+      worker_pre_effect_failure:
+        allowed_outcomes:
+        - failed
+        provider_receipt: forbidden
+  canonical_jcs: '{"action_schema_digest":"sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522","action_type":"support.ticket.update/v1","allowed_summary_codes":["resolve_after_deploy"],"diff_field_codes":["ticket_comment","ticket_id","ticket_status"],"executor_contract_digest":"sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632","governed_tool_binding_digest":"sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde","governed_tool_binding_ref":"support:tool:ticket-update","minimum_risk_tier":"high","outcome_reason_rules":{"claim_owner_unavailable":{"allowed_outcomes":["indeterminate"],"provider_receipt":"forbidden"},"provider_explicit_failure":{"allowed_outcomes":["failed"],"provider_receipt":"required"},"provider_receipt_missing":{"allowed_outcomes":["indeterminate"],"provider_receipt":"forbidden"},"provider_receipt_observed":{"allowed_outcomes":["succeeded"],"provider_receipt":"required"},"worker_pre_effect_failure":{"allowed_outcomes":["failed"],"provider_receipt":"forbidden"}},"payload_renderer_digest":"sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600","provider_capability_digest":"sha256:5555555555555555555555555555555555555555555555555555555555555555","provider_connection_contract_digest":"sha256:4444444444444444444444444444444444444444444444444444444444444444","provider_connection_ref":"support:provider-connection:ticket-api","provider_operation_descriptor_digest":"sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e","provider_operation_id":"ticket.update","provider_replay_mode":"lookup_or_idempotent_retry","review_and_execution_limits":{"maximum_execution_window_seconds":3600,"maximum_review_lifetime_seconds":7200,"reconcile_not_before_seconds":86400,"reporting_attention_seconds":900},"target_constraint":{"ascii_only":true,"decimal_digits_maximum":20,"decimal_digits_minimum":1,"full_match":true,"input_encoding":"UTF-8","kind":"ascii_prefix_decimal_v1","leading_zeroes":"allowed","normalization":"none","prefix":"ticket:T-"},"transition_reason_codes":["automation_run_cancelled","await_deployment_evidence","unsafe_terminal_status","verified_nonterminal_update"]}'
+  digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+- id: submission_content
+  domain: okg-external-action-submission-content-v1
+  value:
+    automation_id: ticket-triage
+    automation_version: 3.2.0
+    run_id: run-417
+    correlation_id: incident-99
+    action_type: support.ticket.update/v1
+    target_ref: ticket:T-42
+    risk_tier: high
+    action_schema_digest: sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    original_payload_hash: sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a
+    requested_review_expires_at: '2026-08-26T15:30:00.000000Z'
+    summary_code: resolve_after_deploy
+    evidence_digests:
+    - sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  canonical_jcs: '{"action_contract_digest":"sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922","action_schema_digest":"sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522","action_type":"support.ticket.update/v1","automation_id":"ticket-triage","automation_version":"3.2.0","correlation_id":"incident-99","evidence_digests":["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"original_payload_hash":"sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a","requested_review_expires_at":"2026-08-26T15:30:00.000000Z","risk_tier":"high","run_id":"run-417","summary_code":"resolve_after_deploy","target_ref":"ticket:T-42"}'
+  digest: sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091
+- id: proposal_request
+  domain: okg-external-action-proposal-request-v1
+  value:
+    deployment: support-prod
+    execution_epoch: 17
+    effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+    submission_content_hash: sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091
+    proposer_separation_subject: subject:automation:triage-bot
+    automation_id: ticket-triage
+    automation_version: 3.2.0
+    run_id: run-417
+    correlation_id: incident-99
+    action_type: support.ticket.update/v1
+    target_ref: ticket:T-42
+    risk_tier: high
+    action_schema_digest: sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    executor_contract_digest: sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632
+    payload_renderer_digest: sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600
+    governed_tool_binding_digest: sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde
+    provider_connection_contract_digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    provider_capability_digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+    provider_operation_id: ticket.update
+    provider_operation_descriptor_digest: sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e
+    original_payload_hash: sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a
+    requested_review_expires_at: '2026-08-26T15:30:00.000000Z'
+    summary_code: resolve_after_deploy
+    evidence_digests:
+    - sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  canonical_jcs: '{"action_contract_digest":"sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922","action_schema_digest":"sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522","action_type":"support.ticket.update/v1","automation_id":"ticket-triage","automation_version":"3.2.0","correlation_id":"incident-99","deployment":"support-prod","effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","evidence_digests":["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"execution_epoch":17,"executor_contract_digest":"sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632","governed_tool_binding_digest":"sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde","original_payload_hash":"sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a","payload_renderer_digest":"sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600","proposer_separation_subject":"subject:automation:triage-bot","provider_capability_digest":"sha256:5555555555555555555555555555555555555555555555555555555555555555","provider_connection_contract_digest":"sha256:4444444444444444444444444444444444444444444444444444444444444444","provider_operation_descriptor_digest":"sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e","provider_operation_id":"ticket.update","requested_review_expires_at":"2026-08-26T15:30:00.000000Z","risk_tier":"high","run_id":"run-417","submission_content_hash":"sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091","summary_code":"resolve_after_deploy","target_ref":"ticket:T-42"}'
+  digest: sha256:b23ed92aaf4ba0edec211b0980b71bc2e701f048dc0cd03d06784686b1a50e01
+- id: transition_request_approve
+  domain: okg-external-action-transition-request-v1
+  value:
+    operation: approve
+    expected_lifecycle_version: 2
+    expected_payload_version: 2
+    expected_payload_hash: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+    expected_decision_id: null
+    expected_decision_binding_hash: null
+    replacement_payload_hash: null
+    execute_before: '2026-08-26T15:00:00.000000Z'
+    reason_code: verified_nonterminal_update
+  canonical_jcs: '{"execute_before":"2026-08-26T15:00:00.000000Z","expected_decision_binding_hash":null,"expected_decision_id":null,"expected_lifecycle_version":2,"expected_payload_hash":"sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533","expected_payload_version":2,"operation":"approve","reason_code":"verified_nonterminal_update","replacement_payload_hash":null}'
+  digest: sha256:cd7e450e0a043ac54f92ed2a18495e3034897b89b45ca4804f1630dcbc9294c0
+- id: decision_binding
+  domain: okg-external-action-decision-binding-v1
+  value:
+    deployment: support-prod
+    execution_epoch: 17
+    effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+    proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27A
+    decision_id: 01J63P2AER9Z51WAV9XVVB5P8R
+    approved_lifecycle_version: 3
+    approved_payload_version: 2
+    approved_payload_hash: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+    action_type: support.ticket.update/v1
+    target_ref: ticket:T-42
+    action_schema_digest: sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    executor_contract_digest: sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632
+    payload_renderer_digest: sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600
+    governed_tool_binding_digest: sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde
+    provider_connection_contract_digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    provider_capability_digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+    provider_operation_id: ticket.update
+    provider_operation_descriptor_digest: sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e
+    policy_digest: sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9
+    execute_before: '2026-08-26T15:00:00.000000Z'
+  canonical_jcs: '{"action_contract_digest":"sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922","action_schema_digest":"sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522","action_type":"support.ticket.update/v1","approved_lifecycle_version":3,"approved_payload_hash":"sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533","approved_payload_version":2,"decision_id":"01J63P2AER9Z51WAV9XVVB5P8R","deployment":"support-prod","effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","execute_before":"2026-08-26T15:00:00.000000Z","execution_epoch":17,"executor_contract_digest":"sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632","governed_tool_binding_digest":"sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde","payload_renderer_digest":"sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600","policy_digest":"sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9","proposal_id":"01J63N8FV2P3XT8VZB4Z7NJ27A","provider_capability_digest":"sha256:5555555555555555555555555555555555555555555555555555555555555555","provider_connection_contract_digest":"sha256:4444444444444444444444444444444444444444444444444444444444444444","provider_operation_descriptor_digest":"sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e","provider_operation_id":"ticket.update","target_ref":"ticket:T-42"}'
+  digest: sha256:3f82b57555bd8b5ec204e029f04489e83d6180c8a45528000d3b2633f87c10ce
+- id: execution_binding
+  domain: okg-external-action-execution-binding-v1
+  value:
+    deployment: support-prod
+    execution_epoch: 17
+    execution_epoch_lease_digest: sha256:b9e5acbce2e35973f06234c8638258dec744d86864bc57f8a62086cebdd7fde9
+    effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+    proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27A
+    decision_id: 01J63P2AER9Z51WAV9XVVB5P8R
+    execution_id: 01J63P3MYGAK26WRHHM2GPAF2D
+    worker_separation_subject: subject:worker:ticket-service
+    approved_lifecycle_version: 3
+    approved_payload_version: 2
+    approved_payload_hash: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+    action_type: support.ticket.update/v1
+    target_ref: ticket:T-42
+    action_schema_digest: sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    executor_contract_digest: sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632
+    payload_renderer_digest: sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600
+    governed_tool_binding_digest: sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde
+    provider_connection_contract_digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    provider_capability_digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+    provider_operation_id: ticket.update
+    provider_operation_descriptor_digest: sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e
+    policy_digest: sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9
+  canonical_jcs: '{"action_contract_digest":"sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922","action_schema_digest":"sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522","action_type":"support.ticket.update/v1","approved_lifecycle_version":3,"approved_payload_hash":"sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533","approved_payload_version":2,"decision_id":"01J63P2AER9Z51WAV9XVVB5P8R","deployment":"support-prod","effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","execution_epoch":17,"execution_epoch_lease_digest":"sha256:b9e5acbce2e35973f06234c8638258dec744d86864bc57f8a62086cebdd7fde9","execution_id":"01J63P3MYGAK26WRHHM2GPAF2D","executor_contract_digest":"sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632","governed_tool_binding_digest":"sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde","payload_renderer_digest":"sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600","policy_digest":"sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9","proposal_id":"01J63N8FV2P3XT8VZB4Z7NJ27A","provider_capability_digest":"sha256:5555555555555555555555555555555555555555555555555555555555555555","provider_connection_contract_digest":"sha256:4444444444444444444444444444444444444444444444444444444444444444","provider_operation_descriptor_digest":"sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e","provider_operation_id":"ticket.update","target_ref":"ticket:T-42","worker_separation_subject":"subject:worker:ticket-service"}'
+  digest: sha256:6a07527cdb27ee40e82b173f6b51ba830c5e77398e90f2e4979ea5334c8f7e53
+- id: outcome_request
+  domain: okg-external-action-outcome-request-v1
+  value:
+    execution_id: 01J63P3MYGAK26WRHHM2GPAF2D
+    effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+    worker_or_reconciler_separation_subject: subject:worker:ticket-service
+    outcome: indeterminate
+    outcome_reason_code: provider_receipt_missing
+    provider_receipt_digest: null
+    recovery_journal_digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    owner_unavailability_attestation_digest: null
+  canonical_jcs: '{"effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","execution_id":"01J63P3MYGAK26WRHHM2GPAF2D","outcome":"indeterminate","outcome_reason_code":"provider_receipt_missing","owner_unavailability_attestation_digest":null,"provider_receipt_digest":null,"recovery_journal_digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","worker_or_reconciler_separation_subject":"subject:worker:ticket-service"}'
+  digest: sha256:a387ca0e6c4585a698b2b9713a7a230cfbcc716341bdd01bc101d6a56746cc34
+- id: submitted_event
+  domain: okg-external-action-event-v1
+  value:
+    proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27A
+    execution_epoch: 17
+    effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+    sequence: 1
+    lifecycle_version: 1
+    event_type: submitted
+    actor_kind: authenticated_principal
+    actor_principal: oidc:automation.example:service:triage-bot
+    actor_separation_subject: subject:automation:triage-bot
+    authentication_audit_ref: auth:audit:submit-417
+    nomos_decision_ref: nomos:decision:submit-417
+    deadline_kind: null
+    policy_digest: sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9
+    before_review_state: null
+    after_review_state: pending
+    before_execution_state: null
+    after_execution_state: unavailable
+    payload_version: 1
+    payload_hash: sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a
+    decision_id: null
+    decision_binding_hash: null
+    execution_id: null
+    execution_binding_hash: null
+    transition_reason_code: null
+    outcome: null
+    outcome_reason_code: null
+    outcome_request_hash: null
+    restore_recovery_digest: null
+    effective_at: null
+    recorded_at: '2026-08-26T14:00:00.000000Z'
+    previous_event_hash: null
+  canonical_jcs: '{"actor_kind":"authenticated_principal","actor_principal":"oidc:automation.example:service:triage-bot","actor_separation_subject":"subject:automation:triage-bot","after_execution_state":"unavailable","after_review_state":"pending","authentication_audit_ref":"auth:audit:submit-417","before_execution_state":null,"before_review_state":null,"deadline_kind":null,"decision_binding_hash":null,"decision_id":null,"effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","effective_at":null,"event_type":"submitted","execution_binding_hash":null,"execution_epoch":17,"execution_id":null,"lifecycle_version":1,"nomos_decision_ref":"nomos:decision:submit-417","outcome":null,"outcome_reason_code":null,"outcome_request_hash":null,"payload_hash":"sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a","payload_version":1,"policy_digest":"sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9","previous_event_hash":null,"proposal_id":"01J63N8FV2P3XT8VZB4Z7NJ27A","recorded_at":"2026-08-26T14:00:00.000000Z","restore_recovery_digest":null,"sequence":1,"transition_reason_code":null}'
+  digest: sha256:f864e9c804eb1ae9a64a083e66d0c8b1bda81c8026decc8acc0d9a89da383fbe
+- id: idempotency_key
+  domain: okg-external-action-idempotency-key-v1
+  value: propose-triage-run-417
+  canonical_jcs: '"propose-triage-run-417"'
+  digest: sha256:f6db867d24969e5503a8006404ddd26049cfeebca6ff1750ce0b535ebd11707d
+- id: effect_instance_key
+  domain: okg-external-action-effect-instance-v1
+  value:
+    deployment: support-prod
+    proposer_separation_subject: subject:automation:triage-bot
+    submission_idempotency_key_hash: sha256:f6db867d24969e5503a8006404ddd26049cfeebca6ff1750ce0b535ebd11707d
+  canonical_jcs: '{"deployment":"support-prod","proposer_separation_subject":"subject:automation:triage-bot","submission_idempotency_key_hash":"sha256:f6db867d24969e5503a8006404ddd26049cfeebca6ff1750ce0b535ebd11707d"}'
+  digest: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+provider_idempotency_key_vector:
+  domain: okg-external-action-effect-v1
+  value:
+    deployment: support-prod
+    effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+    approved_payload_hash: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    provider_connection_contract_digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    provider_operation_id: ticket.update
+    provider_operation_descriptor_digest: sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e
+  canonical_jcs: '{"action_contract_digest":"sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922","approved_payload_hash":"sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533","deployment":"support-prod","effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","provider_connection_contract_digest":"sha256:4444444444444444444444444444444444444444444444444444444444444444","provider_operation_descriptor_digest":"sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e","provider_operation_id":"ticket.update"}'
+  digest_bytes_encoding: base64url-no-padding
+  value_rendered: VwTZCUNuFm-gkQeYIzC16XCFBN0m6UpQwIF6yLUmI58
+startup_vectors:
+- id: startup_verification_config
+  domain: okg-external-action-startup-verification-config-v1
+  value:
+    schema_version: 1
+    deployment: support-prod
+    lease_typ: okg-execution-epoch+jws
+    allowed_algorithms:
+    - EdDSA
+    key_history:
+    - kid: support-prod/epoch/17
+      purpose: execution_epoch_lease
+      algorithm: EdDSA
+      public_key_b64: ajVzoXiASs5YlRmIePMDOnt0tctq3RAob0DIJstwm5U
+      state: retired_for_signing_historically_valid
+      not_before: '2026-08-26T12:00:00.000000Z'
+      not_after: '2030-01-01T00:00:00.000000Z'
+      compromise_revoked_at: null
+    - kid: support-prod/epoch/18
+      purpose: execution_epoch_lease
+      algorithm: EdDSA
+      public_key_b64: kx5jhiyBNiiTbXv4YkMMjrUgDxWIsZ0i8DhY2FHOJzU
+      state: retired_for_signing_historically_valid
+      not_before: '2026-08-26T15:00:00.000000Z'
+      not_after: '2030-01-01T00:00:00.000000Z'
+      compromise_revoked_at: null
+    - kid: support-prod/epoch/19
+      purpose: execution_epoch_lease
+      algorithm: EdDSA
+      public_key_b64: eASCrpP2xnlBZ7-ZfX0uGjs4zcWitf-bWQ8-zoS9rJg
+      state: current
+      not_before: '2026-08-26T16:00:00.000000Z'
+      not_after: '2030-01-01T00:00:00.000000Z'
+      compromise_revoked_at: null
+    - kid: support-prod/epoch/genesis
+      purpose: execution_epoch_lease
+      algorithm: EdDSA
+      public_key_b64: 8VHU0K13eJ2OTJv1QhEZkUrrU9qg5QO109tYDlw0QbM
+      state: retired_for_signing_historically_valid
+      not_before: '2026-08-26T11:00:00.000000Z'
+      not_after: '2030-01-01T00:00:00.000000Z'
+      compromise_revoked_at: null
+    maximum_chain_envelopes: 64
+    maximum_chain_bytes: 262144
+    maximum_clock_skew_seconds: 30
+  canonical_jcs: '{"allowed_algorithms":["EdDSA"],"deployment":"support-prod","key_history":[{"algorithm":"EdDSA","compromise_revoked_at":null,"kid":"support-prod/epoch/17","not_after":"2030-01-01T00:00:00.000000Z","not_before":"2026-08-26T12:00:00.000000Z","public_key_b64":"ajVzoXiASs5YlRmIePMDOnt0tctq3RAob0DIJstwm5U","purpose":"execution_epoch_lease","state":"retired_for_signing_historically_valid"},{"algorithm":"EdDSA","compromise_revoked_at":null,"kid":"support-prod/epoch/18","not_after":"2030-01-01T00:00:00.000000Z","not_before":"2026-08-26T15:00:00.000000Z","public_key_b64":"kx5jhiyBNiiTbXv4YkMMjrUgDxWIsZ0i8DhY2FHOJzU","purpose":"execution_epoch_lease","state":"retired_for_signing_historically_valid"},{"algorithm":"EdDSA","compromise_revoked_at":null,"kid":"support-prod/epoch/19","not_after":"2030-01-01T00:00:00.000000Z","not_before":"2026-08-26T16:00:00.000000Z","public_key_b64":"eASCrpP2xnlBZ7-ZfX0uGjs4zcWitf-bWQ8-zoS9rJg","purpose":"execution_epoch_lease","state":"current"},{"algorithm":"EdDSA","compromise_revoked_at":null,"kid":"support-prod/epoch/genesis","not_after":"2030-01-01T00:00:00.000000Z","not_before":"2026-08-26T11:00:00.000000Z","public_key_b64":"8VHU0K13eJ2OTJv1QhEZkUrrU9qg5QO109tYDlw0QbM","purpose":"execution_epoch_lease","state":"retired_for_signing_historically_valid"}],"lease_typ":"okg-execution-epoch+jws","maximum_chain_bytes":262144,"maximum_chain_envelopes":64,"maximum_clock_skew_seconds":30,"schema_version":1}'
+  digest: sha256:86e3a88e84525c15f05e6d094b93c110523c1ee2d8a416357660c22b68396d69
+- id: startup_login_binding
+  domain: okg-external-action-startup-login-binding-v1
+  value:
+    database_system_identifier: '7349871290043827611'
+    session_user: okg_external_action_support_prod
+    deployment: support-prod
+    binding_version: 1
+    bound_at: '2026-08-26T11:30:00.000000Z'
+  canonical_jcs: '{"binding_version":1,"bound_at":"2026-08-26T11:30:00.000000Z","database_system_identifier":"7349871290043827611","deployment":"support-prod","session_user":"okg_external_action_support_prod"}'
+  digest: sha256:b6dc56c632868cc4d0d23be3442c5a4d247e282d81ea66cde27d3d405a40ee15
+- id: startup_lease_chain_first_use
+  domain: okg-external-action-execution-epoch-lease-chain-v1
+  value:
+    schema: okg-external-action-execution-epoch-lease-chain/v1
+    deployment: support-prod
+    lease_envelope_digests:
+    - sha256:3b53d9819d0754c135084b406536e8a7c9ff7afbb54aab07c5f37420bf4ced07
+  canonical_jcs: '{"deployment":"support-prod","lease_envelope_digests":["sha256:3b53d9819d0754c135084b406536e8a7c9ff7afbb54aab07c5f37420bf4ced07"],"schema":"okg-external-action-execution-epoch-lease-chain/v1"}'
+  digest: sha256:04ff1aaf7a25a84f9a023bd78e391c24138b5d0e4c9b750bbc6a67f578d1819c
+- id: startup_lease_chain_same_epoch_catchup
+  domain: okg-external-action-execution-epoch-lease-chain-v1
+  value:
+    schema: okg-external-action-execution-epoch-lease-chain/v1
+    deployment: support-prod
+    lease_envelope_digests:
+    - sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f
+    - sha256:f5bd429735ba706e2d0ab79304c356b2005a6dbc54ad6cbe5e5e8ef567af7961
+  canonical_jcs: '{"deployment":"support-prod","lease_envelope_digests":["sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f","sha256:f5bd429735ba706e2d0ab79304c356b2005a6dbc54ad6cbe5e5e8ef567af7961"],"schema":"okg-external-action-execution-epoch-lease-chain/v1"}'
+  digest: sha256:49dbba06eb59b7f93b9c99ba10fe7652d45dcbe78fd0c3f1e32d2e23c4a6f9b9
+- id: startup_lease_chain_single_rotation
+  domain: okg-external-action-execution-epoch-lease-chain-v1
+  value:
+    schema: okg-external-action-execution-epoch-lease-chain/v1
+    deployment: support-prod
+    lease_envelope_digests:
+    - sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f
+    - sha256:f5bd429735ba706e2d0ab79304c356b2005a6dbc54ad6cbe5e5e8ef567af7961
+    - sha256:558e7cfb6737b5c0ffbb8906074e2ca5b105b8d73cd997e44e075b87a4f5105c
+  canonical_jcs: '{"deployment":"support-prod","lease_envelope_digests":["sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f","sha256:f5bd429735ba706e2d0ab79304c356b2005a6dbc54ad6cbe5e5e8ef567af7961","sha256:558e7cfb6737b5c0ffbb8906074e2ca5b105b8d73cd997e44e075b87a4f5105c"],"schema":"okg-external-action-execution-epoch-lease-chain/v1"}'
+  digest: sha256:8bb7b837ac351f8a40a99ab0a6d4aba241ce3ea17513edcc15a172c9c4fe1e37
+- id: startup_lease_chain_multi_rotation
+  domain: okg-external-action-execution-epoch-lease-chain-v1
+  value:
+    schema: okg-external-action-execution-epoch-lease-chain/v1
+    deployment: support-prod
+    lease_envelope_digests:
+    - sha256:3b53d9819d0754c135084b406536e8a7c9ff7afbb54aab07c5f37420bf4ced07
+    - sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f
+    - sha256:f5bd429735ba706e2d0ab79304c356b2005a6dbc54ad6cbe5e5e8ef567af7961
+    - sha256:558e7cfb6737b5c0ffbb8906074e2ca5b105b8d73cd997e44e075b87a4f5105c
+    - sha256:da40b991415c27fcf09cef525cbfe15aec659335493eb255b577bb53ef38bbff
+  canonical_jcs: '{"deployment":"support-prod","lease_envelope_digests":["sha256:3b53d9819d0754c135084b406536e8a7c9ff7afbb54aab07c5f37420bf4ced07","sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f","sha256:f5bd429735ba706e2d0ab79304c356b2005a6dbc54ad6cbe5e5e8ef567af7961","sha256:558e7cfb6737b5c0ffbb8906074e2ca5b105b8d73cd997e44e075b87a4f5105c","sha256:da40b991415c27fcf09cef525cbfe15aec659335493eb255b577bb53ef38bbff"],"schema":"okg-external-action-execution-epoch-lease-chain/v1"}'
+  digest: sha256:bed0100379999c928c5ca8f1075f9ec22366a86704bdac5ce71a2763fe3c2be7
+restore_provenance_vectors:
+- id: surviving_idempotency_key
+  domain: okg-external-action-idempotency-key-v1
+  value: restore-surviving-no-start
+  canonical_jcs: '"restore-surviving-no-start"'
+  digest: sha256:e1caa8ff84791fcab726597d642cc1553fe690f9783c7736f4fdc7bfa91400a5
+- id: surviving_effect_instance_key
+  domain: okg-external-action-effect-instance-v1
+  value:
+    deployment: support-prod
+    proposer_separation_subject: subject:automation:triage-bot
+    submission_idempotency_key_hash: sha256:e1caa8ff84791fcab726597d642cc1553fe690f9783c7736f4fdc7bfa91400a5
+  canonical_jcs: '{"deployment":"support-prod","proposer_separation_subject":"subject:automation:triage-bot","submission_idempotency_key_hash":"sha256:e1caa8ff84791fcab726597d642cc1553fe690f9783c7736f4fdc7bfa91400a5"}'
+  digest: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+- id: surviving_proposal_request
+  domain: okg-external-action-proposal-request-v1
+  value:
+    deployment: support-prod
+    execution_epoch: 17
+    effect_instance_key: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+    submission_content_hash: sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091
+    proposer_separation_subject: subject:automation:triage-bot
+    automation_id: ticket-triage
+    automation_version: 3.2.0
+    run_id: run-417
+    correlation_id: incident-99
+    action_type: support.ticket.update/v1
+    target_ref: ticket:T-42
+    risk_tier: high
+    action_schema_digest: sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    executor_contract_digest: sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632
+    payload_renderer_digest: sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600
+    governed_tool_binding_digest: sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde
+    provider_connection_contract_digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    provider_capability_digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+    provider_operation_id: ticket.update
+    provider_operation_descriptor_digest: sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e
+    original_payload_hash: sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a
+    requested_review_expires_at: '2026-08-26T15:30:00.000000Z'
+    summary_code: resolve_after_deploy
+    evidence_digests:
+    - sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  canonical_jcs: '{"action_contract_digest":"sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922","action_schema_digest":"sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522","action_type":"support.ticket.update/v1","automation_id":"ticket-triage","automation_version":"3.2.0","correlation_id":"incident-99","deployment":"support-prod","effect_instance_key":"sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09","evidence_digests":["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"execution_epoch":17,"executor_contract_digest":"sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632","governed_tool_binding_digest":"sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde","original_payload_hash":"sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a","payload_renderer_digest":"sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600","proposer_separation_subject":"subject:automation:triage-bot","provider_capability_digest":"sha256:5555555555555555555555555555555555555555555555555555555555555555","provider_connection_contract_digest":"sha256:4444444444444444444444444444444444444444444444444444444444444444","provider_operation_descriptor_digest":"sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e","provider_operation_id":"ticket.update","requested_review_expires_at":"2026-08-26T15:30:00.000000Z","risk_tier":"high","run_id":"run-417","submission_content_hash":"sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091","summary_code":"resolve_after_deploy","target_ref":"ticket:T-42"}'
+  digest: sha256:46e46d9fcefda95b7e6a442d44ccc0661666fbb55fe669c99fd220638767415b
+- id: claimed_before_ledger_decision_binding
+  domain: okg-external-action-decision-binding-v1
+  value:
+    deployment: support-prod
+    execution_epoch: 17
+    effect_instance_key: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+    proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27B
+    decision_id: 01J63P2AER9Z51WAV9XVVB5P8S
+    approved_lifecycle_version: 3
+    approved_payload_version: 2
+    approved_payload_hash: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+    action_type: support.ticket.update/v1
+    target_ref: ticket:T-42
+    action_schema_digest: sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    executor_contract_digest: sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632
+    payload_renderer_digest: sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600
+    governed_tool_binding_digest: sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde
+    provider_connection_contract_digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    provider_capability_digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+    provider_operation_id: ticket.update
+    provider_operation_descriptor_digest: sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e
+    policy_digest: sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9
+    execute_before: '2026-08-26T15:00:00.000000Z'
+  canonical_jcs: '{"action_contract_digest":"sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922","action_schema_digest":"sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522","action_type":"support.ticket.update/v1","approved_lifecycle_version":3,"approved_payload_hash":"sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533","approved_payload_version":2,"decision_id":"01J63P2AER9Z51WAV9XVVB5P8S","deployment":"support-prod","effect_instance_key":"sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09","execute_before":"2026-08-26T15:00:00.000000Z","execution_epoch":17,"executor_contract_digest":"sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632","governed_tool_binding_digest":"sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde","payload_renderer_digest":"sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600","policy_digest":"sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9","proposal_id":"01J63N8FV2P3XT8VZB4Z7NJ27B","provider_capability_digest":"sha256:5555555555555555555555555555555555555555555555555555555555555555","provider_connection_contract_digest":"sha256:4444444444444444444444444444444444444444444444444444444444444444","provider_operation_descriptor_digest":"sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e","provider_operation_id":"ticket.update","target_ref":"ticket:T-42"}'
+  digest: sha256:04a80bce6af67e85ef8efda21c50e710454d8f8fbd0c883e7fec87a0ac46bbc3
+- id: claimed_before_ledger_execution_binding
+  domain: okg-external-action-execution-binding-v1
+  value:
+    deployment: support-prod
+    execution_epoch: 17
+    execution_epoch_lease_digest: sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f
+    effect_instance_key: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+    proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27B
+    decision_id: 01J63P2AER9Z51WAV9XVVB5P8S
+    execution_id: 01J63P3MYGAK26WRHHM2GPAF2E
+    worker_separation_subject: subject:worker:ticket-service
+    approved_lifecycle_version: 3
+    approved_payload_version: 2
+    approved_payload_hash: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+    action_type: support.ticket.update/v1
+    target_ref: ticket:T-42
+    action_schema_digest: sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    executor_contract_digest: sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632
+    payload_renderer_digest: sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600
+    governed_tool_binding_digest: sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde
+    provider_connection_contract_digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    provider_capability_digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+    provider_operation_id: ticket.update
+    provider_operation_descriptor_digest: sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e
+    policy_digest: sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9
+  canonical_jcs: '{"action_contract_digest":"sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922","action_schema_digest":"sha256:c86fbd789d1da8f7e35b6c98fd27e0b760978aef57910dab1fa59e980015f522","action_type":"support.ticket.update/v1","approved_lifecycle_version":3,"approved_payload_hash":"sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533","approved_payload_version":2,"decision_id":"01J63P2AER9Z51WAV9XVVB5P8S","deployment":"support-prod","effect_instance_key":"sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09","execution_epoch":17,"execution_epoch_lease_digest":"sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f","execution_id":"01J63P3MYGAK26WRHHM2GPAF2E","executor_contract_digest":"sha256:79790ef6713ab0efcb3034acf673171cc554e513033ea9728d1bc53979105632","governed_tool_binding_digest":"sha256:bf82ae1d5651f82a88917a9936edae6a8e0c0e917e6785affe4844588ef11cde","payload_renderer_digest":"sha256:9fdc172cbe3f6868760988fdfbe8c5099a34fa61fb68376ec3cbdeeced71b600","policy_digest":"sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9","proposal_id":"01J63N8FV2P3XT8VZB4Z7NJ27B","provider_capability_digest":"sha256:5555555555555555555555555555555555555555555555555555555555555555","provider_connection_contract_digest":"sha256:4444444444444444444444444444444444444444444444444444444444444444","provider_operation_descriptor_digest":"sha256:5a682ceb13200caae3c402e03f952e66861656f7a5728523763c80a3bfe16c8e","provider_operation_id":"ticket.update","target_ref":"ticket:T-42","worker_separation_subject":"subject:worker:ticket-service"}'
+  digest: sha256:9d0ca4898c1ff61211965c50e707f242ae31acf10315e0937e9408086a18c3f8
+restore_proof_vectors:
+  worker_instance_set:
+    value:
+      sorted_worker_instance_id_digests:
+      - sha256:1010101010101010101010101010101010101010101010101010101010101010
+      - sha256:2020202020202020202020202020202020202020202020202020202020202020
+      count: 2
+    canonical_jcs: '{"count":2,"sorted_worker_instance_id_digests":["sha256:1010101010101010101010101010101010101010101010101010101010101010","sha256:2020202020202020202020202020202020202020202020202020202020202020"]}'
+    digest: sha256:5062d06bae18b4af44dbdefcdfe91138c569f356c11d4cdd06c23949690d8dab
+  provider_authority_set:
+    value:
+      sorted_provider_authority_id_digests:
+      - sha256:3030303030303030303030303030303030303030303030303030303030303030
+      count: 1
+    canonical_jcs: '{"count":1,"sorted_provider_authority_id_digests":["sha256:3030303030303030303030303030303030303030303030303030303030303030"]}'
+    digest: sha256:431f0a39eaff8df46a547605a67f8b8422cfe4f023ade9eaf8f4c0898828d028
+  ledger_entries:
+  - effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+    ledger_entry_digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  leaf_digests:
+  - sha256:97afafb0e796cdad85533b4aa7d222544be4bf08e7edd864e549a4e1d6b58896
+  fenced_ledger_root_digest: sha256:97afafb0e796cdad85533b4aa7d222544be4bf08e7edd864e549a4e1d6b58896
+  positive_proof:
+    value:
+      effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+      ledger_entry_digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      leaf_index: 0
+      leaf_count: 1
+      sibling_steps: []
+    canonical_jcs: '{"effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","leaf_count":1,"leaf_index":0,"ledger_entry_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sibling_steps":[]}'
+    digest: sha256:d3c5c2125bc909fc025deb50b3d8dca2e1fee18bc9309be3a6861d30c52d9b26
+  lower_neighbor_positive_proof:
+    value:
+      effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+      ledger_entry_digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      leaf_index: 0
+      leaf_count: 1
+      sibling_steps: []
+  nonmembership_proof:
+    value:
+      effect_instance_key: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+      leaf_count: 1
+      lower_neighbor_positive_proof: null
+      upper_neighbor_positive_proof:
+        effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+        ledger_entry_digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        leaf_index: 0
+        leaf_count: 1
+        sibling_steps: []
+    canonical_jcs: '{"effect_instance_key":"sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09","leaf_count":1,"lower_neighbor_positive_proof":null,"upper_neighbor_positive_proof":{"effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","leaf_count":1,"leaf_index":0,"ledger_entry_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sibling_steps":[]}}'
+    digest: sha256:3f9f73b27454d01648f2031c59d808ab3b9c0c6dc16a449579aa2a967713e559
+  inventory:
+    value:
+      sorted_effect_instance_keys:
+      - sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+      - sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+      count: 2
+    canonical_jcs: '{"count":2,"sorted_effect_instance_keys":["sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09","sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437"]}'
+    digest: sha256:27d8618b548f66916ce1a51581c5ea28621c5f6a020a26f62783a36c34f1d364
+  event_root_before:
+    value:
+      sorted_event_head_entries:
+      - effect_instance_key: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+        sequence: 1
+        event_hash: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      - effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+        sequence: 4
+        event_hash: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+      count: 2
+    canonical_jcs: '{"count":2,"sorted_event_head_entries":[{"effect_instance_key":"sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09","event_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","sequence":1},{"effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","event_hash":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","sequence":4}]}'
+    digest: sha256:81a48b29f21c2436175cf3feb9375b8b556028c8ae1c113982386d0d589908f8
+  recoveries:
+  - value:
+      deployment: support-prod
+      old_epoch: 17
+      new_epoch: 18
+      effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+      submission_content_hash: sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091
+      checkpoint_digest: sha256:b2965aa0ecd9537691be1691db872aecc0b2c1d5e03c9cb4d832f76869b6cc89
+      restore_attestation_digest: sha256:795792d357b6f744020532fef6c44a245f27745683fedbd95e11c7c0f34ade61
+      classification: database_restore_effect_uncertain
+      source_proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27A
+      source_decision_id: 01J63P2AER9Z51WAV9XVVB5P8R
+      source_execution_id: 01J63P3MYGAK26WRHHM2GPAF2D
+      recovered_review_state: approved
+      recovered_execution_state: indeterminate
+      recovered_outcome: null
+      effective_at: '2026-08-26T14:32:00.000000Z'
+      recorded_at: '2026-08-26T16:05:00.000000Z'
+      pre_restore_effect_event_head_hash: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+    canonical_jcs: '{"checkpoint_digest":"sha256:b2965aa0ecd9537691be1691db872aecc0b2c1d5e03c9cb4d832f76869b6cc89","classification":"database_restore_effect_uncertain","deployment":"support-prod","effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","effective_at":"2026-08-26T14:32:00.000000Z","new_epoch":18,"old_epoch":17,"pre_restore_effect_event_head_hash":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","recorded_at":"2026-08-26T16:05:00.000000Z","recovered_execution_state":"indeterminate","recovered_outcome":null,"recovered_review_state":"approved","restore_attestation_digest":"sha256:795792d357b6f744020532fef6c44a245f27745683fedbd95e11c7c0f34ade61","source_decision_id":"01J63P2AER9Z51WAV9XVVB5P8R","source_execution_id":"01J63P3MYGAK26WRHHM2GPAF2D","source_proposal_id":"01J63N8FV2P3XT8VZB4Z7NJ27A","submission_content_hash":"sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091"}'
+    digest: sha256:65b721390d039293e8187c0faffab2d16490342cc5ec8b44b9867fe7ee3986e3
+  - value:
+      deployment: support-prod
+      old_epoch: 17
+      new_epoch: 18
+      effect_instance_key: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+      submission_content_hash: sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091
+      checkpoint_digest: sha256:0b922fec557a5aba4c04f38e3fbf6952f7702fc8108e6c443a205567b7ba1bee
+      restore_attestation_digest: sha256:795792d357b6f744020532fef6c44a245f27745683fedbd95e11c7c0f34ade61
+      classification: database_restore_no_effect_started
+      source_proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27B
+      source_decision_id: null
+      source_execution_id: null
+      recovered_review_state: cancelled
+      recovered_execution_state: unavailable
+      recovered_outcome: null
+      effective_at: '2026-08-26T15:55:00.000000Z'
+      recorded_at: '2026-08-26T16:05:00.000000Z'
+      pre_restore_effect_event_head_hash: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    canonical_jcs: '{"checkpoint_digest":"sha256:0b922fec557a5aba4c04f38e3fbf6952f7702fc8108e6c443a205567b7ba1bee","classification":"database_restore_no_effect_started","deployment":"support-prod","effect_instance_key":"sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09","effective_at":"2026-08-26T15:55:00.000000Z","new_epoch":18,"old_epoch":17,"pre_restore_effect_event_head_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","recorded_at":"2026-08-26T16:05:00.000000Z","recovered_execution_state":"unavailable","recovered_outcome":null,"recovered_review_state":"cancelled","restore_attestation_digest":"sha256:795792d357b6f744020532fef6c44a245f27745683fedbd95e11c7c0f34ade61","source_decision_id":null,"source_execution_id":null,"source_proposal_id":"01J63N8FV2P3XT8VZB4Z7NJ27B","submission_content_hash":"sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091"}'
+    digest: sha256:af46c0f26cabcba991f471b3e4b9ecc2b415f8926f52cde33a29ab12650c5f2f
+  checkpoint_set:
+    value:
+      sorted_checkpoint_envelope_digests:
+      - sha256:0b922fec557a5aba4c04f38e3fbf6952f7702fc8108e6c443a205567b7ba1bee
+      - sha256:b2965aa0ecd9537691be1691db872aecc0b2c1d5e03c9cb4d832f76869b6cc89
+      count: 2
+    canonical_jcs: '{"count":2,"sorted_checkpoint_envelope_digests":["sha256:0b922fec557a5aba4c04f38e3fbf6952f7702fc8108e6c443a205567b7ba1bee","sha256:b2965aa0ecd9537691be1691db872aecc0b2c1d5e03c9cb4d832f76869b6cc89"]}'
+    digest: sha256:8bfb8e1e4edb7c9bc7dc811da3b8c5521a793253f70846eaba07ea04f7a11ac4
+  recovery_set:
+    value:
+      sorted_restore_recovery_digests:
+      - sha256:65b721390d039293e8187c0faffab2d16490342cc5ec8b44b9867fe7ee3986e3
+      - sha256:af46c0f26cabcba991f471b3e4b9ecc2b415f8926f52cde33a29ab12650c5f2f
+      count: 2
+    canonical_jcs: '{"count":2,"sorted_restore_recovery_digests":["sha256:65b721390d039293e8187c0faffab2d16490342cc5ec8b44b9867fe7ee3986e3","sha256:af46c0f26cabcba991f471b3e4b9ecc2b415f8926f52cde33a29ab12650c5f2f"]}'
+    digest: sha256:a2d8d0a5a2fe07ef73d5c873392baf3997517a2b9583ba97c1145b03da09c96f
+  restored_events:
+  - value:
+      proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27A
+      execution_epoch: 18
+      effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+      sequence: 5
+      lifecycle_version: 5
+      event_type: restore_recovered
+      actor_kind: authenticated_principal
+      actor_principal: mtls:operators.example:restore-operator
+      actor_separation_subject: subject:operator:restore
+      authentication_audit_ref: auth:audit:restore-18
+      nomos_decision_ref: nomos:decision:restore-18
+      deadline_kind: null
+      policy_digest: sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9
+      before_review_state: approved
+      after_review_state: approved
+      before_execution_state: claimed
+      after_execution_state: indeterminate
+      payload_version: 2
+      payload_hash: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+      decision_id: 01J63P2AER9Z51WAV9XVVB5P8R
+      decision_binding_hash: sha256:3f82b57555bd8b5ec204e029f04489e83d6180c8a45528000d3b2633f87c10ce
+      execution_id: 01J63P3MYGAK26WRHHM2GPAF2D
+      execution_binding_hash: sha256:6a07527cdb27ee40e82b173f6b51ba830c5e77398e90f2e4979ea5334c8f7e53
+      transition_reason_code: null
+      outcome: indeterminate
+      outcome_reason_code: database_restore_effect_uncertain
+      outcome_request_hash: null
+      restore_recovery_digest: sha256:65b721390d039293e8187c0faffab2d16490342cc5ec8b44b9867fe7ee3986e3
+      effective_at: '2026-08-26T14:32:00.000000Z'
+      recorded_at: '2026-08-26T16:05:00.000000Z'
+      previous_event_hash: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+    canonical_jcs: '{"actor_kind":"authenticated_principal","actor_principal":"mtls:operators.example:restore-operator","actor_separation_subject":"subject:operator:restore","after_execution_state":"indeterminate","after_review_state":"approved","authentication_audit_ref":"auth:audit:restore-18","before_execution_state":"claimed","before_review_state":"approved","deadline_kind":null,"decision_binding_hash":"sha256:3f82b57555bd8b5ec204e029f04489e83d6180c8a45528000d3b2633f87c10ce","decision_id":"01J63P2AER9Z51WAV9XVVB5P8R","effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","effective_at":"2026-08-26T14:32:00.000000Z","event_type":"restore_recovered","execution_binding_hash":"sha256:6a07527cdb27ee40e82b173f6b51ba830c5e77398e90f2e4979ea5334c8f7e53","execution_epoch":18,"execution_id":"01J63P3MYGAK26WRHHM2GPAF2D","lifecycle_version":5,"nomos_decision_ref":"nomos:decision:restore-18","outcome":"indeterminate","outcome_reason_code":"database_restore_effect_uncertain","outcome_request_hash":null,"payload_hash":"sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533","payload_version":2,"policy_digest":"sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9","previous_event_hash":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","proposal_id":"01J63N8FV2P3XT8VZB4Z7NJ27A","recorded_at":"2026-08-26T16:05:00.000000Z","restore_recovery_digest":"sha256:65b721390d039293e8187c0faffab2d16490342cc5ec8b44b9867fe7ee3986e3","sequence":5,"transition_reason_code":null}'
+    digest: sha256:88238e44428ef30a70783f12256b3d023f61d2205341288fdb8a62ff393374ab
+  - value:
+      proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27B
+      execution_epoch: 18
+      effect_instance_key: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+      sequence: 2
+      lifecycle_version: 2
+      event_type: restore_recovered
+      actor_kind: authenticated_principal
+      actor_principal: mtls:operators.example:restore-operator
+      actor_separation_subject: subject:operator:restore
+      authentication_audit_ref: auth:audit:restore-18
+      nomos_decision_ref: nomos:decision:restore-18
+      deadline_kind: null
+      policy_digest: sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9
+      before_review_state: pending
+      after_review_state: cancelled
+      before_execution_state: unavailable
+      after_execution_state: unavailable
+      payload_version: 1
+      payload_hash: sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a
+      decision_id: null
+      decision_binding_hash: null
+      execution_id: null
+      execution_binding_hash: null
+      transition_reason_code: null
+      outcome: null
+      outcome_reason_code: database_restore_no_effect_started
+      outcome_request_hash: null
+      restore_recovery_digest: sha256:af46c0f26cabcba991f471b3e4b9ecc2b415f8926f52cde33a29ab12650c5f2f
+      effective_at: '2026-08-26T15:55:00.000000Z'
+      recorded_at: '2026-08-26T16:05:00.000000Z'
+      previous_event_hash: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    canonical_jcs: '{"actor_kind":"authenticated_principal","actor_principal":"mtls:operators.example:restore-operator","actor_separation_subject":"subject:operator:restore","after_execution_state":"unavailable","after_review_state":"cancelled","authentication_audit_ref":"auth:audit:restore-18","before_execution_state":"unavailable","before_review_state":"pending","deadline_kind":null,"decision_binding_hash":null,"decision_id":null,"effect_instance_key":"sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09","effective_at":"2026-08-26T15:55:00.000000Z","event_type":"restore_recovered","execution_binding_hash":null,"execution_epoch":18,"execution_id":null,"lifecycle_version":2,"nomos_decision_ref":"nomos:decision:restore-18","outcome":null,"outcome_reason_code":"database_restore_no_effect_started","outcome_request_hash":null,"payload_hash":"sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a","payload_version":1,"policy_digest":"sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9","previous_event_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","proposal_id":"01J63N8FV2P3XT8VZB4Z7NJ27B","recorded_at":"2026-08-26T16:05:00.000000Z","restore_recovery_digest":"sha256:af46c0f26cabcba991f471b3e4b9ecc2b415f8926f52cde33a29ab12650c5f2f","sequence":2,"transition_reason_code":null}'
+    digest: sha256:30e91d2d6accbe339c6107fab196d085589c1970e378fa55d309bac5375c58fb
+  event_root_after:
+    value:
+      sorted_event_head_entries:
+      - effect_instance_key: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+        sequence: 2
+        event_hash: sha256:30e91d2d6accbe339c6107fab196d085589c1970e378fa55d309bac5375c58fb
+      - effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+        sequence: 5
+        event_hash: sha256:88238e44428ef30a70783f12256b3d023f61d2205341288fdb8a62ff393374ab
+      count: 2
+    canonical_jcs: '{"count":2,"sorted_event_head_entries":[{"effect_instance_key":"sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09","event_hash":"sha256:30e91d2d6accbe339c6107fab196d085589c1970e378fa55d309bac5375c58fb","sequence":2},{"effect_instance_key":"sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437","event_hash":"sha256:88238e44428ef30a70783f12256b3d023f61d2205341288fdb8a62ff393374ab","sequence":5}]}'
+    digest: sha256:b92ec6f3f2e38519a678e533d699cc04bbec7cc74e7a988cbac4963dac00b7f5
+  coverage_rejection_vectors:
+  - id: omitted_valid_fenced_ledger_leaf
+    fenced_ledger_entry_count: 2
+    verified_positive_leaf_indexes:
+    - 0
+    required_positive_leaf_indexes:
+    - 0
+    - 1
+    result_code: incomplete_restore_coverage
+    quarantine_state: blocked
+jcs_edge_vectors:
+- id: rfc8785_numbers
+  value:
+  - 0.0
+  - -0.0
+  - 5.0e-324
+  - -5.0e-324
+  - 1.7976931348623157e+308
+  - -1.7976931348623157e+308
+  - 9007199254740992.0
+  - -9007199254740992.0
+  - 1.0e+23
+  - 1.0e-07
+  - 1.0e-06
+  - 333333333.3333333
+  canonical_jcs: '[0,0,5e-324,-5e-324,1.7976931348623157e+308,-1.7976931348623157e+308,9007199254740992,-9007199254740992,1e+23,1e-7,0.000001,333333333.3333333]'
+- id: unicode_controls
+  value:
+    z: "€$\x0F\nA'B\"\\\\\"/"
+    😀: astral
+    "\r": control-key
+  canonical_jcs: '{"\r":"control-key","z":"€$\u000f\nA''B\"\\\\\"/","😀":"astral"}'
+- id: utf16_property_order
+  value:
+    '2': two
+    '10': ten
+    a: ascii
+    €: bmp
+    😀: astral
+    "\r": control
+  canonical_jcs: '{"\r":"control","10":"ten","2":"two","a":"ascii","€":"bmp","😀":"astral"}'
+rejection_vectors:
+- id: duplicate_envelope_key
+  raw_json: '{"automation_id":"a","automation_id":"b"}'
+  code: duplicate_json_key
+- id: duplicate_payload_key
+  raw_json: '{"payload":{"ticket":"T-1","ticket":"T-2"}}'
+  code: duplicate_json_key
+- id: nonfinite_number
+  raw_json: '{"payload":{"n":1e9999}}'
+  code: invalid_I_JSON_number
+signed_envelope_vectors:
+- id: execution_epoch_initial_lease_envelope
+  domain: okg-external-action-execution-epoch-lease-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/epoch/genesis
+    typ: okg-execution-epoch+jws
+  payload_value:
+    deployment: support-prod
+    epoch: 1
+    lease_sequence: 1
+    previous_lease_digest: null
+    previous_epoch_digest: null
+    issued_at: '2026-08-26T12:00:00.000000Z'
+    expires_at: '2026-08-26T13:15:00.000000Z'
+    signer_separation_subject: subject:operator:epoch
+    nonce: epoch-genesis-1
+  signature_b64: Ds5Qj0cD6xzpl_O-PyleqZRtkorkkIFDwOxqQ_BdcrqurTmSeTy8q1AHwmQd9-7btFaHaatFIpS-uH_oA71PAw
+  digest: sha256:3b53d9819d0754c135084b406536e8a7c9ff7afbb54aab07c5f37420bf4ced07
+- id: execution_epoch_lease_envelope
+  domain: okg-external-action-execution-epoch-lease-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/epoch/17
+    typ: okg-execution-epoch+jws
+  payload_value:
+    deployment: support-prod
+    epoch: 17
+    lease_sequence: 1
+    previous_lease_digest: null
+    previous_epoch_digest: sha256:3b53d9819d0754c135084b406536e8a7c9ff7afbb54aab07c5f37420bf4ced07
+    issued_at: '2026-08-26T13:00:00.000000Z'
+    expires_at: '2026-08-27T13:00:00.000000Z'
+    signer_separation_subject: subject:operator:restore
+    nonce: epoch-17-1
+  signature_b64: w7tep-FdVuxOwlSHITI1BQ24bOinJSklCwIGjRLxKqS95aa76ogfCB8Q5sQszErKiWOL0MbGC3EeUovv1lHdCA
+  digest: sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f
+- id: execution_epoch_17_sequence_2_lease_envelope
+  domain: okg-external-action-execution-epoch-lease-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/epoch/17
+    typ: okg-execution-epoch+jws
+  payload_value:
+    deployment: support-prod
+    epoch: 17
+    lease_sequence: 2
+    previous_lease_digest: sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f
+    previous_epoch_digest: sha256:3b53d9819d0754c135084b406536e8a7c9ff7afbb54aab07c5f37420bf4ced07
+    issued_at: '2026-08-26T14:30:00.000000Z'
+    expires_at: '2026-08-27T14:30:00.000000Z'
+    signer_separation_subject: subject:operator:restore
+    nonce: epoch-17-2
+  signature_b64: 07wqyCPEG63EJ7sWNutMlSWZ1XOOVeA2lZphqkQMykaLx5TThtMuy7_TGJx782Qj9irZYIIoM5lcW_8WiXUgBA
+  digest: sha256:f5bd429735ba706e2d0ab79304c356b2005a6dbc54ad6cbe5e5e8ef567af7961
+- id: execution_epoch_18_lease_envelope
+  domain: okg-external-action-execution-epoch-lease-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/epoch/18
+    typ: okg-execution-epoch+jws
+  payload_value:
+    deployment: support-prod
+    epoch: 18
+    lease_sequence: 1
+    previous_lease_digest: null
+    previous_epoch_digest: sha256:f5bd429735ba706e2d0ab79304c356b2005a6dbc54ad6cbe5e5e8ef567af7961
+    issued_at: '2026-08-26T15:50:00.000000Z'
+    expires_at: '2026-08-27T15:50:00.000000Z'
+    signer_separation_subject: subject:operator:epoch
+    nonce: epoch-18-1
+  signature_b64: _cFpDReh96WP-fSvTyPbTWdZnjcqPwceiNXEorQ8h5O8cZ0KZqQ67ycOG6TQzCIoHLMGkud8WDoZqvfqAszBAw
+  digest: sha256:558e7cfb6737b5c0ffbb8906074e2ca5b105b8d73cd997e44e075b87a4f5105c
+- id: execution_epoch_19_lease_envelope
+  domain: okg-external-action-execution-epoch-lease-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/epoch/19
+    typ: okg-execution-epoch+jws
+  payload_value:
+    deployment: support-prod
+    epoch: 19
+    lease_sequence: 1
+    previous_lease_digest: null
+    previous_epoch_digest: sha256:558e7cfb6737b5c0ffbb8906074e2ca5b105b8d73cd997e44e075b87a4f5105c
+    issued_at: '2026-08-26T17:00:00.000000Z'
+    expires_at: '2026-08-27T17:00:00.000000Z'
+    signer_separation_subject: subject:operator:epoch
+    nonce: epoch-19-1
+  signature_b64: niS6MNM9XMW_jCECLu0pftHSca0QHJaXzlrh8lkVg82WYtLCIgyVtwwXyK6kKsf9J2esSIpYD8oHy-4t5Js_CA
+  digest: sha256:da40b991415c27fcf09cef525cbfe15aec659335493eb255b577bb53ef38bbff
+- id: claim_handoff_receipt_envelope
+  domain: okg-external-action-claim-handoff-receipt-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/okg-review/v1
+    typ: okg-claim-handoff+jws
+  payload_value:
+    deployment: support-prod
+    execution_epoch: 17
+    execution_epoch_lease_digest: sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f
+    effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+    submission_content_hash: sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091
+    proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27A
+    proposal_request_hash: sha256:b23ed92aaf4ba0edec211b0980b71bc2e701f048dc0cd03d06784686b1a50e01
+    original_payload_hash: sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a
+    proposer_separation_subject: subject:automation:triage-bot
+    approved_lifecycle_version: 3
+    approved_payload_version: 2
+    approved_payload_hash: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    policy_digest: sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9
+    decision_id: 01J63P2AER9Z51WAV9XVVB5P8R
+    decision_binding_hash: sha256:3f82b57555bd8b5ec204e029f04489e83d6180c8a45528000d3b2633f87c10ce
+    decision_event_hash: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+    approver_separation_subject: subject:human:operator-7
+    approver_authentication_audit_ref: auth:audit:approve-417
+    approver_nomos_decision_ref: nomos:decision:approve-417
+    execution_id: 01J63P3MYGAK26WRHHM2GPAF2D
+    execution_binding_hash: sha256:6a07527cdb27ee40e82b173f6b51ba830c5e77398e90f2e4979ea5334c8f7e53
+    claim_event_hash: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+    worker_separation_subject: subject:worker:ticket-service
+    worker_authentication_audit_ref: auth:audit:claim-417
+    worker_nomos_decision_ref: nomos:decision:claim-417
+    event_chain_head_hash: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+    claimed_at: '2026-08-26T14:31:00.000000Z'
+    execute_before: '2026-08-26T15:00:00.000000Z'
+  signature_b64: biwMo_DJUGqYnEJQBZ48FY05DdJBIGjwVnj11xUHmPkv5660FCbzgDmu4PKAY8AHe-85rXzgmN1aeW4JB4jfDg
+  digest: sha256:85b979bbddcd90d34e7103f0f55bf3d36d8f7ba1c5a00b96039487458eac50e5
+- id: ledger_fence_envelope
+  domain: okg-external-action-ledger-fence-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/effect-ledger/v1
+    typ: okg-ledger-fence+jws
+  payload_value:
+    deployment: support-prod
+    old_epoch: 17
+    epoch_rotation_lease_digest: sha256:558e7cfb6737b5c0ffbb8906074e2ca5b105b8d73cd997e44e075b87a4f5105c
+    worker_quiescence_envelope_digest: sha256:bf3de6ff0dacef34bea2605e155dfda89fb12d204682395d252fbce7cf001b4b
+    provider_authority_fence_envelope_digest: sha256:76109c774d820c667930567f1fd9c03e54b20c82f0d3dec482fff3e0c1c6c7ce
+    fenced_ledger_root_digest: sha256:97afafb0e796cdad85533b4aa7d222544be4bf08e7edd864e549a4e1d6b58896
+    fenced_ledger_entry_count: 1
+    fenced_at: '2026-08-26T15:55:00.000000Z'
+    last_accepted_begin_at: '2026-08-26T14:32:00.000000Z'
+    nonce: fence-17
+    signer_separation_subject: subject:worker-ledger:restore
+  signature_b64: 3vpatFO4ohKb3wEwkBCTtRscuAR_irP90A6n_ob6X5afhcNeLBYr83P2hBK3dcJZU8-wD_58PhM59PxhVFmCBw
+  digest: sha256:cabbcc3ec886909f74825eb741e0780a71fb58d784b746d7078046c280d2b7bd
+- id: worker_quiescence_envelope
+  domain: okg-external-action-worker-quiescence-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/worker-control/v1
+    typ: okg-worker-quiescence+jws
+  payload_value:
+    deployment: support-prod
+    old_epoch: 17
+    epoch_rotation_lease_digest: sha256:558e7cfb6737b5c0ffbb8906074e2ca5b105b8d73cd997e44e075b87a4f5105c
+    worker_instance_set_digest: sha256:5062d06bae18b4af44dbdefcdfe91138c569f356c11d4cdd06c23949690d8dab
+    worker_instance_count: 2
+    quiesced_at: '2026-08-26T15:54:00.000000Z'
+    issued_at: '2026-08-26T15:54:30.000000Z'
+    nonce: quiesce-17
+    signer_separation_subject: subject:worker-control:restore
+  signature_b64: OIwrSfGdE8e6atKE-4Nsg8EZm5XH1PR-KweNxbwDHusRYQmopt-qFatZlgWZq9B133CHYAJnEj7Gisz_et9RDw
+  digest: sha256:bf3de6ff0dacef34bea2605e155dfda89fb12d204682395d252fbce7cf001b4b
+- id: provider_authority_fence_envelope
+  domain: okg-external-action-provider-authority-fence-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/provider-authority/v1
+    typ: okg-provider-authority-fence+jws
+  payload_value:
+    deployment: support-prod
+    old_epoch: 17
+    epoch_rotation_lease_digest: sha256:558e7cfb6737b5c0ffbb8906074e2ca5b105b8d73cd997e44e075b87a4f5105c
+    provider_authority_set_digest: sha256:431f0a39eaff8df46a547605a67f8b8422cfe4f023ade9eaf8f4c0898828d028
+    provider_authority_count: 1
+    fenced_at: '2026-08-26T15:53:00.000000Z'
+    issued_at: '2026-08-26T15:53:30.000000Z'
+    nonce: provider-fence-17
+    signer_separation_subject: subject:provider-authority:restore
+  signature_b64: zj1v1_JTu2Oa6VSXVmJvzbdtX2S4d0bOggY0Rpm0BpBT_Xx5BiVJfQdmCxfQ6e9kS6A5LogUFxWHxA1ZoX2WBA
+  digest: sha256:76109c774d820c667930567f1fd9c03e54b20c82f0d3dec482fff3e0c1c6c7ce
+- id: worker_checkpoint_envelope
+  domain: okg-external-action-worker-checkpoint-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/worker-checkpoint/v1
+    typ: okg-worker-checkpoint+jws
+  payload_value:
+    deployment: support-prod
+    effect_instance_key: sha256:ea175f0835f31e530d0a8823f8d80a90f2daecdfa58bf9ee8f75280cd355a437
+    execution_epoch: 17
+    ledger_fence_envelope_digest: sha256:cabbcc3ec886909f74825eb741e0780a71fb58d784b746d7078046c280d2b7bd
+    fenced_ledger_root_digest: sha256:97afafb0e796cdad85533b4aa7d222544be4bf08e7edd864e549a4e1d6b58896
+    fenced_ledger_entry_count: 1
+    proof_kind: positive
+    positive_proof_digest: sha256:d3c5c2125bc909fc025deb50b3d8dca2e1fee18bc9309be3a6861d30c52d9b26
+    nonmembership_proof_digest: null
+    ledger_entry_digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    submission_content_hash: sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091
+    proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27A
+    proposal_request_hash: sha256:b23ed92aaf4ba0edec211b0980b71bc2e701f048dc0cd03d06784686b1a50e01
+    original_payload_hash: sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a
+    approved_payload_hash: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    decision_id: 01J63P2AER9Z51WAV9XVVB5P8R
+    decision_binding_hash: sha256:3f82b57555bd8b5ec204e029f04489e83d6180c8a45528000d3b2633f87c10ce
+    execution_id: 01J63P3MYGAK26WRHHM2GPAF2D
+    execution_binding_hash: sha256:6a07527cdb27ee40e82b173f6b51ba830c5e77398e90f2e4979ea5334c8f7e53
+    okg_claim_handoff_receipt_digest: sha256:85b979bbddcd90d34e7103f0f55bf3d36d8f7ba1c5a00b96039487458eac50e5
+    provider_idempotency_key_digest: sha256:5704d909436e166fa09107982330b5e9708504dd26e94a50c0817ac8b526239f
+    journal_phase: effect_starting
+    effect_started_at: '2026-08-26T14:32:00.000000Z'
+    provider_receipt_digest: null
+    outcome: null
+    outcome_reason_code: null
+    outcome_recorded_at: null
+    journal_digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    pre_restore_effect_event_head_hash: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+    checkpoint_issued_at: '2026-08-26T15:56:00.000000Z'
+  signature_b64: AYoFa2LMTXlXsF4jJK6UkmYmOt9B1OxJ82DHnjBJeUR7tqr_t4RwMGIvwTfsA_1-kBzH7ST_ZFxx2jkvGOxbDA
+  digest: sha256:b2965aa0ecd9537691be1691db872aecc0b2c1d5e03c9cb4d832f76869b6cc89
+- id: worker_nonmembership_checkpoint_envelope
+  domain: okg-external-action-worker-checkpoint-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/worker-checkpoint/v1
+    typ: okg-worker-checkpoint+jws
+  payload_value:
+    deployment: support-prod
+    effect_instance_key: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+    execution_epoch: 17
+    ledger_fence_envelope_digest: sha256:cabbcc3ec886909f74825eb741e0780a71fb58d784b746d7078046c280d2b7bd
+    fenced_ledger_root_digest: sha256:97afafb0e796cdad85533b4aa7d222544be4bf08e7edd864e549a4e1d6b58896
+    fenced_ledger_entry_count: 1
+    proof_kind: nonmembership
+    positive_proof_digest: null
+    nonmembership_proof_digest: sha256:3f9f73b27454d01648f2031c59d808ab3b9c0c6dc16a449579aa2a967713e559
+    ledger_entry_digest: null
+    submission_content_hash: sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091
+    proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27B
+    proposal_request_hash: sha256:46e46d9fcefda95b7e6a442d44ccc0661666fbb55fe669c99fd220638767415b
+    original_payload_hash: sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a
+    approved_payload_hash: null
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    decision_id: null
+    decision_binding_hash: null
+    execution_id: null
+    execution_binding_hash: null
+    okg_claim_handoff_receipt_digest: null
+    provider_idempotency_key_digest: null
+    journal_phase: database_only_not_started
+    effect_started_at: null
+    provider_receipt_digest: null
+    outcome: null
+    outcome_reason_code: null
+    outcome_recorded_at: null
+    journal_digest: null
+    pre_restore_effect_event_head_hash: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    checkpoint_issued_at: '2026-08-26T15:56:00.000000Z'
+  signature_b64: 1latzK07T_D_ddX6p8GgGlft4YHOdW7EGtF3DIa9fw6_vIzbtqxwr2GyTN0FyPj_4MY-N-LCPeYWeM_MIHpUDQ
+  digest: sha256:0b922fec557a5aba4c04f38e3fbf6952f7702fc8108e6c443a205567b7ba1bee
+- id: restore_attestation_envelope
+  domain: okg-external-action-restore-attestation-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/restore-operator/v1
+    typ: okg-restore-attestation+jws
+  payload_value:
+    deployment: support-prod
+    restore_id: restore-18
+    old_epoch: 17
+    new_epoch: 18
+    old_epoch_lease_digest: sha256:f5bd429735ba706e2d0ab79304c356b2005a6dbc54ad6cbe5e5e8ef567af7961
+    new_epoch_lease_digest: sha256:558e7cfb6737b5c0ffbb8906074e2ca5b105b8d73cd997e44e075b87a4f5105c
+    ledger_fence_envelope_digest: sha256:cabbcc3ec886909f74825eb741e0780a71fb58d784b746d7078046c280d2b7bd
+    fenced_ledger_root_digest: sha256:97afafb0e796cdad85533b4aa7d222544be4bf08e7edd864e549a4e1d6b58896
+    fenced_ledger_entry_count: 1
+    restored_snapshot_digest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+    pre_restore_event_root_digest: sha256:81a48b29f21c2436175cf3feb9375b8b556028c8ae1c113982386d0d589908f8
+    pre_restore_event_head_count: 2
+    effect_inventory_digest: sha256:27d8618b548f66916ce1a51581c5ea28621c5f6a020a26f62783a36c34f1d364
+    effect_inventory_count: 2
+    worker_checkpoint_set_digest: sha256:8bfb8e1e4edb7c9bc7dc811da3b8c5521a793253f70846eaba07ea04f7a11ac4
+    worker_checkpoint_count: 2
+    issued_at: '2026-08-26T16:00:00.000000Z'
+    expires_at: '2026-08-26T17:00:00.000000Z'
+    nonce: restore-18
+    signer_separation_subject: subject:operator:restore
+  signature_b64: rJaTCOHfYpRAf1rfPmQYXGyw27UaW_QCOyRb_UUyyiLq2mB6xLvyjdsra1ihzfyaWa3_0C8RyFhIKO7KntMrBw
+  digest: sha256:795792d357b6f744020532fef6c44a245f27745683fedbd95e11c7c0f34ade61
+- id: restore_completion_receipt_envelope
+  domain: okg-external-action-restore-completion-receipt-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/okg-review/v1
+    typ: okg-restore-completion+jws
+  payload_value:
+    deployment: support-prod
+    restore_id: restore-18
+    restore_attestation_envelope_digest: sha256:795792d357b6f744020532fef6c44a245f27745683fedbd95e11c7c0f34ade61
+    pre_restore_event_root_digest: sha256:81a48b29f21c2436175cf3feb9375b8b556028c8ae1c113982386d0d589908f8
+    pre_restore_event_head_count: 2
+    restored_event_root_digest: sha256:b92ec6f3f2e38519a678e533d699cc04bbec7cc74e7a988cbac4963dac00b7f5
+    restored_event_head_count: 2
+    recovery_set_digest: sha256:a2d8d0a5a2fe07ef73d5c873392baf3997517a2b9583ba97c1145b03da09c96f
+    recovery_count: 2
+    completed_at: '2026-08-26T16:05:00.000000Z'
+  signature_b64: xw9XLBTxX5br2QTz1Y3Vy2jlqT3x1CdQj8XQdVlI73wbsZj6KXOQIaiuXbrvS0_-fj7IVbI_Fr-KoS-H3dPGBw
+  digest: sha256:54acffd6cc3516dd917adcb49c7759f0a0ce4bba84ba8368525b83da5a66aec2
+- id: owner_unavailability_attestation_envelope
+  domain: okg-external-action-owner-unavailability-attestation-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/owner-attester/v1
+    typ: okg-owner-unavailable+jws
+  payload_value:
+    deployment: support-prod
+    execution_id: 01J63P3MYGAK26WRHHM2GPAF2D
+    claim_owner_separation_subject: subject:worker:ticket-service
+    reconcile_not_before: '2026-08-27T14:31:00.000000Z'
+    issued_at: '2026-08-27T14:32:00.000000Z'
+    expires_at: '2026-08-27T15:32:00.000000Z'
+    nonce: owner-x1
+    signer_separation_subject: subject:operator:attester
+  signature_b64: m_sYgbXxRu0picjfFOor92GuCkDm7cYm-AcuGYKYVslnV9XP1Ij2J62dz0QpsJIfUYyXl3tXpTjnL1neom6IBg
+  digest: sha256:3a56aa422a488607b00d75696c409aabf412edf61b6be2a4f42e18945450934e
+supplemental_signed_envelope_vectors:
+- id: claimed_before_ledger_handoff_envelope
+  domain: okg-external-action-claim-handoff-receipt-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/okg-review/v1
+    typ: okg-claim-handoff+jws
+  payload_value:
+    deployment: support-prod
+    execution_epoch: 17
+    execution_epoch_lease_digest: sha256:2c703502fe7bac07a9486db74186c4aa3a14cb47840029dd34142e85f519488f
+    effect_instance_key: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+    submission_content_hash: sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091
+    proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27B
+    proposal_request_hash: sha256:46e46d9fcefda95b7e6a442d44ccc0661666fbb55fe669c99fd220638767415b
+    original_payload_hash: sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a
+    proposer_separation_subject: subject:automation:triage-bot
+    approved_lifecycle_version: 3
+    approved_payload_version: 2
+    approved_payload_hash: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    policy_digest: sha256:39cdf77d551814db3ff974b57463e837e2558fce6874da9a04e11bc8bf3c67f9
+    decision_id: 01J63P2AER9Z51WAV9XVVB5P8S
+    decision_binding_hash: sha256:04a80bce6af67e85ef8efda21c50e710454d8f8fbd0c883e7fec87a0ac46bbc3
+    decision_event_hash: sha256:3333333333333333333333333333333333333333333333333333333333333333
+    approver_separation_subject: subject:human:operator-7
+    approver_authentication_audit_ref: auth:audit:approve-418
+    approver_nomos_decision_ref: nomos:decision:approve-418
+    execution_id: 01J63P3MYGAK26WRHHM2GPAF2E
+    execution_binding_hash: sha256:9d0ca4898c1ff61211965c50e707f242ae31acf10315e0937e9408086a18c3f8
+    claim_event_hash: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    worker_separation_subject: subject:worker:ticket-service
+    worker_authentication_audit_ref: auth:audit:claim-418
+    worker_nomos_decision_ref: nomos:decision:claim-418
+    event_chain_head_hash: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    claimed_at: '2026-08-26T14:41:00.000000Z'
+    execute_before: '2026-08-26T15:00:00.000000Z'
+  signature_b64: RX7OJ2ragdlAMT6opXIRVsukIEloWn05AzDiLd_uuBSBcvZMVUT1n_lUeXL3k-pEkog2C5RROVc0kRHv6WurCw
+  digest: sha256:064135889f70c27cca949abd606d1e0515433eb4c5d3470c65941110d8db6558
+- id: claimed_before_ledger_nonmembership_checkpoint_envelope
+  domain: okg-external-action-worker-checkpoint-envelope-v1
+  protected_value:
+    alg: EdDSA
+    kid: support-prod/worker-checkpoint/v1
+    typ: okg-worker-checkpoint+jws
+  payload_value:
+    deployment: support-prod
+    effect_instance_key: sha256:814b0c345a7fa60d83e5c286a9bbc531b42ba8ae5ac1b76d922b76b843a0ac09
+    execution_epoch: 17
+    ledger_fence_envelope_digest: sha256:cabbcc3ec886909f74825eb741e0780a71fb58d784b746d7078046c280d2b7bd
+    fenced_ledger_root_digest: sha256:97afafb0e796cdad85533b4aa7d222544be4bf08e7edd864e549a4e1d6b58896
+    fenced_ledger_entry_count: 1
+    proof_kind: nonmembership
+    positive_proof_digest: null
+    nonmembership_proof_digest: sha256:3f9f73b27454d01648f2031c59d808ab3b9c0c6dc16a449579aa2a967713e559
+    ledger_entry_digest: null
+    submission_content_hash: sha256:5054bf7619685f96043f3f2bb0a245e99479af114718225f6695a4ec46c88091
+    proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27B
+    proposal_request_hash: sha256:46e46d9fcefda95b7e6a442d44ccc0661666fbb55fe669c99fd220638767415b
+    original_payload_hash: sha256:b5cf662c3d4244db3d55e58f522bcf7e530731037885874b3486ffed7dcff50a
+    approved_payload_hash: sha256:6791c44fbb59a47f1995e252360be350bd41595fe582a2501003911eb7ff1533
+    action_contract_digest: sha256:fa597fb8b38d2f22e7bbfce4ab1444b15fe2beb86b5583c4ab7f209ad7d7a922
+    decision_id: 01J63P2AER9Z51WAV9XVVB5P8S
+    decision_binding_hash: sha256:04a80bce6af67e85ef8efda21c50e710454d8f8fbd0c883e7fec87a0ac46bbc3
+    execution_id: 01J63P3MYGAK26WRHHM2GPAF2E
+    execution_binding_hash: sha256:9d0ca4898c1ff61211965c50e707f242ae31acf10315e0937e9408086a18c3f8
+    okg_claim_handoff_receipt_digest: sha256:064135889f70c27cca949abd606d1e0515433eb4c5d3470c65941110d8db6558
+    provider_idempotency_key_digest: null
+    journal_phase: claimed_before_ledger_begin
+    effect_started_at: null
+    provider_receipt_digest: null
+    outcome: null
+    outcome_reason_code: null
+    outcome_recorded_at: null
+    journal_digest: null
+    pre_restore_effect_event_head_hash: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    checkpoint_issued_at: '2026-08-26T15:56:00.000000Z'
+  signature_b64: OPk8TDfU8TKZy-MxRpYbg3efpRn854EnZG8HVoX_GxgpFCkLG9avzRiGZns2UUKOLPYQALO-befLgFw0hztUDQ
+  digest: sha256:63343e635a35bf3a81ddc7803b222b74a2b1805dc8596f6437efeb8f2001e0a2
+supplemental_restore_transition_vectors:
+- id: claimed_before_ledger_begin
+  checkpoint_envelope_id: claimed_before_ledger_nonmembership_checkpoint_envelope
+  source_proposal_id: 01J63N8FV2P3XT8VZB4Z7NJ27B
+  source_decision_id: 01J63P2AER9Z51WAV9XVVB5P8S
+  source_execution_id: 01J63P3MYGAK26WRHHM2GPAF2E
+  source_handoff_envelope_id: claimed_before_ledger_handoff_envelope
+  before_review_state: approved
+  before_execution_state: claimed
+  after_review_state: cancelled
+  after_execution_state: unavailable
+  classification: database_restore_no_effect_started
+  provider_call_count: 0
+terminal_review_recovery_vectors:
+- review_state: rejected
+  execution_state: unavailable
+  proof_kind: nonmembership
+  classification: database_restore_terminal_review_confirmed
+  projection_action: preserve
+  surviving_decision_rows: preserve_exact_if_present
+  surviving_execution_rows: preserve_exact_if_present
+- review_state: expired
+  execution_state: unavailable
+  proof_kind: nonmembership
+  classification: database_restore_terminal_review_confirmed
+  projection_action: preserve
+  surviving_decision_rows: preserve_exact_if_present
+  surviving_execution_rows: preserve_exact_if_present
+- review_state: cancelled
+  execution_state: unavailable
+  proof_kind: nonmembership
+  classification: database_restore_terminal_review_confirmed
+  projection_action: preserve
+  surviving_decision_rows: preserve_exact_if_present
+  surviving_execution_rows: preserve_exact_if_present
+closed_language_rejection_vectors:
+- kind: event
+  mutation: unknown_event_type
+  value: provider_called
+  code: invalid_event_vocabulary
+- kind: event
+  mutation: unknown_deadline_kind
+  value: arbitrary_deadline
+  code: invalid_event_vocabulary
+- kind: event
+  mutation: outcome_reported_with_deadline_kind
+  value: execute_before
+  code: invalid_event_field_combination
+- kind: checkpoint
+  mutation: unknown_journal_phase
+  value: ready_to_call
+  code: invalid_restore_checkpoint
+- kind: checkpoint
+  mutation: claimed_before_ledger_with_effect_started_at
+  value: '2026-08-26T14:42:00.000000Z'
+  code: invalid_restore_checkpoint
+- kind: checkpoint
+  mutation: effect_starting_without_ledger_entry_digest
+  value: null
+  code: invalid_restore_checkpoint

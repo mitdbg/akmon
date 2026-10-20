@@ -1,0 +1,22 @@
+# Cross-link rules: bookkeeping → person.
+#
+# Per umbrella `expand-memex-to-personal-okg`: a
+# ProjectStakeholder role (e.g. "lead researcher") is filled by
+# a specific Person when the operator identifies the individual.
+# Soft link via the existing `identifies` archetype (already in
+# substrate vocabulary; not a new addition).
+#
+# Matcher: `exact`. ProjectStakeholder.person_id holds a
+# `person:<slug>` alias; the substrate person module's alias
+# resolution surfaces the Person node.
+rules:
+  - id: project_stakeholder_identifies_person
+    src:
+      subtype: project_stakeholder
+      field: person_id
+    dst:
+      subtype: person
+      field: person_id
+    matcher: exact
+    edge: identifies
+    bidirectional: false

@@ -1,0 +1,28 @@
+# Default preset: the smoke shape at fuller corruption coverage. Realism
+# defaults are hand-set (v1); a measured calibration upgrades them without
+# schema change.
+preset_name: default
+seed: "default-749-1"
+world_path: world_smoke
+redundancy:
+  renderings_per_fact_min: 2
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 4, magnitude: 0.15, visibility_corrupted: 1}
+    entity_swap: {count: 2, visibility_corrupted: 1}
+    cardinality_violation: {count: 2, visibility_corrupted: 1}
+    polarity_flip: {count: 2, visibility_corrupted: 1}
+    derived_value: {count: 2, magnitude: 0.3, visibility_corrupted: 1}
+    digit_transposition: {count: 2}
+    unit_conversion_error: {count: 1}
+    label_value_mismatch: {count: 2}
+    broken_reference: {count: 1}
+    dangling_entity: {count: 1}
+benign_variation:
+  unit_rescale_rate: 0.25
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+materialize_pdf: false

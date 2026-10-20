@@ -1,0 +1,25 @@
+sources:
+  jira:
+    module: okg.substrate.library.sources.jira
+    class: JiraSource
+    ownership_id: devops.jira
+    source_class: mutable_api
+    record_identity_kind: remote_id
+    record_identity_fields: [issue_key]
+    source_revision_kind: updated_at
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    params:
+      fixture_path: ${deployment_dir}/fixtures/jira.json
+  github:
+    module: okg.substrate.library.sources.github
+    class: GitHubSource
+    ownership_id: devops.github
+    source_class: mutable_api
+    record_identity_kind: remote_id
+    record_identity_fields: [repo, pr_number]
+    source_revision_kind: updated_at
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    params:
+      fixture_path: ${deployment_dir}/fixtures/github.json

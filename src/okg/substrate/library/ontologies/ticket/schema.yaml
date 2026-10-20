@@ -1,0 +1,83 @@
+id: https://palimpzest.mit.edu/okg/modules/ticket
+name: ticket
+title: "Ticket — issue trackers (Jira, GitHub issues, etc.)"
+description: |-
+  Tickets / bugs / tasks tracked in an issue-tracking
+  system, plus their comments and parent epics. Promoted
+  from the legacy `okg.ontology.ticket` fragment (per
+  `unify-ontology-systems`, 2026-04-26).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  tkt: https://palimpzest.mit.edu/okg/modules/ticket/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Ticket:
+    description: An issue / bug / task tracked in an issue-tracking system.
+    class_uri: tkt:Ticket
+    attributes:
+      ticket_id:
+        required: true
+      title:
+      state:
+      body:
+    annotations:
+      archetype: artifact
+      okg_searchable_text_fields: title,body
+      transient: 'false'
+  Comment:
+    description: A comment on a ticket.
+    class_uri: tkt:Comment
+    attributes:
+      comment_id:
+        required: true
+      body:
+    annotations:
+      archetype: artifact
+      okg_searchable_text_fields: body
+      transient: 'false'
+  Epic:
+    description: A large-scope tracked item that groups tickets.
+    class_uri: tkt:Epic
+    attributes:
+      epic_id:
+        required: true
+      title:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  EdgeNarrowings:
+    description: Intra-module + cross-module narrowings for ticket.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      ticket_has_comment:
+        annotations:
+          edge_archetype: has_comment
+          src_subtypes: Ticket
+          dst_subtypes: Comment
+      ticket_in_epic:
+        annotations:
+          edge_archetype: in_epic
+          src_subtypes: Ticket
+          dst_subtypes: Epic
+      ticket_reported_by_person:
+        description: Cross-module to person. Resolves when person is co-loaded.
+        annotations:
+          edge_archetype: reported_by
+          src_subtypes: Ticket
+          dst_subtypes: Person
+      ticket_assigned_to_person:
+        description: Cross-module to person.
+        annotations:
+          edge_archetype: assigned_to
+          src_subtypes: Ticket
+          dst_subtypes: Person
+      comment_authored_by_person:
+        description: Cross-module to person.
+        annotations:
+          edge_archetype: authored_by
+          src_subtypes: Comment
+          dst_subtypes: Person

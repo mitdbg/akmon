@@ -1,0 +1,27 @@
+{
+  "captured_from": "okg-workspace okg.source_progress, read-only SELECT, 2026-09-22",
+  "query": "SELECT source_name, key, value, updated_at FROM okg.source_progress WHERE deployment = 'okg-workspace' AND source_name IN ('git-files', '_system:native_views') ORDER BY source_name, key",
+  "rows": [
+    {
+      "source_name": "git-files",
+      "key": "sync.poll.change_probe.fingerprint",
+      "value": "change_probe:de38e506322908208d30e44a5b4779db44e516c88125dd1011a4575f2d92ff82",
+      "value_type": "str",
+      "updated_at": "2026-09-08T03:20:02.588939+00:00"
+    },
+    {
+      "source_name": "git-files",
+      "key": "sync.producer.poll",
+      "value": "{\"enqueue_count\": 0, \"error_count\": 0, \"event_count\": 0, \"last_enqueue_at\": null, \"last_event_at\": null, \"last_heartbeat_at\": \"2026-09-20T15:46:45.681693+00:00\", \"last_run_at\": \"2026-09-20T15:46:45.681693+00:00\"}",
+      "value_type": "str",
+      "updated_at": "2026-09-20T15:46:45.695618+00:00"
+    },
+    {
+      "source_name": "git-files",
+      "key": "sync.producer.watch",
+      "value": "{\"enqueue_count\": 0, \"error_count\": 0, \"event_count\": 0, \"last_enqueue_at\": \"2026-09-23T00:39:58.564446+00:00\", \"last_event_at\": \"2026-09-23T00:45:52.539818+00:00\", \"last_heartbeat_at\": \"2026-09-23T00:45:52.548239+00:00\", \"last_run_at\": \"2026-09-23T00:45:52.548239+00:00\"}",
+      "value_type": "str",
+      "updated_at": "2026-09-23T00:45:52.619953+00:00"
+    }
+  ]
+}

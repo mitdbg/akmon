@@ -1,0 +1,44 @@
+# Single-flavor COPY arm (PACT consistency-independent-support): the same
+# deterministic, LLM-free shape as provenance_flavors, but flavor_split 'copy'
+# declares ONE origin on EVERY majority site's corrupted renderings instead of
+# alternating.
+#
+# WHY a preset and not a flavor of provenance_flavors. The end-to-end effect of
+# the engine's origin fix is measured by running THIS preset twice: once as
+# written (copy origins declared) and once with the provenance axis switched
+# off (the same preset without the declarations, corpus byte-identical — proven
+# by test_corpus_byte_identical_across_flavors_and_disabled). Every majority
+# site is a copy-majority here, so the declared run's mis-repair count is
+# expected to fall to zero while the undeclared run keeps mis-repairing every
+# one of them — a whole-run number read from run output, not a per-flavor slice.
+# 'alternate' cannot express that: it leaves half the sites independent, so the
+# undeclared/declared gap is diluted by sites that SHOULD keep mis-repairing.
+#
+# config.ProvenanceAxis documents 'copy' and 'independent' as the single-flavor
+# split modes; until this preset nothing exercised either.
+#
+# The arm shape is majority_wrong's, unchanged from provenance_flavors:
+# redundancy 3..3 so each cardinality care_provider fact renders at k=3
+# (2 corrupted + 1 surviving clean = a genuine majority-wrong conflict), and
+# cardinality_violation is the one class world_smoke@8 expresses a majority with.
+preset_name: provenance_copy
+seed: "provenance-flavors-1"
+world_path: world_smoke
+redundancy:
+  # 3 renderings so 2 corrupted still leaves 1 clean counterpart: a preserved
+  # majority-wrong conflict at every cardinality site.
+  renderings_per_fact_min: 3
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    cardinality_violation: {count: 4, visibility_corrupted: 2}
+benign_variation:
+  unit_rescale_rate: 0.0
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+provenance:
+  enabled: true
+  flavor_split: copy
+materialize_pdf: false

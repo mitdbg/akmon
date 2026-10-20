@@ -1,0 +1,43 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "okg.fullname" . }}-runtime
+  labels:
+    {{- include "okg.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "okg.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: runtime
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.mcp.port }}
+---
+{{- if .Values.postgresql.internal.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "okg.fullname" . }}-postgres
+  labels:
+    {{- include "okg.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "okg.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "okg.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.postgresql.port }}
+{{- end }}
+{{- end }}

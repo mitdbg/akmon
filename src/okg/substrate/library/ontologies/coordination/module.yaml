@@ -1,0 +1,13 @@
+name: coordination
+version: 1.0.0
+description: 'Supervisor/persistent-worker execution graph: work orders, role
+  agents, workspace leases, proofs of work, reviews, organizational containers.'
+provides:
+  subtypes_file: schema.yaml
+extends:
+  reasoning:
+    description: 'Pattern A evidence: WorkspaceObservation derives_to Observation.
+      Pattern B citation: WorkOrder addresses Question, Review references
+      Refutation.'
+    cross_link_rules:
+    - cross_links/coordination_to_reasoning.yaml

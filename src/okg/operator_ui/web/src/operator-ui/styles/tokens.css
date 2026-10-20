@@ -1,0 +1,419 @@
+/* AKMON operator-UI design tokens.
+ *
+ * One token contract, four firings (themes):
+ *   Cyclades     - light. Lime-washed Aegean walls (cool white), cobalt dome
+ *                  and shutter blue, deep-navy ink. The default.
+ *   Lyceaum      - light. Warm honey-gold Pentelic marble under Attic daylight,
+ *                  aegean ink, weathered bronze.
+ *   Melanomorpha - dark. Attic black-figure ware; lustrous black glaze over
+ *                  fired clay, ivory slip, added-red detail.
+ *   Hephaestus   - dark. The forge: cold soot-iron ground, molten-orange glow,
+ *                  brass and copper, ash-white ink, the blue heart of the flame.
+ *
+ * Colour values are grounded in the real referents (Greek pottery and Pentelic
+ * marble for Lyceaum/Melanomorpha; Cycladic architecture and a working forge
+ * for the two new firings), not chosen from intuition, and every load-bearing
+ * text pair is verified to clear WCAG AA. Components read only the semantic
+ * `--okg-color-*` / `--okg-graph-*` tokens; a theme is a value set selected by
+ * `data-theme` on the document root. Non-colour tokens (type, space, radius,
+ * layout, motion) are theme-agnostic and live in :root.
+ *
+ * The active theme is set by operator-ui/theme.ts before React mounts; with no
+ * attribute the cascade falls back to Cyclades (`:root` carries its values).
+ */
+
+:root {
+  --okg-font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  /* ui-monospace first: Safari resolves it to SF Mono. Chromium on macOS
+     resolves none of ui-monospace, "SF Mono" or SFMono-Regular by name, so
+     Menlo is its stop; without it the generic `monospace` fell through to
+     Courier (measured 2026-09-27). */
+  --okg-font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
+
+  --okg-text-xs: 0.75rem;
+  --okg-text-sm: 0.8125rem;
+  --okg-text-md: 0.9375rem;
+  --okg-text-lg: 1.125rem;
+  --okg-text-xl: 1.375rem;
+
+  --okg-weight-regular: 400;
+  --okg-weight-medium: 600;
+  --okg-weight-bold: 750;
+
+  --okg-leading-tight: 1.2;
+  --okg-leading-normal: 1.45;
+  --okg-leading-relaxed: 1.6;
+
+  --okg-space-1: 0.25rem;
+  --okg-space-2: 0.5rem;
+  --okg-space-3: 0.75rem;
+  --okg-space-4: 1rem;
+  --okg-space-5: 1.25rem;
+  --okg-space-6: 1.5rem;
+  --okg-space-8: 2rem;
+
+  --okg-radius-sm: 0.25rem;
+  --okg-radius-md: 0.375rem;
+  --okg-radius-lg: 0.5rem;
+  --okg-radius-pill: 999px;
+
+  --okg-layout-rail: 11rem;
+  --okg-layout-topbar: 3.25rem;
+  --okg-layout-content-max: 76.75rem;
+  --okg-layout-gutter: 1.125rem;
+  --okg-layout-narrow: 48rem;
+
+  /* var() inside resolves lazily at the using element, so the ring picks up the
+     active theme's bg + link. */
+  --okg-focus-ring: 0 0 0 0.125rem var(--okg-color-bg),
+    0 0 0 0.25rem var(--okg-color-link);
+  --okg-motion-fast: 120ms;
+  --okg-motion-medium: 180ms;
+}
+
+/* =========================================================================
+ * LYCEAUM (light) - warm honey day firing (opt-in).
+ * Pentelic marble ground (honey-gold), aegean-blue ink, weathered-bronze accent.
+ * ========================================================================= */
+:root[data-theme="lyceaum"] {
+  color-scheme: light;
+
+  --okg-color-bg: #ece5d5;
+  --okg-color-surface: #fbf6eb;
+  --okg-color-surface-muted: #efe7d7;
+  --okg-color-rail: #16120c;
+  --okg-color-rail-active: #33240f;
+  --okg-color-rail-hover: #211910;
+  --okg-color-rail-text: #e8ddc7;
+  --okg-color-rail-link: #c7baa0;
+  --okg-color-rail-muted: #948870;
+  --okg-color-rail-border: #2c2216;
+  --okg-color-brand-mark: #c15a2b;
+  --okg-color-text: #211c13;
+  --okg-color-on-dark: #fdf7ef;
+  --okg-color-strong: #120e07;
+  --okg-color-muted: #6c6253;
+  --okg-color-subtle: #6c6455;
+  --okg-color-line: #d8cfba;
+  --okg-color-line-soft: #e4ded1;
+  --okg-color-accent: #a85c2a;
+  --okg-color-link: #1c6a96;
+  --okg-color-link-bg: #e4eef2;
+  --okg-color-ok: #4c6a2c;
+  --okg-color-ok-bg: #e9efd9;
+  --okg-color-ok-line: #c1d0a2;
+  --okg-color-warn: #8a5f10;
+  --okg-color-warn-bg: #f6eacb;
+  --okg-color-warn-line: #e1c27e;
+  --okg-color-warn-text: #6a470c;
+  --okg-color-bad: #a63826;
+  --okg-color-bad-bg: #f5e1d9;
+  --okg-color-bad-line: #e0ae9f;
+  --okg-color-info: #1c6a96;
+  --okg-color-info-bg: #e4eef2;
+  --okg-color-info-line: #aecfdb;
+  --okg-color-canvas: #f0e8d8;
+  --okg-color-canvas-grid: transparent;
+  --okg-color-scrim: rgba(32, 24, 12, 0.28);
+  --okg-shadow-drawer: -0.5rem 0 1.5rem rgba(32, 24, 12, 0.16);
+  --okg-shadow-badge: 0 0.0625rem 0.125rem rgba(30, 22, 10, 0.18);
+
+  /* Graph palette. Lyceaum keeps the established light values so the sigma
+     canvas is unchanged until its JS colour source reads these tokens. */
+  --okg-graph-node-type: #155fa8;
+  --okg-graph-source: #167c57;
+  --okg-graph-enricher: #8a5a00;
+  --okg-graph-selected: #b42318;
+  --okg-graph-family-2: #c07b45;
+  --okg-graph-layer-other: #526477;
+  /* The console Graph view's categorical palette; see Cyclades. The day
+     firing's own: terracotta, aegean ink, olive, ochre, wine, verdigris,
+     umber and mulberry on honey marble, and a warm grey shared by the
+     producers past the eighth. Each clears 3:1 on the surface. */
+  --okg-graph-cat-1: #a85c2a;
+  --okg-graph-cat-2: #1c6a96;
+  --okg-graph-cat-3: #6b7f2a;
+  --okg-graph-cat-4: #a97a22;
+  --okg-graph-cat-5: #8e3b4c;
+  --okg-graph-cat-6: #3d8a78;
+  --okg-graph-cat-7: #7b5634;
+  --okg-graph-cat-8: #9a4f7a;
+  --okg-graph-cat-9: #8a806e;
+  /* The Grid's cell shade: at its 60 per cent top body text keeps 6.7:1. */
+  --okg-graph-heat: #a85c2a;
+  --okg-graph-edge: #bcae94;
+  --okg-graph-edge-hi: #4a3a24;
+  --okg-graph-halo: var(--okg-color-canvas);
+}
+
+/* =========================================================================
+ * MELANOMORPHA (dark) - the night firing.
+ * Lustrous black-glaze ground, fired-clay terracotta accent, ivory slip ink,
+ * added-red (sinopia) danger. Graph palette runs warm-forward to glow on glaze.
+ * ========================================================================= */
+:root[data-theme="melanomorpha"] {
+  color-scheme: dark;
+
+  --okg-color-bg: #140e08;
+  --okg-color-surface: #201610;
+  --okg-color-surface-muted: #2a1e15;
+  --okg-color-rail: #0d0905;
+  --okg-color-rail-active: #3c2716;
+  --okg-color-rail-hover: #241a10;
+  --okg-color-rail-text: #eddec5;
+  --okg-color-rail-link: #c4b197;
+  --okg-color-rail-muted: #8f7f69;
+  --okg-color-rail-border: #34271c;
+  --okg-color-brand-mark: #d06e3c;
+  --okg-color-text: #eadfc9;
+  --okg-color-on-dark: #fdf7ef;
+  --okg-color-strong: #f8ecd6;
+  --okg-color-muted: #a2917a;
+  --okg-color-subtle: #98866d;
+  --okg-color-line: #3b2d21;
+  --okg-color-line-soft: #2b2017;
+  --okg-color-accent: #d06e3c;
+  --okg-color-link: #6faacb;
+  --okg-color-link-bg: #15232b;
+  --okg-color-ok: #93b061;
+  --okg-color-ok-bg: #1d2413;
+  --okg-color-ok-line: #3f4b26;
+  --okg-color-warn: #d6a852;
+  --okg-color-warn-bg: #2a2110;
+  --okg-color-warn-line: #58441a;
+  --okg-color-warn-text: #e9c784;
+  --okg-color-bad: #df6f4d;
+  --okg-color-bad-bg: #2b1712;
+  --okg-color-bad-line: #5c2d20;
+  --okg-color-info: #6faacb;
+  --okg-color-info-bg: #15232b;
+  --okg-color-info-line: #2f4855;
+  --okg-color-canvas: #100b06;
+  --okg-color-canvas-grid: transparent;
+  --okg-color-scrim: rgba(0, 0, 0, 0.5);
+  --okg-shadow-drawer: -0.5rem 0 1.5rem rgba(0, 0, 0, 0.55);
+  --okg-shadow-badge: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.4);
+
+  /* Graph palette, warm-forward - prepared for the sigma canvas to consume so
+     ivory/clay figures glow on black glaze and edges stay visible. */
+  --okg-graph-node-type: #6faacb;
+  --okg-graph-source: #8fac5e;
+  --okg-graph-enricher: #d6a852;
+  --okg-graph-selected: #d2583a;
+  --okg-graph-family-2: #ead8b6;
+  --okg-graph-layer-other: #a2917a;
+  /* The console Graph view's categorical palette; see Cyclades. The night
+     firing's own: fired clay, slip blue, olive, gold, added red, verdigris,
+     lilac and pale slip on black glaze, and the glaze's warm grey shared by
+     the producers past the eighth. */
+  --okg-graph-cat-1: #d9824b;
+  --okg-graph-cat-2: #6faacb;
+  --okg-graph-cat-3: #a9b85e;
+  --okg-graph-cat-4: #e0b05a;
+  --okg-graph-cat-5: #d9706f;
+  --okg-graph-cat-6: #5fb8a0;
+  --okg-graph-cat-7: #b08ac0;
+  --okg-graph-cat-8: #e8a58a;
+  --okg-graph-cat-9: #a2917a;
+  /* Darker than cat-1: at its 60 per cent top the shade keeps ivory body
+     text 5.6:1, where cat-1 would give 4.4. */
+  --okg-graph-heat: #b86a38;
+  --okg-graph-edge: #54402e;
+  --okg-graph-edge-hi: #eadfc9;
+  --okg-graph-halo: var(--okg-color-canvas);
+}
+
+/* =========================================================================
+ * CYCLADES (light) - the Aegean firing. The default.
+ * Lime-washed Cycladic walls (cool white), cobalt dome + shutter blue, deep-navy
+ * ink over the aegean sea. Pure cool blue+white: the warm counterpart is
+ * Lyceaum, so Cyclades carries no terracotta in its chrome.
+ * ========================================================================= */
+:root,
+:root[data-theme="cyclades"] {
+  color-scheme: light;
+
+  --okg-color-bg: #eef2f6;
+  --okg-color-surface: #fbfdfe;
+  --okg-color-surface-muted: #e6ecf1;
+  --okg-color-rail: #0e2b45;
+  --okg-color-rail-active: #14568c;
+  --okg-color-rail-hover: #123a5c;
+  --okg-color-rail-text: #e9f1f7;
+  --okg-color-rail-link: #a8c6dd;
+  --okg-color-rail-muted: #8fb0c9;
+  --okg-color-rail-border: #1b3f61;
+  /* Bright sky-cobalt so the rail-coloured brand glyph stays legible on the
+     mark (the deep cobalt accent would collapse the "O" to ~1.7:1). */
+  --okg-color-brand-mark: #4aa3d8;
+  --okg-color-text: #0e1f30;
+  --okg-color-on-dark: #f7fbfe;
+  --okg-color-strong: #081521;
+  --okg-color-muted: #4f6273;
+  --okg-color-subtle: #5a6b7a;
+  --okg-color-line: #d3dde6;
+  --okg-color-line-soft: #e6edf2;
+  --okg-color-accent: #0a4f88;
+  --okg-color-link: #0e6ba8;
+  --okg-color-link-bg: #e0eef6;
+  --okg-color-ok: #31694a;
+  --okg-color-ok-bg: #e2efe6;
+  --okg-color-ok-line: #b3d4c1;
+  --okg-color-warn: #97671a;
+  --okg-color-warn-bg: #f6ecd4;
+  --okg-color-warn-line: #e2c88a;
+  --okg-color-warn-text: #6f4c12;
+  --okg-color-bad: #b23a2a;
+  --okg-color-bad-bg: #f6e2dd;
+  --okg-color-bad-line: #e3b0a3;
+  --okg-color-info: #0e6ba8;
+  --okg-color-info-bg: #e0eef6;
+  --okg-color-info-line: #a8d0e6;
+  --okg-color-canvas: #eaf1f6;
+  --okg-color-canvas-grid: transparent;
+  --okg-color-scrim: rgba(10, 30, 48, 0.28);
+  --okg-shadow-drawer: -0.5rem 0 1.5rem rgba(14, 40, 66, 0.16);
+  --okg-shadow-badge: 0 0.0625rem 0.125rem rgba(14, 40, 66, 0.16);
+
+  /* Graph palette, maritime - cobalt/turquoise/sea-green on a sky-wash canvas,
+     with a bougainvillea-pink and a lone terracotta pot for life. */
+  --okg-graph-node-type: #14568c;
+  --okg-graph-source: #2a8a6f;
+  --okg-graph-enricher: #a8641f;
+  --okg-graph-selected: #b23a2a;
+  --okg-graph-family-2: #2f8159;
+  /* Crisp semantic layers for instance exploration. PACT is violet so it does
+     not collide with orange focus or red selection; Other remains neutral. */
+  --okg-graph-layer-other: #64748b;
+  /* The console Graph view's categorical palette (one colour per source or
+     record type, in order), its line greys and the halo drawn round a mark so
+     it stands off the canvas. From the approved Graph prototype
+     (PACT console-graph-views); the shade of every Grid cell tops out at 60
+     per cent of cat-1 so body text keeps 4.5:1 on it. */
+  --okg-graph-cat-1: #2166ac;
+  --okg-graph-cat-2: #1b9e77;
+  --okg-graph-cat-3: #d9822b;
+  --okg-graph-cat-4: #c2456b;
+  --okg-graph-cat-5: #7a5cc7;
+  --okg-graph-cat-6: #5f8f2e;
+  --okg-graph-cat-7: #8a6d3b;
+  --okg-graph-cat-8: #3a9fc9;
+  --okg-graph-cat-9: #6b7785;
+  /* The Grid's cell shade: at its 60 per cent top body text keeps 6.3:1. */
+  --okg-graph-heat: #2166ac;
+  --okg-graph-edge: #9fb1c0;
+  --okg-graph-edge-hi: #27465f;
+  --okg-graph-halo: var(--okg-color-canvas);
+}
+
+/* =========================================================================
+ * HEPHAESTUS (dark) - the forge firing.
+ * Cold soot-iron ground (cool steel-grey, not warm brown), incandescent molten
+ * orange, brass + copper, the blue heart of the flame for links, ember-red
+ * danger. Cold metal + fire: the warm-clay counterpart is Melanomorpha.
+ * ========================================================================= */
+:root[data-theme="hephaestus"] {
+  color-scheme: dark;
+
+  --okg-color-bg: #101317;
+  --okg-color-surface: #191e24;
+  --okg-color-surface-muted: #232a32;
+  --okg-color-rail: #090b0e;
+  --okg-color-rail-active: #7a3414;
+  --okg-color-rail-hover: #161c22;
+  --okg-color-rail-text: #e7e4dc;
+  --okg-color-rail-link: #d9a25f;
+  --okg-color-rail-muted: #8b8b86;
+  --okg-color-rail-border: #2a323b;
+  --okg-color-brand-mark: #ff6a1f;
+  --okg-color-text: #e9e6de;
+  --okg-color-on-dark: #fff6ea;
+  --okg-color-strong: #f6f1e7;
+  --okg-color-muted: #9aa1a8;
+  --okg-color-subtle: #868d94;
+  --okg-color-line: #2c343d;
+  --okg-color-line-soft: #1e242b;
+  --okg-color-accent: #ff6a1f;
+  --okg-color-link: #56b4e6;
+  --okg-color-link-bg: #0f2330;
+  --okg-color-ok: #86c25f;
+  --okg-color-ok-bg: #16210f;
+  --okg-color-ok-line: #37491e;
+  --okg-color-warn: #e6a636;
+  --okg-color-warn-bg: #281f0f;
+  --okg-color-warn-line: #524019;
+  --okg-color-warn-text: #f2c66f;
+  --okg-color-bad: #f0512a;
+  --okg-color-bad-bg: #2b130d;
+  --okg-color-bad-line: #612517;
+  --okg-color-info: #56b4e6;
+  --okg-color-info-bg: #0f2330;
+  --okg-color-info-line: #26495b;
+  --okg-color-canvas: #0c0f13;
+  --okg-color-canvas-grid: transparent;
+  --okg-color-scrim: rgba(0, 0, 0, 0.55);
+  --okg-shadow-drawer: -0.5rem 0 1.5rem rgba(0, 0, 0, 0.6);
+  --okg-shadow-badge: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.45);
+
+  /* Graph palette, forge-glow - molten orange/amber/copper/ember figures on cold
+     iron, flame-blue for the cool accent; edges are warm bronze sparks. */
+  --okg-graph-node-type: #56b4e6;
+  --okg-graph-source: #86c25f;
+  --okg-graph-enricher: #e6a636;
+  --okg-graph-selected: #f0512a;
+  --okg-graph-family-2: #f0d9a8;
+  --okg-graph-layer-other: #9aa1a8;
+  /* The console Graph view's categorical palette; see Cyclades. */
+  --okg-graph-cat-1: #5aa2e6;
+  --okg-graph-cat-2: #3cc39b;
+  --okg-graph-cat-3: #f0a24e;
+  --okg-graph-cat-4: #ea6f93;
+  --okg-graph-cat-5: #a58cf0;
+  --okg-graph-cat-6: #8cc05a;
+  --okg-graph-cat-7: #c9a46a;
+  --okg-graph-cat-8: #62c3ea;
+  --okg-graph-cat-9: #98a4b1;
+  /* The forge's own shade for the Grid, molten orange: at its 60 per cent
+     top ash-white body text keeps 5.7:1 (cat-1 gave 4.35). */
+  --okg-graph-heat: #d2601f;
+  --okg-graph-edge: #4a5864;
+  --okg-graph-edge-hi: #cfd8df;
+  --okg-graph-halo: var(--okg-color-canvas);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  width: 100%;
+  max-width: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--okg-color-bg);
+  color: var(--okg-color-text);
+  font-family: var(--okg-font-sans);
+  font-size: var(--okg-text-sm);
+  line-height: var(--okg-leading-normal);
+  overflow-x: clip;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}

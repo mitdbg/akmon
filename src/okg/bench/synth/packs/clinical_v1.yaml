@@ -1,0 +1,137 @@
+# Hand-authored clinical template pack (frozen; digest-sealed by goldseal).
+#
+# Labels are per fact KIND and identical in every genre: the deterministic
+# claim extractor derives the predicate from the label, and cross-document
+# bucketing requires the same (predicate, entity) pair everywhere a fact
+# is restated.
+#
+# Section names are CANONICAL and identical across genres, and genre titles
+# are BODY TEXT, never headings: the claim scope is the heading path, and
+# the conflict engine treats disjoint scopes as compatible (spec §4.1
+# overlap rule) — "Patient X > Measurements" must match in every genre or
+# cross-genre buckets are scope-suppressed. Deliberately DISTINCT section
+# names are how scoped non-conflicts get expressed later.
+pack_name: clinical_v1
+schema_version: okg.synth.pack.v1
+
+labels:
+  birthdate: "Birthdate"
+  age_years: "Age Years"
+  care_provider: "Care Provider"
+  record_reference: "Record Reference"
+  "observation:body_height": "Body Height"
+  "observation:body_weight": "Body Weight"
+  "observation:body_mass_index": "Body Mass Index"
+  "observation:systolic_blood_pressure": "Systolic Blood Pressure"
+  "observation:diastolic_blood_pressure": "Diastolic Blood Pressure"
+  "observation:total_cholesterol": "Total Cholesterol"
+  "observation:hemoglobin_a1c": "Hemoglobin A1c"
+  "medication:": "Medication"       # prefix rule: label += ' ' + Titled key
+  "condition_status:": "Condition"  # prefix rule
+  "allergy_status:": "Allergy"      # prefix rule
+
+# Narrative templates for render_mode: prose. Keyed exactly like `labels`
+# (exact kind, or a "prefix:" rule), and every template must contain {value};
+# {suffix} is the Titled key for prefix kinds ("Metformin" from
+# "medication:metformin").
+#
+# These deliberately do NOT restate the label verbatim. "Weight at this visit
+# was 77.2 kg" forces an extractor to map the phrasing onto the Body Weight
+# attribute, which is the difficulty prose is here to introduce; a sentence
+# containing "Body Weight: 77.2 kg" would just be a structured line wearing a
+# costume and would measure nothing.
+#
+# The VALUE is still substituted verbatim, so its span is exact and the gold
+# stays traceable — the difficulty is in finding the fact, never in mangling it.
+prose:
+  birthdate: "She was born on {value}."
+  age_years: "The patient is {value} of age."
+  care_provider: "Care is coordinated by {value}."
+  # The record reference frames the value AS a record identifier, so a
+  # slug-shaped string reads naturally and quotes verbatim. This is the whole
+  # point of the fact: the linked_pair corruption rewrites the value to a
+  # patient entity key, and "Filed under record reference patient_x_y." is a
+  # sentence where a slug is at home — unlike "The patient is patient_x_y of
+  # age.", the nonsense the age_years surface produced and the extractor skipped.
+  record_reference: "Filed under record reference {value}."
+  "observation:body_height": "She stands {value}."
+  "observation:body_weight": "Weight at this visit was {value}."
+  "observation:body_mass_index": "BMI worked out to {value}."
+  "observation:systolic_blood_pressure": "The upper reading was {value}."
+  "observation:diastolic_blood_pressure": "The lower reading was {value}."
+  "observation:total_cholesterol": "Cholesterol came back at {value}."
+  "observation:hemoglobin_a1c": "Her A1c was {value}."
+  "medication:": "She continues {suffix}, {value}."
+  "condition_status:": "Her {suffix} is documented as {value}."
+  "allergy_status:": "Regarding {suffix}, the chart records {value}."
+
+genres:
+  # record_reference lives in "Patient Details" in three genres (>= 2 so a clean
+  # rendering counterpart exists), using the CANONICAL section name in every one:
+  # a linked_pair finding needs its source (record_reference) and target
+  # (birthdate) claims to share an overlapping scope, and the claim scope IS the
+  # heading path ("Patient X > Patient Details"). Inventing a per-genre heading —
+  # "Record" here, "Chart Header" there — would give the two claims disjoint
+  # scopes, and the conflict engine treats disjoint scopes as compatible (spec
+  # §4.1 overlap rule), silently deleting the very link this fact exists to plant.
+  discharge_summary:
+    title: "Discharge Summary"
+    intro: "Summary of the admission and current status at discharge."
+    sections:
+      - name: "Patient Details"
+        kinds: ["birthdate", "age_years", "care_provider", "record_reference"]
+      - name: "Measurements"
+        kinds: ["observation:"]
+      - name: "Conditions"
+        kinds: ["condition_status:"]
+      - name: "Medications"
+        kinds: ["medication:"]
+      - name: "Allergies"
+        kinds: ["allergy_status:"]
+  medication_list:
+    title: "Medication Reconciliation List"
+    intro: "Current reconciled medication list for this patient."
+    sections:
+      - name: "Patient Details"
+        kinds: ["birthdate", "care_provider"]
+      - name: "Medications"
+        kinds: ["medication:"]
+      - name: "Allergies"
+        kinds: ["allergy_status:"]
+  clinic_note:
+    title: "Clinic Note"
+    intro: "Follow-up visit note recorded in the outpatient clinic."
+    sections:
+      - name: "Patient Details"
+        kinds: ["age_years", "care_provider", "record_reference"]
+      - name: "Measurements"
+        kinds: ["observation:"]
+      - name: "Conditions"
+        kinds: ["condition_status:"]
+  # A referral letter restates the whole picture for the receiving clinician,
+  # so it is the one clinically natural genre that carries EVERY kind. It is
+  # here to lift realized redundancy: a corroboration majority needs a fact in
+  # three documents, and before this genre only `care_provider` reached three
+  # (measured effective_k = {2: 146, 3: 4}), so exactly one corruption class
+  # could express a majority and every other kind was capped at one-vs-one.
+  # That cap — not the world — is why the LLM corpus produced 378 one-vs-one
+  # buckets of 398.
+  #
+  # Section names are deliberately IDENTICAL to the other genres. Inventing
+  # per-genre headings here would scope-suppress every cross-genre bucket
+  # (spec §4.1 overlap rule) and silently delete the conflicts this genre is
+  # being added to create.
+  referral_letter:
+    title: "Referral Letter"
+    intro: "Referral to a specialist colleague summarising the current picture."
+    sections:
+      - name: "Patient Details"
+        kinds: ["birthdate", "age_years", "care_provider", "record_reference"]
+      - name: "Measurements"
+        kinds: ["observation:"]
+      - name: "Conditions"
+        kinds: ["condition_status:"]
+      - name: "Medications"
+        kinds: ["medication:"]
+      - name: "Allergies"
+        kinds: ["allergy_status:"]

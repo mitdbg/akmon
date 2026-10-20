@@ -1,0 +1,43 @@
+# Single-source registry: git-files only, pointed at tinydb fixture.
+sources:
+  git-files:
+    module: okg.substrate.library.sources.git_graph_files
+    class: GitFilesSource
+    ownership_id: {{ deployment }}.git-files
+    params:
+      repo: tinydb
+      repo_root: {{ repo_root }}
+      include_untracked: false
+      exclude_globs:
+        - "**/__pycache__/**"
+        - "**/*.pyc"
+
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["{{ repo_root }}"]
+        include_globs: ["**/*"]
+        exclude_globs: []
+      triggers: [fs_event, poll, manual, reconcile]
+      default_event_mode: scope_complete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: stat_tree
+      scope:
+        accepts: [path]
+        unsupported_fallback: scope_complete
+      dependents:
+        on_event: direct
+        on_reconcile: closure
+      compaction:
+        window_seconds: 0
+        max_events: 500
+        max_scope_keys: 250
+      poll:
+        probe: stat_tree
+        interval_seconds: 60

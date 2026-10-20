@@ -1,0 +1,5 @@
+{"type": "summary", "summary": "Implement greeting feature", "leafUuid": "alpha-001"}
+{"type": "user", "sessionId": "alpha-001", "uuid": "alpha-001", "timestamp": "2025-02-01T10:00:00Z", "cwd": "/repo/okg_self_micro_repo", "message": {"role": "user", "content": "implement hello() per add-greeting-feature"}}
+{"type": "assistant", "sessionId": "alpha-001", "uuid": "alpha-002", "timestamp": "2025-02-01T10:00:30Z", "cwd": "/repo/okg_self_micro_repo", "message": {"role": "assistant", "content": "I'll add hello() to src/okg_micro/core.py"}}
+{"type": "user", "sessionId": "alpha-001", "uuid": "alpha-003", "timestamp": "2025-02-01T10:01:00Z", "cwd": "/repo/okg_self_micro_repo", "message": {"role": "user", "content": "deploy via ssh to staging.example.com"}}
+{"type": "assistant", "sessionId": "alpha-001", "uuid": "alpha-004", "timestamp": "2025-02-01T10:01:30Z", "cwd": "/repo/okg_self_micro_repo", "message": {"role": "assistant", "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "ssh deploy@staging.example.com 'echo hi'"}}]}}

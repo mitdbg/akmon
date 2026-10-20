@@ -1,0 +1,18 @@
+# academic_researcher intra-module cross-link rules.
+#
+# Per `add-academic-pi-ontology-module` (Child 1 of
+# `add-academic-pi-profile`): the intra-module narrowing SLOTS
+# (typed-edge assertions that triples are allowed in the composed
+# catalog) live in `schema.yaml`'s `EdgeNarrowings` block — both
+# intra and cross-module slots.
+#
+# This file exists to (a) document the rule-slot name referenced
+# from the module manifest's `provides.intra_cross_link_rules`,
+# and (b) reserve the file path for future declarative resolver
+# rules (e.g., a future enricher that auto-emits
+# `Grant has_deadline Deadline` edges from a NSF Award Search
+# response's reporting cadence). Today no deferred-resolution
+# rules are needed: sources emit full src+dst pairs at projection
+# time per the substrate's standard source-emission discipline.
+
+rules: []

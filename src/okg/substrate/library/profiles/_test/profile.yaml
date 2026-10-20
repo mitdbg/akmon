@@ -1,0 +1,13 @@
+name: _test
+version: 0.1.0
+classification: fixture
+description: |
+  Minimal profile fixture for Layer 2A (add-okg-init-and-module-
+  scaffold-cli) tests. No init questions (so unattended runs
+  succeed); two in-tree ontology modules (`reasoning`,
+  `bookkeeping`). Not for production use.
+
+init_questions: []
+
+modules: modules.yaml
+invariants: invariants.yaml

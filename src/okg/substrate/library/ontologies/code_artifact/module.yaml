@@ -1,0 +1,5 @@
+name: code_artifact
+version: 1.0.0
+description: 'Build artifacts: packages, images, code_artifact.'
+provides:
+  subtypes_file: schema.yaml

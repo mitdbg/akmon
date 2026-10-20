@@ -1,0 +1,106 @@
+{
+  "_generated_by": ".venv/bin/python -m tests.helpers.viz_chat_archive_witness",
+  "_about": "One witness per retire-viz-chat orphan-sweep pattern, read from the archived copy in git (archive/ is no longer in the tree). Do not edit by hand; rerun the command above.",
+  "chat_archive": {
+    "commit": "aa9a7eed801536e7e75d1e28d6819f1fb1bd5821",
+    "path": "archive/chat/viz-chat-2026-08-04",
+    "index_blob": "35603ffb9283cca4e66d2c0e11923bcee82d7669"
+  },
+  "ui_archive": {
+    "commit": "3253beb069ba049eb4adbc201609e6a08c8ca757",
+    "path": "archive/ui/legacy-viz-2026-06-17",
+    "index_blob": "44b75cc4f970655ba70182092cf601795e257e5c"
+  },
+  "witnesses": {
+    "CHAT_MCP_FILENAME": {
+      "path": "archive/chat/viz-chat-2026-08-04/src/okg/viz/chat/mcp_config.py",
+      "line": 18,
+      "text": "CHAT_MCP_FILENAME = \"chat_mcp.json\""
+    },
+    "ChatRequest": {
+      "path": "archive/chat/viz-chat-2026-08-04/src/okg/viz/chat/models.py",
+      "line": 26,
+      "text": "class ChatRequest(BaseModel):"
+    },
+    "ChatTurnRequest": {
+      "path": "archive/chat/viz-chat-2026-08-04/src/okg/viz/chat/runtime.py",
+      "line": 46,
+      "text": "class ChatTurnRequest:"
+    },
+    "FocusNotFoundError": {
+      "path": "archive/chat/viz-chat-2026-08-04/src/okg/viz/chat/prompts.py",
+      "line": 68,
+      "text": "class FocusNotFoundError(LookupError):"
+    },
+    "PublicationFocus": {
+      "path": "archive/chat/viz-chat-2026-08-04/src/okg/viz/chat/models.py",
+      "line": 14,
+      "text": "class PublicationFocus(BaseModel):"
+    },
+    "chat_available": {
+      "path": "archive/chat/viz-chat-2026-08-04/INDEX.md",
+      "line": 52,
+      "text": "- `chat_available` / `chat_mcp_path` in the `GET /viz/api/deployment` payload"
+    },
+    "chat_mcp.json": {
+      "path": "archive/chat/viz-chat-2026-08-04/INDEX.md",
+      "line": 33,
+      "text": "| Deployment opt-in file | `chat_mcp.json` beside `deployment.yaml` | The typed `chat:` manifest block; `chat.enabled` is the opt-in |"
+    },
+    "chat_mcp_path": {
+      "path": "archive/chat/viz-chat-2026-08-04/INDEX.md",
+      "line": 36,
+      "text": "| Availability probe | `resolve_chat_mcp_path` in `src/okg/viz/chat/mcp_config.py` | `chat.enabled` in the parsed manifest |"
+    },
+    "okg-chat-error": {
+      "path": "archive/chat/viz-chat-2026-08-04/src/okg/viz/chat/runtime.py",
+      "line": 14,
+      "text": "every error event into an SSE ``okg-chat-error`` frame so the"
+    },
+    "okg-chat-session": {
+      "path": "archive/chat/viz-chat-2026-08-04/src/okg/viz/chat/models.py",
+      "line": 29,
+      "text": "    ``okg-chat-session`` SSE frame; ``None`` starts a fresh"
+    },
+    "okg.viz.chat": {
+      "path": "archive/chat/viz-chat-2026-08-04/src/okg/viz/chat/prompts.py",
+      "line": 24,
+      "text": "from okg.viz.chat.models import Focus, PublicationFocus"
+    },
+    "portal_claude_chat": {
+      "path": "archive/chat/viz-chat-2026-08-04/INDEX.md",
+      "line": 43,
+      "text": "| Chat backend tests | `tests/portal_claude_chat/` | `tests/portal_claude_chat/` | Former fast-lane pytest path | archive | `fak"
+    },
+    "register_chat_routes": {
+      "path": "archive/chat/viz-chat-2026-08-04/INDEX.md",
+      "line": 51,
+      "text": "- the `POST /viz/api/chat` route and its `register_chat_routes` registration"
+    },
+    "resolve_chat_mcp_path": {
+      "path": "archive/chat/viz-chat-2026-08-04/INDEX.md",
+      "line": 36,
+      "text": "| Availability probe | `resolve_chat_mcp_path` in `src/okg/viz/chat/mcp_config.py` | `chat.enabled` in the parsed manifest |"
+    },
+    "src/okg/viz/chat": {
+      "path": "archive/chat/viz-chat-2026-08-04/INDEX.md",
+      "line": 31,
+      "text": "| Chat turn transport | `src/okg/viz/chat/runtime.py`, `src/okg/viz/chat/sse.py` | The chat site's own model runtime, reached through the deployment's MCP registration (`chat.mcp`) |"
+    },
+    "sse_frame": {
+      "path": "archive/chat/viz-chat-2026-08-04/src/okg/viz/chat/sse.py",
+      "line": 14,
+      "text": "def sse_frame(event: str, data: dict[str, Any]) -> bytes:"
+    },
+    "stream_turn": {
+      "path": "archive/chat/viz-chat-2026-08-04/src/okg/viz/chat/runtime.py",
+      "line": 155,
+      "text": "async def stream_turn(req: ChatTurnRequest) -> AsyncIterator[dict[str, Any]]:"
+    },
+    "viz/chat/": {
+      "path": "archive/chat/viz-chat-2026-08-04/INDEX.md",
+      "line": 31,
+      "text": "| Chat turn transport | `src/okg/viz/chat/runtime.py`, `src/okg/viz/chat/sse.py` | The chat site's own model runtime, reached through the deployment's MCP registration (`chat.mcp`) |"
+    }
+  }
+}

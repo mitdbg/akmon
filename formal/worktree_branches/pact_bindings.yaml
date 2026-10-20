@@ -1,0 +1,32 @@
+schema_version: 1
+bindings:
+- property_id: DefaultIsolation
+  owner_change_id: worktree-branch-execution-context
+  owner_requirement_id: req.worktree-branch-context.capsule
+  formal_id: formal.worktree-branch-context.default-isolation
+  intent_digest: sha256:1bee2f53e246b8cbe63fe68788d7296bdbde6e482c0edd1eb1c8140a7848748a
+- property_id: ContributionOverlayIsolation
+  owner_change_id: worktree-branch-execution-context
+  owner_requirement_id: req.worktree-branch-context.state-schema
+  formal_id: formal.worktree-branch-context.contribution-overlay
+  intent_digest: sha256:1bee2f53e246b8cbe63fe68788d7296bdbde6e482c0edd1eb1c8140a7848748a
+- property_id: TransactionRecovery
+  owner_change_id: worktree-branch-transaction-safety
+  owner_requirement_id: req.worktree-branch-transaction.operation-protocol
+  formal_id: formal.worktree-branch-transaction.recovery
+  intent_digest: sha256:8cf0026115aa6afb4fd53f93e66c6f6daaf1e2bb6ed49e8377ec7f734fe30974
+- property_id: ProjectionClosure
+  owner_change_id: worktree-deterministic-trunk-projection
+  owner_requirement_id: req.worktree-trunk-projection.closed-input
+  formal_id: formal.worktree-trunk-projection.closure
+  intent_digest: sha256:86e5a0485fe6339856ffee78370315efe601e2ab2b1150d37a702412326e57e8
+- property_id: LifecycleFencing
+  owner_change_id: worktree-branch-lifecycle
+  owner_requirement_id: req.worktree-branch-lifecycle.refresh
+  formal_id: formal.worktree-branch-lifecycle.fencing
+  intent_digest: sha256:c3c649a36de933dfc36c3d94a1e313b861ba8f7762605e62d9b8f7592e1860bc
+- property_id: CapabilityFencing
+  owner_change_id: activate-worktree-chronos
+  owner_requirement_id: req.worktree-activation.dark-release
+  formal_id: formal.worktree-activation.capability-fencing
+  intent_digest: sha256:5340d3959dde698c4f4f605d7155645287ff19243c26e2ef4b074f61756334d5

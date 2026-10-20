@@ -1,0 +1,32 @@
+# beaver-okg sources — the BEAVER warehouse schema, introspected live.
+sources:
+
+  beaver-schema:
+    module: beaver_okg.source
+    class: BeaverSchemaSource
+    ownership_id: beaver-okg.beaver-schema
+    params:
+      namespace: beaver
+      databases: [dw, neutron, nova]
+      sample_limit: 3
+    source_class: reference_catalog
+    record_identity_kind: domain_key
+    record_identity_fields: [namespace, database, table]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+
+  beaver-domain:
+    module: beaver_okg.source
+    class: BeaverDomainSource
+    ownership_id: beaver-okg.beaver-domain
+    params:
+      namespace: beaver
+      databases: [dw, neutron, nova]
+      max_cardinality: 40
+    source_class: reference_catalog
+    record_identity_kind: domain_key
+    record_identity_fields: [namespace, database, table, column, value]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation

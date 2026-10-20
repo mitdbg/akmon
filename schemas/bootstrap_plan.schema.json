@@ -1,0 +1,372 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://palimpzest.mit.edu/okg/schemas/bootstrap_plan.schema.json",
+  "title": "OKG bootstrap_plan.yaml",
+  "description": "Agent-assisted deployment bootstrap coordination artifact.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "deployment",
+    "domain_brief",
+    "sources",
+    "record_shapes",
+    "ontology_plan",
+    "narrowing_plan",
+    "extractor_plan",
+    "view_plan",
+    "quality_plan",
+    "verification"
+  ],
+  "properties": {
+    "version": {"type": "integer", "const": 1},
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "template_base", "postgres"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "path": {"type": "string", "minLength": 1},
+        "template_base": {"type": "string", "minLength": 1},
+        "description": {"type": "string"},
+        "postgres": {
+          "type": "object",
+          "additionalProperties": false,
+          "oneOf": [
+            {"required": ["dsn_env"]},
+            {"required": ["dsn"]}
+          ],
+          "properties": {
+            "dsn_env": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "dsn": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "domain_brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "example_questions"],
+      "properties": {
+        "text": {"type": "string"},
+        "example_questions": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "record_shapes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/record_shape"}
+    },
+    "ontology_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["library_modules", "subtypes"],
+      "properties": {
+        "library_modules": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        },
+        "subtypes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/subtype"}
+        }
+      }
+    },
+    "narrowing_plan": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/narrowing"}
+    },
+    "extractor_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity_patterns", "linker_routes", "aliases"],
+      "properties": {
+        "entity_patterns": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/identifier_pattern"}
+        },
+        "linker_routes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/linker_route"}
+        },
+        "aliases": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/alias"}
+        }
+      }
+    },
+    "view_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["views"],
+      "properties": {
+        "views": {
+          "type": "array",
+          "items": {"type": "object"}
+        }
+      }
+    },
+    "quality_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["invariants", "fixture_assertions"],
+      "properties": {
+        "invariants": {
+          "type": "array",
+          "items": {"type": "object"}
+        },
+        "fixture_assertions": {
+          "type": "array",
+          "items": {"type": "object"}
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["status", "checks"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "unverified",
+            "structural_passed",
+            "verified",
+            "failed",
+            "applied"
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/check"}
+        },
+        "last_failure": {"type": "object"},
+        "staged_hashes": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        },
+        "plan_hash": {"type": "string"},
+        "generation_id": {"type": ["integer", "string"]},
+        "catalog_version_id": {"type": "integer"},
+        "source_runs": {
+          "type": "array",
+          "items": {"type": "object"}
+        },
+        "node_row_delta": {"type": "integer"},
+        "edge_row_delta": {"type": "integer"},
+        "metrics_snapshot": {"type": "object"},
+        "doctor": {"type": "object"},
+        "applied_at": {"type": "string"}
+      }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "local_json",
+            "local_csv",
+            "local_markdown",
+            "local_directory",
+            "api",
+            "database"
+          ]
+        },
+        "sample_path": {"type": "string"},
+        "sample_format": {"type": "string"},
+        "sample_fingerprint": {"type": "string"},
+        "record_count": {"type": "integer", "minimum": 0},
+        "allow_live_sampling": {"type": "boolean"},
+        "adapter": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["module", "class"],
+          "properties": {
+            "module": {"type": "string", "minLength": 1},
+            "class": {"type": "string", "minLength": 1}
+          }
+        },
+        "params": {
+          "type": "object",
+          "description": "Adapter-specific parameters copied to the deployment source_registry.yaml entry."
+        },
+        "profile": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source_class": {"type": "string"},
+            "record_identity_kind": {"type": "string"},
+            "record_identity_fields": {
+              "type": "array",
+              "items": {"type": "string"}
+            },
+            "source_revision_kind": {"type": "string"},
+            "deletion_semantics": {"type": "string"},
+            "publication_mode": {"type": "string"}
+          }
+        }
+      }
+    },
+    "record_shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "sample_format",
+        "sample_fingerprint",
+        "record_count",
+        "fields",
+        "candidate_identifier_fields",
+        "candidate_text_fields"
+      ],
+      "properties": {
+        "source_id": {"type": "string"},
+        "sample_format": {"type": "string"},
+        "sample_fingerprint": {"type": "string"},
+        "record_count": {"type": "integer", "minimum": 0},
+        "fields": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/field"}
+        },
+        "candidate_identifier_fields": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "candidate_text_fields": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "examples": {
+          "type": "array",
+          "items": {"type": "object"}
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "types", "count", "frequency"],
+      "properties": {
+        "name": {"type": "string"},
+        "types": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "count": {"type": "integer", "minimum": 0},
+        "frequency": {"type": "number", "minimum": 0, "maximum": 1},
+        "unique_count": {"type": "integer", "minimum": 0},
+        "example": {}
+      }
+    },
+    "subtype": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "attrs"],
+      "properties": {
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "archetype": {"type": "string"},
+        "attrs": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "searchable_text_fields": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "alias_fields": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "evidence": {"type": "string"}
+      }
+    },
+    "narrowing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parent", "edge", "child"],
+      "properties": {
+        "parent": {"type": "string"},
+        "edge": {"type": "string"},
+        "child": {"type": "string"},
+        "evidence": {"type": "string"}
+      }
+    },
+    "linker_route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity_type", "edge_type", "dst_template"],
+      "properties": {
+        "entity_type": {"type": "string", "minLength": 1},
+        "src_subtype": {"type": "string", "minLength": 1},
+        "edge_type": {"type": "string", "minLength": 1},
+        "dst_template": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^([^{}]|\\{(resolved|value|type|src)\\})+$"
+        },
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "evidence": {"type": "string"}
+      }
+    },
+    "identifier_pattern": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id_type", "regex"],
+      "properties": {
+        "id_type": {"type": "string", "minLength": 1},
+        "regex": {"type": "string", "minLength": 1},
+        "validator_kind": {
+          "type": "string",
+          "enum": ["doi_checksum", "orcid_checksum", "isbn_checksum"]
+        },
+        "description": {"type": "string"},
+        "evidence": {"type": "string"}
+      }
+    },
+    "alias": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "canonical"],
+      "properties": {
+        "alias": {"type": "string", "minLength": 1},
+        "canonical": {"type": "string", "minLength": 1},
+        "scope": {"type": "string", "minLength": 1},
+        "evidence": {"type": "string"}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "status"],
+      "properties": {
+        "name": {"type": "string"},
+        "status": {"type": "string"},
+        "stage": {"type": "string"},
+        "summary": {}
+      }
+    }
+  }
+}

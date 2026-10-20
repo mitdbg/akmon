@@ -1,0 +1,35 @@
+# Template manifest read by `okg init --template <name>`.
+#
+# Per `retire-pi-prefix-commands` Phase 4: the substrate's
+# `_cmd_init_from_template` was hardcoded to special-case the
+# `okg-workspace` template name. This manifest is the data-driven
+# replacement: any template can declare what extra init flags it
+# needs, and the dispatcher reads the manifest instead of naming
+# the template.
+
+# Replacement for the prior `is_okg_workspace = template == "okg-workspace"`
+# branch. When true, the substrate accepts the repo-context flag set
+# (--repo-root, --openspec-root, --claude-projects-root, --notes-root,
+# --since) and substitutes those variables into the template's files.
+requires_repo_context: true
+
+# Optional: deployment-name default. When the template uses
+# `requires_repo_context: true` and the operator omits --deployment-name,
+# the substrate derives the name from the repo's basename instead of
+# falling back to the template name.
+deployment_name_source: repo_basename
+
+# Optional: the prior name this template shipped under. The substrate's
+# template resolver accepts both names; back-compat alias.
+aliases:
+  - okg-workspace
+  - workspace-graph
+
+# Operator-facing next-step commands printed after scaffold.
+# Each entry is a format-string accepting `{deployment_name}` and
+# `{target}` placeholders.
+next_commands:
+  - "okg migrate --apply"
+  - "okg catalog load --deployment {target} --apply"
+  - "okg run --once --deployment {deployment_name} --apply"
+  - "okg runtime worker --deployment {deployment_name}"

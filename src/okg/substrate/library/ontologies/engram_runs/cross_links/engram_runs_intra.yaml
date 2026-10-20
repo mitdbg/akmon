@@ -1,0 +1,57 @@
+# Engram-runs intra-module cross-link rules.
+#
+# Per `add-engram-run-artifact-sources` (Layer 3A): rules in this
+# file resolve the engram_runs subtypes whose target IDs aren't
+# always known at emit time. The substrate's standard cross-link
+# rule mechanism re-evaluates each publish cycle, so when the
+# target node lands on a later cycle, the edge appears
+# automatically — without the source having to retry.
+#
+# Two deferred-resolution rules:
+#
+#   - `failed_approach_refuted_by_experiment_result`. When a
+#     FailedApproach node carries `refuted_by_experiment_ref`
+#     (the experiment_result_id of the experiment whose poor
+#     score refuted the approach), the rule matches that ref
+#     against ExperimentResult.experiment_result_id and emits a
+#     `refuted_by` edge. If the matching ExperimentResult hasn't
+#     been projected yet (the source ingested the agent summary
+#     before the experiments), no edge fires this cycle; the rule
+#     re-evaluates next cycle and the edge appears once the
+#     target lands.
+#
+#   - `final_result_best_solution_candidate_solution`. When a
+#     FinalResult node carries `best_candidate_ref` (the
+#     candidate_solution_id of the run's best snapshot), the rule
+#     matches it against CandidateSolution.candidate_solution_id
+#     and emits a `best_solution` edge.
+#
+# The intra narrowings for `evaluates`, `produced_during`, and
+# `surfaces` live in schema.yaml's `EdgeNarrowings` class. The
+# sources emit those edges explicitly because target IDs are
+# deterministically computable at emit time from the
+# `(run_id, agent_id, experiment_id)` triple shared by both
+# endpoints — no deferred resolution is needed for them.
+
+rules:
+  - id: failed_approach_refuted_by_experiment_result
+    src:
+      subtype: failed_approach
+      field: refuted_by_experiment_ref
+    dst:
+      subtype: experiment_result
+      field: experiment_result_id
+    matcher: exact
+    edge: refuted_by
+    bidirectional: false
+
+  - id: final_result_best_solution_candidate_solution
+    src:
+      subtype: final_result
+      field: best_candidate_ref
+    dst:
+      subtype: candidate_solution
+      field: candidate_solution_id
+    matcher: exact
+    edge: best_solution
+    bidirectional: false

@@ -1,0 +1,12 @@
+{
+  "problem_name": "cost-tuned-router-design",
+  "best_score": 0.42,
+  "total_simulations": 2,
+  "total_agents": 1,
+  "convergence_reason": "budget_exhausted",
+  "best_snapshot": {
+    "agent_id": "agent_0",
+    "experiment_id": "exp_0001",
+    "language": "python"
+  }
+}

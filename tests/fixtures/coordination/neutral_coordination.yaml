@@ -1,0 +1,107 @@
+# Neutral coordination runtime policy for hermetic tests.
+#
+# A copy of this repository's `.okg/coordination.yaml` whose two remote client
+# routes carry neutral names (remote-a, remote-b) instead of a deployment's
+# real machine names. Tests that build setup plans and route registries load
+# this file in place of the tracked one, so they need no real host name and
+# also run where `.okg/` does not ship. Keep the policy blocks in step with
+# `.okg/coordination.yaml`; a missing required field fails the loader loudly.
+coordination:
+  agent_transport: restricted_ssh_stdio
+  operator_transport: viz_operator_token
+  lease_ttl_seconds:
+    chief: 3600
+    sprint: 3600
+    pact: 3600
+    delegation: 3600
+  execution:
+    lane_capacity:
+      critical: 2
+      light: 6
+    named_resource_capacity:
+      database: 1
+      shared_storage: 2
+    profiles:
+      default-light:
+        lane: light
+        resources: {}
+      database-critical:
+        lane: critical
+        resources:
+          database: 1
+          shared_storage: 1
+    helper_budgets:
+      chief:
+        profile: default-light
+        max_active: 2
+      sprint:
+        profile: default-light
+        max_active: 2
+      pact:
+        profile: database-critical
+        max_active: 2
+  # Closed logical client routes.  These are opaque references only; host
+  # identity and transport remain service-owned runtime state.
+  client_routes:
+    local-claude: opaque:local-claude
+    local-codex: opaque:local-codex
+    remote-a: opaque:remote-a
+    remote-b: opaque:remote-b
+  # This is the tracked authority for human involvement.  Profiles are sparse
+  # tightening overlays over the closed registry; they cannot relax a base
+  # disposition or invent a new action.
+  action_registry:
+    read: allow
+    analyze: allow
+    local_edit: allow
+    run_tests: allow
+    commit: allow
+    helper_use: allow
+    record_task: allow
+    record_evidence: allow
+    coordinator_order: allow
+    branch_push: notify
+    draft_pr_change: notify
+    terminal_result: notify
+    capacity_release: notify
+    policy_change: require_approval
+    tier3_program_intent: require_approval
+    protected_resource: require_approval
+    destructive_external: require_approval
+    irreversible_external: require_approval
+    merge: require_approval
+    credentials_privilege: require_approval
+    risk_acceptance: require_approval
+    unresolved_p0_p1: require_approval
+    out_of_charter: require_approval
+    self_approval: deny
+    session_laundering: deny
+    wrong_scope: deny
+    stale_generation: deny
+  human_involvement_profiles:
+    exception_only:
+      overrides: {}
+    supervised:
+      overrides:
+        local_edit: require_approval
+        commit: require_approval
+        branch_push: require_approval
+  default_profile: exception_only
+  escalation_route:
+    hops: [worker, coordinator, chief, operator]
+  decision_suppression:
+    digest_fields:
+      - assignment_id
+      - assignment_generation
+      - principal
+      - assignment_session_id
+      - mandate
+      - action_digest
+      - resource_digest
+      - scope_digest
+      - human_policy_digest
+    terminal_statuses: [granted, denied, revoked, consumed]
+graph_projection:
+  deployment: okg-workspace
+  readiness_command: uv run okg deployment ready okg-workspace --checks dogfood --json
+  stale_policy: Treat stale or missing graph projection as context only; use live files and tests for implementation truth.

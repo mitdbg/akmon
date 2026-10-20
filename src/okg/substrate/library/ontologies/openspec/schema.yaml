@@ -1,0 +1,757 @@
+id: https://palimpzest.mit.edu/okg/modules/openspec
+name: openspec_graph
+title: "OpenSpec Graph \u2014 proposals, capabilities, criteria, tasks, decisions"
+description: OpenSpec proposal artifacts as graph entities. 13 subtypes covering the
+  four file kinds in a change directory (proposal.md, tasks.md, design.md, specs/<cap>/spec.md)
+  plus canonical capability specs at openspec/specs/<cap>/spec.md.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  os: https://palimpzest.mit.edu/okg/modules/openspec/
+default_range: string
+imports:
+- linkml:types
+classes:
+  OpenSpecChange:
+    description: One proposed change, identified by its slug (the directory name under
+      openspec/changes/ or openspec/changes/archive/).
+    class_uri: os:OpenSpecChange
+    attributes:
+      change_id:
+        required: true
+        description: Slug, e.g. `add-adaptive-overlay`.
+      title:
+        required: true
+        description: First line of proposal.md after `# Change:`.
+      status:
+        required: true
+        description: OpenSpecChangeStatus enum (active, archived).
+      archived_date:
+        description: ISO date parsed from `changes/archive/YYYY-MM-DD-<slug>/` prefix;
+          null for active.
+      why_text:
+        description: Full prose under `## Why`.
+      what_changes_text:
+        description: Full prose under `## What Changes`.
+      impact_text:
+        description: Full prose under `## Impact`.
+      text:
+        description: Searchable text (typically title + why + what_changes summary).
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      okg_title_from: title
+      archetype: proposal
+      transient: 'false'
+      okg_alias_fields: change_id
+      # Multi-field BM25 search: lexical search over OpenSpecChange
+      # nodes covers the full body of the proposal, not just the
+      # title + truncated summary the openspec adapter emits to
+      # `attrs.text`. Without this annotation, searching for terms
+      # that appear in `why_text` / `what_changes_text` /
+      # `impact_text` (which is most of the proposal content) would
+      # silently miss the node.
+      okg_searchable_text_fields: title,why_text,what_changes_text,impact_text
+  PactChange:
+    description: One PACT change, identified by its slug under pact/changes/. PACT
+      changes share the proposal/task/requirement graph shape with OpenSpec, but
+      remain a distinct subtype so agents can compare PACT and OpenSpec workflows
+      without inferring source identity from node-id prefixes.
+    class_uri: os:PactChange
+    attributes:
+      change_id:
+        required: true
+        description: Slug, e.g. `separate-pact-graph-identity`.
+      title:
+        required: true
+      status:
+        required: true
+        description: PACT lifecycle status.
+      why_text:
+        description: Root-cause prose from the PACT manifest.
+      what_changes_text:
+        description: Rationale prose from the PACT manifest.
+      impact_text:
+        description: Migration notes from the PACT manifest.
+      text:
+        description: Searchable text.
+      artifact_format_version:
+        range: integer
+        description: PACT artifact format version.
+      target_pact_version:
+        range: integer
+        description: Intended PACT language version.
+      intent_digest:
+        description: Digest of intent-bearing fields.
+      state_digest:
+        description: Digest of current PACT state.
+      proposal_gate:
+        range: boolean
+      implementation_gate:
+        range: boolean
+      verification_gate:
+        range: boolean
+      evidence_count:
+        range: integer
+      blocked_task_count:
+        range: integer
+      labels:
+        multivalued: true
+        description: Operator-facing labels that classify the PACT in the unified workflow model.
+      method_pack:
+        description: Static method-pack id used to map an external or native workflow onto PACT semantics.
+      method_metadata:
+        description: Method-specific structured metadata retained in node attrs for read-side consumers.
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      okg_title_from: title
+      archetype: proposal
+      transient: 'false'
+      okg_alias_fields: change_id
+      okg_searchable_text_fields: title,why_text,what_changes_text,impact_text
+  PactDecision:
+    description: One recorded verdict from the PACT decision ledger - the
+      operator/supervisor event that drives the change lifecycle state machine
+      (standardize-pact-review-interface). Projected read-only from the
+      pact_decisions table; the ledger row, not this node, is authoritative.
+    class_uri: os:PactDecision
+    attributes:
+      decision_id:
+        required: true
+        description: Ledger row id, unique per deployment.
+      change_id:
+        required: true
+        description: Slug of the decided PACT change.
+      verdict:
+        required: true
+        description: approve | revise | reject | supersede | defer | escalate | reopen.
+      principal:
+        required: true
+        description: Acting principal (operator or supervisor agent id).
+      authority:
+        description: Authority under which the principal acted (mandate id or operator).
+      from_state:
+        description: Derived lifecycle state when the verdict was recorded.
+      to_state:
+        description: Lifecycle state the verdict transitioned the change into.
+      note:
+        description: Free-text note attached to the verdict.
+      supersede_target:
+        description: Replacement change id when verdict is supersede.
+      intent_digest:
+        description: Intent digest of the manifest version this verdict decided.
+      decided_at:
+        range: datetime
+        required: true
+      text:
+        description: Searchable text.
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: change_id
+      okg_searchable_text_fields: verdict,principal,note,change_id
+  SpecCapability:
+    description: A canonical capability defined under openspec/specs/<name>/spec.md.
+      Holds the cumulative AcceptanceCriteria after all changes have been archived
+      into the capability.
+    class_uri: os:SpecCapability
+    attributes:
+      capability_name:
+        required: true
+        description: Directory name under openspec/specs/.
+      purpose:
+        description: Prose under `## Purpose`.
+      requirement_count:
+        range: integer
+        description: Number of AcceptanceCriterion children parsed from this capability.
+      text:
+        description: Searchable text.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  SpecDelta:
+    description: "A proposed delta against a SpecCapability inside a change's specs/<cap>/spec.md,\
+      \ grouped by `## ADDED|MODIFIED|REMOVED|RENAMED Requirements`. Modeled as `proposal`\
+      \ because a SpecDelta literally proposes a mutation (add/modify/remove) of an\
+      \ existing SpecCapability \u2014 it uses the existing `TARGETS` archetype for\
+      \ that relationship."
+    class_uri: os:SpecDelta
+    attributes:
+      delta_id:
+        required: true
+      change_id:
+        required: true
+      capability_name:
+        required: true
+      delta_kind:
+        required: true
+        description: SpecDeltaKind enum.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: proposal
+      transient: 'false'
+      okg_searchable_text_fields: delta_kind,capability_name
+  AcceptanceCriterion:
+    description: "One `### Requirement:` block \u2014 a SHALL statement plus its paired\
+      \ scenarios. Renamed from OpenSpec's \"Requirement\" for ontology clarity."
+    class_uri: os:AcceptanceCriterion
+    attributes:
+      criterion_id:
+        required: true
+      capability_name:
+        required: true
+        description: The capability this criterion belongs to.
+      title:
+        required: true
+        description: First-line of the requirement (after `### Requirement:`).
+      text:
+        description: Full prose body (the SHALL statement).
+      scenario_count:
+        required: true
+        range: integer
+        description: Number of #### Scenario blocks under this criterion. Zero is valid.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  AcceptanceScenario:
+    description: "One `#### Scenario:` block \u2014 WHEN/THEN/GIVEN testable case\
+      \ under an AcceptanceCriterion."
+    class_uri: os:AcceptanceScenario
+    attributes:
+      scenario_id:
+        required: true
+      criterion_id:
+        required: true
+      index:
+        required: true
+        range: integer
+        description: 0-based ordering within the criterion.
+      title:
+        required: true
+        description: First-line summary (after `#### Scenario:`).
+      text:
+        description: Full WHEN/THEN/GIVEN body.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  TaskGroup:
+    description: A numbered section in tasks.md (`## N. Title`).
+    class_uri: os:TaskGroup
+    attributes:
+      group_id:
+        required: true
+      change_id:
+        required: true
+      group_index:
+        required: true
+        range: integer
+      title:
+        required: true
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: process
+      transient: 'false'
+  ProposalTask:
+    description: "One checkbox item (`- [ ] N.M \u2026` or `- [x] N.M \u2026`) under\
+      \ a TaskGroup."
+    class_uri: os:ProposalTask
+    attributes:
+      task_id:
+        required: true
+        description: Conventionally `task:<change>:<n.m>`.
+      change_id:
+        required: true
+      group_index:
+        required: true
+        range: integer
+      task_number:
+        required: true
+        description: e.g. "1.3" or "1.3a".
+      description:
+        required: true
+        description: Text following the task number.
+      status:
+        required: true
+        description: "TaskStatus enum (pending, done \u2014 in_progress not represented\
+          \ in markdown)."
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_searchable_text_fields: description
+      okg_alias_fields: task_id
+  PactTask:
+    description: One task from a PACT manifest under pact/changes/. PACT tasks use
+      stable `pact-task:<change>:<task>` node ids and are distinct from archived
+      OpenSpec proposal tasks.
+    class_uri: os:PactTask
+    attributes:
+      task_id:
+        required: true
+        description: PACT task id, e.g. `task.coord-native.graph-contract`.
+      change_id:
+        required: true
+      group_index:
+        required: true
+        range: integer
+      task_number:
+        required: true
+      description:
+        required: true
+      status:
+        required: true
+        description: PACT task state projected into task status vocabulary.
+      source_provider:
+        description: Source provider, normally `pact`.
+      labels:
+        multivalued: true
+        description: Operator-facing labels that classify the task within the PACT hierarchy.
+      method_pack:
+        description: Effective method-pack id for this task, inherited from the change when omitted.
+      method_metadata:
+        description: Effective method metadata for this task, with task fields overriding change fields.
+      alignment_status:
+        description: Derived PACT task alignment status.
+      traceability_status:
+        description: Derived traceability status.
+      satisfaction_status:
+        description: Derived satisfaction status.
+      blockers:
+        multivalued: true
+      dependency_blockers:
+        multivalued: true
+      environment_blockers:
+        multivalued: true
+      evidence_issues:
+        multivalued: true
+      created_at:
+        range: datetime
+      last_modified_at:
+        range: datetime
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_searchable_text_fields: description
+      okg_alias_fields: task_id
+  VerificationStep:
+    description: A `**Verify**:` sub-bullet under a ProposalTask defining the empirical
+      check that completes the task.
+    class_uri: os:VerificationStep
+    attributes:
+      step_id:
+        required: true
+      task_id:
+        required: true
+      text:
+        required: true
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: process
+      transient: 'false'
+  DesignDecision:
+    description: A `### D<N>:` block in design.md capturing a chosen design direction
+      with rationale.
+    class_uri: os:DesignDecision
+    attributes:
+      decision_id:
+        required: true
+        description: Conventionally `decision:<change>:<n>`.
+      change_id:
+        required: true
+      decision_number:
+        required: true
+        description: e.g. "D1", "D7".
+      title:
+        required: true
+      rationale:
+        description: The body of the decision text.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: title,rationale
+  Alternative:
+    description: A `**Alternative**:` block under a DesignDecision describing a considered-and-rejected
+      option.
+    class_uri: os:Alternative
+    attributes:
+      alternative_id:
+        required: true
+      decision_id:
+        required: true
+      text:
+        required: true
+      rejected_reason:
+        description: Why it was rejected.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Goal:
+    description: A bullet under `### Goals` in design.md.
+    class_uri: os:Goal
+    attributes:
+      goal_id:
+        required: true
+      change_id:
+        required: true
+      text:
+        required: true
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  NonGoal:
+    description: A bullet under `### Non-Goals` in design.md.
+    class_uri: os:NonGoal
+    attributes:
+      nongoal_id:
+        required: true
+      change_id:
+        required: true
+      text:
+        required: true
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Risk:
+    description: A `### R<N>:` block in design.md identifying a risk and its mitigation.
+    class_uri: os:Risk
+    attributes:
+      risk_id:
+        required: true
+      change_id:
+        required: true
+      risk_number:
+        required: true
+        description: e.g. "R1", "R3".
+      title:
+        required: true
+      mitigation:
+        description: Mitigation prose.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: title,mitigation
+  Stakeholder:
+    description: A bullet under `### Stakeholders` in design.md naming a role or group
+      affected by the change. Modeled as `artifact` (a textual mention) rather than
+      `actor` because these are usually role labels ("researchers", "deployment owners")
+      not specific people.
+    class_uri: os:Stakeholder
+    attributes:
+      stakeholder_id:
+        required: true
+      change_id:
+        required: true
+      role:
+        required: true
+        description: Stakeholder role text.
+      created_at:
+        range: datetime
+        description: Earliest known timestamp for this entity. Populated by the pipeline's
+          TimeResolver chain; nullable when no resolver could answer (e.g. ephemeral
+          identity nodes).
+      last_modified_at:
+        range: datetime
+        description: Most recent modification timestamp. Populated by the pipeline's
+          TimeResolver chain or promoted from a per-subtype semantic field.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  EdgeNarrowings:
+    description: Intra-module + cross-module edge narrowings for openspec_graph.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      change_contains_delta:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: OpenSpecChange
+          dst_subtypes: SpecDelta
+      change_contains_taskgroup:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: OpenSpecChange
+          dst_subtypes: TaskGroup
+      pact_change_contains_delta:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PactChange
+          dst_subtypes: SpecDelta
+      pact_change_contains_taskgroup:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PactChange
+          dst_subtypes: TaskGroup
+      pact_decision_targets_change:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: PactDecision
+          dst_subtypes: PactChange
+      pact_change_supersedes_change:
+        annotations:
+          edge_archetype: supersedes
+          src_subtypes: PactChange
+          dst_subtypes: PactChange
+      change_contains_decision:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: OpenSpecChange
+          dst_subtypes: DesignDecision
+      change_contains_goal:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: OpenSpecChange
+          dst_subtypes: Goal
+      change_contains_nongoal:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: OpenSpecChange
+          dst_subtypes: NonGoal
+      change_contains_risk:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: OpenSpecChange
+          dst_subtypes: Risk
+      change_contains_stakeholder:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: OpenSpecChange
+          dst_subtypes: Stakeholder
+      taskgroup_contains_task:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: TaskGroup
+          dst_subtypes: ProposalTask
+      taskgroup_contains_pact_task:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: TaskGroup
+          dst_subtypes: PactTask
+      task_contains_verification:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: ProposalTask
+          dst_subtypes: VerificationStep
+      pact_task_contains_verification:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: PactTask
+          dst_subtypes: VerificationStep
+      task_blocks_task:
+        annotations:
+          edge_archetype: blocks
+          src_subtypes: ProposalTask
+          dst_subtypes: ProposalTask
+      pact_task_blocks_pact_task:
+        annotations:
+          edge_archetype: blocks
+          src_subtypes: PactTask
+          dst_subtypes: PactTask
+      task_requires_task:
+        annotations:
+          edge_archetype: requires
+          src_subtypes: ProposalTask
+          dst_subtypes: ProposalTask
+      pact_task_requires_pact_task:
+        annotations:
+          edge_archetype: requires
+          src_subtypes: PactTask
+          dst_subtypes: PactTask
+      task_enables_task:
+        annotations:
+          edge_archetype: enables
+          src_subtypes: ProposalTask
+          dst_subtypes: ProposalTask
+      pact_task_enables_pact_task:
+        annotations:
+          edge_archetype: enables
+          src_subtypes: PactTask
+          dst_subtypes: PactTask
+      task_supersedes_task:
+        annotations:
+          edge_archetype: supersedes
+          src_subtypes: ProposalTask
+          dst_subtypes: ProposalTask
+      pact_task_supersedes_pact_task:
+        annotations:
+          edge_archetype: supersedes
+          src_subtypes: PactTask
+          dst_subtypes: PactTask
+      task_conflicts_with_task:
+        annotations:
+          edge_archetype: conflicts_with
+          src_subtypes: ProposalTask
+          dst_subtypes: ProposalTask
+      pact_task_conflicts_with_pact_task:
+        annotations:
+          edge_archetype: conflicts_with
+          src_subtypes: PactTask
+          dst_subtypes: PactTask
+      decision_contains_alternative:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: DesignDecision
+          dst_subtypes: Alternative
+      capability_contains_criterion:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: SpecCapability
+          dst_subtypes: AcceptanceCriterion
+      criterion_contains_scenario:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AcceptanceCriterion
+          dst_subtypes: AcceptanceScenario
+      criterion_contains_verification:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: AcceptanceCriterion
+          dst_subtypes: VerificationStep
+      delta_contains_criterion:
+        description: A SpecDelta proposes (contains) the AcceptanceCriteria it adds/modifies.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: SpecDelta
+          dst_subtypes: AcceptanceCriterion
+      delta_targets_capability:
+        annotations:
+          edge_archetype: targets
+          src_subtypes: SpecDelta
+          dst_subtypes: SpecCapability
+      change_supersedes_change:
+        annotations:
+          edge_archetype: supersedes
+          src_subtypes: OpenSpecChange
+          dst_subtypes: OpenSpecChange
+      decision_supersedes_alternative:
+        annotations:
+          edge_archetype: supersedes
+          src_subtypes: DesignDecision
+          dst_subtypes: Alternative
+      change_references_source_file:
+        annotations:
+          edge_archetype: references
+          src_subtypes: OpenSpecChange
+          dst_subtypes: SourceFile
+      # Reverse-direction narrowings to GitCommit /
+      # AgentSession / SubAgentSession / Issue / PullRequest
+      # are auto-derived from cross-link rules in each extending
+      # module's `cross_links/` subdir (git_graph, agent_sessions,
+      # forge) wired via `module.yaml` `extends.openspec` blocks
+      # (per `declarative-cross-source-linker`, 2026-04-26;
+      # path updated per `add-module-manifests-and-composition`,
+      # 2026-05-19). They land in the active catalog only when
+      # the relevant source ontology is co-loaded.

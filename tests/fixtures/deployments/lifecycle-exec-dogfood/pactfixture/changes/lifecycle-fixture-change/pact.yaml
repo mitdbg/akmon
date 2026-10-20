@@ -1,0 +1,49 @@
+pact_version: 4
+target_pact_version: 4
+change:
+  id: lifecycle-fixture-change
+  title: Fixture change for the deployment-lifecycle smoke canary
+  status: proposal
+  rationale: >-
+    Content for the lifecycle-exec fixture deployment's smoke canary. The
+    deploy-up planner only admits a smoke source whose adapter is on its trusted
+    allow-list, so the fixture publishes through the PACT adapter over this
+    miniature tree rather than through a bootstrap fixture adapter.
+  root_cause: >-
+    Why is this broken? Nothing is broken; this is fixture content, kept minimal
+    and stable so the smoke publish stays cheap and deterministic.
+  affected_areas:
+  - deployment-lifecycle-e2e
+  affected_code:
+  - tests/fixtures/deployments/lifecycle-exec/
+requirements:
+- id: req.fixture.canary
+  title: The fixture publishes a stable canary record
+  statement: >-
+    The lifecycle-exec fixture deployment MUST expose at least one PACT change
+    so its smoke publish has deployment-owned, versioned content to project.
+  evidence_policy:
+    required:
+    - executed_test
+  scenarios: []
+  acceptance:
+  - id: acc.fixture.canary
+    description: The lifecycle execution suite publishes this fixture tree.
+    evidence:
+    - executed_test
+tasks:
+- id: task.fixture.canary
+  title: Keep the fixture canary minimal and stable
+  status: todo
+  verification: >-
+    The deployment-lifecycle execution suite provisions the lifecycle-exec
+    fixture and publishes a generation containing this change.
+  requirements:
+  - req.fixture.canary
+  evidence: []
+  environment: []
+dependencies: []
+test_plan: []
+formal: []
+waivers: []
+evidence: []

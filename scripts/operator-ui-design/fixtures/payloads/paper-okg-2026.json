@@ -1,0 +1,28 @@
+{
+  "source_record_id": "okg-2026.pdf",
+  "subtype": "paper",
+  "title": "Operational knowledge graphs",
+  "format": "pdf",
+  "page_count": 2,
+  "observed_at": "2026-09-18T00:00:00.000Z",
+  "chunks": [
+    {
+      "ordinal": 0,
+      "page": 1,
+      "heading_path": "Abstract",
+      "text": "Operational knowledge graphs record what an engineering organisation did, decided and observed, so that the next question can be answered from evidence rather than from memory. We describe a substrate that ingests sources into a versioned graph, publishes each version only after its invariants hold, and serves reads pinned to one published version."
+    },
+    {
+      "ordinal": 1,
+      "page": 1,
+      "heading_path": "1 Introduction",
+      "text": "A deployment is a set of producers: sources that read external systems, enrichers that add relationships, and views that derive tables. An update attempt runs every producer, checks the result and publishes a version or blocks with a stated cause. Readers always see one published version at a time and can name which one they read."
+    },
+    {
+      "ordinal": 2,
+      "page": 2,
+      "heading_path": "2 Retained payloads and artifacts",
+      "text": "A source may retain the canonical record it ingested as JSON, chunked at one mebibyte with a byte count and a SHA-256. The original artifact, when the source keeps a corpus root, stays on disk under the path the record names. Both are served under the policy that masks the record's attributes, so an original file never bypasses the masking applied to its fields."
+    }
+  ]
+}

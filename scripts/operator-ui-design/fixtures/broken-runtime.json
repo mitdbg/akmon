@@ -1,0 +1,5109 @@
+{
+  "name": "broken-runtime",
+  "purpose": "The system is wrong, not the data: the worker is missing, jobs are in the dead-letter queue, the queue has a backlog, an attempt has been running for six hours, and the last completed attempt was blocked on a publication check.",
+  "clock": "2026-09-18T09:00:00.000Z",
+  "stories": [
+    "S2",
+    "S3"
+  ],
+  "edge_cases": [
+    "Runtime checks fail while every source succeeded: Home must separate them from attempts (S3).",
+    "The last completed attempt was blocked on a publication check, not on a source (S3).",
+    "An attempt has been running for six hours and must read as running, not as failed.",
+    "37 dead-letter jobs and a 2,566-job backlog, on Home only.",
+    "A view whose last run failed with a two-line timeout error."
+  ],
+  "expect": {
+    "deployment": "broken-runtime",
+    "version": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+    "nodes_live": 184022,
+    "edges_live": 411880,
+    "source_count": 4,
+    "enricher_count": 0,
+    "view_count": 1,
+    "failed_producer_count": 1,
+    "never_run_producer_count": 0,
+    "attempt_count": 3,
+    "published_attempt_count": 1,
+    "blocked_attempt_count": 1,
+    "running_attempt_count": 1,
+    "record_type_count": 4,
+    "relationship_type_count": 3,
+    "source_read_row_count": 4,
+    "featured_record": "document:orphan-0001",
+    "failing_check_count": 3,
+    "queue_total": 2566,
+    "dlq_count": 37
+  },
+  "reads": {
+    "/viz/api/deployments": {
+      "entries": [
+        {
+          "name": "archiv3-small",
+          "description": "Mock deployment archiv3-small",
+          "url": "https://mock.invalid/archiv3-small",
+          "operator_ui_base": "https://mock.invalid/archiv3-small/console/",
+          "chat_site_base": "https://mock.invalid/archiv3-small/chat/",
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": false
+        },
+        {
+          "name": "workspace-mixed",
+          "description": "Mock deployment workspace-mixed",
+          "url": "https://mock.invalid/workspace-mixed",
+          "operator_ui_base": "https://mock.invalid/workspace-mixed/console/",
+          "chat_site_base": "https://mock.invalid/workspace-mixed/chat/",
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": false
+        },
+        {
+          "name": "scale-200",
+          "description": "Mock deployment scale-200",
+          "url": "https://mock.invalid/scale-200",
+          "operator_ui_base": "https://mock.invalid/scale-200/console/",
+          "chat_site_base": "https://mock.invalid/scale-200/chat/",
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": false
+        },
+        {
+          "name": "empty",
+          "description": "Mock deployment empty",
+          "url": "https://mock.invalid/empty",
+          "operator_ui_base": "https://mock.invalid/empty/console/",
+          "chat_site_base": null,
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": false
+        },
+        {
+          "name": "broken-runtime",
+          "description": "The system is wrong, not the data: the worker is missing, jobs are in the dead-letter queue, the queue has a backlog, an attempt has been running for six hours, and the last completed attempt was blocked on a publication check.",
+          "url": "https://mock.invalid/broken-runtime",
+          "operator_ui_base": "https://mock.invalid/broken-runtime/console/",
+          "chat_site_base": "https://mock.invalid/broken-runtime/chat/",
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": true
+        },
+        {
+          "name": "all-clear",
+          "description": "Mock deployment all-clear",
+          "url": "https://mock.invalid/all-clear",
+          "operator_ui_base": "https://mock.invalid/all-clear/console/",
+          "chat_site_base": "https://mock.invalid/all-clear/chat/",
+          "viz_theme": {
+            "status": "undeclared",
+            "tokens": null,
+            "polarity": null
+          },
+          "is_current": false
+        }
+      ]
+    },
+    "/viz/api/health": {
+      "ok": true,
+      "ready": true,
+      "deployment_name": "broken-runtime",
+      "generation_id": 1789462800000810,
+      "node_count": 184022,
+      "edge_count": 411880,
+      "count_estimated": false
+    },
+    "/viz/api/traces": {
+      "items": []
+    },
+    "/viz/api/workflows": {
+      "meta": {
+        "count": 3,
+        "workflow_tables_present": true,
+        "root_kinds": [
+          "update"
+        ]
+      },
+      "items": [
+        {
+          "trace_id": "trace-broken-runtime-0",
+          "root_name": "update attempt",
+          "root_kind": "update",
+          "status": "running",
+          "duration_ms": 21600000,
+          "started_at": "2026-09-18T03:00:00.000Z",
+          "generation_id": "okg:broken-runtime:branch:default:gen:20260918T030000000000Z:c024f83db45b",
+          "workflow_id": "wf-broken-runtime-0",
+          "span_count": 5
+        },
+        {
+          "trace_id": "trace-broken-runtime-1",
+          "root_name": "update attempt",
+          "root_kind": "update",
+          "status": "error",
+          "duration_ms": 42000,
+          "started_at": "2026-09-16T09:00:00.000Z",
+          "generation_id": "okg:broken-runtime:branch:default:gen:20260916T090000000000Z:3d7278f4dc58",
+          "workflow_id": "wf-broken-runtime-1",
+          "span_count": 6
+        },
+        {
+          "trace_id": "trace-broken-runtime-2",
+          "root_name": "update attempt",
+          "root_kind": "update",
+          "status": "ok",
+          "duration_ms": 402000,
+          "started_at": "2026-09-15T09:00:00.000Z",
+          "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+          "workflow_id": "wf-broken-runtime-2",
+          "span_count": 7
+        }
+      ]
+    },
+    "/viz/api/console/health": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "compat_generation_id": 1789462800000810,
+        "generation_status": "published",
+        "generation_age": "3d ago",
+        "verdict": "failing",
+        "history": [
+          {
+            "generation_id": "okg:broken-runtime:branch:default:gen:20260918T030000000000Z:c024f83db45b",
+            "compat_generation_id": 1789700400000941,
+            "status": "running",
+            "age": "6h ago",
+            "created_at": "2026-09-18T03:00:00.000Z",
+            "blocked_reason": null,
+            "describe_command": "okg generation describe okg:broken-runtime:branch:default:gen:20260918T030000000000Z:c024f83db45b",
+            "nodes_delta": 0,
+            "edges_delta": 0
+          },
+          {
+            "generation_id": "okg:broken-runtime:branch:default:gen:20260916T090000000000Z:3d7278f4dc58",
+            "compat_generation_id": 1789549200000238,
+            "status": "blocked",
+            "age": "2d ago",
+            "created_at": "2026-09-16T09:00:00.000Z",
+            "blocked_reason": "publication_check_failed",
+            "describe_command": "okg generation describe okg:broken-runtime:branch:default:gen:20260916T090000000000Z:3d7278f4dc58",
+            "nodes_delta": 0,
+            "edges_delta": 0
+          },
+          {
+            "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+            "compat_generation_id": 1789462800000810,
+            "status": "published",
+            "age": "3d ago",
+            "created_at": "2026-09-15T09:00:00.000Z",
+            "blocked_reason": null,
+            "describe_command": "okg generation describe okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+            "nodes_delta": 18400,
+            "edges_delta": 41200
+          }
+        ],
+        "history_total": 3,
+        "latest_attempt": {
+          "generation_id": "okg:broken-runtime:branch:default:gen:20260918T030000000000Z:c024f83db45b",
+          "compat_generation_id": 1789700400000941,
+          "status": "running",
+          "age": "6h ago",
+          "created_at": "2026-09-18T03:00:00.000Z",
+          "blocked_reason": null,
+          "describe_command": "okg generation describe okg:broken-runtime:branch:default:gen:20260918T030000000000Z:c024f83db45b",
+          "nodes_delta": 0,
+          "edges_delta": 0
+        },
+        "vitals": {
+          "generation_blocked_count": 1,
+          "queue_depth": {
+            "ingest": 1840,
+            "link": 620,
+            "enrich": 94,
+            "publish": 12,
+            "embed": 0
+          },
+          "queue_total": 2566,
+          "dlq_count": 37,
+          "terminal_history_dlq_count": 37,
+          "nodes_live": 184022,
+          "edges_live": 411880,
+          "nodes_live_delta": 18400,
+          "edges_live_delta": 41200,
+          "publish_wallclock_seconds": 402,
+          "invariants": {
+            "cross_source_total": 18,
+            "cross_source_failed": 1,
+            "cross_source_timed_out": 0,
+            "source_local_total": 6,
+            "source_local_failed": 0,
+            "total": 24,
+            "failed": 1,
+            "budget_exceeded": false,
+            "duration_ms": 3104
+          },
+          "excluded_sources": []
+        },
+        "source_breakdown": {
+          "source_count": 4,
+          "summary": {
+            "total": 4,
+            "healthy": 4,
+            "needs_review": 0,
+            "unknown": 0,
+            "excluded": 0
+          },
+          "sources": [
+            {
+              "name": "papers",
+              "source_key": "broken-runtime.papers",
+              "status": "healthy",
+              "included": true,
+              "last_update": "2026-09-18T01:00:00.000Z",
+              "latest_issue": null,
+              "next_check": null
+            },
+            {
+              "name": "git-files",
+              "source_key": "broken-runtime.git-files",
+              "status": "healthy",
+              "included": true,
+              "last_update": "2026-09-18T00:00:00.000Z",
+              "latest_issue": null,
+              "next_check": null
+            },
+            {
+              "name": "sessions",
+              "source_key": "broken-runtime.sessions",
+              "status": "healthy",
+              "included": true,
+              "last_update": "2026-09-17T23:00:00.000Z",
+              "latest_issue": null,
+              "next_check": null
+            },
+            {
+              "name": "slack",
+              "source_key": "broken-runtime.slack",
+              "status": "healthy",
+              "included": true,
+              "last_update": "2026-09-17T22:00:00.000Z",
+              "latest_issue": null,
+              "next_check": null
+            }
+          ]
+        },
+        "resources": {
+          "status": "degraded",
+          "source": "okg.node_series + pg_database_size",
+          "hosts": [],
+          "database_size_bytes": 18401284096,
+          "window": {
+            "start": null,
+            "end": null,
+            "period": "1h"
+          },
+          "series": {
+            "nodes": [],
+            "edges": [],
+            "cpu": [],
+            "memory": []
+          },
+          "omissions": [
+            "Host resource series stop at 03:11 UTC: the collector is not reporting."
+          ]
+        },
+        "critical_reads": {
+          "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+          "ready": true,
+          "prerequisites": []
+        },
+        "checks": [
+          {
+            "severity": "fail",
+            "code": "worker_missing",
+            "scope": "runtime",
+            "summary": "No worker has reported since 03:11 UTC.",
+            "actual": "0 workers reporting, last heartbeat 5h 49m ago",
+            "expected": "at least one worker reporting within 5 minutes",
+            "fix_hint": "okg worker status"
+          },
+          {
+            "severity": "fail",
+            "code": "dead_letter_jobs",
+            "scope": "runtime",
+            "summary": "37 jobs are in the dead-letter queue.",
+            "actual": "37 dead-letter jobs, oldest 2d 4h",
+            "expected": "0 dead-letter jobs",
+            "fix_hint": "okg queue dlq list"
+          },
+          {
+            "severity": "fail",
+            "code": "queue_backlog",
+            "scope": "runtime",
+            "summary": "The queue has a backlog of 2,566 jobs and is not draining.",
+            "actual": "2,566 queued, 0 completed in the last hour",
+            "expected": "the queue drains",
+            "fix_hint": "okg queue status"
+          },
+          {
+            "severity": "warn",
+            "code": "attempt_running_long",
+            "scope": "publisher",
+            "summary": "An update attempt has been running for six hours.",
+            "actual": "running since 03:00 UTC",
+            "expected": "attempts complete within one hour",
+            "fix_hint": "okg generation describe <id>"
+          },
+          {
+            "severity": "warn",
+            "code": "view_build_failed",
+            "scope": "views",
+            "summary": "The daily-brief view timed out building.",
+            "actual": "statement timeout after 300,000 ms",
+            "expected": "the view builds",
+            "fix_hint": "okg view diagnose daily-brief"
+          }
+        ],
+        "doctor_note": "Substrate-state health from the pinned Chronos generation. This is a design fixture; no deployment was read."
+      }
+    },
+    "/viz/api/console/generations": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "current_generation_id": 1789462800000810,
+        "shown": 3,
+        "total": 3,
+        "next_cursor": null,
+        "generations": [
+          {
+            "generation_id": 1789700400000941,
+            "full_generation_id": "okg:broken-runtime:branch:default:gen:20260918T030000000000Z:c024f83db45b",
+            "status": "running",
+            "age": "6h ago",
+            "created_at": "2026-09-18T03:00:00.000Z",
+            "is_current": false,
+            "blocked_reason": null,
+            "blocked_detail": null,
+            "excluded_sources": [],
+            "excluded_source_count": 0,
+            "delta_available": false,
+            "delta_unavailable_reason": "pinned generation is not published",
+            "nodes_added": null,
+            "nodes_retracted": null,
+            "edges_added": null,
+            "edges_retracted": null,
+            "zero_delta": false,
+            "duration_ms": 21600000,
+            "stopped_stage": null,
+            "stopped_producer": null,
+            "error_text": null,
+            "view_runs": []
+          },
+          {
+            "generation_id": 1789549200000238,
+            "full_generation_id": "okg:broken-runtime:branch:default:gen:20260916T090000000000Z:3d7278f4dc58",
+            "status": "blocked",
+            "age": "2d ago",
+            "created_at": "2026-09-16T09:00:00.000Z",
+            "is_current": false,
+            "blocked_reason": "publication_check_failed",
+            "blocked_detail": {
+              "reason": "publication_check_failed",
+              "detail": "publication_check_failed: invariant okg.cross_source.document_has_source failed\n  expected  every document resolves to exactly one configured source\n  actual    62 documents resolve to none\n  This is a check on the published graph, not a source failure."
+            },
+            "excluded_sources": [],
+            "excluded_source_count": 0,
+            "delta_available": false,
+            "delta_unavailable_reason": "pinned generation is not published",
+            "nodes_added": null,
+            "nodes_retracted": null,
+            "edges_added": null,
+            "edges_retracted": null,
+            "zero_delta": false,
+            "duration_ms": 42000,
+            "stopped_stage": "publication checks",
+            "stopped_producer": null,
+            "error_text": "publication_check_failed: invariant okg.cross_source.document_has_source failed\n  expected  every document resolves to exactly one configured source\n  actual    62 documents resolve to none\n  This is a check on the published graph, not a source failure.",
+            "view_runs": []
+          },
+          {
+            "generation_id": 1789462800000810,
+            "full_generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+            "status": "published",
+            "age": "3d ago",
+            "created_at": "2026-09-15T09:00:00.000Z",
+            "is_current": true,
+            "blocked_reason": null,
+            "blocked_detail": null,
+            "excluded_sources": [],
+            "excluded_source_count": 0,
+            "delta_available": true,
+            "delta_unavailable_reason": null,
+            "nodes_added": 18400,
+            "nodes_retracted": 0,
+            "edges_added": 41200,
+            "edges_retracted": 0,
+            "zero_delta": false,
+            "duration_ms": 402000,
+            "stopped_stage": null,
+            "stopped_producer": null,
+            "error_text": null,
+            "view_runs": []
+          }
+        ],
+        "gap": [
+          "stopped_stage",
+          "stopped_producer",
+          "error_text",
+          "duration_ms"
+        ]
+      }
+    },
+    "/viz/api/console/attempts/detail?id=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260918T030000000000Z%3Ac024f83db45b": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "branch": "default",
+        "attempt_id": "okg:broken-runtime:branch:default:gen:20260918T030000000000Z:c024f83db45b",
+        "version_published": false,
+        "attempt": {
+          "generation_id": 1789700400000941,
+          "full_generation_id": "okg:broken-runtime:branch:default:gen:20260918T030000000000Z:c024f83db45b",
+          "status": "running",
+          "age": "6h ago",
+          "created_at": "2026-09-18T03:00:00.000Z",
+          "is_current": false,
+          "blocked_reason": null,
+          "blocked_detail": null,
+          "excluded_sources": [],
+          "excluded_source_count": 0,
+          "delta_available": false,
+          "delta_unavailable_reason": "pinned generation is not published",
+          "nodes_added": null,
+          "nodes_retracted": null,
+          "edges_added": null,
+          "edges_retracted": null,
+          "zero_delta": false,
+          "duration_ms": 21600000,
+          "stopped_stage": null,
+          "stopped_producer": null,
+          "error_text": null,
+          "view_runs": []
+        },
+        "holds": {
+          "node_count": 184022,
+          "edge_count": 411880,
+          "nodes": {
+            "added": 0,
+            "updated": 0,
+            "retracted": 0
+          },
+          "edges": {
+            "added": 0,
+            "updated": 0,
+            "retracted": 0
+          },
+          "unavailable": [],
+          "unpublished_version": {
+            "reason": "counts_describe_an_unpublished_version",
+            "attempt_status": "running"
+          }
+        },
+        "checks": {
+          "gates": [
+            {
+              "blocks_publish": false,
+              "budget_ms": null,
+              "check_id": "transform.consistency.daily-brief.v4",
+              "coverage_basis": "chronos_dirty_edges+incident_dirty_nodes",
+              "coverage_complete": true,
+              "elapsed_ms": 173,
+              "gate_name": "transform_consistency_gate",
+              "is_probe": false,
+              "newly_opened_count": 0,
+              "open_observation_count": 0,
+              "reason": "no_violations",
+              "resolved_count": 0,
+              "result": "evaluated",
+              "run_id": null,
+              "target_generation_id": 1789700400000941,
+              "withheld": [
+                {
+                  "key": "details",
+                  "kind": "object",
+                  "size": 36,
+                  "withheld_reason": "exception_text"
+                },
+                {
+                  "key": "preflight",
+                  "kind": "object",
+                  "size": 12,
+                  "withheld_reason": "exception_text"
+                }
+              ]
+            }
+          ],
+          "total": 1,
+          "passed": 1,
+          "blocked": 0,
+          "unavailable": null
+        },
+        "runs": {
+          "runs": [],
+          "total": 0,
+          "capped": false,
+          "unavailable": null
+        },
+        "neighbours": {
+          "newer_attempt_id": null,
+          "older_attempt_id": "okg:broken-runtime:branch:default:gen:20260916T090000000000Z:3d7278f4dc58",
+          "position": 1,
+          "total": 3,
+          "parent_generation_id": "okg:broken-runtime:branch:default:gen:20260916T090000000000Z:3d7278f4dc58",
+          "parent_source": "recorded_predecessor"
+        },
+        "configured": {
+          "deployment_attestations": {
+            "recorded": false,
+            "names": [],
+            "withheld_count": 0
+          },
+          "nomos_policy_bundle_ids": {
+            "recorded": true,
+            "names": [],
+            "withheld_count": 0
+          },
+          "excluded_sources": {
+            "recorded": true,
+            "names": []
+          },
+          "enricher_governance_record_count": 0,
+          "catalog_version_id": 4
+        },
+        "by_record_type": {
+          "rows": [
+            {
+              "name": "document",
+              "count": 104200,
+              "parent_count": 104200,
+              "parent_available": true
+            },
+            {
+              "name": "message",
+              "count": 62400,
+              "parent_count": 62400,
+              "parent_available": true
+            },
+            {
+              "name": "session",
+              "count": 12602,
+              "parent_count": 12602,
+              "parent_available": true
+            },
+            {
+              "name": "person",
+              "count": 4820,
+              "parent_count": 4820,
+              "parent_available": true
+            }
+          ],
+          "shown": 4,
+          "total": 4,
+          "capped": false,
+          "limit": 200,
+          "unavailable": null,
+          "unpublished_version": {
+            "reason": "counts_describe_an_unpublished_version",
+            "attempt_status": "running"
+          }
+        },
+        "by_relationship_type": {
+          "rows": [
+            {
+              "name": "mentions",
+              "count": 246612,
+              "parent_count": 246612,
+              "parent_available": true
+            },
+            {
+              "name": "authored_by",
+              "count": 115101,
+              "parent_count": 115101,
+              "parent_available": true
+            },
+            {
+              "name": "part_of",
+              "count": 50167,
+              "parent_count": 50167,
+              "parent_available": true
+            }
+          ],
+          "shown": 3,
+          "total": 3,
+          "capped": false,
+          "limit": 200,
+          "unavailable": null,
+          "unpublished_version": {
+            "reason": "counts_describe_an_unpublished_version",
+            "attempt_status": "running"
+          }
+        },
+        "by_source": {
+          "rows": [
+            {
+              "name": "broken-runtime.papers",
+              "count": 86000,
+              "parent_count": 86000,
+              "parent_available": true
+            },
+            {
+              "name": "broken-runtime.git-files",
+              "count": 82173,
+              "parent_count": 82173,
+              "parent_available": true
+            },
+            {
+              "name": "broken-runtime.sessions",
+              "count": 9094,
+              "parent_count": 9094,
+              "parent_available": true
+            },
+            {
+              "name": "broken-runtime.slack",
+              "count": 6755,
+              "parent_count": 6755,
+              "parent_available": true
+            }
+          ],
+          "shown": 4,
+          "total": 4,
+          "capped": false,
+          "limit": 200,
+          "unavailable": null,
+          "unpublished_version": {
+            "reason": "counts_describe_an_unpublished_version",
+            "attempt_status": "running"
+          }
+        }
+      }
+    },
+    "/viz/api/console/attempts/detail?id=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260916T090000000000Z%3A3d7278f4dc58": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "branch": "default",
+        "attempt_id": "okg:broken-runtime:branch:default:gen:20260916T090000000000Z:3d7278f4dc58",
+        "version_published": false,
+        "attempt": {
+          "generation_id": 1789549200000238,
+          "full_generation_id": "okg:broken-runtime:branch:default:gen:20260916T090000000000Z:3d7278f4dc58",
+          "status": "blocked",
+          "age": "2d ago",
+          "created_at": "2026-09-16T09:00:00.000Z",
+          "is_current": false,
+          "blocked_reason": "publication_check_failed",
+          "blocked_detail": {
+            "reason": "publication_check_failed",
+            "detail": "publication_check_failed: invariant okg.cross_source.document_has_source failed\n  expected  every document resolves to exactly one configured source\n  actual    62 documents resolve to none\n  This is a check on the published graph, not a source failure."
+          },
+          "excluded_sources": [],
+          "excluded_source_count": 0,
+          "delta_available": false,
+          "delta_unavailable_reason": "pinned generation is not published",
+          "nodes_added": null,
+          "nodes_retracted": null,
+          "edges_added": null,
+          "edges_retracted": null,
+          "zero_delta": false,
+          "duration_ms": 42000,
+          "stopped_stage": "publication checks",
+          "stopped_producer": null,
+          "error_text": "publication_check_failed: invariant okg.cross_source.document_has_source failed\n  expected  every document resolves to exactly one configured source\n  actual    62 documents resolve to none\n  This is a check on the published graph, not a source failure.",
+          "view_runs": []
+        },
+        "holds": {
+          "node_count": 184022,
+          "edge_count": 411880,
+          "nodes": {
+            "added": 0,
+            "updated": 0,
+            "retracted": 0
+          },
+          "edges": {
+            "added": 0,
+            "updated": 0,
+            "retracted": 0
+          },
+          "unavailable": [],
+          "unpublished_version": {
+            "reason": "counts_describe_an_unpublished_version",
+            "attempt_status": "blocked"
+          }
+        },
+        "checks": {
+          "gates": [
+            {
+              "blocks_publish": true,
+              "budget_ms": null,
+              "check_id": "transform.consistency.daily-brief.v4",
+              "coverage_basis": "chronos_dirty_edges+incident_dirty_nodes",
+              "coverage_complete": false,
+              "elapsed_ms": 173,
+              "gate_name": "transform_consistency_gate",
+              "is_probe": false,
+              "newly_opened_count": 0,
+              "open_observation_count": 0,
+              "reason": "publication_check_failed",
+              "resolved_count": 0,
+              "result": "blocked",
+              "run_id": null,
+              "target_generation_id": 1789549200000238,
+              "withheld": [
+                {
+                  "key": "details",
+                  "kind": "object",
+                  "size": 36,
+                  "withheld_reason": "exception_text"
+                },
+                {
+                  "key": "preflight",
+                  "kind": "object",
+                  "size": 12,
+                  "withheld_reason": "exception_text"
+                }
+              ]
+            }
+          ],
+          "total": 1,
+          "passed": 0,
+          "blocked": 1,
+          "unavailable": null
+        },
+        "runs": {
+          "runs": [],
+          "total": 0,
+          "capped": false,
+          "unavailable": null
+        },
+        "neighbours": {
+          "newer_attempt_id": "okg:broken-runtime:branch:default:gen:20260918T030000000000Z:c024f83db45b",
+          "older_attempt_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+          "position": 2,
+          "total": 3,
+          "parent_generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+          "parent_source": "recorded_predecessor"
+        },
+        "configured": {
+          "deployment_attestations": {
+            "recorded": false,
+            "names": [],
+            "withheld_count": 0
+          },
+          "nomos_policy_bundle_ids": {
+            "recorded": true,
+            "names": [],
+            "withheld_count": 0
+          },
+          "excluded_sources": {
+            "recorded": true,
+            "names": []
+          },
+          "enricher_governance_record_count": 0,
+          "catalog_version_id": 4
+        },
+        "by_record_type": {
+          "rows": [
+            {
+              "name": "document",
+              "count": 104200,
+              "parent_count": 104200,
+              "parent_available": true
+            },
+            {
+              "name": "message",
+              "count": 62400,
+              "parent_count": 62400,
+              "parent_available": true
+            },
+            {
+              "name": "session",
+              "count": 12602,
+              "parent_count": 12602,
+              "parent_available": true
+            },
+            {
+              "name": "person",
+              "count": 4820,
+              "parent_count": 4820,
+              "parent_available": true
+            }
+          ],
+          "shown": 4,
+          "total": 4,
+          "capped": false,
+          "limit": 200,
+          "unavailable": null,
+          "unpublished_version": {
+            "reason": "counts_describe_an_unpublished_version",
+            "attempt_status": "blocked"
+          }
+        },
+        "by_relationship_type": {
+          "rows": [
+            {
+              "name": "mentions",
+              "count": 246612,
+              "parent_count": 246612,
+              "parent_available": true
+            },
+            {
+              "name": "authored_by",
+              "count": 115101,
+              "parent_count": 115101,
+              "parent_available": true
+            },
+            {
+              "name": "part_of",
+              "count": 50167,
+              "parent_count": 50167,
+              "parent_available": true
+            }
+          ],
+          "shown": 3,
+          "total": 3,
+          "capped": false,
+          "limit": 200,
+          "unavailable": null,
+          "unpublished_version": {
+            "reason": "counts_describe_an_unpublished_version",
+            "attempt_status": "blocked"
+          }
+        },
+        "by_source": {
+          "rows": [
+            {
+              "name": "broken-runtime.papers",
+              "count": 86000,
+              "parent_count": 86000,
+              "parent_available": true
+            },
+            {
+              "name": "broken-runtime.git-files",
+              "count": 82173,
+              "parent_count": 82173,
+              "parent_available": true
+            },
+            {
+              "name": "broken-runtime.sessions",
+              "count": 9094,
+              "parent_count": 9094,
+              "parent_available": true
+            },
+            {
+              "name": "broken-runtime.slack",
+              "count": 6755,
+              "parent_count": 6755,
+              "parent_available": true
+            }
+          ],
+          "shown": 4,
+          "total": 4,
+          "capped": false,
+          "limit": 200,
+          "unavailable": null,
+          "unpublished_version": {
+            "reason": "counts_describe_an_unpublished_version",
+            "attempt_status": "blocked"
+          }
+        }
+      }
+    },
+    "/viz/api/console/attempts/detail?id=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260915T090000000000Z%3A301ca82e5ccf": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "branch": "default",
+        "attempt_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "version_published": true,
+        "attempt": {
+          "generation_id": 1789462800000810,
+          "full_generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+          "status": "published",
+          "age": "3d ago",
+          "created_at": "2026-09-15T09:00:00.000Z",
+          "is_current": true,
+          "blocked_reason": null,
+          "blocked_detail": null,
+          "excluded_sources": [],
+          "excluded_source_count": 0,
+          "delta_available": true,
+          "delta_unavailable_reason": null,
+          "nodes_added": 18400,
+          "nodes_retracted": 0,
+          "edges_added": 41200,
+          "edges_retracted": 0,
+          "zero_delta": false,
+          "duration_ms": 402000,
+          "stopped_stage": null,
+          "stopped_producer": null,
+          "error_text": null,
+          "view_runs": []
+        },
+        "holds": {
+          "node_count": 184022,
+          "edge_count": 411880,
+          "nodes": {
+            "added": 18400,
+            "updated": 0,
+            "retracted": 0
+          },
+          "edges": {
+            "added": 41200,
+            "updated": 0,
+            "retracted": 0
+          },
+          "unavailable": [],
+          "unpublished_version": null
+        },
+        "checks": {
+          "gates": [
+            {
+              "blocks_publish": false,
+              "budget_ms": null,
+              "check_id": "transform.consistency.daily-brief.v4",
+              "coverage_basis": "chronos_dirty_edges+incident_dirty_nodes",
+              "coverage_complete": true,
+              "elapsed_ms": 173,
+              "gate_name": "transform_consistency_gate",
+              "is_probe": false,
+              "newly_opened_count": 0,
+              "open_observation_count": 0,
+              "reason": "no_violations",
+              "resolved_count": 0,
+              "result": "evaluated",
+              "run_id": null,
+              "target_generation_id": 1789462800000810,
+              "withheld": [
+                {
+                  "key": "details",
+                  "kind": "object",
+                  "size": 36,
+                  "withheld_reason": "exception_text"
+                },
+                {
+                  "key": "preflight",
+                  "kind": "object",
+                  "size": 12,
+                  "withheld_reason": "exception_text"
+                }
+              ]
+            }
+          ],
+          "total": 1,
+          "passed": 1,
+          "blocked": 0,
+          "unavailable": null
+        },
+        "runs": {
+          "runs": [],
+          "total": 0,
+          "capped": false,
+          "unavailable": null
+        },
+        "neighbours": {
+          "newer_attempt_id": "okg:broken-runtime:branch:default:gen:20260916T090000000000Z:3d7278f4dc58",
+          "older_attempt_id": null,
+          "position": 3,
+          "total": 3,
+          "parent_generation_id": null,
+          "parent_source": "no_predecessor_recorded"
+        },
+        "configured": {
+          "deployment_attestations": {
+            "recorded": false,
+            "names": [],
+            "withheld_count": 0
+          },
+          "nomos_policy_bundle_ids": {
+            "recorded": true,
+            "names": [],
+            "withheld_count": 0
+          },
+          "excluded_sources": {
+            "recorded": true,
+            "names": []
+          },
+          "enricher_governance_record_count": 0,
+          "catalog_version_id": 4
+        },
+        "by_record_type": {
+          "rows": [
+            {
+              "name": "document",
+              "count": 104200,
+              "parent_count": null,
+              "parent_available": false
+            },
+            {
+              "name": "message",
+              "count": 62400,
+              "parent_count": null,
+              "parent_available": false
+            },
+            {
+              "name": "session",
+              "count": 12602,
+              "parent_count": null,
+              "parent_available": false
+            },
+            {
+              "name": "person",
+              "count": 4820,
+              "parent_count": null,
+              "parent_available": false
+            }
+          ],
+          "shown": 4,
+          "total": 4,
+          "capped": false,
+          "limit": 200,
+          "unavailable": null,
+          "unpublished_version": null
+        },
+        "by_relationship_type": {
+          "rows": [
+            {
+              "name": "mentions",
+              "count": 246612,
+              "parent_count": null,
+              "parent_available": false
+            },
+            {
+              "name": "authored_by",
+              "count": 115101,
+              "parent_count": null,
+              "parent_available": false
+            },
+            {
+              "name": "part_of",
+              "count": 50167,
+              "parent_count": null,
+              "parent_available": false
+            }
+          ],
+          "shown": 3,
+          "total": 3,
+          "capped": false,
+          "limit": 200,
+          "unavailable": null,
+          "unpublished_version": null
+        },
+        "by_source": {
+          "rows": [
+            {
+              "name": "broken-runtime.papers",
+              "count": 86000,
+              "parent_count": null,
+              "parent_available": false
+            },
+            {
+              "name": "broken-runtime.git-files",
+              "count": 82173,
+              "parent_count": null,
+              "parent_available": false
+            },
+            {
+              "name": "broken-runtime.sessions",
+              "count": 9094,
+              "parent_count": null,
+              "parent_available": false
+            },
+            {
+              "name": "broken-runtime.slack",
+              "count": 6755,
+              "parent_count": null,
+              "parent_available": false
+            }
+          ],
+          "shown": 4,
+          "total": 4,
+          "capped": false,
+          "limit": 200,
+          "unavailable": null,
+          "unpublished_version": null
+        }
+      }
+    },
+    "/viz/api/console/sources": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "source_count": 4,
+        "sources": [
+          {
+            "name": "papers",
+            "source_key": "broken-runtime.papers",
+            "in_registry": true,
+            "total_facts": null,
+            "total_edge_facts": null,
+            "fact_counts_available": false,
+            "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+            "records_in_gen": 3641,
+            "edges_in_gen": 8288,
+            "last_sync_age": "8h ago"
+          },
+          {
+            "name": "git-files",
+            "source_key": "broken-runtime.git-files",
+            "in_registry": true,
+            "total_facts": null,
+            "total_edge_facts": null,
+            "fact_counts_available": false,
+            "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+            "records_in_gen": 3479,
+            "edges_in_gen": 5442,
+            "last_sync_age": "9h ago"
+          },
+          {
+            "name": "sessions",
+            "source_key": "broken-runtime.sessions",
+            "in_registry": true,
+            "total_facts": null,
+            "total_edge_facts": null,
+            "fact_counts_available": false,
+            "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+            "records_in_gen": 385,
+            "edges_in_gen": 725,
+            "last_sync_age": "10h ago"
+          },
+          {
+            "name": "slack",
+            "source_key": "broken-runtime.slack",
+            "in_registry": true,
+            "total_facts": null,
+            "total_edge_facts": null,
+            "fact_counts_available": false,
+            "fact_counts_unavailable_reason": "raw_fact_log_counts_unbounded",
+            "records_in_gen": 286,
+            "edges_in_gen": 4248,
+            "last_sync_age": "11h ago"
+          }
+        ]
+      }
+    },
+    "/viz/api/console/versions": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "versions": [
+          {
+            "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+            "published_at": "2026-09-15T09:00:00.000Z"
+          }
+        ],
+        "latest": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "truncated": false
+      }
+    },
+    "/viz/api/console/ontology-rollup": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "node_types": [
+          {
+            "type": "document",
+            "count": 104200
+          },
+          {
+            "type": "person",
+            "count": 4820
+          },
+          {
+            "type": "message",
+            "count": 62400
+          },
+          {
+            "type": "session",
+            "count": 12602
+          }
+        ],
+        "relationship_types": [
+          {
+            "type": "mentions",
+            "count": 210400
+          },
+          {
+            "type": "authored_by",
+            "count": 98200
+          },
+          {
+            "type": "part_of",
+            "count": 42800
+          }
+        ],
+        "node_type_total": 4,
+        "relationship_type_total": 3,
+        "count_basis": "published_total_before_access_rules"
+      }
+    },
+    "/viz/api/console/attempts?range=1d": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "range": "1d",
+        "now": "2026-09-18T09:00:00.000Z",
+        "buckets": [
+          {
+            "day": "2026-09-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 1
+          }
+        ],
+        "totals": {
+          "published": 0,
+          "blocked": 0,
+          "running": 1
+        },
+        "gap": true
+      }
+    },
+    "/viz/api/console/attempts?range=7d": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "range": "7d",
+        "now": "2026-09-18T09:00:00.000Z",
+        "buckets": [
+          {
+            "day": "2026-09-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-15",
+            "published": 1,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-16",
+            "published": 0,
+            "blocked": 1,
+            "running": 0
+          },
+          {
+            "day": "2026-09-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 1
+          }
+        ],
+        "totals": {
+          "published": 1,
+          "blocked": 1,
+          "running": 1
+        },
+        "gap": true
+      }
+    },
+    "/viz/api/console/attempts?range=14d": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "range": "14d",
+        "now": "2026-09-18T09:00:00.000Z",
+        "buckets": [
+          {
+            "day": "2026-09-04",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-05",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-06",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-07",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-08",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-09",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-10",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-15",
+            "published": 1,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-16",
+            "published": 0,
+            "blocked": 1,
+            "running": 0
+          },
+          {
+            "day": "2026-09-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 1
+          }
+        ],
+        "totals": {
+          "published": 1,
+          "blocked": 1,
+          "running": 1
+        },
+        "gap": true
+      }
+    },
+    "/viz/api/console/attempts?range=30d": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "range": "30d",
+        "now": "2026-09-18T09:00:00.000Z",
+        "buckets": [
+          {
+            "day": "2026-08-19",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-20",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-21",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-22",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-23",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-24",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-25",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-26",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-27",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-28",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-29",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-30",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-31",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-01",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-02",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-03",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-04",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-05",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-06",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-07",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-08",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-09",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-10",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-15",
+            "published": 1,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-16",
+            "published": 0,
+            "blocked": 1,
+            "running": 0
+          },
+          {
+            "day": "2026-09-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 1
+          }
+        ],
+        "totals": {
+          "published": 1,
+          "blocked": 1,
+          "running": 1
+        },
+        "gap": true
+      }
+    },
+    "/viz/api/console/attempts?range=90d": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "deployment": "broken-runtime",
+        "range": "90d",
+        "now": "2026-09-18T09:00:00.000Z",
+        "buckets": [
+          {
+            "day": "2026-06-20",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-21",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-22",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-23",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-24",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-25",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-26",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-27",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-28",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-29",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-06-30",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-01",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-02",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-03",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-04",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-05",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-06",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-07",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-08",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-09",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-10",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-15",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-16",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-19",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-20",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-21",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-22",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-23",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-24",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-25",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-26",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-27",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-28",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-29",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-30",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-07-31",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-01",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-02",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-03",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-04",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-05",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-06",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-07",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-08",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-09",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-10",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-15",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-16",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-19",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-20",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-21",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-22",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-23",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-24",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-25",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-26",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-27",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-28",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-29",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-30",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-08-31",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-01",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-02",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-03",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-04",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-05",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-06",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-07",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-08",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-09",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-10",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-11",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-12",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-13",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-14",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-15",
+            "published": 1,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-16",
+            "published": 0,
+            "blocked": 1,
+            "running": 0
+          },
+          {
+            "day": "2026-09-17",
+            "published": 0,
+            "blocked": 0,
+            "running": 0
+          },
+          {
+            "day": "2026-09-18",
+            "published": 0,
+            "blocked": 0,
+            "running": 1
+          }
+        ],
+        "totals": {
+          "published": 1,
+          "blocked": 1,
+          "running": 1
+        },
+        "gap": true
+      }
+    },
+    "/viz/api/console/producers": {
+      "ok": true,
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.producers.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "producer_count": 5,
+        "producers": [
+          {
+            "name": "papers",
+            "ownership_id": "broken-runtime.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3641,
+              "edges_in_gen": 8288,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T01:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "git-files",
+            "ownership_id": "broken-runtime.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3479,
+              "edges_in_gen": 5442,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T00:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "sessions",
+            "ownership_id": "broken-runtime.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 385,
+              "edges_in_gen": 725,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T23:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "slack",
+            "ownership_id": "broken-runtime.slack",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 286,
+              "edges_in_gen": 4248,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T22:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "daily-brief",
+            "ownership_id": "broken-runtime.daily-brief",
+            "kind": "view",
+            "configured": true,
+            "health": {
+              "status": "degraded",
+              "incident_count": 1
+            },
+            "workflow": {
+              "state": "failed",
+              "status": "failed",
+              "active": false,
+              "latest_issue": "Latest materialization failed.",
+              "latest_issue_unavailable_reason": null
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": null,
+              "edges_unavailable_reason": "a_view_emits_no_relationships",
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "last_run_age_only",
+              "age": "6h ago"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T03:00:00.000Z",
+              "outcome": "failed",
+              "items_in": 1,
+              "items_out": 0,
+              "duration_ms": 300000,
+              "phase": "build",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          }
+        ],
+        "read_authority": {
+          "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+          "sources": {
+            "status": "available"
+          },
+          "enrichers": {
+            "status": "available"
+          },
+          "views": {
+            "status": "available"
+          }
+        },
+        "omitted_data": [],
+        "selected_producer": null,
+        "selected": null
+      }
+    },
+    "/viz/api/console/source-diagnostics": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.source_diagnostics.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "selected_source": null,
+        "summary": {
+          "sources_count": 4,
+          "degraded_count": 0,
+          "stale_count": 0,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "sources": [
+          {
+            "name": "papers",
+            "source_key": "broken-runtime.papers",
+            "in_registry": true,
+            "health": {
+              "status": "healthy",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": "2026-09-18T01:00:00.000Z",
+              "age": "8h ago",
+              "next_due": "2026-09-18T11:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.papers",
+              "settings": {
+                "endpoint": "https://broken.invalid/papers",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "updated",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 6,
+              "run_count": 1
+            },
+            "contribution": {
+              "records_in_gen": 3641,
+              "edges_in_gen": 8288,
+              "record_types": [
+                "document"
+              ]
+            },
+            "latest_run": {
+              "iso": "2026-09-18T01:00:00.000Z",
+              "outcome": "ok",
+              "itemsIn": 900,
+              "itemsOut": 820,
+              "durationMs": 42000,
+              "phase": "publish",
+              "errorText": null
+            },
+            "incidents": []
+          },
+          {
+            "name": "git-files",
+            "source_key": "broken-runtime.git-files",
+            "in_registry": true,
+            "health": {
+              "status": "healthy",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": "2026-09-18T00:00:00.000Z",
+              "age": "9h ago",
+              "next_due": "2026-09-18T11:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.git-files",
+              "settings": {
+                "endpoint": "https://broken.invalid/git-files",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "updated",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 6,
+              "run_count": 1
+            },
+            "contribution": {
+              "records_in_gen": 3479,
+              "edges_in_gen": 5442,
+              "record_types": [
+                "document"
+              ]
+            },
+            "latest_run": {
+              "iso": "2026-09-18T00:00:00.000Z",
+              "outcome": "ok",
+              "itemsIn": 900,
+              "itemsOut": 820,
+              "durationMs": 42000,
+              "phase": "publish",
+              "errorText": null
+            },
+            "incidents": []
+          },
+          {
+            "name": "sessions",
+            "source_key": "broken-runtime.sessions",
+            "in_registry": true,
+            "health": {
+              "status": "healthy",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": "2026-09-17T23:00:00.000Z",
+              "age": "10h ago",
+              "next_due": "2026-09-18T11:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.sessions",
+              "settings": {
+                "endpoint": "https://broken.invalid/sessions",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "updated",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 6,
+              "run_count": 1
+            },
+            "contribution": {
+              "records_in_gen": 385,
+              "edges_in_gen": 725,
+              "record_types": [
+                "document"
+              ]
+            },
+            "latest_run": {
+              "iso": "2026-09-17T23:00:00.000Z",
+              "outcome": "ok",
+              "itemsIn": 900,
+              "itemsOut": 820,
+              "durationMs": 42000,
+              "phase": "publish",
+              "errorText": null
+            },
+            "incidents": []
+          },
+          {
+            "name": "slack",
+            "source_key": "broken-runtime.slack",
+            "in_registry": true,
+            "health": {
+              "status": "healthy",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": "2026-09-17T22:00:00.000Z",
+              "age": "11h ago",
+              "next_due": "2026-09-18T11:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.slack",
+              "settings": {
+                "endpoint": "https://broken.invalid/slack",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "updated",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 6,
+              "run_count": 1
+            },
+            "contribution": {
+              "records_in_gen": 286,
+              "edges_in_gen": 4248,
+              "record_types": [
+                "document"
+              ]
+            },
+            "latest_run": {
+              "iso": "2026-09-17T22:00:00.000Z",
+              "outcome": "ok",
+              "itemsIn": 900,
+              "itemsOut": 820,
+              "durationMs": 42000,
+              "phase": "publish",
+              "errorText": null
+            },
+            "incidents": []
+          }
+        ],
+        "list_omitted_reason": null,
+        "selected": null,
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/enricher-diagnostics": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.enricher_diagnostics.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "selected_source": null,
+        "summary": {
+          "enrichers_count": 0,
+          "degraded_count": 0,
+          "stale_count": 0,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "enrichers": [],
+        "list_omitted_reason": null,
+        "selected": null,
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/view-diagnostics": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.view_diagnostics.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "selected_source": null,
+        "summary": {
+          "views_count": 1,
+          "degraded_count": 1,
+          "stale_count": 0,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "views": [
+          {
+            "name": "daily-brief",
+            "source_key": "broken-runtime.daily-brief",
+            "in_registry": true,
+            "health": {
+              "status": "degraded",
+              "detail": "view_build_failed: statement timeout after 300,000 ms"
+            },
+            "freshness": {
+              "last_run": "2026-09-18T03:00:00.000Z",
+              "age": "6h ago",
+              "next_due": null
+            },
+            "producers": {
+              "adapter": "okg.views.daily-brief",
+              "settings": {},
+              "scope": "generation",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "failed",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 24,
+              "run_count": 1
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "record_types": []
+            },
+            "latest_run": {
+              "iso": "2026-09-18T03:00:00.000Z",
+              "outcome": "failed",
+              "itemsIn": 1,
+              "itemsOut": 0,
+              "durationMs": 300000,
+              "phase": "build",
+              "errorText": "view_build_failed: statement timeout after 300,000 ms"
+            },
+            "incidents": [
+              {
+                "first_line": "view_build_failed: statement timeout after 300,000 ms"
+              }
+            ]
+          }
+        ],
+        "list_omitted_reason": null,
+        "selected": null,
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/view-diagnostics?name=daily-brief&run_limit=20": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.view_diagnostics.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "selected_source": "daily-brief",
+        "summary": {
+          "views_count": 1,
+          "degraded_count": 1,
+          "stale_count": 0,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "views": [],
+        "list_omitted_reason": "the list is served by GET /viz/api/console/view-diagnostics without a name",
+        "selected": {
+          "source_name": "daily-brief",
+          "found": true,
+          "row": {
+            "name": "daily-brief",
+            "source_key": "broken-runtime.daily-brief",
+            "in_registry": true,
+            "health": {
+              "status": "degraded",
+              "detail": "view_build_failed: statement timeout after 300,000 ms"
+            },
+            "freshness": {
+              "last_run": "2026-09-18T03:00:00.000Z",
+              "age": "6h ago",
+              "next_due": null
+            },
+            "producers": {
+              "adapter": "okg.views.daily-brief",
+              "settings": {},
+              "scope": "generation",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "failed",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 24,
+              "run_count": 1
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": 0,
+              "record_types": []
+            },
+            "latest_run": {
+              "iso": "2026-09-18T03:00:00.000Z",
+              "outcome": "failed",
+              "itemsIn": 1,
+              "itemsOut": 0,
+              "durationMs": 300000,
+              "phase": "build",
+              "errorText": "view_build_failed: statement timeout after 300,000 ms"
+            },
+            "incidents": [
+              {
+                "first_line": "view_build_failed: statement timeout after 300,000 ms"
+              }
+            ]
+          },
+          "run_history": [
+            {
+              "started_at": "2026-09-18T03:00:00.000Z",
+              "age": "6h ago",
+              "outcome": "failed",
+              "items_in": 1,
+              "items_out": 0,
+              "duration_ms": 300000,
+              "phase_reached": "build",
+              "error_text": "view_build_failed: statement timeout after 300,000 ms"
+            }
+          ],
+          "run_summary": {
+            "total": 1,
+            "failed": 1
+          },
+          "phase_summary": [],
+          "selected_run": {
+            "iso": "2026-09-18T03:00:00.000Z",
+            "outcome": "failed",
+            "itemsIn": 1,
+            "itemsOut": 0,
+            "durationMs": 300000,
+            "phase": "build",
+            "errorText": "view_build_failed: statement timeout after 300,000 ms"
+          },
+          "omitted_data": []
+        },
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/producers?name=daily-brief&run_limit=20": {
+      "ok": true,
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.producers.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "producer_count": 5,
+        "producers": [
+          {
+            "name": "papers",
+            "ownership_id": "broken-runtime.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3641,
+              "edges_in_gen": 8288,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T01:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "git-files",
+            "ownership_id": "broken-runtime.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3479,
+              "edges_in_gen": 5442,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T00:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "sessions",
+            "ownership_id": "broken-runtime.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 385,
+              "edges_in_gen": 725,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T23:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "slack",
+            "ownership_id": "broken-runtime.slack",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 286,
+              "edges_in_gen": 4248,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T22:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "daily-brief",
+            "ownership_id": "broken-runtime.daily-brief",
+            "kind": "view",
+            "configured": true,
+            "health": {
+              "status": "degraded",
+              "incident_count": 1
+            },
+            "workflow": {
+              "state": "failed",
+              "status": "failed",
+              "active": false,
+              "latest_issue": "Latest materialization failed.",
+              "latest_issue_unavailable_reason": null
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": null,
+              "edges_unavailable_reason": "a_view_emits_no_relationships",
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "last_run_age_only",
+              "age": "6h ago"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T03:00:00.000Z",
+              "outcome": "failed",
+              "items_in": 1,
+              "items_out": 0,
+              "duration_ms": 300000,
+              "phase": "build",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          }
+        ],
+        "read_authority": {
+          "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+          "sources": {
+            "status": "available"
+          },
+          "enrichers": {
+            "status": "available"
+          },
+          "views": {
+            "status": "available"
+          }
+        },
+        "omitted_data": [],
+        "selected_producer": "daily-brief",
+        "selected": {
+          "found": true,
+          "row": {
+            "name": "daily-brief",
+            "ownership_id": "broken-runtime.daily-brief",
+            "kind": "view",
+            "configured": true,
+            "health": {
+              "status": "degraded",
+              "incident_count": 1
+            },
+            "workflow": {
+              "state": "failed",
+              "status": "failed",
+              "active": false,
+              "latest_issue": "Latest materialization failed.",
+              "latest_issue_unavailable_reason": null
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": null,
+              "edges_unavailable_reason": "a_view_emits_no_relationships",
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "last_run_age_only",
+              "age": "6h ago"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T03:00:00.000Z",
+              "outcome": "failed",
+              "items_in": 1,
+              "items_out": 0,
+              "duration_ms": 300000,
+              "phase": "build",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": 1,
+            "run_count_unavailable_reason": null
+          },
+          "records_by_type": {
+            "status": "available",
+            "types": [],
+            "total": 0,
+            "omitted": 0
+          },
+          "relationships_by_type": {
+            "status": "not_recorded",
+            "reason": "no_rollup_dimension_pairs_an_edge_with_its_producer"
+          },
+          "run_history": [
+            {
+              "iso": "2026-09-18T03:00:00.000Z",
+              "outcome": "failed",
+              "items_in": 1,
+              "items_out": 0,
+              "duration_ms": 300000,
+              "phase": "build",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            }
+          ],
+          "run_offset": 0,
+          "run_limit": 20,
+          "run_history_fetched": 1,
+          "run_history_truncated": false,
+          "more": false
+        }
+      }
+    },
+    "/viz/api/console/source-diagnostics?mode=detail&name=papers&run_limit=20": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.source_diagnostics.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "selected_source": "papers",
+        "summary": {
+          "sources_count": 4,
+          "degraded_count": 0,
+          "stale_count": 0,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "sources": [],
+        "list_omitted_reason": "the list is served by GET /viz/api/console/source-diagnostics without a name",
+        "selected": {
+          "source_name": "papers",
+          "found": true,
+          "row": {
+            "name": "papers",
+            "source_key": "broken-runtime.papers",
+            "in_registry": true,
+            "health": {
+              "status": "healthy",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": "2026-09-18T01:00:00.000Z",
+              "age": "8h ago",
+              "next_due": "2026-09-18T11:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.papers",
+              "settings": {
+                "endpoint": "https://broken.invalid/papers",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "updated",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 6,
+              "run_count": 1
+            },
+            "contribution": {
+              "records_in_gen": 3641,
+              "edges_in_gen": 8288,
+              "record_types": [
+                "document"
+              ]
+            },
+            "latest_run": {
+              "iso": "2026-09-18T01:00:00.000Z",
+              "outcome": "ok",
+              "itemsIn": 900,
+              "itemsOut": 820,
+              "durationMs": 42000,
+              "phase": "publish",
+              "errorText": null
+            },
+            "incidents": []
+          },
+          "run_history": [
+            {
+              "started_at": "2026-09-18T01:00:00.000Z",
+              "age": "8h ago",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase_reached": "publish",
+              "error_text": null
+            }
+          ],
+          "run_summary": {
+            "total": 1,
+            "failed": 0
+          },
+          "phase_summary": [],
+          "selected_run": {
+            "iso": "2026-09-18T01:00:00.000Z",
+            "outcome": "ok",
+            "itemsIn": 900,
+            "itemsOut": 820,
+            "durationMs": 42000,
+            "phase": "publish",
+            "errorText": null
+          },
+          "omitted_data": []
+        },
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/producers?name=papers&run_limit=20": {
+      "ok": true,
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.producers.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "producer_count": 5,
+        "producers": [
+          {
+            "name": "papers",
+            "ownership_id": "broken-runtime.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3641,
+              "edges_in_gen": 8288,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T01:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "git-files",
+            "ownership_id": "broken-runtime.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3479,
+              "edges_in_gen": 5442,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T00:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "sessions",
+            "ownership_id": "broken-runtime.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 385,
+              "edges_in_gen": 725,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T23:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "slack",
+            "ownership_id": "broken-runtime.slack",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 286,
+              "edges_in_gen": 4248,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T22:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "daily-brief",
+            "ownership_id": "broken-runtime.daily-brief",
+            "kind": "view",
+            "configured": true,
+            "health": {
+              "status": "degraded",
+              "incident_count": 1
+            },
+            "workflow": {
+              "state": "failed",
+              "status": "failed",
+              "active": false,
+              "latest_issue": "Latest materialization failed.",
+              "latest_issue_unavailable_reason": null
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": null,
+              "edges_unavailable_reason": "a_view_emits_no_relationships",
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "last_run_age_only",
+              "age": "6h ago"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T03:00:00.000Z",
+              "outcome": "failed",
+              "items_in": 1,
+              "items_out": 0,
+              "duration_ms": 300000,
+              "phase": "build",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          }
+        ],
+        "read_authority": {
+          "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+          "sources": {
+            "status": "available"
+          },
+          "enrichers": {
+            "status": "available"
+          },
+          "views": {
+            "status": "available"
+          }
+        },
+        "omitted_data": [],
+        "selected_producer": "papers",
+        "selected": {
+          "found": true,
+          "row": {
+            "name": "papers",
+            "ownership_id": "broken-runtime.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3641,
+              "edges_in_gen": 8288,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T01:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": 1,
+            "run_count_unavailable_reason": null
+          },
+          "records_by_type": {
+            "status": "available",
+            "types": [
+              {
+                "type": "document",
+                "records": 3641
+              }
+            ],
+            "total": 3641,
+            "omitted": 0
+          },
+          "relationships_by_type": {
+            "status": "not_recorded",
+            "reason": "no_rollup_dimension_pairs_an_edge_with_its_producer"
+          },
+          "run_history": [
+            {
+              "iso": "2026-09-18T01:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            }
+          ],
+          "run_offset": 0,
+          "run_limit": 20,
+          "run_history_fetched": 1,
+          "run_history_truncated": false,
+          "more": false
+        }
+      }
+    },
+    "/viz/api/console/source-diagnostics?mode=detail&name=git-files&run_limit=20": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.source_diagnostics.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "selected_source": "git-files",
+        "summary": {
+          "sources_count": 4,
+          "degraded_count": 0,
+          "stale_count": 0,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "sources": [],
+        "list_omitted_reason": "the list is served by GET /viz/api/console/source-diagnostics without a name",
+        "selected": {
+          "source_name": "git-files",
+          "found": true,
+          "row": {
+            "name": "git-files",
+            "source_key": "broken-runtime.git-files",
+            "in_registry": true,
+            "health": {
+              "status": "healthy",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": "2026-09-18T00:00:00.000Z",
+              "age": "9h ago",
+              "next_due": "2026-09-18T11:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.git-files",
+              "settings": {
+                "endpoint": "https://broken.invalid/git-files",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "updated",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 6,
+              "run_count": 1
+            },
+            "contribution": {
+              "records_in_gen": 3479,
+              "edges_in_gen": 5442,
+              "record_types": [
+                "document"
+              ]
+            },
+            "latest_run": {
+              "iso": "2026-09-18T00:00:00.000Z",
+              "outcome": "ok",
+              "itemsIn": 900,
+              "itemsOut": 820,
+              "durationMs": 42000,
+              "phase": "publish",
+              "errorText": null
+            },
+            "incidents": []
+          },
+          "run_history": [
+            {
+              "started_at": "2026-09-18T00:00:00.000Z",
+              "age": "9h ago",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase_reached": "publish",
+              "error_text": null
+            }
+          ],
+          "run_summary": {
+            "total": 1,
+            "failed": 0
+          },
+          "phase_summary": [],
+          "selected_run": {
+            "iso": "2026-09-18T00:00:00.000Z",
+            "outcome": "ok",
+            "itemsIn": 900,
+            "itemsOut": 820,
+            "durationMs": 42000,
+            "phase": "publish",
+            "errorText": null
+          },
+          "omitted_data": []
+        },
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/producers?name=git-files&run_limit=20": {
+      "ok": true,
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.producers.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "producer_count": 5,
+        "producers": [
+          {
+            "name": "papers",
+            "ownership_id": "broken-runtime.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3641,
+              "edges_in_gen": 8288,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T01:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "git-files",
+            "ownership_id": "broken-runtime.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3479,
+              "edges_in_gen": 5442,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T00:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "sessions",
+            "ownership_id": "broken-runtime.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 385,
+              "edges_in_gen": 725,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T23:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "slack",
+            "ownership_id": "broken-runtime.slack",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 286,
+              "edges_in_gen": 4248,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T22:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "daily-brief",
+            "ownership_id": "broken-runtime.daily-brief",
+            "kind": "view",
+            "configured": true,
+            "health": {
+              "status": "degraded",
+              "incident_count": 1
+            },
+            "workflow": {
+              "state": "failed",
+              "status": "failed",
+              "active": false,
+              "latest_issue": "Latest materialization failed.",
+              "latest_issue_unavailable_reason": null
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": null,
+              "edges_unavailable_reason": "a_view_emits_no_relationships",
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "last_run_age_only",
+              "age": "6h ago"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T03:00:00.000Z",
+              "outcome": "failed",
+              "items_in": 1,
+              "items_out": 0,
+              "duration_ms": 300000,
+              "phase": "build",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          }
+        ],
+        "read_authority": {
+          "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+          "sources": {
+            "status": "available"
+          },
+          "enrichers": {
+            "status": "available"
+          },
+          "views": {
+            "status": "available"
+          }
+        },
+        "omitted_data": [],
+        "selected_producer": "git-files",
+        "selected": {
+          "found": true,
+          "row": {
+            "name": "git-files",
+            "ownership_id": "broken-runtime.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3479,
+              "edges_in_gen": 5442,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T00:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": 1,
+            "run_count_unavailable_reason": null
+          },
+          "records_by_type": {
+            "status": "available",
+            "types": [
+              {
+                "type": "document",
+                "records": 3479
+              }
+            ],
+            "total": 3479,
+            "omitted": 0
+          },
+          "relationships_by_type": {
+            "status": "not_recorded",
+            "reason": "no_rollup_dimension_pairs_an_edge_with_its_producer"
+          },
+          "run_history": [
+            {
+              "iso": "2026-09-18T00:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            }
+          ],
+          "run_offset": 0,
+          "run_limit": 20,
+          "run_history_fetched": 1,
+          "run_history_truncated": false,
+          "more": false
+        }
+      }
+    },
+    "/viz/api/console/source-diagnostics?mode=detail&name=sessions&run_limit=20": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.source_diagnostics.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "selected_source": "sessions",
+        "summary": {
+          "sources_count": 4,
+          "degraded_count": 0,
+          "stale_count": 0,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "sources": [],
+        "list_omitted_reason": "the list is served by GET /viz/api/console/source-diagnostics without a name",
+        "selected": {
+          "source_name": "sessions",
+          "found": true,
+          "row": {
+            "name": "sessions",
+            "source_key": "broken-runtime.sessions",
+            "in_registry": true,
+            "health": {
+              "status": "healthy",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": "2026-09-17T23:00:00.000Z",
+              "age": "10h ago",
+              "next_due": "2026-09-18T11:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.sessions",
+              "settings": {
+                "endpoint": "https://broken.invalid/sessions",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "updated",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 6,
+              "run_count": 1
+            },
+            "contribution": {
+              "records_in_gen": 385,
+              "edges_in_gen": 725,
+              "record_types": [
+                "document"
+              ]
+            },
+            "latest_run": {
+              "iso": "2026-09-17T23:00:00.000Z",
+              "outcome": "ok",
+              "itemsIn": 900,
+              "itemsOut": 820,
+              "durationMs": 42000,
+              "phase": "publish",
+              "errorText": null
+            },
+            "incidents": []
+          },
+          "run_history": [
+            {
+              "started_at": "2026-09-17T23:00:00.000Z",
+              "age": "10h ago",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase_reached": "publish",
+              "error_text": null
+            }
+          ],
+          "run_summary": {
+            "total": 1,
+            "failed": 0
+          },
+          "phase_summary": [],
+          "selected_run": {
+            "iso": "2026-09-17T23:00:00.000Z",
+            "outcome": "ok",
+            "itemsIn": 900,
+            "itemsOut": 820,
+            "durationMs": 42000,
+            "phase": "publish",
+            "errorText": null
+          },
+          "omitted_data": []
+        },
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/producers?name=sessions&run_limit=20": {
+      "ok": true,
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.producers.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "producer_count": 5,
+        "producers": [
+          {
+            "name": "papers",
+            "ownership_id": "broken-runtime.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3641,
+              "edges_in_gen": 8288,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T01:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "git-files",
+            "ownership_id": "broken-runtime.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3479,
+              "edges_in_gen": 5442,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T00:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "sessions",
+            "ownership_id": "broken-runtime.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 385,
+              "edges_in_gen": 725,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T23:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "slack",
+            "ownership_id": "broken-runtime.slack",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 286,
+              "edges_in_gen": 4248,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T22:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "daily-brief",
+            "ownership_id": "broken-runtime.daily-brief",
+            "kind": "view",
+            "configured": true,
+            "health": {
+              "status": "degraded",
+              "incident_count": 1
+            },
+            "workflow": {
+              "state": "failed",
+              "status": "failed",
+              "active": false,
+              "latest_issue": "Latest materialization failed.",
+              "latest_issue_unavailable_reason": null
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": null,
+              "edges_unavailable_reason": "a_view_emits_no_relationships",
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "last_run_age_only",
+              "age": "6h ago"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T03:00:00.000Z",
+              "outcome": "failed",
+              "items_in": 1,
+              "items_out": 0,
+              "duration_ms": 300000,
+              "phase": "build",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          }
+        ],
+        "read_authority": {
+          "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+          "sources": {
+            "status": "available"
+          },
+          "enrichers": {
+            "status": "available"
+          },
+          "views": {
+            "status": "available"
+          }
+        },
+        "omitted_data": [],
+        "selected_producer": "sessions",
+        "selected": {
+          "found": true,
+          "row": {
+            "name": "sessions",
+            "ownership_id": "broken-runtime.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 385,
+              "edges_in_gen": 725,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T23:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": 1,
+            "run_count_unavailable_reason": null
+          },
+          "records_by_type": {
+            "status": "available",
+            "types": [
+              {
+                "type": "document",
+                "records": 385
+              }
+            ],
+            "total": 385,
+            "omitted": 0
+          },
+          "relationships_by_type": {
+            "status": "not_recorded",
+            "reason": "no_rollup_dimension_pairs_an_edge_with_its_producer"
+          },
+          "run_history": [
+            {
+              "iso": "2026-09-17T23:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            }
+          ],
+          "run_offset": 0,
+          "run_limit": 20,
+          "run_history_fetched": 1,
+          "run_history_truncated": false,
+          "more": false
+        }
+      }
+    },
+    "/viz/api/console/source-diagnostics?mode=detail&name=slack&run_limit=20": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.source_diagnostics.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "selected_source": "slack",
+        "summary": {
+          "sources_count": 4,
+          "degraded_count": 0,
+          "stale_count": 0,
+          "active_workflow_count": 0,
+          "omitted_data_count": 0
+        },
+        "sources": [],
+        "list_omitted_reason": "the list is served by GET /viz/api/console/source-diagnostics without a name",
+        "selected": {
+          "source_name": "slack",
+          "found": true,
+          "row": {
+            "name": "slack",
+            "source_key": "broken-runtime.slack",
+            "in_registry": true,
+            "health": {
+              "status": "healthy",
+              "detail": null
+            },
+            "freshness": {
+              "last_run": "2026-09-17T22:00:00.000Z",
+              "age": "11h ago",
+              "next_due": "2026-09-18T11:00:00.000Z"
+            },
+            "producers": {
+              "adapter": "okg.sources.slack",
+              "settings": {
+                "endpoint": "https://broken.invalid/slack",
+                "credentials": "omitted"
+              },
+              "scope": "full",
+              "credentials": "omitted"
+            },
+            "workflow": {
+              "state": "updated",
+              "excluded_reason": null,
+              "withheld_reason": null,
+              "cadence_hours": 6,
+              "run_count": 1
+            },
+            "contribution": {
+              "records_in_gen": 286,
+              "edges_in_gen": 4248,
+              "record_types": [
+                "document"
+              ]
+            },
+            "latest_run": {
+              "iso": "2026-09-17T22:00:00.000Z",
+              "outcome": "ok",
+              "itemsIn": 900,
+              "itemsOut": 820,
+              "durationMs": 42000,
+              "phase": "publish",
+              "errorText": null
+            },
+            "incidents": []
+          },
+          "run_history": [
+            {
+              "started_at": "2026-09-17T22:00:00.000Z",
+              "age": "11h ago",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase_reached": "publish",
+              "error_text": null
+            }
+          ],
+          "run_summary": {
+            "total": 1,
+            "failed": 0
+          },
+          "phase_summary": [],
+          "selected_run": {
+            "iso": "2026-09-17T22:00:00.000Z",
+            "outcome": "ok",
+            "itemsIn": 900,
+            "itemsOut": 820,
+            "durationMs": 42000,
+            "phase": "publish",
+            "errorText": null
+          },
+          "omitted_data": []
+        },
+        "omitted_data": []
+      }
+    },
+    "/viz/api/console/producers?name=slack&run_limit=20": {
+      "ok": true,
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "schema": "okg.console.producers.v1",
+        "deployment": "broken-runtime",
+        "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+        "producer_count": 5,
+        "producers": [
+          {
+            "name": "papers",
+            "ownership_id": "broken-runtime.papers",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3641,
+              "edges_in_gen": 8288,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T01:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "git-files",
+            "ownership_id": "broken-runtime.git-files",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 3479,
+              "edges_in_gen": 5442,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T00:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "sessions",
+            "ownership_id": "broken-runtime.sessions",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 385,
+              "edges_in_gen": 725,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T23:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "slack",
+            "ownership_id": "broken-runtime.slack",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 286,
+              "edges_in_gen": 4248,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T22:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          },
+          {
+            "name": "daily-brief",
+            "ownership_id": "broken-runtime.daily-brief",
+            "kind": "view",
+            "configured": true,
+            "health": {
+              "status": "degraded",
+              "incident_count": 1
+            },
+            "workflow": {
+              "state": "failed",
+              "status": "failed",
+              "active": false,
+              "latest_issue": "Latest materialization failed.",
+              "latest_issue_unavailable_reason": null
+            },
+            "contribution": {
+              "records_in_gen": 0,
+              "edges_in_gen": null,
+              "edges_unavailable_reason": "a_view_emits_no_relationships",
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "last_run_age_only",
+              "age": "6h ago"
+            },
+            "latest_run": {
+              "iso": "2026-09-18T03:00:00.000Z",
+              "outcome": "failed",
+              "items_in": 1,
+              "items_out": 0,
+              "duration_ms": 300000,
+              "phase": "build",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": null,
+            "run_count_unavailable_reason": "run_count_is_a_detail_read"
+          }
+        ],
+        "read_authority": {
+          "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+          "sources": {
+            "status": "available"
+          },
+          "enrichers": {
+            "status": "available"
+          },
+          "views": {
+            "status": "available"
+          }
+        },
+        "omitted_data": [],
+        "selected_producer": "slack",
+        "selected": {
+          "found": true,
+          "row": {
+            "name": "slack",
+            "ownership_id": "broken-runtime.slack",
+            "kind": "source",
+            "configured": true,
+            "health": {
+              "status": "healthy",
+              "incident_count": 0
+            },
+            "workflow": {
+              "state": "updated",
+              "status": "updated",
+              "active": false,
+              "latest_issue": null,
+              "latest_issue_unavailable_reason": "no_read_records_a_policy_reason_for_a_source"
+            },
+            "contribution": {
+              "records_in_gen": 286,
+              "edges_in_gen": 4248,
+              "horizon": "pinned_generation"
+            },
+            "freshness": {
+              "status": "not_evaluated"
+            },
+            "latest_run": {
+              "iso": "2026-09-17T22:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            },
+            "latest_run_unavailable_reason": null,
+            "run_count": 1,
+            "run_count_unavailable_reason": null
+          },
+          "records_by_type": {
+            "status": "available",
+            "types": [
+              {
+                "type": "document",
+                "records": 286
+              }
+            ],
+            "total": 286,
+            "omitted": 0
+          },
+          "relationships_by_type": {
+            "status": "not_recorded",
+            "reason": "no_rollup_dimension_pairs_an_edge_with_its_producer"
+          },
+          "run_history": [
+            {
+              "iso": "2026-09-17T22:00:00.000Z",
+              "outcome": "ok",
+              "items_in": 900,
+              "items_out": 820,
+              "duration_ms": 42000,
+              "phase": "publish",
+              "run_id": null,
+              "error_text_unavailable_reason": "no_message_column_in_run_diagnostics"
+            }
+          ],
+          "run_offset": 0,
+          "run_limit": 20,
+          "run_history_fetched": 1,
+          "run_history_truncated": false,
+          "more": false
+        }
+      }
+    },
+    "/viz/api/console/records/types?version=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260915T090000000000Z%3A301ca82e5ccf": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "types": [
+          {
+            "type": "document",
+            "count": 104200
+          },
+          {
+            "type": "person",
+            "count": 4820
+          },
+          {
+            "type": "message",
+            "count": 62400
+          },
+          {
+            "type": "session",
+            "count": 12602
+          }
+        ],
+        "count_basis": "published_total_before_access_rules"
+      }
+    },
+    "/viz/api/console/records/list?limit=50&offset=0&type=document&version=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260915T090000000000Z%3A301ca82e5ccf": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "type": "document",
+        "records": [
+          {
+            "node_id": "document:orphan-0001",
+            "type": "document",
+            "label": "Quarterly ingest note",
+            "source": null
+          }
+        ],
+        "next_offset": null,
+        "short_page": true
+      }
+    },
+    "/viz/api/console/records/list?limit=50&offset=0&type=person&version=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260915T090000000000Z%3A301ca82e5ccf": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "type": "person",
+        "records": [],
+        "next_offset": null,
+        "short_page": true
+      }
+    },
+    "/viz/api/console/records/list?limit=50&offset=0&type=message&version=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260915T090000000000Z%3A301ca82e5ccf": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "type": "message",
+        "records": [],
+        "next_offset": null,
+        "short_page": true
+      }
+    },
+    "/viz/api/console/records/list?limit=50&offset=0&type=session&version=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260915T090000000000Z%3A301ca82e5ccf": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "type": "session",
+        "records": [],
+        "next_offset": null,
+        "short_page": true
+      }
+    },
+    "/viz/api/console/records/search?limit=20&offset=0&q=&version=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260915T090000000000Z%3A301ca82e5ccf": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "query": "",
+        "type": null,
+        "filters": {
+          "type": null,
+          "source": null
+        },
+        "results": [
+          {
+            "node_id": "document:orphan-0001",
+            "type": "document",
+            "label": "Quarterly ingest note",
+            "source": null,
+            "match": "text",
+            "excerpt": "A document that resolves to no configured source."
+          }
+        ],
+        "exact_match": false,
+        "exact_match_in_text": false,
+        "total_count": 1,
+        "paged_count": 1,
+        "truncated": false,
+        "next_offset": null,
+        "rank_capped": false,
+        "zero_hit_reason": null,
+        "search_profile": null,
+        "searched_types": null,
+        "skipped_types": [],
+        "skipped_types_reason": null
+      }
+    },
+    "/viz/api/console/records/search?limit=20&offset=0&q=quarterly&version=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260915T090000000000Z%3A301ca82e5ccf": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "query": "quarterly",
+        "type": null,
+        "filters": {
+          "type": null,
+          "source": null
+        },
+        "results": [
+          {
+            "node_id": "document:orphan-0001",
+            "type": "document",
+            "label": "Quarterly ingest note",
+            "source": null,
+            "match": "text",
+            "excerpt": "A document that resolves to no configured source."
+          }
+        ],
+        "exact_match": false,
+        "exact_match_in_text": false,
+        "total_count": 1,
+        "paged_count": 1,
+        "truncated": false,
+        "next_offset": null,
+        "rank_capped": false,
+        "zero_hit_reason": null,
+        "search_profile": null,
+        "searched_types": null,
+        "skipped_types": [],
+        "skipped_types_reason": null
+      }
+    },
+    "/viz/api/console/records/detail?id=document%3Aorphan-0001&version=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260915T090000000000Z%3A301ca82e5ccf": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "found": true,
+        "node_id": "document:orphan-0001",
+        "type": "document",
+        "label": "Quarterly ingest note",
+        "source": null,
+        "source_record_id": null,
+        "source_revision": null,
+        "policy_redacted": false,
+        "fields": [
+          {
+            "key": "path",
+            "value": "/notes/quarterly.md",
+            "hidden": false,
+            "echoes_title": false
+          }
+        ],
+        "sections": [],
+        "related": {
+          "outgoing": [],
+          "incoming": [],
+          "cap": 100,
+          "outgoing_capped": false,
+          "incoming_capped": false,
+          "outgoing_total": 0,
+          "incoming_total": 0,
+          "by_relationship": [],
+          "outgoing_total_capped": false,
+          "incoming_total_capped": false,
+          "tally_ceiling": 500,
+          "gap": [
+            "outgoing_total",
+            "incoming_total",
+            "by_relationship"
+          ]
+        },
+        "masked_paths": [],
+        "masked_paths_rule": "any string value that begins with '/' -- or is a ~, drive-letter, UNC or file: path -- is treated as an absolute path and replaced by its last segment, so a root-relative URL path or a stored regex is shortened too, and every rewritten key is named in masked_paths; a path written inside free text is NOT detected and is served as stored",
+        "gap": [
+          "chunks"
+        ]
+      }
+    },
+    "/viz/api/console/records/artifact?id=document%3Aorphan-0001&version=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260915T090000000000Z%3A301ca82e5ccf": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "node_id": "document:orphan-0001",
+        "exists": false,
+        "reason": "not_retained",
+        "policy": null,
+        "detail": "the source keeps no corpus root, so the original was not retained",
+        "gap": true
+      }
+    },
+    "/viz/api/console/records/raw?id=document%3Aorphan-0001&version=okg%3Abroken-runtime%3Abranch%3Adefault%3Agen%3A20260915T090000000000Z%3A301ca82e5ccf": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "node_id": "document:orphan-0001",
+        "found": true,
+        "row": {
+          "node_id": "document:orphan-0001",
+          "type": "document",
+          "generation": "current",
+          "path": "/notes/quarterly.md"
+        },
+        "edges": [],
+        "edge_total": 0,
+        "edge_cap": 200,
+        "payload": null,
+        "refusal": {
+          "reason": "not_retained",
+          "policy": null,
+          "detail": "the source does not retain the canonical record for document records"
+        },
+        "masked_paths": [],
+        "masked_paths_rule": "any string value that begins with '/' -- or is a ~, drive-letter, UNC or file: path -- is treated as an absolute path and replaced by its last segment, so a root-relative URL path or a stored regex is shortened too, and every rewritten key is named in masked_paths; a path written inside free text is NOT detected and is served as stored",
+        "gap": true
+      }
+    },
+    "/viz/api/console/records/types": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "types": [
+          {
+            "type": "document",
+            "count": 104200
+          },
+          {
+            "type": "person",
+            "count": 4820
+          },
+          {
+            "type": "message",
+            "count": 62400
+          },
+          {
+            "type": "session",
+            "count": 12602
+          }
+        ],
+        "count_basis": "published_total_before_access_rules"
+      }
+    },
+    "/viz/api/console/records/list?limit=50&offset=0&type=document": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "type": "document",
+        "records": [
+          {
+            "node_id": "document:orphan-0001",
+            "type": "document",
+            "label": "Quarterly ingest note",
+            "source": null
+          }
+        ],
+        "next_offset": null,
+        "short_page": true
+      }
+    },
+    "/viz/api/console/records/list?limit=50&offset=0&type=person": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "type": "person",
+        "records": [],
+        "next_offset": null,
+        "short_page": true
+      }
+    },
+    "/viz/api/console/records/list?limit=50&offset=0&type=message": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "type": "message",
+        "records": [],
+        "next_offset": null,
+        "short_page": true
+      }
+    },
+    "/viz/api/console/records/list?limit=50&offset=0&type=session": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "type": "session",
+        "records": [],
+        "next_offset": null,
+        "short_page": true
+      }
+    },
+    "/viz/api/console/records/search?limit=20&offset=0&q=": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "query": "",
+        "type": null,
+        "filters": {
+          "type": null,
+          "source": null
+        },
+        "results": [
+          {
+            "node_id": "document:orphan-0001",
+            "type": "document",
+            "label": "Quarterly ingest note",
+            "source": null,
+            "match": "text",
+            "excerpt": "A document that resolves to no configured source."
+          }
+        ],
+        "exact_match": false,
+        "exact_match_in_text": false,
+        "total_count": 1,
+        "paged_count": 1,
+        "truncated": false,
+        "next_offset": null,
+        "rank_capped": false,
+        "zero_hit_reason": null,
+        "search_profile": null,
+        "searched_types": null,
+        "skipped_types": [],
+        "skipped_types_reason": null
+      }
+    },
+    "/viz/api/console/records/search?limit=20&offset=0&q=quarterly": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "query": "quarterly",
+        "type": null,
+        "filters": {
+          "type": null,
+          "source": null
+        },
+        "results": [
+          {
+            "node_id": "document:orphan-0001",
+            "type": "document",
+            "label": "Quarterly ingest note",
+            "source": null,
+            "match": "text",
+            "excerpt": "A document that resolves to no configured source."
+          }
+        ],
+        "exact_match": false,
+        "exact_match_in_text": false,
+        "total_count": 1,
+        "paged_count": 1,
+        "truncated": false,
+        "next_offset": null,
+        "rank_capped": false,
+        "zero_hit_reason": null,
+        "search_profile": null,
+        "searched_types": null,
+        "skipped_types": [],
+        "skipped_types_reason": null
+      }
+    },
+    "/viz/api/console/records/detail?id=document%3Aorphan-0001": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "found": true,
+        "node_id": "document:orphan-0001",
+        "type": "document",
+        "label": "Quarterly ingest note",
+        "source": null,
+        "source_record_id": null,
+        "source_revision": null,
+        "policy_redacted": false,
+        "fields": [
+          {
+            "key": "path",
+            "value": "/notes/quarterly.md",
+            "hidden": false,
+            "echoes_title": false
+          }
+        ],
+        "sections": [],
+        "related": {
+          "outgoing": [],
+          "incoming": [],
+          "cap": 100,
+          "outgoing_capped": false,
+          "incoming_capped": false,
+          "outgoing_total": 0,
+          "incoming_total": 0,
+          "by_relationship": [],
+          "outgoing_total_capped": false,
+          "incoming_total_capped": false,
+          "tally_ceiling": 500,
+          "gap": [
+            "outgoing_total",
+            "incoming_total",
+            "by_relationship"
+          ]
+        },
+        "masked_paths": [],
+        "masked_paths_rule": "any string value that begins with '/' -- or is a ~, drive-letter, UNC or file: path -- is treated as an absolute path and replaced by its last segment, so a root-relative URL path or a stored regex is shortened too, and every rewritten key is named in masked_paths; a path written inside free text is NOT detected and is served as stored",
+        "gap": [
+          "chunks"
+        ]
+      }
+    },
+    "/viz/api/console/records/artifact?id=document%3Aorphan-0001": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "node_id": "document:orphan-0001",
+        "exists": false,
+        "reason": "not_retained",
+        "policy": null,
+        "detail": "the source keeps no corpus root, so the original was not retained",
+        "gap": true
+      }
+    },
+    "/viz/api/console/records/raw?id=document%3Aorphan-0001": {
+      "generation_id": "okg:broken-runtime:branch:default:gen:20260915T090000000000Z:301ca82e5ccf",
+      "payload": {
+        "node_id": "document:orphan-0001",
+        "found": true,
+        "row": {
+          "node_id": "document:orphan-0001",
+          "type": "document",
+          "generation": "current",
+          "path": "/notes/quarterly.md"
+        },
+        "edges": [],
+        "edge_total": 0,
+        "edge_cap": 200,
+        "payload": null,
+        "refusal": {
+          "reason": "not_retained",
+          "policy": null,
+          "detail": "the source does not retain the canonical record for document records"
+        },
+        "masked_paths": [],
+        "masked_paths_rule": "any string value that begins with '/' -- or is a ~, drive-letter, UNC or file: path -- is treated as an absolute path and replaced by its last segment, so a root-relative URL path or a stored regex is shortened too, and every rewritten key is named in masked_paths; a path written inside free text is NOT detected and is served as stored",
+        "gap": true
+      }
+    }
+  }
+}

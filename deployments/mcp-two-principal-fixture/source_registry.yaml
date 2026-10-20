@@ -1,0 +1,5 @@
+# Source-less by design. The two-principal proof seeds its graph directly
+# (ChronosGraphStore.apply_facts in tests/substrate/mcp/_two_principal_fixture.py)
+# and then publishes, so the identity contract is what the fixture exercises and
+# an ingest source would only add unrelated failure modes.
+sources: {}

@@ -1,0 +1,21 @@
+cases:
+  - id: duplicate-subtype-ownership
+    code: duplicate_semantic_ownership
+  - id: unknown-narrowing-endpoint
+    code: unknown_narrowing_endpoint
+  - id: incompatible-identity-evolution
+    code: incompatible_identity
+  - id: ambiguous-bridge-endpoint
+    code: ambiguous_bridge_endpoint
+  - id: breaking-catalog-migration
+    code: incompatible_evolution
+  - id: bridge-endpoint-mismatch
+    code: bridge_endpoint_mismatch
+  - id: unsupported-narrowing-cardinality
+    code: incompatible_cardinality
+  - id: inheritance-cycle
+    code: inheritance_cycle
+  - id: duplicate-concept-node-id
+    code: concept_node_id_collision
+  - id: conflicting-alias-key
+    code: alias_key_collision

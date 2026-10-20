@@ -1,0 +1,27 @@
+# slack_api — Slack Web API with channel allowlist. Refuses
+# to run without an allowlist (no wholesale workspace ingest).
+
+slack_api:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.slack_api
+  class: SlackApiSource
+  ownership_id: ${deployment_name}.slack_api
+  source_class: mutable_api
+  record_identity_kind: remote_id
+  record_identity_fields: [channel_id, ts]
+  source_revision_kind: version_token
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    deployment_name: ${deployment_name}
+    slack_channels: ${slack_channels}
+    pii_mode: ${pii_mode}
+    max_body_kb: 50
+
+  # Untrusted-origin content: held on the quarantine branch until an
+  # operator approves it via `okg admission decide` (PACT
+  # make-admission-review-load-bearing).
+  admission_policy:
+    trust_label: untrusted
+    admission_mode: review
+    output_scope_summary: "Slack message bodies are third-party-authored"

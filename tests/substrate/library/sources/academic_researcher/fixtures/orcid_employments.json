@@ -1,0 +1,44 @@
+{
+  "affiliation-group": [
+    {
+      "summaries": [
+        {
+          "employment-summary": {
+            "put-code": 900001,
+            "role-title": "Director",
+            "start-date": {"year": {"value": "1914"}},
+            "end-date": null,
+            "organization": {
+              "name": "Radium Institute",
+              "address": {"city": "Paris", "country": "FR"},
+              "disambiguated-organization": {
+                "disambiguated-organization-identifier": "https://ror.org/00curie01",
+                "disambiguation-source": "ROR"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "summaries": [
+        {
+          "employment-summary": {
+            "put-code": 900002,
+            "role-title": "Professor",
+            "start-date": {"year": {"value": "1906"}},
+            "end-date": {"year": {"value": "1934"}},
+            "organization": {
+              "name": "University of Paris",
+              "address": {"city": "Paris", "country": "FR"},
+              "disambiguated-organization": {
+                "disambiguated-organization-identifier": "https://ror.org/00curie02",
+                "disambiguation-source": "ROR"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

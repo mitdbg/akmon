@@ -1,0 +1,112 @@
+nomos:
+  # Runtime enforcement is `off`: a fresh install leaves Nomos runtime
+  # checks off when the deployment declares no access rules (issue #3414,
+  # Jason 2026-10-05 `nomosdefault A`). Audit and enforce are opt-in; set
+  # `audit` or `enforce` here once the deployment has access rules to check.
+  # The posture and source policy defaults below apply in every mode.
+  runtime_enforcement: "off"
+  deployment_posture:
+    deployment_class: personal_okg
+    read_principals: [human_operator, agent, okg_service, mcp_client]
+    write_principals: [human_operator, okg_service, source_adapter]
+    mcp_write_default: review
+    export_policy: no_export
+    secret_handling: secret_ref_required
+    live_call_default: review
+    allowed_source_sensitivities: [public, internal, local_private, private]
+    allowed_data_classifications: [public, internal, private]
+    allowed_exportability: [no_export]
+    privacy_obligations: [no_export, audit, review, secret_ref_required]
+    readiness_profiles: [personal]
+  # Default source policy for the profile's bundled sources (all source_class
+  # discovery_crawl). Without this, a scaffolded deployment fails the source-
+  # registry audit with nomos.audit.source_policy_missing. Values are
+  # personal_okg-appropriate (local, no export) and within the posture allow-lists.
+  # Every class declares `store_raw` explicitly: the ingest privacy posture
+  # refuses a source whose policy leaves it implicit, so a scaffolded
+  # deployment could not run its first ingest. `true` keeps source text as
+  # ingested; switch a class to `false` only once the deployment has a
+  # pseudonym vault key and a `pii_classes` map, since a not-store-raw
+  # posture masks every attribute the map does not declare.
+  source_policy_defaults:
+    by_source_class:
+      discovery_crawl:
+        store_raw: true
+        sensitivity: local_private
+        data_classification: private
+        credential_ref_policy: none
+        live_call_allowed: false
+        exportability: no_export
+        retention: source_defined
+        provenance: local_filesystem
+        privacy_obligations:
+          - audit
+          - no_export
+      # Cursor-driven remote APIs (DBLP, ORCID, NSF, DOE OSTI, the MIT course
+      # catalog, Gmail, Google/Outlook calendar and mail, Slack, Canvas, the
+      # local Calendar store). Every one ships `enabled_by_default: false`, so
+      # this block exists to keep the source-registry audit green on a fresh
+      # scaffold: without a policy for the class the source is declared under,
+      # `nomos.audit.source_policy_missing` fails the audit for every one of
+      # them. `live_call_allowed: true` is honest for the class -- these readers
+      # do call out -- and the posture's `live_call_default: review` is what
+      # makes the `review` obligation below load-bearing.
+      #
+      # `sensitivity: private` with `credential_ref_policy: optional` is
+      # weaker than what the guided add-source path writes for the same
+      # services (`credentialed_external` with `credential_ref_policy:
+      # required` and the `secret_ref_required` obligation, see
+      # `_CREDENTIALED_SERVICE_POLICY` and `packaged_type` in
+      # `sources/guided_catalog.py`). Both differences are measured audit
+      # refusals on a fresh scaffold, not an oversight:
+      # `credentialed_external` is not in this profile's
+      # `allowed_source_sensitivities` above, so writing it here fails the
+      # audit with thirteen `nomos.audit.source_sensitivity_not_allowed`;
+      # and this is a per-class default covering DBLP, DBLP-by-ORCID, ORCID,
+      # NSF, DOE OSTI, the MIT course catalog and the local Calendar store
+      # as well as the six credentialed connectors, so
+      # `credential_ref_policy: required` makes the audit demand
+      # `credential_refs` from all thirteen
+      # (`nomos.audit.credential_ref_required`).
+      # The guided path can write `required` because it applies per
+      # connector, only to an `env_credential` connector that names its
+      # variables in `credential_refs`. Tightening the credentialed
+      # connectors here would need the posture widened and a
+      # `by_source_name` block per connector, which is out of scope for
+      # issue #2126.
+      mutable_api:
+        store_raw: true
+        sensitivity: private
+        data_classification: private
+        credential_ref_policy: optional
+        live_call_allowed: true
+        exportability: no_export
+        retention: normal
+        provenance: remote_api
+        privacy_obligations:
+          - audit
+          - no_export
+          - review
+      # Operator-curated snapshots read in full every run (concept_aliases).
+      # Local bytes plus a graph read, no network call.
+      reference_catalog:
+        store_raw: true
+        sensitivity: local_private
+        data_classification: private
+        credential_ref_policy: none
+        live_call_allowed: false
+        exportability: no_export
+        retention: normal
+        provenance: declared
+        privacy_obligations:
+          - audit
+          - no_export
+
+# Free-disk floors for the filesystems this deployment writes to, in percent
+# available. `okg doctor` warns below the first and treats the second as a
+# blocker, and big writes (backups, scratch databases) refuse to start below
+# it. Without this block doctor reports its own check as misconfigured
+# (issue #3578). Same values as okg's own deployments; tune them to the host.
+host_storage:
+  warn_available_pct: 15
+  blocker_available_pct: 6

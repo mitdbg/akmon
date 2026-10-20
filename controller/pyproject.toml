@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "okg-local-controller"
+version = "1.0.0"
+description = "Candidate-independent lifecycle controller for local OKG deployments"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.setuptools]
+packages = ["okg_local_controller"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

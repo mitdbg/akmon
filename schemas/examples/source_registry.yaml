@@ -1,0 +1,37 @@
+sources:
+  github_issues:
+    module: okg.modules.sources.github
+    class:  GitHubIssueSource
+    ownership_id: acme.github.issues
+    params:
+      org: acme
+      repos: [ops-runbooks, incident-response]
+
+    source_class: mutable_api
+    record_identity_kind: remote_id
+    record_identity_fields: [repo, number]
+    source_revision_kind: updated_at
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+
+  runbook_site:
+    module: okg.modules.sources.docsite
+    class:  DocSiteSource
+    ownership_id: acme.docsite.runbooks
+    params:
+      base_url: https://runbooks.acme.internal
+
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [base_url, path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+
+  sam_live:
+    module: okg.modules.sources.webhook
+    class:  WebhookLiveOverlay
+    ownership_id: acme.sam.live
+    source_class: live_overlay
+    deletion_semantics: external_overlay
+    publication_mode: live_overlay

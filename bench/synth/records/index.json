@@ -1,0 +1,851 @@
+{
+ "records": [
+  {
+   "bundle": "controlled-fixture-row-b7d2c61e6eed.analysis.json",
+   "bundle_bytes": 57586,
+   "content_digest": "b7d2c61e6eedcbfba6792b0256cb9aeabf6bee01deb2792f3bff75b8811db042",
+   "files": [
+    "controlled-fixture-row-b7d2c61e6eed.analysis.json",
+    "controlled-fixture-row-b7d2c61e6eed.analysis.txt"
+   ],
+   "headline": {
+    "artifact_schema": "okg.synth.controlled-fixture-row.v1"
+   },
+   "kind": "analysis",
+   "label": "controlled-fixture-row",
+   "note": "the unpriced controlled-fixture row: one 22-update history, three execution modes, on the smoke corpus (action prices all zero, so the cost cells take the honest-zero path).",
+   "record_id": "controlled-fixture-row-b7d2c61e6eed",
+   "schema": "okg.synth.durable-analysis.v1",
+   "sidecars": []
+  },
+  {
+   "bundle": "priced-history-row-a20c573a98ba.analysis.json",
+   "bundle_bytes": 56430,
+   "content_digest": "a20c573a98ba5a251faf352a9dccbb4bdd4a268151a1b8ee96a3efade884743e",
+   "files": [
+    "priced-history-row-a20c573a98ba.analysis.json",
+    "priced-history-row-a20c573a98ba.analysis.txt"
+   ],
+   "headline": {
+    "artifact_schema": "okg.synth.controlled-fixture-row.v1"
+   },
+   "kind": "analysis",
+   "label": "priced-history-row",
+   "note": "the priced controlled-fixture row on preset priced_history: same 22-update history as the smoke row, with the sealed action price table, so the three modes' cost cells carry real dollars.",
+   "record_id": "priced-history-row-a20c573a98ba",
+   "schema": "okg.synth.durable-analysis.v1",
+   "sidecars": []
+  },
+  {
+   "bundle": "prose-cross-seed-spread-1f6380f78c9c.analysis.json",
+   "bundle_bytes": 9015,
+   "content_digest": "1f6380f78c9cc3cdcec684cad357e3c4d817223fac9117023b5a423866d782a6",
+   "files": [
+    "prose-cross-seed-spread-1f6380f78c9c.analysis.json",
+    "prose-cross-seed-spread-1f6380f78c9c.analysis.txt"
+   ],
+   "headline": {
+    "artifact_schema": "okg.synth.cross-seed-spread.v1",
+    "n": 3,
+    "seed_invariant_digest": "09f2a9ccbe7b9c6e3aca4e80f53a8a971f503a050128ea7a04eaa35037dfba57",
+    "seeds": [
+     "prose-749-1",
+     "prose-749-2",
+     "prose-749-3"
+    ]
+   },
+   "kind": "analysis",
+   "label": "prose-cross-seed-spread",
+   "note": "prose arm across 3 seeds, taking synth-a482ca353494-da2d7488d4d5 as the prose-749-1 draw; NOT decode noise.",
+   "record_id": "prose-cross-seed-spread-1f6380f78c9c",
+   "schema": "okg.synth.durable-analysis.v1",
+   "sidecars": []
+  },
+  {
+   "bundle": "prose-cross-seed-spread-92e79d342535.analysis.json",
+   "bundle_bytes": 8884,
+   "content_digest": "92e79d3425352a22719ad020a201ea5e861bf56bbf5ee8f6ad97783250c652cf",
+   "files": [
+    "prose-cross-seed-spread-92e79d342535.analysis.json",
+    "prose-cross-seed-spread-92e79d342535.analysis.txt"
+   ],
+   "headline": {
+    "artifact_schema": "okg.synth.cross-seed-spread.v1",
+    "n": 3,
+    "seed_invariant_digest": "09f2a9ccbe7b9c6e3aca4e80f53a8a971f503a050128ea7a04eaa35037dfba57",
+    "seeds": [
+     "prose-749-1",
+     "prose-749-2",
+     "prose-749-3"
+    ]
+   },
+   "kind": "analysis",
+   "label": "prose-cross-seed-spread",
+   "note": "prose arm across 3 seeds, taking synth-a482ca353494-fdd6851ccf96 as the prose-749-1 draw; NOT decode noise.",
+   "record_id": "prose-cross-seed-spread-92e79d342535",
+   "schema": "okg.synth.durable-analysis.v1",
+   "sidecars": []
+  },
+  {
+   "bundle": "prose-cross-seed-spread-fdd423463766.analysis.json",
+   "bundle_bytes": 9096,
+   "content_digest": "fdd423463766ee0eba3c9c6f9467e64094ebe90fe6415100d21b897401b08691",
+   "files": [
+    "prose-cross-seed-spread-fdd423463766.analysis.json",
+    "prose-cross-seed-spread-fdd423463766.analysis.txt"
+   ],
+   "headline": {
+    "artifact_schema": "okg.synth.cross-seed-spread.v1",
+    "n": 3,
+    "seed_invariant_digest": "09f2a9ccbe7b9c6e3aca4e80f53a8a971f503a050128ea7a04eaa35037dfba57",
+    "seeds": [
+     "prose-749-1",
+     "prose-749-2",
+     "prose-749-3"
+    ]
+   },
+   "kind": "analysis",
+   "label": "prose-cross-seed-spread",
+   "note": "prose arm across 3 seeds, taking synth-a482ca353494-0cbdc7786f17 as the prose-749-1 draw; NOT decode noise.",
+   "record_id": "prose-cross-seed-spread-fdd423463766",
+   "schema": "okg.synth.durable-analysis.v1",
+   "sidecars": []
+  },
+  {
+   "bundle": "prose-decode-noise-spread-0dda5ab1935f.analysis.json",
+   "bundle_bytes": 8512,
+   "content_digest": "0dda5ab1935fa0dfbc54cb2e7786646b47149667af1f0aae059f0c8e9434ac49",
+   "files": [
+    "prose-decode-noise-spread-0dda5ab1935f.analysis.json",
+    "prose-decode-noise-spread-0dda5ab1935f.analysis.txt"
+   ],
+   "headline": {
+    "artifact_schema": "okg.synth.spread.v2",
+    "config_digest": "a482ca353494eb3ae5e4c6009a56ece5ddcb637c7d8227eff0932f27cafff4d2",
+    "n": 3,
+    "seed": "prose-749-1"
+   },
+   "kind": "analysis",
+   "label": "prose-decode-noise-spread",
+   "note": "3 decodes of ONE prose configuration (seed prose-749-1) on a byte-identical corpus: the error bar the paired effect below must be read against.",
+   "record_id": "prose-decode-noise-spread-0dda5ab1935f",
+   "schema": "okg.synth.durable-analysis.v1",
+   "sidecars": []
+  },
+  {
+   "bundle": "prose-vs-structured-paired-effect-0a3894f01f6f.analysis.json",
+   "bundle_bytes": 2189,
+   "content_digest": "0a3894f01f6fee904b6499e1a05bb85eed53d34d5726ab275b2b1462626ac81d",
+   "files": [
+    "prose-vs-structured-paired-effect-0a3894f01f6f.analysis.json",
+    "prose-vs-structured-paired-effect-0a3894f01f6f.analysis.txt"
+   ],
+   "headline": {
+    "artifact_schema": "okg.synth.paired-effect.v1",
+    "metric": "extraction/recall",
+    "n_pairs": 3,
+    "separated_at_95": false
+   },
+   "kind": "analysis",
+   "label": "prose-vs-structured-paired-effect",
+   "note": "seed-paired prose minus structured over 3 seeds, taking synth-a482ca353494-0cbdc7786f17 as the prose-749-1 prose draw.",
+   "record_id": "prose-vs-structured-paired-effect-0a3894f01f6f",
+   "schema": "okg.synth.durable-analysis.v1",
+   "sidecars": []
+  },
+  {
+   "bundle": "prose-vs-structured-paired-effect-1af023141b1e.analysis.json",
+   "bundle_bytes": 2188,
+   "content_digest": "1af023141b1eee8d43cc4a8900aed04d9161d37da94f6abaa151a1fd9b83981b",
+   "files": [
+    "prose-vs-structured-paired-effect-1af023141b1e.analysis.json",
+    "prose-vs-structured-paired-effect-1af023141b1e.analysis.txt"
+   ],
+   "headline": {
+    "artifact_schema": "okg.synth.paired-effect.v1",
+    "metric": "extraction/recall",
+    "n_pairs": 3,
+    "separated_at_95": false
+   },
+   "kind": "analysis",
+   "label": "prose-vs-structured-paired-effect",
+   "note": "seed-paired prose minus structured over 3 seeds, taking synth-a482ca353494-fdd6851ccf96 as the prose-749-1 prose draw.",
+   "record_id": "prose-vs-structured-paired-effect-1af023141b1e",
+   "schema": "okg.synth.durable-analysis.v1",
+   "sidecars": []
+  },
+  {
+   "bundle": "prose-vs-structured-paired-effect-33122e8aeb4b.analysis.json",
+   "bundle_bytes": 2186,
+   "content_digest": "33122e8aeb4bf9fb62e5d9c1c0dda6f1877fa0b015a5b8043240d507e567b44e",
+   "files": [
+    "prose-vs-structured-paired-effect-33122e8aeb4b.analysis.json",
+    "prose-vs-structured-paired-effect-33122e8aeb4b.analysis.txt"
+   ],
+   "headline": {
+    "artifact_schema": "okg.synth.paired-effect.v1",
+    "metric": "extraction/recall",
+    "n_pairs": 3,
+    "separated_at_95": false
+   },
+   "kind": "analysis",
+   "label": "prose-vs-structured-paired-effect",
+   "note": "seed-paired prose minus structured over 3 seeds, taking synth-a482ca353494-da2d7488d4d5 as the prose-749-1 prose draw.",
+   "record_id": "prose-vs-structured-paired-effect-33122e8aeb4b",
+   "schema": "okg.synth.durable-analysis.v1",
+   "sidecars": []
+  },
+  {
+   "bundle": "rendering-delta-summary-3443911262f3.analysis.json",
+   "bundle_bytes": 2942,
+   "content_digest": "3443911262f3ad6710229f76a4f172d5e2edbafff505d4e51736d6412888a3dd",
+   "files": [
+    "rendering-delta-summary-3443911262f3.analysis.json",
+    "rendering-delta-summary-3443911262f3.analysis.txt"
+   ],
+   "headline": {
+    "artifact_schema": "okg.synth.rendering-delta-summary.v1",
+    "metric": "extraction/recall",
+    "seeds": [
+     "prose-749-1",
+     "prose-749-2",
+     "prose-749-3"
+    ]
+   },
+   "kind": "analysis",
+   "label": "rendering-delta-summary",
+   "note": "the rendering delta stated as an effect against its own measured noise, derived from the stored records by this script.",
+   "record_id": "rendering-delta-summary-3443911262f3",
+   "schema": "okg.synth.durable-analysis.v1",
+   "sidecars": []
+  },
+  {
+   "bundle": "structured-cross-seed-spread-a0f1d9edcf38.analysis.json",
+   "bundle_bytes": 9058,
+   "content_digest": "a0f1d9edcf3855f042b35a5162ae034844a44f905dd37c15ab5c140728f54485",
+   "files": [
+    "structured-cross-seed-spread-a0f1d9edcf38.analysis.json",
+    "structured-cross-seed-spread-a0f1d9edcf38.analysis.txt"
+   ],
+   "headline": {
+    "artifact_schema": "okg.synth.cross-seed-spread.v1",
+    "n": 3,
+    "seed_invariant_digest": "e310b085659a297ddbdd5e05c54c9427c41d8839ce570d4b696d73e5861578cb",
+    "seeds": [
+     "prose-749-1",
+     "prose-749-2",
+     "prose-749-3"
+    ]
+   },
+   "kind": "analysis",
+   "label": "structured-cross-seed-spread",
+   "note": "structured arm across 3 seeds; NOT decode noise.",
+   "record_id": "structured-cross-seed-spread-a0f1d9edcf38",
+   "schema": "okg.synth.durable-analysis.v1",
+   "sidecars": []
+  },
+  {
+   "bundle": "synth-117cf0552e68-da92cb2ab095.scored.tar.gz",
+   "bundle_bytes": 111226,
+   "content_digest": "da92cb2ab0952e0772e78a7bb2d869cbe388b0bbd506b2e01cb68f52fc544b8a",
+   "files": [
+    "benchmark-manifest.json",
+    "engine-reads.json",
+    "extraction-cost.json",
+    "extraction-failures.json",
+    "synth-cost-sensitivity.json",
+    "synth-scorecard.json"
+   ],
+   "headline": {
+    "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T192337381212Z:8ffa3e3b9d09",
+    "config_digest": "117cf0552e6834f8a11d2a2503329f789ccb74eec21aa47ea8edf8652b4952fd",
+    "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T194457201461Z:dc13ae2f6701",
+    "deployment": "synthetic-corpus-smoke",
+    "detection_recall": {
+     "conditional": {
+      "denominator": 129,
+      "detected": 129
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "detected": 134
+     }
+    },
+    "extraction_cost": {
+     "calls": 205,
+     "completion_tokens": 679686,
+     "cost_usd": 1.816226,
+     "off_vocabulary": 0,
+     "prompt_tokens": 312187,
+     "reasoning_share": 0.595,
+     "reasoning_tokens": 404219
+    },
+    "extractor": "llm",
+    "funnel_states": {
+     "counterpart_lost": 0,
+     "detected_only": 27,
+     "laundered_at_extraction": 0,
+     "mis_repaired": 0,
+     "missed_at_extraction": 13,
+     "not_detected": 0,
+     "removed_from_scope": 0,
+     "repaired": 107
+    },
+    "manifest_digest": "dc8040aebfeb06bee7da2b735a272b15ab5c53afa4f1f30c43c7f9cb447eae9a",
+    "qualified": true,
+    "repair_rate": {
+     "conditional": {
+      "denominator": 134,
+      "repaired": 107
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "repaired": 107
+     }
+    },
+    "surviving_conflict_realized": 129
+   },
+   "note": "task.row.statistics paired design: seed prose-749-2, render_mode=structured",
+   "record_id": "synth-117cf0552e68-da92cb2ab095",
+   "schema": "okg.synth.durable-record.v1",
+   "sidecars": [
+    "synth-117cf0552e68-da92cb2ab095.run-binding.json"
+   ]
+  },
+  {
+   "bundle": "synth-44a5a9bb58db-ff08e1f150f0.scored.tar.gz",
+   "bundle_bytes": 120793,
+   "content_digest": "ff08e1f150f0542305d9d173886bf73aaf31defb8f608275be1c4e96254217ab",
+   "files": [
+    "benchmark-manifest.json",
+    "engine-reads.json",
+    "extraction-cost.json",
+    "extraction-failures.json",
+    "synth-cost-sensitivity.json",
+    "synth-scorecard.json"
+   ],
+   "headline": {
+    "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T192816196287Z:6ea341727148",
+    "config_digest": "44a5a9bb58db6158e8997e596bccbab616cba431e7e5d01ab64e226f82122103",
+    "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T195306942028Z:f3ec9659fd74",
+    "deployment": "synthetic-corpus-smoke",
+    "detection_recall": {
+     "conditional": {
+      "denominator": 107,
+      "detected": 106
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "detected": 110
+     }
+    },
+    "extraction_cost": {
+     "calls": 207,
+     "completion_tokens": 830436,
+     "cost_usd": 2.198629,
+     "off_vocabulary": 24,
+     "prompt_tokens": 323755,
+     "reasoning_share": 0.606,
+     "reasoning_tokens": 503033
+    },
+    "extractor": "llm",
+    "funnel_states": {
+     "counterpart_lost": 0,
+     "detected_only": 23,
+     "laundered_at_extraction": 24,
+     "mis_repaired": 0,
+     "missed_at_extraction": 12,
+     "not_detected": 1,
+     "removed_from_scope": 0,
+     "repaired": 87
+    },
+    "manifest_digest": "7ea8b6ea0753bf7b88525bf15ffbcc902180533d6ad35c06674ef1909c3bb450",
+    "qualified": true,
+    "repair_rate": {
+     "conditional": {
+      "denominator": 110,
+      "repaired": 87
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "repaired": 87
+     }
+    },
+    "surviving_conflict_realized": 107
+   },
+   "note": "task.row.statistics paired design: seed prose-749-3, render_mode=prose",
+   "record_id": "synth-44a5a9bb58db-ff08e1f150f0",
+   "schema": "okg.synth.durable-record.v1",
+   "sidecars": [
+    "synth-44a5a9bb58db-ff08e1f150f0.run-binding.json"
+   ]
+  },
+  {
+   "bundle": "synth-509bf705dae3-e5698e13cb81.scored.tar.gz",
+   "bundle_bytes": 110855,
+   "content_digest": "e5698e13cb81e8019f692b589a0c096db8c4fbbe139a82e02207be4c019110bc",
+   "files": [
+    "benchmark-manifest.json",
+    "engine-reads.json",
+    "extraction-cost.json",
+    "extraction-failures.json",
+    "synth-cost-sensitivity.json",
+    "synth-scorecard.json"
+   ],
+   "headline": {
+    "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T192459433386Z:da099a5d6247",
+    "config_digest": "509bf705dae32a72a5e524b521d8aa504f1071dcf4199eac4636830b4dc1b07b",
+    "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T194724300882Z:fa3f52e6bd72",
+    "deployment": "synthetic-corpus-smoke",
+    "detection_recall": {
+     "conditional": {
+      "denominator": 123,
+      "detected": 122
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "detected": 127
+     }
+    },
+    "extraction_cost": {
+     "calls": 216,
+     "completion_tokens": 728232,
+     "cost_usd": 1.937793,
+     "off_vocabulary": 0,
+     "prompt_tokens": 329120,
+     "reasoning_share": 0.601,
+     "reasoning_tokens": 437430
+    },
+    "extractor": "llm",
+    "funnel_states": {
+     "counterpart_lost": 3,
+     "detected_only": 13,
+     "laundered_at_extraction": 0,
+     "mis_repaired": 0,
+     "missed_at_extraction": 16,
+     "not_detected": 1,
+     "removed_from_scope": 0,
+     "repaired": 114
+    },
+    "manifest_digest": "b1448ebd5cb96cd33d0b0d0023fcaf0099d6f9397135a73d05aee87ce4e14640",
+    "qualified": true,
+    "repair_rate": {
+     "conditional": {
+      "denominator": 127,
+      "repaired": 114
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "repaired": 114
+     }
+    },
+    "surviving_conflict_realized": 123
+   },
+   "note": "task.row.statistics paired design: seed prose-749-3, render_mode=structured",
+   "record_id": "synth-509bf705dae3-e5698e13cb81",
+   "schema": "okg.synth.durable-record.v1",
+   "sidecars": [
+    "synth-509bf705dae3-e5698e13cb81.run-binding.json"
+   ]
+  },
+  {
+   "bundle": "synth-85814e01a8a1-983c858cc079.scored.tar.gz",
+   "bundle_bytes": 111543,
+   "content_digest": "983c858cc0799a28c79368d0a4abcf37a30ef3055b29d4e2264003b2ae175a5e",
+   "files": [
+    "benchmark-manifest.json",
+    "engine-reads.json",
+    "extraction-cost.json",
+    "extraction-failures.json",
+    "synth-cost-sensitivity.json",
+    "synth-scorecard.json"
+   ],
+   "headline": {
+    "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T192350640740Z:b8b6bab6dc45",
+    "config_digest": "85814e01a8a1d01649274124c1158ec3a0f2cdcf3e6e38074b5c18a9443f7749",
+    "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T194705409503Z:5366f2928ee1",
+    "deployment": "synthetic-corpus-smoke",
+    "detection_recall": {
+     "conditional": {
+      "denominator": 124,
+      "detected": 124
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "detected": 129
+     }
+    },
+    "extraction_cost": {
+     "calls": 214,
+     "completion_tokens": 740985,
+     "cost_usd": 1.948664,
+     "off_vocabulary": 1,
+     "prompt_tokens": 327709,
+     "reasoning_share": 0.622,
+     "reasoning_tokens": 460529
+    },
+    "extractor": "llm",
+    "funnel_states": {
+     "counterpart_lost": 0,
+     "detected_only": 28,
+     "laundered_at_extraction": 0,
+     "mis_repaired": 0,
+     "missed_at_extraction": 18,
+     "not_detected": 0,
+     "removed_from_scope": 0,
+     "repaired": 101
+    },
+    "manifest_digest": "7b19bda6935f59d28a4293a2c714ddfa3de693e75fb9dad8e2ce9163d424380b",
+    "qualified": true,
+    "repair_rate": {
+     "conditional": {
+      "denominator": 129,
+      "repaired": 101
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "repaired": 101
+     }
+    },
+    "surviving_conflict_realized": 124
+   },
+   "note": "task.row.statistics paired design: seed prose-749-1, render_mode=structured",
+   "record_id": "synth-85814e01a8a1-983c858cc079",
+   "schema": "okg.synth.durable-record.v1",
+   "sidecars": [
+    "synth-85814e01a8a1-983c858cc079.run-binding.json"
+   ]
+  },
+  {
+   "bundle": "synth-a482ca353494-0cbdc7786f17.scored.tar.gz",
+   "bundle_bytes": 118397,
+   "content_digest": "0cbdc7786f17525ef6b8e0e1281247868e102daab6c9681f8cfd2f0d78a53ae6",
+   "files": [
+    "benchmark-manifest.json",
+    "engine-reads.json",
+    "extraction-cost.json",
+    "extraction-failures.json",
+    "synth-cost-sensitivity.json",
+    "synth-scorecard.json"
+   ],
+   "headline": {
+    "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T202734945340Z:70f1bcdc81c0",
+    "config_digest": "a482ca353494eb3ae5e4c6009a56ece5ddcb637c7d8227eff0932f27cafff4d2",
+    "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T205541443245Z:193a984b47a4",
+    "deployment": "synthetic-corpus-smoke",
+    "detection_recall": {
+     "conditional": {
+      "denominator": 99,
+      "detected": 99
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "detected": 104
+     }
+    },
+    "extraction_cost": {
+     "calls": 213,
+     "completion_tokens": 831741,
+     "cost_usd": 2.203177,
+     "off_vocabulary": 2,
+     "prompt_tokens": 331440,
+     "reasoning_share": 0.609,
+     "reasoning_tokens": 506641
+    },
+    "extractor": "llm",
+    "funnel_states": {
+     "counterpart_lost": 2,
+     "detected_only": 21,
+     "laundered_at_extraction": 23,
+     "mis_repaired": 0,
+     "missed_at_extraction": 18,
+     "not_detected": 0,
+     "removed_from_scope": 0,
+     "repaired": 83
+    },
+    "manifest_digest": "8a6470115b678eaa78a4d4f48a3329c15a95cf30b6a1387ded8e93747c7d8be6",
+    "qualified": true,
+    "repair_rate": {
+     "conditional": {
+      "denominator": 104,
+      "repaired": 83
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "repaired": 83
+     }
+    },
+    "surviving_conflict_realized": 99
+   },
+   "note": "seed prose-749-1 prose, decode repeat 2",
+   "record_id": "synth-a482ca353494-0cbdc7786f17",
+   "schema": "okg.synth.durable-record.v1",
+   "sidecars": [
+    "synth-a482ca353494-0cbdc7786f17.run-binding.json"
+   ]
+  },
+  {
+   "bundle": "synth-a482ca353494-da2d7488d4d5.scored.tar.gz",
+   "bundle_bytes": 122732,
+   "content_digest": "da2d7488d4d5283949de8ec6d707ddfb4d7c6722ec738729b643f701577b8809",
+   "files": [
+    "benchmark-manifest.json",
+    "engine-reads.json",
+    "extraction-cost.json",
+    "extraction-failures.json",
+    "synth-cost-sensitivity.json",
+    "synth-scorecard.json"
+   ],
+   "headline": {
+    "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T192754194700Z:be2c8c82c23e",
+    "config_digest": "a482ca353494eb3ae5e4c6009a56ece5ddcb637c7d8227eff0932f27cafff4d2",
+    "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T195544697170Z:e8207ea1fc96",
+    "deployment": "synthetic-corpus-smoke",
+    "detection_recall": {
+     "conditional": {
+      "denominator": 86,
+      "detected": 86
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "detected": 92
+     }
+    },
+    "extraction_cost": {
+     "calls": 215,
+     "completion_tokens": 869128,
+     "cost_usd": 2.232034,
+     "off_vocabulary": 8,
+     "prompt_tokens": 336721,
+     "reasoning_share": 0.594,
+     "reasoning_tokens": 516491
+    },
+    "extractor": "llm",
+    "funnel_states": {
+     "counterpart_lost": 9,
+     "detected_only": 23,
+     "laundered_at_extraction": 19,
+     "mis_repaired": 0,
+     "missed_at_extraction": 27,
+     "not_detected": 0,
+     "removed_from_scope": 0,
+     "repaired": 69
+    },
+    "manifest_digest": "8a6470115b678eaa78a4d4f48a3329c15a95cf30b6a1387ded8e93747c7d8be6",
+    "qualified": true,
+    "repair_rate": {
+     "conditional": {
+      "denominator": 92,
+      "repaired": 69
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "repaired": 69
+     }
+    },
+    "surviving_conflict_realized": 86
+   },
+   "note": "seed prose-749-1 prose, draw 1 of the paired design",
+   "record_id": "synth-a482ca353494-da2d7488d4d5",
+   "schema": "okg.synth.durable-record.v1",
+   "sidecars": [
+    "synth-a482ca353494-da2d7488d4d5.run-binding.json"
+   ]
+  },
+  {
+   "bundle": "synth-a482ca353494-fdd6851ccf96.scored.tar.gz",
+   "bundle_bytes": 126214,
+   "content_digest": "fdd6851ccf960a03812908b5068d68d28a9abd381fad640d9a571799bf2aa9f5",
+   "files": [
+    "benchmark-manifest.json",
+    "engine-reads.json",
+    "extraction-cost.json",
+    "extraction-failures.json",
+    "synth-cost-sensitivity.json",
+    "synth-scorecard.json"
+   ],
+   "headline": {
+    "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T202523792601Z:b98997556a1c",
+    "config_digest": "a482ca353494eb3ae5e4c6009a56ece5ddcb637c7d8227eff0932f27cafff4d2",
+    "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T205448069749Z:cf910a2e45cb",
+    "deployment": "synthetic-corpus-smoke",
+    "detection_recall": {
+     "conditional": {
+      "denominator": 102,
+      "detected": 102
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "detected": 106
+     }
+    },
+    "extraction_cost": {
+     "calls": 210,
+     "completion_tokens": 816973,
+     "cost_usd": 2.181284,
+     "off_vocabulary": 42,
+     "prompt_tokens": 326892,
+     "reasoning_share": 0.603,
+     "reasoning_tokens": 493035
+    },
+    "extractor": "llm",
+    "funnel_states": {
+     "counterpart_lost": 2,
+     "detected_only": 26,
+     "laundered_at_extraction": 27,
+     "mis_repaired": 0,
+     "missed_at_extraction": 12,
+     "not_detected": 0,
+     "removed_from_scope": 0,
+     "repaired": 80
+    },
+    "manifest_digest": "8a6470115b678eaa78a4d4f48a3329c15a95cf30b6a1387ded8e93747c7d8be6",
+    "qualified": true,
+    "repair_rate": {
+     "conditional": {
+      "denominator": 106,
+      "repaired": 80
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "repaired": 80
+     }
+    },
+    "surviving_conflict_realized": 102
+   },
+   "note": "seed prose-749-1 prose, decode repeat 3",
+   "record_id": "synth-a482ca353494-fdd6851ccf96",
+   "schema": "okg.synth.durable-record.v1",
+   "sidecars": [
+    "synth-a482ca353494-fdd6851ccf96.run-binding.json"
+   ]
+  },
+  {
+   "bundle": "synth-aa415cee069e-e35ffa480c9c.scored.tar.gz",
+   "bundle_bytes": 26007,
+   "content_digest": "e35ffa480c9c619f6af5b4dbf04444c37816c12a3ecdb37f013041cba6744f2a",
+   "files": [
+    "benchmark-manifest.json",
+    "engine-reads.json",
+    "synth-cost-sensitivity.json",
+    "synth-scorecard.json"
+   ],
+   "headline": {
+    "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T182337941502Z:1717a7fb0196",
+    "config_digest": "aa415cee069ec9c4d3c983364ba0983561d5b5da34d25ee51cfda977b9a634c6",
+    "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T182339213705Z:13378811e226",
+    "deployment": "synthetic-corpus-smoke",
+    "detection_recall": {
+     "conditional": {
+      "denominator": 6,
+      "detected": 5
+     },
+     "end_to_end": {
+      "denominator": 11,
+      "detected": 6
+     }
+    },
+    "extraction_cost": null,
+    "extractor": "deterministic_labels",
+    "funnel_states": {
+     "counterpart_lost": 0,
+     "detected_only": 2,
+     "laundered_at_extraction": 0,
+     "mis_repaired": 0,
+     "missed_at_extraction": 0,
+     "not_detected": 5,
+     "removed_from_scope": 0,
+     "repaired": 4
+    },
+    "manifest_digest": "8061128484ff195dac385a81531f7bdde46b0e3f8e440d9aecd1d179c177115a",
+    "qualified": true,
+    "repair_rate": {
+     "conditional": {
+      "denominator": 6,
+      "repaired": 4
+     },
+     "end_to_end": {
+      "denominator": 11,
+      "repaired": 4
+     }
+    },
+    "surviving_conflict_realized": 6
+   },
+   "note": "deterministic smoke lane, regenerated by scripts/regen_synth_scored_records.py",
+   "record_id": "synth-aa415cee069e-e35ffa480c9c",
+   "schema": "okg.synth.durable-record.v1",
+   "sidecars": [
+    "synth-aa415cee069e-e35ffa480c9c.run-binding.json"
+   ]
+  },
+  {
+   "bundle": "synth-ef1829af74c6-23e767fdc702.scored.tar.gz",
+   "bundle_bytes": 126528,
+   "content_digest": "23e767fdc70287c8d0b5c2648783c51ab6f724a725b41b79e29be45357ff0b51",
+   "files": [
+    "benchmark-manifest.json",
+    "engine-reads.json",
+    "extraction-cost.json",
+    "extraction-failures.json",
+    "synth-cost-sensitivity.json",
+    "synth-scorecard.json"
+   ],
+   "headline": {
+    "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T192719337775Z:8cef236acf81",
+    "config_digest": "ef1829af74c6d3014a4eeb6fa4979a7bb1c5b128834a1ee6425cc7fb9528defc",
+    "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T200118017280Z:ef3a7ca95004",
+    "deployment": "synthetic-corpus-smoke",
+    "detection_recall": {
+     "conditional": {
+      "denominator": 103,
+      "detected": 103
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "detected": 108
+     }
+    },
+    "extraction_cost": {
+     "calls": 213,
+     "completion_tokens": 876564,
+     "cost_usd": 2.385831,
+     "off_vocabulary": 9,
+     "prompt_tokens": 333143,
+     "reasoning_share": 0.648,
+     "reasoning_tokens": 568302
+    },
+    "extractor": "llm",
+    "funnel_states": {
+     "counterpart_lost": 3,
+     "detected_only": 22,
+     "laundered_at_extraction": 27,
+     "mis_repaired": 0,
+     "missed_at_extraction": 9,
+     "not_detected": 0,
+     "removed_from_scope": 0,
+     "repaired": 86
+    },
+    "manifest_digest": "8a55bc8ca868e588746953f9a9cead95146b0085f10d67e43916ce27be1ddfc8",
+    "qualified": true,
+    "repair_rate": {
+     "conditional": {
+      "denominator": 108,
+      "repaired": 86
+     },
+     "end_to_end": {
+      "denominator": 147,
+      "repaired": 86
+     }
+    },
+    "surviving_conflict_realized": 103
+   },
+   "note": "task.row.statistics paired design: seed prose-749-2, render_mode=prose",
+   "record_id": "synth-ef1829af74c6-23e767fdc702",
+   "schema": "okg.synth.durable-record.v1",
+   "sidecars": [
+    "synth-ef1829af74c6-23e767fdc702.run-binding.json"
+   ]
+  }
+ ],
+ "schema": "okg.synth.durable-index.v1"
+}

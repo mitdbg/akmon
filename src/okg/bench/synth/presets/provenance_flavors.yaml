@@ -1,0 +1,48 @@
+# Provenance-flavor arm (synth-provenance-diversity): the DETERMINISTIC, LLM-free
+# run that carries BOTH majority flavors so the coming independence-weighting engine
+# fix becomes gradable the day it lands.
+#
+# Majorities are a PRECEDENCE property (bucket-level corroboration), so no prose and
+# no LLM are needed: the structured deterministic lane is lossless, every majority
+# site realizes exactly as planned, and the per-flavor counts below are seeded and
+# exact rather than survival draws.
+#
+# The arm shape is majority_wrong's, unchanged: redundancy 3..3 so cardinality's
+# care_provider facts each render at k=3 (2 corrupted + 1 surviving clean = a genuine
+# majority-wrong conflict), and cardinality_violation is the one class world_smoke@8
+# expresses a majority with (4 care_provider facts == count 4). What is NEW is the
+# provenance axis:
+#
+#   provenance.enabled       stamps a provenance_group attr on each majority site's
+#                            corrupted-rendering claims at INGEST (never rendered, so
+#                            the corpus is byte-identical to the non-provenance run).
+#   provenance.flavor_split  'alternate' labels the sorted majority sites COPY,
+#                            INDEPENDENT, COPY, ... so this one run carries BOTH
+#                            flavors with a balanced per-flavor denominator.
+#
+# COPY = the site's corrupted renderings share ONE provenance group (one origin,
+# echoed); INDEPENDENT = each carries a distinct group. On today's engine both
+# flavors mis-repair every preserved majority (copies count as independent support)
+# — that is the both-fail BASELINE the future fix must split. The engine reads no
+# provenance attr today, proven by a stamped-vs-unstamped publish parity witness.
+preset_name: provenance_flavors
+seed: "provenance-flavors-1"
+world_path: world_smoke
+redundancy:
+  # 3 renderings so 2 corrupted still leaves 1 clean counterpart: a preserved
+  # majority-wrong conflict at every cardinality site.
+  renderings_per_fact_min: 3
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    cardinality_violation: {count: 4, visibility_corrupted: 2}
+benign_variation:
+  unit_rescale_rate: 0.0
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+provenance:
+  enabled: true
+  flavor_split: alternate
+materialize_pdf: false

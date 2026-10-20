@@ -1,0 +1,161 @@
+{
+  "cells": {
+    "tdb-branch": {
+      "commits": [
+        "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+        "57233c6f63b1833d078178d89c676a7d3435a4f8",
+        "6a495d4c30347707c8e822fda158cc5c0b393731",
+        "0f03c06408f5f579586813b9a1e1c24024715a53",
+        "a3238551aebce948ff919b54f634428d92937fdf",
+        "5d4abec76f1d5a77cf55e3ad49c966ec46dfd73e",
+        "f9dd6f2dc2c8534c8ab86db6ccc9b526fb6573c7",
+        "61dd4761254d1f0b05fc7783cee133f05f2c26a2",
+        "451374f24516df5e77ed6406c55192d3d42f6903",
+        "6a7ff2955c69cb7913894b667e0571120270bb1e"
+      ],
+      "config_axis": {
+        "branching": false,
+        "chronos_continuation_pct": 95,
+        "embedding": false,
+        "enrichers": "default",
+        "projection_batch": null,
+        "views": null
+      },
+      "count": 10,
+      "first": "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+      "last": "6a7ff2955c69cb7913894b667e0571120270bb1e",
+      "source_set": "files+code"
+    },
+    "tdb-chr-50": {
+      "commits": [
+        "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+        "57233c6f63b1833d078178d89c676a7d3435a4f8",
+        "6a495d4c30347707c8e822fda158cc5c0b393731",
+        "0f03c06408f5f579586813b9a1e1c24024715a53",
+        "a3238551aebce948ff919b54f634428d92937fdf",
+        "5d4abec76f1d5a77cf55e3ad49c966ec46dfd73e",
+        "f9dd6f2dc2c8534c8ab86db6ccc9b526fb6573c7",
+        "61dd4761254d1f0b05fc7783cee133f05f2c26a2",
+        "451374f24516df5e77ed6406c55192d3d42f6903",
+        "6a7ff2955c69cb7913894b667e0571120270bb1e"
+      ],
+      "config_axis": {
+        "branching": false,
+        "chronos_continuation_pct": 50,
+        "embedding": false,
+        "enrichers": "default",
+        "projection_batch": null,
+        "views": null
+      },
+      "count": 10,
+      "first": "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+      "last": "6a7ff2955c69cb7913894b667e0571120270bb1e",
+      "source_set": "files+code"
+    },
+    "tdb-chr-95": {
+      "commits": [
+        "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+        "57233c6f63b1833d078178d89c676a7d3435a4f8",
+        "6a495d4c30347707c8e822fda158cc5c0b393731",
+        "0f03c06408f5f579586813b9a1e1c24024715a53",
+        "a3238551aebce948ff919b54f634428d92937fdf",
+        "5d4abec76f1d5a77cf55e3ad49c966ec46dfd73e",
+        "f9dd6f2dc2c8534c8ab86db6ccc9b526fb6573c7",
+        "61dd4761254d1f0b05fc7783cee133f05f2c26a2",
+        "451374f24516df5e77ed6406c55192d3d42f6903",
+        "6a7ff2955c69cb7913894b667e0571120270bb1e"
+      ],
+      "config_axis": {
+        "branching": false,
+        "chronos_continuation_pct": 95,
+        "embedding": false,
+        "enrichers": "default",
+        "projection_batch": null,
+        "views": null
+      },
+      "count": 10,
+      "first": "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+      "last": "6a7ff2955c69cb7913894b667e0571120270bb1e",
+      "source_set": "files+code"
+    },
+    "tdb-enr-en0": {
+      "commits": [
+        "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+        "57233c6f63b1833d078178d89c676a7d3435a4f8",
+        "6a495d4c30347707c8e822fda158cc5c0b393731",
+        "0f03c06408f5f579586813b9a1e1c24024715a53",
+        "a3238551aebce948ff919b54f634428d92937fdf",
+        "5d4abec76f1d5a77cf55e3ad49c966ec46dfd73e",
+        "f9dd6f2dc2c8534c8ab86db6ccc9b526fb6573c7",
+        "61dd4761254d1f0b05fc7783cee133f05f2c26a2",
+        "451374f24516df5e77ed6406c55192d3d42f6903",
+        "6a7ff2955c69cb7913894b667e0571120270bb1e"
+      ],
+      "config_axis": {
+        "branching": false,
+        "chronos_continuation_pct": 95,
+        "embedding": false,
+        "enrichers": "none",
+        "projection_batch": null,
+        "views": null
+      },
+      "count": 10,
+      "first": "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+      "last": "6a7ff2955c69cb7913894b667e0571120270bb1e",
+      "source_set": "files+code"
+    },
+    "tdb-enr-enall": {
+      "commits": [
+        "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+        "57233c6f63b1833d078178d89c676a7d3435a4f8",
+        "6a495d4c30347707c8e822fda158cc5c0b393731",
+        "0f03c06408f5f579586813b9a1e1c24024715a53",
+        "a3238551aebce948ff919b54f634428d92937fdf",
+        "5d4abec76f1d5a77cf55e3ad49c966ec46dfd73e",
+        "f9dd6f2dc2c8534c8ab86db6ccc9b526fb6573c7",
+        "61dd4761254d1f0b05fc7783cee133f05f2c26a2",
+        "451374f24516df5e77ed6406c55192d3d42f6903",
+        "6a7ff2955c69cb7913894b667e0571120270bb1e"
+      ],
+      "config_axis": {
+        "branching": false,
+        "chronos_continuation_pct": 95,
+        "embedding": false,
+        "enrichers": "all",
+        "projection_batch": null,
+        "views": null
+      },
+      "count": 10,
+      "first": "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+      "last": "6a7ff2955c69cb7913894b667e0571120270bb1e",
+      "source_set": "files+code"
+    },
+    "tdb-enr-endecl": {
+      "commits": [
+        "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+        "57233c6f63b1833d078178d89c676a7d3435a4f8",
+        "6a495d4c30347707c8e822fda158cc5c0b393731",
+        "0f03c06408f5f579586813b9a1e1c24024715a53",
+        "a3238551aebce948ff919b54f634428d92937fdf",
+        "5d4abec76f1d5a77cf55e3ad49c966ec46dfd73e",
+        "f9dd6f2dc2c8534c8ab86db6ccc9b526fb6573c7",
+        "61dd4761254d1f0b05fc7783cee133f05f2c26a2",
+        "451374f24516df5e77ed6406c55192d3d42f6903",
+        "6a7ff2955c69cb7913894b667e0571120270bb1e"
+      ],
+      "config_axis": {
+        "branching": false,
+        "chronos_continuation_pct": 95,
+        "embedding": false,
+        "enrichers": "declarative",
+        "projection_batch": null,
+        "views": null
+      },
+      "count": 10,
+      "first": "1639e4468920ba54c6f585f7c9ee843d18cf6eff",
+      "last": "6a7ff2955c69cb7913894b667e0571120270bb1e",
+      "source_set": "files+code"
+    }
+  },
+  "schema": "okg.bench.sweep.lock.v1"
+}

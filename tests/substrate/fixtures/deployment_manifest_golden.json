@@ -1,0 +1,585 @@
+{
+  "beaver-okg": {
+    "agent_tools": {},
+    "aliases": null,
+    "audit_questions": null,
+    "chronos": null,
+    "description": "OKG over the BEAVER warehouses (dw/neutron/nova) for text-to-SQL.",
+    "embedding": {
+      "enabled": false,
+      "reason": "schema graph first; retrieval/packet embedding comes later (task.okg.packet)."
+    },
+    "enricher_registry": null,
+    "link_config": null,
+    "mcp_instructions": null,
+    "mcp_pre_join_tools": null,
+    "mcp_trace_path": null,
+    "modules": [
+      "dataset"
+    ],
+    "modules_config": {},
+    "name": "beaver-okg",
+    "postgres_dsn": null,
+    "pre_join_resolvers": {},
+    "profiling": null,
+    "record_prefixes": [],
+    "refreshers": null,
+    "release": {
+      "channel": "dev"
+    },
+    "runtime": {
+      "__dataclass__": "RuntimeConfig",
+      "admin_port": null,
+      "bypass_pgbouncer": false,
+      "dbos_pool_size": 6,
+      "dbos_schema": "dbos",
+      "enabled": false,
+      "environment": "development",
+      "lens_putback": {},
+      "okg_read_pool_size": 12,
+      "okg_write_pool_size": 4,
+      "run_admin_server": true,
+      "schedules": {},
+      "sdk_version": "1.0",
+      "source_sync": {},
+      "workflows": []
+    },
+    "schema_dir": "<dep>/schemas",
+    "session_start_context": null,
+    "skill_triggers": null,
+    "skills_dir": null,
+    "snapshot_path": null,
+    "source_registry": "<dep>/source_registry.yaml",
+    "taxonomy": null,
+    "tool_description_overrides": null,
+    "viz": null,
+    "viz_path": null
+  },
+  "okg-ci": {
+    "agent_tools": {},
+    "aliases": null,
+    "audit_questions": null,
+    "chronos": {
+      "interval_continuation_percent": 95
+    },
+    "description": "Remote CI authority deployment for the OKG repository",
+    "embedding": {
+      "enabled": false,
+      "reason": "CI triage uses deterministic, generation-pinned graph reads first."
+    },
+    "enricher_registry": null,
+    "link_config": null,
+    "mcp_instructions": "<dep>/mcp-instructions.md",
+    "mcp_pre_join_tools": null,
+    "mcp_trace_path": null,
+    "modules": [
+      "git_graph",
+      "openspec",
+      "agent_sessions",
+      "compute_env",
+      "forge",
+      "ci",
+      "quality_evidence",
+      "code_graph",
+      "views"
+    ],
+    "modules_config": {},
+    "name": "okg-ci",
+    "postgres_dsn": null,
+    "pre_join_resolvers": {},
+    "profiling": null,
+    "record_prefixes": [],
+    "refreshers": null,
+    "release": {
+      "channel": "dev"
+    },
+    "runtime": {
+      "__dataclass__": "RuntimeConfig",
+      "admin_port": null,
+      "bypass_pgbouncer": false,
+      "dbos_pool_size": 4,
+      "dbos_schema": "dbos",
+      "enabled": true,
+      "environment": "development",
+      "lens_putback": {},
+      "okg_read_pool_size": 6,
+      "okg_write_pool_size": 3,
+      "run_admin_server": true,
+      "schedules": {
+        "okg_ci_resource_monitor": "*/5 * * * *",
+        "okg_publisher_cycle": "*/5 * * * *"
+      },
+      "sdk_version": "1.0",
+      "source_sync": {
+        "poll": {
+          "backstop_dependent_fanout": "none",
+          "enabled": true,
+          "slow_when_watch_active": false
+        },
+        "watch": {
+          "enabled": false
+        },
+        "webhook": {
+          "enabled": false
+        }
+      },
+      "workflows": [
+        "workflows.resource_monitor"
+      ]
+    },
+    "schema_dir": "<dep>/schemas",
+    "session_start_context": null,
+    "skill_triggers": null,
+    "skills_dir": "<dep>/skills",
+    "snapshot_path": null,
+    "source_registry": "<dep>/source_registry.yaml",
+    "taxonomy": null,
+    "tool_description_overrides": null,
+    "viz": null,
+    "viz_path": null
+  },
+  "okg-workspace": {
+    "agent_tools": {},
+    "aliases": null,
+    "audit_questions": null,
+    "chronos": {
+      "history_retention": {
+        "audit_tail_generations": 50,
+        "default": {
+          "horizon": "14d"
+        }
+      },
+      "interval_continuation_percent": 95
+    },
+    "description": "Workspace Graph deployment for the OKG repo",
+    "embedding": {
+      "enabled": false,
+      "reason": "deterministic MCP traversal and lexical search are sufficient"
+    },
+    "enricher_registry": null,
+    "link_config": null,
+    "mcp_instructions": null,
+    "mcp_pre_join_tools": null,
+    "mcp_trace_path": null,
+    "modules": [
+      "person",
+      "git_graph",
+      "openspec",
+      "agent_sessions",
+      "compute_env",
+      "code_graph",
+      "extraction",
+      "forge",
+      "ci",
+      "quality_evidence",
+      "agent_memory",
+      "reasoning",
+      "coordination",
+      "views",
+      "chat_sessions",
+      "scholarly",
+      "dataset"
+    ],
+    "modules_config": {
+      "agent_sessions": {
+        "cwd_filter": [
+          "<REPO_ROOT>"
+        ],
+        "since": "90d"
+      },
+      "code_graph": {
+        "codeql_data_flow": {
+          "artifact_globs": [],
+          "artifact_paths": [
+            "<REPO_ROOT>/deployments/okg-workspace/fixtures/data_flow/codeql.sarif"
+          ],
+          "max_artifacts": 100
+        },
+        "codex_archived_sessions_root": "~/.codex/archived_sessions",
+        "codex_cwd_filter": [
+          "<REPO_ROOT>"
+        ],
+        "codex_sessions_root": "~/.codex/sessions",
+        "exclude_globs": [
+          "__pycache__/**",
+          "**/__pycache__/**",
+          ".venv/**",
+          "**/.venv/**",
+          "node_modules/**",
+          "**/node_modules/**",
+          ".git/**",
+          "**/.git/**",
+          ".mypy_cache/**",
+          "**/.mypy_cache/**",
+          ".pytest_cache/**",
+          "**/.pytest_cache/**",
+          ".claude/**",
+          "**/.claude/worktrees/**",
+          "data/**",
+          "testdata/**",
+          "deployments/intersystems/**",
+          ".scratch/**",
+          ".tmp/**",
+          ".artifacts/**",
+          "memories/**",
+          "**/*.pyc"
+        ],
+        "include_exts": [
+          ".py",
+          ".js",
+          ".jsx",
+          ".ts",
+          ".tsx",
+          ".go",
+          ".rs",
+          ".c",
+          ".cc",
+          ".cpp",
+          ".cxx",
+          ".h",
+          ".hpp"
+        ],
+        "repo": "okg",
+        "repo_root": "<REPO_ROOT>",
+        "semgrep_data_flow": {
+          "artifact_globs": [],
+          "artifact_paths": [
+            "<REPO_ROOT>/deployments/okg-workspace/fixtures/data_flow/semgrep.json"
+          ],
+          "max_artifacts": 100
+        },
+        "since": "90d"
+      },
+      "compute_env": {
+        "cwd_filter": [
+          "<REPO_ROOT>"
+        ]
+      },
+      "git_graph": {
+        "exclude_globs": [
+          "**/__pycache__/**",
+          "**/.venv/**",
+          "**/node_modules/**",
+          "**/.claude/worktrees/**",
+          "data/**",
+          "**/*.pyc"
+        ],
+        "include_history": true,
+        "include_untracked": true,
+        "repo": "okg",
+        "repo_root": "<REPO_ROOT>"
+      },
+      "openspec": {
+        "include_archived": true,
+        "openspec_root": "<REPO_ROOT>/history/openspec",
+        "repo": "okg"
+      },
+      "pact": {
+        "pact_root": "<REPO_ROOT>/pact",
+        "repo": "okg"
+      }
+    },
+    "name": "okg-workspace",
+    "postgres_dsn": null,
+    "pre_join_resolvers": {},
+    "profiling": null,
+    "record_prefixes": [],
+    "refreshers": null,
+    "release": {
+      "channel": "dev"
+    },
+    "runtime": {
+      "__dataclass__": "RuntimeConfig",
+      "admin_port": null,
+      "bypass_pgbouncer": false,
+      "dbos_pool_size": 6,
+      "dbos_schema": "dbos",
+      "enabled": true,
+      "environment": "development",
+      "lens_putback": {},
+      "okg_read_pool_size": 8,
+      "okg_write_pool_size": 4,
+      "run_admin_server": true,
+      "schedules": {
+        "okg_publisher_cycle": "*/2 * * * *",
+        "okg_workspace_history_compaction": "30 5 * * *",
+        "okg_workspace_resource_monitor": "*/5 * * * *"
+      },
+      "sdk_version": "1.0",
+      "source_sync": {
+        "poll": {
+          "backstop_dependent_fanout": "none",
+          "backstop_multiplier": 12,
+          "enabled": true,
+          "slow_when_watch_active": true
+        },
+        "watch": {
+          "debounce_seconds": 5,
+          "enabled": true
+        },
+        "webhook": {
+          "enabled": false,
+          "host": "127.0.0.1",
+          "port": 8088
+        }
+      },
+      "workflows": [
+        "workflows.self_play",
+        "workflows.resource_monitor",
+        "workflows.history_compaction"
+      ]
+    },
+    "schema_dir": "<dep>/schemas",
+    "session_start_context": null,
+    "skill_triggers": null,
+    "skills_dir": null,
+    "snapshot_path": null,
+    "source_registry": "<dep>/source_registry.yaml",
+    "taxonomy": null,
+    "tool_description_overrides": null,
+    "viz": {
+      "default_exclude": [
+        "agent",
+        "mcp_server",
+        "runtime",
+        "skill"
+      ],
+      "default_time_field": "created_at",
+      "edge_types": {
+        "affects": {
+          "arrow": "triangle",
+          "color": "#6b7fd7",
+          "line_style": "solid",
+          "width": 2
+        },
+        "contains": {
+          "arrow": "triangle",
+          "color": "#4f6f77",
+          "line_style": "dashed",
+          "width": 1
+        },
+        "references": {
+          "arrow": "triangle",
+          "color": "#667085",
+          "line_style": "solid",
+          "width": 1
+        },
+        "supersedes": {
+          "arrow": "triangle",
+          "color": "#7c8cff",
+          "line_style": "solid",
+          "width": 2
+        }
+      },
+      "hierarchy_options": [
+        {
+          "id": "containment",
+          "label": "By containment",
+          "mode": "containment"
+        },
+        {
+          "id": "subtype",
+          "label": "By subtype",
+          "mode": "subtype"
+        },
+        {
+          "id": "by_status",
+          "label": "By status",
+          "mode": "attribute:status"
+        },
+        {
+          "id": "by_change",
+          "label": "By change",
+          "mode": "attribute:change_id"
+        }
+      ],
+      "layout_policies": [
+        {
+          "layout": "cluster",
+          "name": "fallback",
+          "scope": "*"
+        }
+      ],
+      "node_types": {
+        "acceptance_criterion": {
+          "color": "#2e7d32"
+        },
+        "acceptance_scenario": {
+          "color": "#c2185b"
+        },
+        "agent_session": {
+          "color": "#8a6dc6",
+          "shape": "octagon"
+        },
+        "capability": {
+          "color": "#5aa7a0",
+          "shape": "round-rectangle"
+        },
+        "document": {
+          "color": "#1e88e5"
+        },
+        "document_chunk": {
+          "color": "#00838f"
+        },
+        "entity_mention": {
+          "color": "#827717"
+        },
+        "git_commit": {
+          "color": "#a1887f",
+          "shape": "diamond",
+          "size_from": "degree"
+        },
+        "open_spec_change": {
+          "color": "#ec407a",
+          "shape": "hexagon"
+        },
+        "pact_change": {
+          "color": "#26a69a",
+          "shape": "hexagon"
+        },
+        "proposal_task": {
+          "color": "#ab47bc",
+          "shape": "ellipse"
+        },
+        "remote_host": {
+          "color": "#7b8794",
+          "shape": "cut-rectangle"
+        },
+        "source_file": {
+          "color": "#607d8b",
+          "shape": "round-rectangle"
+        },
+        "sub_agent_session": {
+          "color": "#c17900",
+          "shape": "octagon"
+        },
+        "task_group": {
+          "color": "#6a5acd"
+        },
+        "tool_use_event": {
+          "color": "#f4511e"
+        }
+      },
+      "ontology_root": "open_spec_change",
+      "overview": {
+        "aggregation_key": [
+          "subtype",
+          "status"
+        ]
+      },
+      "port": 18770,
+      "presentation": {
+        "explore": "cluster",
+        "ontology": "groups",
+        "trace": "timeline"
+      },
+      "sequence_attrs": {
+        "document_chunk": "char_offset",
+        "proposal_task": "task_number",
+        "section": "section_index",
+        "verification_step": "step_id"
+      },
+      "theme": {
+        "accent": "#10b981"
+      },
+      "tiers": {
+        "acceptance_criterion": "secondary",
+        "acceptance_scenario": "secondary",
+        "agent_session": "secondary",
+        "design_decision": "primary",
+        "document": "secondary",
+        "document_chunk": "infrastructure",
+        "entity_mention": "infrastructure",
+        "git_commit": "secondary",
+        "goal": "primary",
+        "open_spec_change": "primary",
+        "pact_change": "primary",
+        "proposal_task": "primary",
+        "risk": "primary",
+        "self_play_finding": "primary",
+        "self_play_run": "secondary",
+        "self_play_scenario": "secondary",
+        "source_file": "secondary",
+        "spec_capability": "primary",
+        "spec_delta": "infrastructure",
+        "stakeholder": "primary",
+        "sub_agent_session": "secondary",
+        "task_group": "infrastructure",
+        "verification_step": "infrastructure"
+      },
+      "use_presentation_presets": true
+    },
+    "viz_path": null
+  },
+  "synth-bench": {
+    "agent_tools": {},
+    "aliases": null,
+    "audit_questions": null,
+    "chronos": null,
+    "description": "Synthetic commit-replay benchmark \u2014 pallets/click history",
+    "embedding": {
+      "enabled": false,
+      "reason": "synthetic benchmark; only measuring publisher path"
+    },
+    "enricher_registry": null,
+    "link_config": null,
+    "mcp_instructions": null,
+    "mcp_pre_join_tools": null,
+    "mcp_trace_path": null,
+    "modules": [
+      "git_graph"
+    ],
+    "modules_config": {},
+    "name": "synth-bench",
+    "postgres_dsn": null,
+    "pre_join_resolvers": {},
+    "profiling": null,
+    "record_prefixes": [],
+    "refreshers": null,
+    "release": {
+      "channel": "dev"
+    },
+    "runtime": {
+      "__dataclass__": "RuntimeConfig",
+      "admin_port": null,
+      "bypass_pgbouncer": false,
+      "dbos_pool_size": 6,
+      "dbos_schema": "dbos",
+      "enabled": true,
+      "environment": "development",
+      "lens_putback": {},
+      "okg_read_pool_size": 8,
+      "okg_write_pool_size": 4,
+      "run_admin_server": true,
+      "schedules": {
+        "okg_publisher_cycle": "*/1 * * * *"
+      },
+      "sdk_version": "1.0",
+      "source_sync": {
+        "poll": {
+          "backstop_multiplier": 5,
+          "enabled": true,
+          "slow_when_watch_active": true
+        },
+        "watch": {
+          "debounce_seconds": 0.1,
+          "enabled": true
+        },
+        "webhook": {
+          "enabled": false
+        }
+      },
+      "workflows": []
+    },
+    "schema_dir": "<dep>/schemas",
+    "session_start_context": null,
+    "skill_triggers": null,
+    "skills_dir": null,
+    "snapshot_path": null,
+    "source_registry": "<dep>/source_registry.yaml",
+    "taxonomy": null,
+    "tool_description_overrides": null,
+    "viz": null,
+    "viz_path": null
+  }
+}

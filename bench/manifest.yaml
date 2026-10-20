@@ -1,0 +1,428 @@
+# Commit-replay benchmark experiment matrix.
+#
+# Source of truth for `bench/orchestrator.py`. Each entry is one
+# experiment. Edit + re-run `python bench/orchestrator.py run --all`.
+#
+# Schema:
+#   experiments[*]:
+#     id           unique identifier; used for the per-experiment
+#                  Postgres DB name (okg_bench_<id>), the generated
+#                  deployment dir, and the output CSV/PDF filenames.
+#     repo:
+#       name       short canonical name, used as the `repo` attribute
+#                  on emitted node IDs (e.g. `file:tinydb:src/foo.py`).
+#       url        git clone URL.
+#     source_set   one of: files-only | history-only | files+history
+#                          | files+code | files+code+lsp | all
+#                          | tier1 | tier1-enriched
+#     replay:
+#       strategy   one of: full_history | head_only | first_n
+#                          | hybrid_head_then_stride | tail_window
+#       (each strategy has its own additional fields; see spec)
+#     config:      OPTIONAL OKG-internals knobs (bench-okg-internals). One
+#                  deployment config per cell. Keys (all optional):
+#       enrichers              default | none | declarative | code | all
+#                              (`default` follows source_set)
+#       views                  bool — load the file_symbols view (code sets)
+#       chronos_continuation_pct  int 1..100 (default 95)
+#       embedding              bool (default false; needs a backend if true)
+#       projection_batch       positive int (recognized; substrate slot pending)
+#       branching              bool (exercised by the branching experiment)
+#       native_view_min_refresh_interval_ms
+#                              non-negative int; coalesce native-view refreshes
+#                              across final and non-final publishes until this
+#                              read-model freshness interval expires
+#       native_view_materialization_delay_ms
+#                              non-negative int; coalesce non-final native-view
+#                              refreshes during bursty replay layers
+#       attribute_effective_view_empty_overlay_fast_path
+#                              bool; skip generation-keyed effective-attrs
+#                              snapshot copies when no attribute overlays exist
+#       source_sync_compaction_window_seconds
+#                              non-negative int; enable DBOS source-sync wakeup
+#                              compaction for bursty file/git watcher events
+#       source_sync_watch_debounce_seconds
+#                              non-negative number; watcher coalescing delay
+#                              before DBOS source-sync enqueue
+#       source_sync_head_poll_interval_seconds
+#                              positive number; watcher git HEAD poll cadence
+#       source_sync_reconcile_watermark_min_refresh_ms
+#                              non-negative int; throttle completed-scope
+#                              no-change last_reconcile_at watermark writes
+#       source_sync_progress_min_refresh_ms
+#                              non-negative int; throttle successful zero-output
+#                              source stage timing progress writes
+#       source_sync_queue_polling_interval_seconds
+#                              non-negative number; source-sync DBOS queue
+#                              polling interval for low-latency replay cells
+#       lsp_hot_path_max_requests
+#                              non-negative int; hot-path LSP definition
+#                              request budget for changed files
+#     sweep:       OPTIONAL mapping {config-axis: [values]} — fans this entry
+#                  out into one experiment (= one deployment) per cartesian
+#                  cell, suffixing the id with a compact per-cell tag. A
+#                  sibling `config:` supplies non-swept defaults.
+
+experiments:
+
+  # ----- synthetic differential replay (local deterministic proof target) -----
+  - id: synthetic-differential-e2e
+    repo:
+      name: synthetic-differential
+      url: synthetic:differential
+    source_set: tier1-enriched
+    replay: { strategy: full_history }
+
+  # ----- tinydb first-10 (fast correctness probe) -----
+  # Ids are deliberately short: the DBOS app name is `okg-<id>` and
+  # capped at 30 chars, so `-first10` blew the budget for the longer
+  # configs. The `-10` suffix preserves the meaning.
+  - id: tinydb-files-only-10
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files-only
+    replay: { strategy: first_n, n: 10 }
+
+  - id: tinydb-history-only-10
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: history-only
+    replay: { strategy: first_n, n: 10 }
+
+  - id: tinydb-files-history-10
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files+history
+    replay: { strategy: first_n, n: 10 }
+
+  # ----- config-axes lab (bench-okg-internals) -----
+  # Same repo + scale; the ONLY thing that varies is one OKG-internals
+  # axis, so per-commit cost deltas attribute cleanly to that axis (feeds
+  # the comparison report). Each `sweep` fans out into one deployment per
+  # cell: tdb-enr-{en0,endecl,enall}, tdb-chr-{50,95}.
+  - id: tdb-enr
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files+code
+    replay: { strategy: first_n, n: 10 }
+    sweep:
+      enrichers: [none, declarative, all]
+
+  - id: tdb-chr
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files+code
+    replay: { strategy: first_n, n: 10 }
+    sweep:
+      chronos_continuation_pct: [50, 95]
+
+  # Dedicated cell for the chronos branching experiment (its DB is mutated by
+  # the fork/merge/compact ops, so it is not shared with other measurements).
+  # `okg pact ... branching-report tdb-branch` after a normal run.
+  - id: tdb-branch
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files+code
+    replay: { strategy: first_n, n: 10 }
+
+  # ----- tinydb first-100 (intermediate-scale probe) -----
+  # Bigger than first-10 (catches steady-state behavior past cold
+  # caches) but cheap enough to iterate on (~1-2 min per config
+  # after `add-pygit2-in-process-git-helpers` + bench-poll +
+  # debounce fixes).
+  - id: tinydb-files-only-100
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files-only
+    replay: { strategy: first_n, n: 100 }
+
+  - id: tinydb-history-only-100
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: history-only
+    replay: { strategy: first_n, n: 100 }
+
+  - id: tinydb-files-history-100
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files+history
+    replay: { strategy: first_n, n: 100 }
+
+  - id: tinydb-files-code-15
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files+code
+    replay: { strategy: first_n, n: 15 }
+
+  - id: tinydb-code-lsp-head10
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files+code+lsp
+    # Pinned (oldest first): the count gate compares query counts across
+    # runs, so the replayed commits must not move with upstream HEAD. These
+    # are the last 10 commits under upstream HEAD 18d73a1506 (2026-10-01).
+    replay:
+      strategy: head_only
+      last_n: 10
+      commits:
+        - e70f9b1d91b6145b5083042eebe266ef0e4ccd27
+        - 770486ff8217eb50c8fecb6ce9f54c140c8225c5
+        - 1e39ad3a2d9eca57efd9019fd089b5a04676da95
+        - 9afda0c57ba652ebd511558facccac2a5afcbeed
+        - 8d3f0c7c9c964c16d682de6bea1b49f0d2c6fbc7
+        - f16aec4fedb54c729c256e824ebd5ad22c39ce8f
+        - 4aa53111d72c9cbaafcdc039211caf49f4face6f
+        - 19066e03139e904c24410e23901e4b069d715a2e
+        - bd034d0e95d64a1da0e86387daa950eed3534fff
+        - 18d73a15066a04c77f19ae9a8c03d582bd344c0d
+    # Per-commit query-count baselines: the highest query_count each pinned
+    # commit showed in three same-commit runs on lab-host (2026-10-01; five
+    # runs never differed by more than 4 queries on a commit). The gate
+    # fails a commit above baseline x headroom. 1.10 sits far above the
+    # 0.16% run-to-run spread and fails a 1.2x regression on any single commit;
+    # an intended change that moves a count by more than 10% re-measures
+    # these numbers.
+    count_gate:
+      headroom: 1.10
+      baselines:
+        e70f9b1d91b6145b5083042eebe266ef0e4ccd27: 3996
+        770486ff8217eb50c8fecb6ce9f54c140c8225c5: 3568
+        1e39ad3a2d9eca57efd9019fd089b5a04676da95: 1153
+        9afda0c57ba652ebd511558facccac2a5afcbeed: 1121
+        8d3f0c7c9c964c16d682de6bea1b49f0d2c6fbc7: 2973
+        f16aec4fedb54c729c256e824ebd5ad22c39ce8f: 1387
+        4aa53111d72c9cbaafcdc039211caf49f4face6f: 3361
+        19066e03139e904c24410e23901e4b069d715a2e: 2518
+        bd034d0e95d64a1da0e86387daa950eed3534fff: 4502
+        18d73a15066a04c77f19ae9a8c03d582bd344c0d: 2549
+    config:
+      # 0 = refresh the native views in every publish (the substrate
+      # default). A 60 s refresh interval made the refresh land on whichever
+      # commit crossed the wall-clock boundary, so the same commit cost
+      # ~1,400 queries in one run and ~5,400 in the next.
+      native_view_min_refresh_interval_ms: 0
+      native_view_materialization_delay_ms: 0
+      attribute_effective_view_empty_overlay_fast_path: true
+      # Coalesce a single `git reset` burst (working-tree files changed by one
+      # commit) into ONE source-sync, like prod (codebase-index uses
+      # compaction). With window=0 a multi-file commit split into several
+      # syncs that serialized on the concurrency-1 queue. 0.5s easily spans one
+      # reset's fs-events without adding meaningful per-commit latency.
+      source_sync_compaction_window_seconds: 1
+      source_sync_watch_debounce_seconds: 0.02
+      source_sync_head_poll_interval_seconds: 0.05
+      source_sync_reconcile_watermark_min_refresh_ms: 60000
+      source_sync_progress_min_refresh_ms: 60000
+      source_sync_queue_polling_interval_seconds: 0.01
+      lsp_hot_path_max_requests: 512
+
+  # ----- tinydb code+lsp + ENRICHER + VIEW (collapse-validation harness) -----
+  # Same shape as tinydb-code-lsp-head10 (so query/edge numbers are comparable)
+  # but with the `code_reference` enricher ON, so the bench exercises BOTH
+  # in-publish-cycle producer classes: the native-view stage (view_cites_node
+  # lineage) AND an enricher (code_symbol -calls-> code_symbol etc.). Used to
+  # validate that the publish-once-per-commit collapse only RESTORES dropped
+  # cross-layer edges, never drops them, for enrichers as well as views.
+  - id: tinydb-lsp-enr-10
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files+code+lsp
+    replay: { strategy: head_only, last_n: 10 }
+    config:
+      enrichers: code        # render the CodeReferenceResolver enricher
+      views: true            # keep the native-view stage on (symbol_calls/file_symbols)
+      # NOTE: the native_view_* / source_sync_* / lsp_* / attribute_effective_view_*
+      # tuning knobs that used to live here were never wired into BenchConfig, the
+      # deployment.yaml render, or the substrate -- they appeared ONLY in this manifest
+      # entry, so they did nothing AND made the whole manifest unloadable (BenchConfig
+      # fails loud on unknown config keys, which blocked extract.py / `list` / the
+      # sensitivity summary). Removed. To use such knobs later, add them to BenchConfig
+      # + wire them into deployment.yaml.j2 first (the projection_batch pattern).
+
+  - id: tinydb-files-code-100
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files+code
+    replay: { strategy: first_n, n: 100 }
+
+  - id: tinydb-all-100
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: all
+    replay: { strategy: first_n, n: 100 }
+
+  # ----- palimpzest (mitdbg/palimpzest): MIT DB group's
+  # declarative AI-query system. 896 commits, ~163 .py files,
+  # has pyproject.toml + .md docs.
+  # `tier1` = files + history + code + package-manifests +
+  # doc-corpus + interfaces. The realistic "Python-OSS repo"
+  # source set; skips OKG-specific sources (openspec / agent-sessions
+  # / agent-memory / profile-measurements / etc.) that emit 0 facts.
+  - id: palimpzest-tier1-10
+    repo:
+      name: palimpzest
+      url: https://github.com/mitdbg/palimpzest.git
+    source_set: tier1
+    replay: { strategy: first_n, n: 10 }
+
+  - id: palimpzest-tier1-head-10
+    repo:
+      name: palimpzest
+      url: https://github.com/mitdbg/palimpzest.git
+    source_set: tier1
+    replay: { strategy: head_only, last_n: 10 }
+
+  - id: palimpzest-tier1-tail-10
+    repo:
+      name: palimpzest
+      url: https://github.com/mitdbg/palimpzest.git
+    source_set: tier1
+    replay: { strategy: tail_window, last_n: 10 }
+
+  - id: palimpzest-tier1-100
+    repo:
+      name: palimpzest
+      url: https://github.com/mitdbg/palimpzest.git
+    source_set: tier1
+    replay: { strategy: first_n, n: 100 }
+
+  - id: palimpzest-tier1-300
+    repo:
+      name: palimpzest
+      url: https://github.com/mitdbg/palimpzest.git
+    source_set: tier1
+    replay: { strategy: first_n, n: 300 }
+
+  - id: palimpzest-t1-enrich-10
+    repo:
+      name: palimpzest
+      url: https://github.com/mitdbg/palimpzest.git
+    source_set: tier1-enriched
+    replay: { strategy: first_n, n: 10 }
+
+  - id: palimpzest-tier1
+    repo:
+      name: palimpzest
+      url: https://github.com/mitdbg/palimpzest.git
+    source_set: tier1
+    replay: { strategy: full_history }
+
+  # ----- tinydb (msiemens/tinydb): 728 commits, ~60 files -----
+  - id: tinydb-files-only
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files-only
+    replay: { strategy: full_history }
+
+  - id: tinydb-history-only
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: history-only
+    replay: { strategy: full_history }
+
+  - id: tinydb-files-history
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files+history
+    replay: { strategy: full_history }
+
+  - id: tinydb-code-lsp-full
+    repo:
+      name: tinydb
+      url: https://github.com/msiemens/tinydb.git
+    source_set: files+code+lsp
+    replay: { strategy: full_history }
+    config:
+      native_view_min_refresh_interval_ms: 60000
+      native_view_materialization_delay_ms: 60000
+      attribute_effective_view_empty_overlay_fast_path: true
+      source_sync_compaction_window_seconds: 0
+      source_sync_watch_debounce_seconds: 0.02
+      source_sync_head_poll_interval_seconds: 0.05
+      source_sync_reconcile_watermark_min_refresh_ms: 60000
+      source_sync_progress_min_refresh_ms: 60000
+      source_sync_queue_polling_interval_seconds: 0.01
+      lsp_hot_path_max_requests: 512
+
+  # ----- marius (marius-team/marius): OSDI '21 GNN graph embeddings -----
+  - id: marius-files-only
+    repo:
+      name: marius
+      url: https://github.com/marius-team/marius.git
+    source_set: files-only
+    replay: { strategy: full_history }
+
+  - id: marius-history-only
+    repo:
+      name: marius
+      url: https://github.com/marius-team/marius.git
+    source_set: history-only
+    replay: { strategy: full_history }
+
+  - id: marius-files-history
+    repo:
+      name: marius
+      url: https://github.com/marius-team/marius.git
+    source_set: files+history
+    replay: { strategy: full_history }
+
+  # ----- quake (marius-team/quake): OSDI '25 adaptive vector search -----
+  - id: quake-files-only
+    repo:
+      name: quake
+      url: https://github.com/marius-team/quake.git
+    source_set: files-only
+    replay: { strategy: full_history }
+
+  - id: quake-history-only
+    repo:
+      name: quake
+      url: https://github.com/marius-team/quake.git
+    source_set: history-only
+    replay: { strategy: full_history }
+
+  - id: quake-files-history
+    repo:
+      name: quake
+      url: https://github.com/marius-team/quake.git
+    source_set: files+history
+    replay: { strategy: full_history }
+
+  # ----- pandas (pandas-dev/pandas): huge; sample first 100 commits -----
+  - id: pandas-files-only
+    repo:
+      name: pandas
+      url: https://github.com/pandas-dev/pandas.git
+    source_set: files-only
+    replay: { strategy: first_n, n: 100 }
+
+  - id: pandas-history-only
+    repo:
+      name: pandas
+      url: https://github.com/pandas-dev/pandas.git
+    source_set: history-only
+    replay: { strategy: first_n, n: 100 }
+
+  - id: pandas-files-history
+    repo:
+      name: pandas
+      url: https://github.com/pandas-dev/pandas.git
+    source_set: files+history
+    replay: { strategy: first_n, n: 100 }

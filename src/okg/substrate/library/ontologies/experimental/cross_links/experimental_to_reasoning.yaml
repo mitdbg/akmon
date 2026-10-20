@@ -1,0 +1,48 @@
+# Cross-link rules: experimental ↔ reasoning.
+#
+# Per `add-substrate-experimental-module`: an Observation in the
+# reasoning module that carries a `result_ref` attribute is the
+# interpreted record of a Result in the experimental module. The
+# matcher resolves Observation.result_ref == Result.result_id and
+# emits an `Observation → derives_from → Result` edge on the next
+# publish cycle.
+#
+# Edge direction reversed from the umbrella's draft Pattern A
+# inventory (umbrella said `Result derives_to Observation`).
+# `derives_to` is in the umbrella D7 shortlist but is NOT in the
+# substrate's actual 44-archetype vocabulary; only `derives_from`
+# is. Flagged for the umbrella up-pass to drop `derives_to` from
+# the shortlist and reverse the Pattern A source/dst columns for
+# Result ↔ Observation. Semantically `derives_from` is also
+# clearer: the interpreted Observation derives from the raw
+# Result it interprets.
+#
+# Cross-child constraint: this rule assumes
+# `reasoning.Observation` carries an optional `result_ref` string
+# attribute, populated by the openspec-observation source adapter
+# from `result_refs:` frontmatter in
+# `openspec/observations/<slug>.md`. The reasoning module child
+# (`add-substrate-reasoning-module`) owns adding this attribute.
+# If reasoning declines the attribute, fallback rule shape uses
+# `matcher: alias_table` against a per-Observation alias of form
+# `obs:from-<result_id>`.
+#
+# Behavior when modules are partially loaded: per
+# `_inject_cross_link_narrowings` in
+# `src/okg/substrate/catalog/modules_compose.py`, this rule is
+# silently skipped when `observation` or `result` subtypes are
+# not present in the active catalog. This is by-design substrate
+# convention (a deployment that doesn't load both modules won't
+# trigger the narrowing). Verified in
+# `tests/substrate/library/ontologies/test_experimental_schema.py`.
+rules:
+  - id: observation_derives_from_result
+    src:
+      subtype: observation
+      field: result_ref
+    dst:
+      subtype: result
+      field: result_id
+    matcher: exact
+    edge: derives_from
+    bidirectional: false

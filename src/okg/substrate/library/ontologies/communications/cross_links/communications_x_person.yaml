@@ -1,0 +1,63 @@
+# communications ↔ person cross-link rules.
+#
+# Sources emit edges directly using full src + dst IDs; the
+# rules below register the narrowings + provide deferred-
+# resolution paths for ref-based emissions. matcher: exact
+# with subtype-distinct ID fields ensures no spurious
+# derivations fire.
+
+rules:
+  - id: person_authored_email
+    src:
+      subtype: person
+      field: person_id
+    dst:
+      subtype: email
+      field: sender_ref
+    matcher: exact
+    edge: authored
+    bidirectional: false
+
+  - id: person_received_email
+    src:
+      subtype: person
+      field: person_id
+    dst:
+      subtype: email
+      field: recipients_refs
+    matcher: exact
+    edge: received
+    bidirectional: false
+
+  - id: person_cc_on_email
+    src:
+      subtype: person
+      field: person_id
+    dst:
+      subtype: email
+      field: cc_refs
+    matcher: exact
+    edge: cc_on
+    bidirectional: false
+
+  - id: person_sent_chat_message
+    src:
+      subtype: person
+      field: person_id
+    dst:
+      subtype: chat_message
+      field: sender_ref
+    matcher: exact
+    edge: sent
+    bidirectional: false
+
+  - id: chat_channel_has_member_person
+    src:
+      subtype: chat_channel
+      field: channel_id
+    dst:
+      subtype: person
+      field: person_id
+    matcher: exact
+    edge: has_member
+    bidirectional: false

@@ -1,0 +1,5 @@
+name: dataset
+version: 1.0.0
+description: Datasets, tables, columns, schemas.
+provides:
+  subtypes_file: schema.yaml

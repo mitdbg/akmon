@@ -1,0 +1,51 @@
+# Cross-link rules: methodology → reasoning.
+#
+# Per `add-substrate-methodology-module` (child of
+# `expand-memex-to-personal-okg`): three rules emit Pattern B
+# edges from methodology subtypes into reasoning.Principle.
+# Each rule resolves a slug-valued attribute on the source
+# node to a Principle by exact match on Principle.slug.
+#
+# MethodCard and Heuristic both use `embodies` deliberately —
+# they each turn an abstract Principle into a concrete form
+# at different abstractness levels. AntiPattern uses
+# `violates` as the negative counterpart.
+#
+# Resolution requires the sibling `reasoning` module to be
+# composed by the deployment. Without it, the source-side
+# attribute is populated but no Principle nodes exist; the
+# linker produces zero edges (not an error).
+
+rules:
+  - id: methodcard_embodies_principle
+    src:
+      subtype: method_card
+      field: embodies_principle
+    dst:
+      subtype: principle
+      field: slug
+    matcher: exact
+    edge: embodies
+    bidirectional: false
+
+  - id: heuristic_embodies_principle
+    src:
+      subtype: heuristic
+      field: embodies_principle
+    dst:
+      subtype: principle
+      field: slug
+    matcher: exact
+    edge: embodies
+    bidirectional: false
+
+  - id: antipattern_violates_principle
+    src:
+      subtype: anti_pattern
+      field: violates_principle
+    dst:
+      subtype: principle
+      field: slug
+    matcher: exact
+    edge: violates
+    bidirectional: false

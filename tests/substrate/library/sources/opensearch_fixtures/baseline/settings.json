@@ -1,0 +1,128 @@
+{
+  ".plugins-ml-config": {
+    "settings": {
+      "index": {
+        "replication": {
+          "type": "DOCUMENT"
+        },
+        "number_of_shards": "1",
+        "auto_expand_replicas": "0-all",
+        "provided_name": ".plugins-ml-config",
+        "creation_date": "1789943977424",
+        "number_of_replicas": "0",
+        "uuid": "JPVEmpHVT26HF0AT0zmb6Q",
+        "version": {
+          "created": "136407927"
+        }
+      }
+    }
+  },
+  ".opensearch-observability": {
+    "settings": {
+      "index": {
+        "replication": {
+          "type": "DOCUMENT"
+        },
+        "number_of_shards": "1",
+        "auto_expand_replicas": "0-2",
+        "provided_name": ".opensearch-observability",
+        "creation_date": "1789943957432",
+        "number_of_replicas": "0",
+        "uuid": "hx8FAaugQMKuWvsCSVckWQ",
+        "version": {
+          "created": "136407927"
+        }
+      }
+    }
+  },
+  "ingest-events-2026.09": {
+    "settings": {
+      "index": {
+        "replication": {
+          "type": "DOCUMENT"
+        },
+        "number_of_shards": "1",
+        "plugins": {
+          "index_state_management": {
+            "policy_id": "okg-events-90d"
+          }
+        },
+        "provided_name": "ingest-events-2026.09",
+        "creation_date": "1789944135864",
+        "number_of_replicas": "0",
+        "uuid": "vc4aScx4QLmVi8MfO42aeA",
+        "version": {
+          "created": "136407927"
+        }
+      }
+    }
+  },
+  "app-logs-2026.09": {
+    "settings": {
+      "index": {
+        "replication": {
+          "type": "DOCUMENT"
+        },
+        "number_of_shards": "1",
+        "plugins": {
+          "index_state_management": {
+            "policy_id": "okg-logs-30d"
+          }
+        },
+        "provided_name": "app-logs-2026.09",
+        "creation_date": "1789944135752",
+        "number_of_replicas": "0",
+        "uuid": "fekz5gsFSFenauLOAxodUA",
+        "version": {
+          "created": "136407927"
+        }
+      }
+    }
+  },
+  "top_queries-2026.09.20-04119": {
+    "settings": {
+      "index": {
+        "replication": {
+          "type": "DOCUMENT"
+        },
+        "number_of_shards": "1",
+        "provided_name": "top_queries-2026.09.20-04119",
+        "creation_date": "1789944000733",
+        "sort": {
+          "field": [
+            "measurements.latency.number",
+            "measurements.cpu.number",
+            "measurements.memory.number"
+          ],
+          "order": [
+            "desc",
+            "desc",
+            "desc"
+          ]
+        },
+        "number_of_replicas": "1",
+        "uuid": "IGd9GcxNTBWpRO48kMg8kw",
+        "version": {
+          "created": "136407927"
+        }
+      }
+    }
+  },
+  "audit-trail-2026.09": {
+    "settings": {
+      "index": {
+        "replication": {
+          "type": "DOCUMENT"
+        },
+        "number_of_shards": "1",
+        "provided_name": "audit-trail-2026.09",
+        "creation_date": "1789944135948",
+        "number_of_replicas": "0",
+        "uuid": "CISD7BoLSOqCGTtSDXwiCA",
+        "version": {
+          "created": "136407927"
+        }
+      }
+    }
+  }
+}

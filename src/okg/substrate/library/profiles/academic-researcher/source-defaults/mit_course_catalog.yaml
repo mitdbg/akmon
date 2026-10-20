@@ -1,0 +1,17 @@
+# mit_course_catalog — MIT subject catalog scraper. Non-MIT PIs
+# degrade gracefully (zero rows + skip metric).
+
+mit_course_catalog:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.academic_researcher.mit_course_catalog
+  class: MitCourseCatalogSource
+  ownership_id: ${deployment_name}.mit_course_catalog
+  source_class: mutable_api
+  record_identity_kind: remote_id
+  record_identity_fields: [code]
+  source_revision_kind: version_token
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    pi_name: ${pi_name}
+    institution: MIT

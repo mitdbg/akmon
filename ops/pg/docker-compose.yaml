@@ -1,0 +1,121 @@
+# Local-dev Postgres for OKG.
+#
+# Usage:
+#   cd ops/pg
+#   docker compose up -d --build
+#   export OKG_DSN=postgres://postgres:okg@localhost:5433/okg
+#   # smoke test: the preloaded extensions are installable
+#   docker compose exec db psql -U postgres -d okg -c "SELECT name, default_version FROM pg_available_extensions WHERE name IN ('timescaledb', 'pg_cron', 'pg_textsearch', 'vector')"
+#
+# Stop: `docker compose down`
+# Reset: `docker compose down -v`  (nuke the volume)
+#
+# Settings (environment variables; the defaults are the values above):
+#   OKG_PG_PORT=5433            host port, always bound to 127.0.0.1
+#   OKG_PG_CONTAINER=okg-pg     container name
+#   OKG_PG_PASSWORD=okg         postgres password, read only when the volume
+#                               is first created (unset means okg; an empty
+#                               value is refused at first start)
+# The OKG_DSN above follows them: postgres://postgres:<password>@localhost:<port>/okg
+# Example, port 5433 taken:
+#   OKG_PG_PORT=5434 docker compose up -d --build --wait
+# A second database beside an existing one also needs its own compose
+# project, so it gets its own data volume:
+#   COMPOSE_PROJECT_NAME=okg2 OKG_PG_CONTAINER=okg2-pg OKG_PG_PORT=5434 \
+#     docker compose up -d --build --wait
+#
+# The project is named okg-pg (issue #3639). Without a name Compose used the
+# folder name, `pg`, and joined any other app's project called `pg` that has a
+# service `db`, recreating that app's container. COMPOSE_PROJECT_NAME or `-p`
+# still override it. Before this, okg's own database ran in project `pg`
+# (volume pg_okg_pgdata): if `up` now stops with "container name /okg-pg is
+# already in use", that is your old database; to keep using it, run every
+# compose command with COMPOSE_PROJECT_NAME=pg, but only if no other app on
+# this machine uses project `pg`. If the old container is gone but its volume
+# is not, `up` starts a new, empty database instead: when `docker volume ls`
+# lists pg_okg_pgdata, that is your old data, reached the same way.
+name: okg-pg
+
+services:
+  db:
+    build: .
+    image: okg-pg17:local
+    container_name: ${OKG_PG_CONTAINER:-okg-pg}
+    # Run a minimal init as PID 1 so Postgres is not. Without it Postgres
+    # adopts every orphan in the container. A healthcheck that times out
+    # leaves its pg_isready orphaned; when that exits 2, the postmaster takes
+    # it for a crashed backend and resets every connection ("server process
+    # (PID n) exited with exit code 2", nothing else logged). Every okg
+    # Postgres container sets this; tests/ci/test_postgres_container_init.py
+    # holds them to it.
+    init: true
+    # Default Docker `/dev/shm` is 64MB which is too small for
+    # Postgres parallel workers + HNSW vector index builds +
+    # large hash joins. Per the post-bootstrap audit
+    # (2026-04-26): doc-corpus's 27K-row projections hit
+    # 33MB on a single backend, blowing the cap and causing
+    # intermittent DiskFull errors mid-test. 2GB gives
+    # production-shaped headroom; substrate's per-batch row
+    # cap (max_node_ids_per_batch=2000) stays as a safety
+    # belt for tighter envs.
+    shm_size: 2gb
+    environment:
+      POSTGRES_PASSWORD: ${OKG_PG_PASSWORD-okg}
+      POSTGRES_DB: okg
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    # shared_preload_libraries MUST list pg_cron + pg_textsearch before
+    # extensions can be CREATE EXTENSION'd successfully.
+    # timescaledb loads itself via its own preload.
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=timescaledb,pg_cron,pg_textsearch"
+      - "-c"
+      # Per `one-db-per-deployment` (2026-04-26): each deployment
+      # runs against its own Postgres INSTANCE, not its own DB on
+      # a shared instance. pg_cron is single-DB-per-instance, so
+      # this `cron.database_name` value names the (sole) DB this
+      # instance hosts. This compose stack hosts one deployment's
+      # `okg` DB. Other deployments
+      # stand up their own compose service under
+      # `deployments/<name>/postgres/docker-compose.yaml`.
+      - "cron.database_name=okg"
+      - "-c"
+      - "max_connections=100"
+      # Worker slots for TimescaleDB (issue #3143): one scheduler per database
+      # plus up to timescaledb.max_background_workers jobs, the launchers and
+      # the parallel workers. The default 8 looped job-launch failures with
+      # five okg databases. Matches ops/environments/*/postgres-capacity.yaml
+      # and ops/pg/Dockerfile; see ops/pg/README.md for the arithmetic.
+      - "-c"
+      - "max_worker_processes=32"
+      # Compress full-page images in the write-ahead log. This is the only
+      # graph WAL setting (src/okg/substrate/db/wal_settings.py) this file
+      # carries: CI lanes start their test databases from it
+      # (docker-compose.ci.yaml overlays it), and the operator chose to keep
+      # the max_wal_size / min_wal_size / checkpoint sizing out of them. That
+      # sizing stays in the dogfood and sealed-environment renderers.
+      # tests/substrate/db/test_wal_settings.py checks this file.
+      - "-c"
+      - "wal_compression=zstd"
+    ports:
+      # Host port 5433 on purpose — many systems have a local PG on
+      # 5432. The in-container PG still listens on 5432; only the
+      # host binding shifts. Clients use postgres://...:5433/okg.
+      # Loopback-only (per `harden-okg-network-and-secrets`): the
+      # graph DB must never be reachable off-host. Literal 127.0.0.1
+      # to match the `test_compose_binds_postgres_to_loopback_only`
+      # invariant (a parameterized host would let it be overridden
+      # to 0.0.0.0). Only the port moves: OKG_PG_PORT (issue #3581).
+      - "127.0.0.1:${OKG_PG_PORT:-5433}:5432"
+    volumes:
+      - okg_pgdata:/home/postgres/pgdata/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d okg"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+
+volumes:
+  okg_pgdata:

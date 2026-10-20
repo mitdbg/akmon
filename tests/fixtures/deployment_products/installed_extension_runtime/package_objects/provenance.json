@@ -1,0 +1,8 @@
+{
+  "builder": "neutral-fixture-builder/v1",
+  "materials": [
+    "neutral-extension@1.0.0",
+    "neutral-dependency@1.0.0"
+  ],
+  "schema_version": "okg.extension_runtime.fixture_provenance/v1"
+}

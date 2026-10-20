@@ -1,0 +1,5 @@
+name: external_repos
+version: 1.0.0
+description: External repository references (for cross-repo work).
+provides:
+  subtypes_file: schema.yaml

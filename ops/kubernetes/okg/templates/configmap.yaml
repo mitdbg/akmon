@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "okg.fullname" . }}
+  labels:
+    {{- include "okg.labels" . | nindent 4 }}
+data:
+  deployment: {{ .Values.okg.deployment | quote }}
+  repo-root: {{ ternary (printf "%s/repository" (trimSuffix "/" .Values.okg.environmentDataRoot)) .Values.okg.repoRoot .Values.repositorySync.enabled | quote }}
+  {{- if .Values.repositorySync.enabled }}
+  deployments-dir: {{ printf "%s/repository/deployments" (trimSuffix "/" .Values.okg.environmentDataRoot) | quote }}
+  {{- end }}
+  environment-data-root: {{ .Values.okg.environmentDataRoot | quote }}
+  runtime-environment: "kubernetes"
+  # The supervisor adapter for THIS instantiation. Read by
+  # resolve_supervisor_adapter as the target-scoped declaration that overrides
+  # the baked manifest, because the manifest describes the deployment while this
+  # describes the target it is running on.
+  runtime-supervisor: {{ .Values.okg.runtimeSupervisor | default "container" | quote }}
+  runtime-nomos-subject: {{ .Values.okg.runtimeNomosSubject | quote }}
+  mcp-nomos-subject: {{ .Values.okg.mcpNomosSubject | quote }}
+  readiness-profile: {{ .Values.okg.readinessProfile | quote }}

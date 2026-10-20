@@ -1,0 +1,10 @@
+# Post-render operator registry for the synthetic-corpus smoke deployment
+# (the #754-continuity layer: core operators stay NEUTRAL; the deployment
+# supplies targeting). One family suffices for the plan/apply continuity
+# witness: date transposition on birthdate claims (ISO dates render in every
+# patient's documents).
+operators:
+  - module: okg.bench.injection.operators.library
+    class: DateTransposeOperator
+    params:
+      predicates: [birthdate]

@@ -1,0 +1,6 @@
+name: compute_env
+version: 1.0.0
+description: 'Compute environment: machines, remote_hosts, runtimes, mcp_servers,
+  compute_jobs, capabilities.'
+provides:
+  subtypes_file: schema.yaml

@@ -1,0 +1,20 @@
+# Cross-link rule: reasoning → concepts.
+#
+# Per `extend-substrate-concepts-as-universal-hub`: a Hypothesis
+# whose frontmatter declares `predicts_about: <name>` gets a
+# `predicts_about` edge into the named Concept. Resolution is
+# exact match against `Concept.name`.
+#
+# Declared, not inferred (umbrella D5).
+
+rules:
+  - id: hypothesis_predicts_about_concept
+    src:
+      subtype: hypothesis
+      field: predicts_about
+    dst:
+      subtype: concept
+      field: name
+    matcher: exact
+    edge: predicts_about
+    bidirectional: false

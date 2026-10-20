@@ -1,0 +1,9 @@
+api_version: okg.deployment-definition/v1
+id: shared-repository-graph
+description: Shared repository graph fixture
+schema_dir: schemas
+source_registry: source_registry.yaml
+modules: []
+nomos: {}
+viz:
+  enabled: true

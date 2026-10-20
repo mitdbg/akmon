@@ -1,0 +1,95 @@
+/* The design harness's own styling.
+ *
+ * Not a design: enough type and spacing that the rules audit has something
+ * real to measure. It obeys the two rules the audit enforces from the start --
+ * nothing under 12px (rule 11) and no horizontal overflow at 390 (rule 14) --
+ * because a harness that broke them would red the audit before any view was
+ * drawn and teach everyone to ignore it.
+ *
+ * Colours come from tokens.css. No raw hex.
+ */
+
+/* The page is a canvas; Home's blocks are surfaces on it (operator's home v10
+ * palette). */
+.okg-design {
+  background: var(--okg-color-surface);
+  min-height: 100vh;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: hidden;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.okg-design *,
+.okg-design *::before,
+.okg-design *::after {
+  box-sizing: inherit;
+}
+
+.okg-design-main {
+  padding: 16px;
+}
+
+.okg-design-pending {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.okg-design-failure {
+  margin: 16px;
+  padding: 16px;
+  border: 1px solid var(--okg-border, currentColor);
+  font-size: 14px;
+}
+
+.okg-design-failure h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.okg-design-failure p {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.okg-design-failure__next {
+  font-size: 13px;
+}
+
+/* Not a product control: it exists only in the harness. Out of the bar at
+ * every width, as a pill in the corner of the viewport, so it can never be
+ * mistaken for something the console offers. */
+/* capture.mjs sets `okg-capture` on the root before it screenshots, so the
+ * harness's own control never overprints a row in the evidence. It is present
+ * and usable in an interactive session. */
+.okg-capture .okg-design-topbar__switcher {
+  display: none;
+}
+
+.okg-design-topbar__switcher {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px dashed var(--okg-color-line);
+  border-radius: var(--okg-radius-pill);
+  background: var(--okg-color-surface);
+  font-family: var(--okg-font-mono);
+  font-size: 12px;
+  color: var(--okg-color-muted);
+}
+
+.okg-design-topbar__switcher select {
+  font-family: inherit;
+  font-size: 12px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  max-width: 132px;
+}

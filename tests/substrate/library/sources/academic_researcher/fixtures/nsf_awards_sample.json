@@ -1,0 +1,26 @@
+{
+  "response": {
+    "award": [
+      {
+        "id": "2012345",
+        "title": "Collaborative Research: Scalable Graph Learning Systems",
+        "awardeeName": "Massachusetts Institute of Technology",
+        "startDate": "01/01/2023",
+        "expDate": "12/31/2025",
+        "fundsObligatedAmt": "500000",
+        "piFirstName": "Alex",
+        "piLastName": "Example"
+      },
+      {
+        "id": "2098765",
+        "title": "CAREER: Out-of-Core Graph Neural Networks",
+        "awardeeName": "Massachusetts Institute of Technology",
+        "startDate": "06/01/2024",
+        "expDate": "05/31/2029",
+        "fundsObligatedAmt": "600000",
+        "piFirstName": "Alex",
+        "piLastName": "Example"
+      }
+    ]
+  }
+}

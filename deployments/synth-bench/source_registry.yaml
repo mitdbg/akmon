@@ -1,0 +1,78 @@
+# synth-bench source registry — single source: git-files against
+# .scratch/bench-repos/click.
+
+sources:
+
+  git-files:
+    module: okg.substrate.library.sources.git_graph_files
+    class: GitFilesSource
+    ownership_id: synth-bench.git-files
+    params:
+      repo: click
+      repo_root: ${manifest_dir}/../../.scratch/bench-repos/click
+      include_untracked: false
+      exclude_globs:
+        - "**/__pycache__/**"
+        - "**/.venv/**"
+        - "**/*.pyc"
+
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots:
+          - "${manifest_dir}/../../.scratch/bench-repos/click"
+        # Watch normal files via the catch-all include, AND explicitly
+        # listen to git ref movements (HEAD, packed-refs, branch refs)
+        # so merge commits that don't change the working tree still
+        # trigger an ingest. Without these, "git reset --hard" to a
+        # commit with the same final tree as the previous one (merge
+        # commit, no-op cherry-pick) fires zero fs events and we have
+        # to wait for the 60-s poll cron to catch the change.
+        include_globs:
+          - "**/*"
+          - ".git/HEAD"
+          - ".git/packed-refs"
+          - ".git/refs/heads/**"
+        exclude_globs:
+          # Still exclude most of .git/ — we only want the ref-pointer
+          # files, not the object store (huge, changes constantly,
+          # would flood the watcher).
+          - "**/.git/objects/**"
+          - "**/.git/logs/**"
+          - "**/.git/lfs/**"
+          - "**/.git/index"
+          - "**/.git/index.lock"
+          - "**/.git/COMMIT_EDITMSG"
+          - "**/.git/ORIG_HEAD"
+          - "**/.git/FETCH_HEAD"
+          - "**/__pycache__/**"
+          - "**/*.pyc"
+      triggers: [fs_event, poll, manual, reconcile]
+      default_event_mode: scope_incomplete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      scoped_delete_mode: scope_complete
+      scoped_delete_dependent_fanout: direct
+      cheap_probe: stat_tree
+      scope:
+        accepts: [path]
+        unsupported_fallback: scope_complete
+      dependents:
+        on_event: direct
+        on_reconcile: closure
+      compaction:
+        # 0 = no compaction window beyond the watcher's debounce.
+        # (window_seconds must be an int per source_sync schema.)
+        window_seconds: 0
+        max_events: 500
+        max_scope_keys: 250
+      poll:
+        probe: change_probe
+        # Keep the poll as a backstop; with HEAD watching enabled the
+        # poll rarely matters, but it catches dead-watcher cases.
+        interval_seconds: 60

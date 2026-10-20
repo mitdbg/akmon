@@ -1,0 +1,47 @@
+# DBLP venue + author scraper. The personal-OKG scopes this to
+# 13 systems/databases/ML venues; this profile ships a smaller
+# default (5 venues, narrower year window) so approved setup does
+# not exhaust rate limits unless the operator explicitly opts in.
+# Operators expand `venue_slugs` as their interests dictate.
+#
+# `enabled_by_default: false` per `fix-academic-pi-source-templating-
+# defaults` Phase 1.5 (added during the dogfood Stage 2 re-run): the
+# default config fetches 5 venues × 16 years × per-author and can
+# block for ten+ minutes on a slow / throttled response — too long
+# for a zero-config install path. The dogfood saw an install hang
+# at 0% CPU for 17+ minutes in this state. Operator enables it
+# later (it's a real value-add for academic-researcher users) by toggling
+# the flag in source_registry.yaml after install.
+dblp:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.scholarly.dblp
+  class: DblpSource
+  ownership_id: ${deployment_name}.dblp
+  source_class: mutable_api
+  record_identity_kind: remote_id
+  record_identity_fields: [venue_slug, year]
+  source_revision_kind: version_token
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    venue_slugs:
+      - sigmod
+      - vldb
+      - sosp
+      - osdi
+      - nips
+    start_year: 2010
+    end_year: 2026
+    split_by_year: true
+    requests_per_second: 1.0
+    max_retries: 5
+    retry_backoff_seconds: 15.0
+    by_author: true
+    author_aliases_path: ${papers_dir}/author_aliases.yaml
+    # Per-deployment cache; persists across runs, cleared by
+    # `okg reset`. Sharing the cache across deployments risks
+    # corruption from one polluting the others, so the deployment
+    # slug is included in the path. Set explicitly via
+    # `source_registry.yaml` if the operator wants a custom dir.
+    # (fix-academic-pi-source-templating-defaults Phase 1.4)
+    cache_root: ${HOME}/.cache/okg/${deployment_name}/dblp

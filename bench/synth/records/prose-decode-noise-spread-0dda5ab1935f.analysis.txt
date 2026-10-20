@@ -1,0 +1,36 @@
+synth spread  (N=3, config a482ca353494eb3a)
+  KIND: within_seed_decode_noise   seed: prose-749-1
+  WHAT THIS MEASURES: How much does the model vary on ONE corpus? Every draw shares the config digest, hence the seed, hence the corruption selection and the document assignment; only the model's decoding differs. This is decode noise.
+  draws (per-draw generation bindings):
+    synth-a482ca353494-0cbdc7786f17  clean=okg:synthetic-corpus-smoke:branch:default:gen:20260727T202734945340Z:70f1bcdc81c0  corrupted=okg:synthetic-corpus-smoke:branch:default:gen:20260727T205541443245Z:193a984b47a4
+    synth-a482ca353494-da2d7488d4d5  clean=okg:synthetic-corpus-smoke:branch:default:gen:20260727T192754194700Z:be2c8c82c23e  corrupted=okg:synthetic-corpus-smoke:branch:default:gen:20260727T195544697170Z:e8207ea1fc96
+    synth-a482ca353494-fdd6851ccf96  clean=okg:synthetic-corpus-smoke:branch:default:gen:20260727T202523792601Z:b98997556a1c  corrupted=okg:synthetic-corpus-smoke:branch:default:gen:20260727T205448069749Z:cf910a2e45cb
+  headline metrics (min / mean / max / range / sd across draws):
+    extraction recall              min 0.8303  mean 0.8718  max 0.8959  range 0.0656  sd 0.0361
+    detection conditional          min 1.0000  mean 1.0000  max 1.0000  range 0.0000  sd 0.0000
+    detection end-to-end           min 0.6259  mean 0.6848  max 0.7211  range 0.0952  sd 0.0515
+  repair tally states:
+    repaired                       min 74  mean 82.3333  max 89  range 15  sd 7.6376
+    mis_repaired                   min 4  mean 5.3333  max 7  range 3  sd 1.5275
+    detected_only                  min 34  mean 35.0000  max 36  range 2  sd 1.0000
+    unadjudicated                  min 19  mean 24.3333  max 34  range 15  sd 8.3865
+  per-class injection survival (survived/sites rate):
+    broken_reference               min 0.7778  mean 0.8889  max 1.0000  range 0.2222  sd 0.1111
+    cardinality_violation          min 1.0000  mean 1.0000  max 1.0000  range 0.0000  sd 0.0000
+    dangling_entity                min 0.2667  mean 0.3111  max 0.4000  range 0.1333  sd 0.0770
+    derived_value                  min 0.6667  mean 0.8222  max 0.9333  range 0.2667  sd 0.1388
+    digit_transposition            min 0.8000  mean 0.8333  max 0.9000  range 0.1000  sd 0.0577
+    entity_swap                    min 0.0500  mean 0.1167  max 0.2500  range 0.2000  sd 0.1155
+    label_value_mismatch           min 0.8000  mean 0.9000  max 1.0000  range 0.2000  sd 0.1000
+    polarity_flip                  min 0.8462  mean 0.8974  max 1.0000  range 0.1538  sd 0.0888
+    unit_conversion_error          min 0.7500  mean 0.7917  max 0.8750  range 0.1250  sd 0.0722
+    value_perturbation             min 0.8158  mean 0.8772  max 0.9211  range 0.1053  sd 0.0548
+  majority-flavor mis-repair (count over preserved majorities):
+    copy preserved                 min 0  mean 0.0000  max 0  range 0  sd 0.0000
+    copy mis_repaired              min 0  mean 0.0000  max 0  range 0  sd 0.0000
+    independent preserved          min 0  mean 0.0000  max 0  range 0  sd 0.0000
+    independent mis_repaired       min 0  mean 0.0000  max 0  range 0  sd 0.0000
+  poisoning flip:
+    poisoned                       min 0  mean 0.0000  max 0  range 0  sd 0.0000
+    flipped                        min 0  mean 0.0000  max 0  range 0  sd 0.0000
+    flip_rate                      min 0.0000  mean 0.0000  max 0.0000  range 0.0000  sd 0.0000

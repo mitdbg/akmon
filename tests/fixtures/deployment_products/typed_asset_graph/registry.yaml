@@ -1,0 +1,176 @@
+schema: okg.deployment_product.typed_asset_registry/v1
+kinds:
+  - kind: schema
+    schema: okg.asset.schema/v1
+    plane: semantic-catalog
+    config_schema: okg.asset.schema.config/v1
+    result_schema: okg.asset.schema.result/v1
+    supported_versions: [v1]
+    compatibility: {contract: v1}
+    capabilities: [declarative]
+    reference_kinds: {schema: [schema]}
+    reference_cardinality: {schema: [one, optional, many]}
+    default_merge_rule: refuse
+    merge_identity: qualified_id
+    failure_rule: refuse
+    override_policy: declared_slots
+  - kind: source
+    schema: okg.asset.source/v1
+    plane: ingestion-projection
+    config_schema: okg.asset.source.config/v1
+    result_schema: okg.asset.source.result/v1
+    supported_versions: [v1]
+    compatibility: {contract: v1}
+    capabilities: [declarative]
+    reference_kinds: {schema: [schema]}
+    reference_cardinality: {schema: [one, optional, many]}
+    default_merge_rule: refuse
+    merge_identity: qualified_id
+    failure_rule: refuse
+    override_policy: declared_slots
+  - kind: enricher
+    schema: okg.asset.enricher/v1
+    plane: derivation-publication
+    config_schema: okg.asset.enricher.config/v1
+    result_schema: okg.asset.enricher.result/v1
+    supported_versions: [v1]
+    compatibility: {contract: v1}
+    capabilities: [declarative]
+    reference_kinds: {source: [source]}
+    reference_cardinality: {source: [one, optional, many]}
+    default_merge_rule: refuse
+    merge_identity: qualified_id
+    failure_rule: refuse
+    override_policy: declared_slots
+  - kind: view
+    schema: okg.asset.view/v1
+    plane: views-read-models
+    config_schema: okg.asset.view.config/v1
+    result_schema: okg.asset.view.result/v1
+    supported_versions: [v1]
+    compatibility: {contract: v1}
+    capabilities: [declarative]
+    reference_kinds: {enricher: [enricher]}
+    reference_cardinality: {enricher: [one, optional, many]}
+    default_merge_rule: refuse
+    merge_identity: qualified_id
+    failure_rule: refuse
+    override_policy: declared_slots
+  - kind: interface
+    schema: okg.asset.interface/v1
+    plane: agent-ui
+    config_schema: okg.asset.interface.config/v1
+    result_schema: okg.asset.interface.result/v1
+    supported_versions: [v1]
+    compatibility: {contract: v1}
+    capabilities: [declarative]
+    reference_kinds: {view: [view]}
+    reference_cardinality: {view: [one, optional, many]}
+    default_merge_rule: refuse
+    merge_identity: qualified_id
+    failure_rule: refuse
+    override_policy: declared_slots
+  - kind: policy
+    schema: okg.asset.policy/v1
+    plane: operations-governance
+    config_schema: okg.asset.policy.config/v1
+    result_schema: okg.asset.policy.result/v1
+    supported_versions: [v1]
+    compatibility: {contract: v1}
+    capabilities: [declarative]
+    reference_kinds: {interface: [interface]}
+    reference_cardinality: {interface: [one, optional, many]}
+    default_merge_rule: refuse
+    merge_identity: qualified_id
+    failure_rule: refuse
+    override_policy: declared_slots
+assets:
+  - owner: ontology
+    id: core-schema
+    kind: schema
+    plane: semantic-catalog
+    version: v1
+    digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+    schema: okg.asset.schema/v1
+    merge_identity: core-schema
+    merge_rule: refuse
+    provenance: {source: distribution, distribution_id: okg-standard, bundle_id: core}
+  - owner: source
+    id: git-source
+    kind: source
+    plane: ingestion-projection
+    version: v1
+    digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+    schema: okg.asset.source/v1
+    merge_identity: git-source
+    merge_rule: refuse
+    provenance: {source: bundle, distribution_id: okg-standard, bundle_id: core}
+    references:
+      - owner: ontology
+        id: core-schema
+        kind: schema
+        version: v1
+  - owner: enrich
+    id: mentions
+    kind: enricher
+    plane: derivation-publication
+    version: v1
+    digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+    schema: okg.asset.enricher/v1
+    merge_identity: mentions
+    merge_rule: refuse
+    provenance: {source: bundle, distribution_id: okg-standard, bundle_id: search}
+    references:
+      - owner: source
+        id: git-source
+        kind: source
+        version: v1
+  - owner: operator
+    id: dashboard
+    kind: view
+    plane: views-read-models
+    version: v1
+    digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    schema: okg.asset.view/v1
+    merge_identity: dashboard
+    merge_rule: refuse
+    provenance: {source: bundle, distribution_id: okg-standard, bundle_id: search}
+    references:
+      - owner: enrich
+        id: mentions
+        kind: enricher
+        version: v1
+    override_slots:
+      - slot_id: refresh_seconds
+        value_type: integer
+        default: 60
+  - owner: api
+    id: read
+    kind: interface
+    plane: agent-ui
+    version: v1
+    digest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+    schema: okg.asset.interface/v1
+    merge_identity: read
+    merge_rule: refuse
+    provenance: {source: definition, definition_id: demo}
+    references:
+      - owner: operator
+        id: dashboard
+        kind: view
+        version: v1
+  - owner: deployment
+    id: safe-defaults
+    kind: policy
+    plane: operations-governance
+    version: v1
+    digest: sha256:6666666666666666666666666666666666666666666666666666666666666666
+    schema: okg.asset.policy/v1
+    merge_identity: safe-defaults
+    merge_rule: refuse
+    provenance: {source: definition, definition_id: demo}
+    references:
+      - owner: api
+        id: read
+        kind: interface
+        version: v1

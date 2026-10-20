@@ -1,0 +1,24 @@
+# PDF inbox for Tier 1 papers. The pdf_structural enricher
+# decomposes each PDF into sections, paragraphs, figures, tables,
+# theorems, and citations. Expects PDFs at `<papers_dir>/inbox/`.
+paper_pdf_inbox:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.scholarly.paper_pdf_source
+  class: PaperPdfSource
+  ownership_id: ${deployment_name}.paper_pdf
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [inbox_path, paper_pdf_hash]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    inbox_path: ${papers_dir}/inbox
+
+  # Untrusted-origin content: held on the quarantine branch until an
+  # operator approves it via `okg admission decide` (PACT
+  # make-admission-review-load-bearing).
+  admission_policy:
+    trust_label: untrusted
+    admission_mode: review
+    output_scope_summary: "external PDF text can carry embedded injection content"

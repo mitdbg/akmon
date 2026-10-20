@@ -1,0 +1,67 @@
+pact_version: 4
+target_pact_version: 4
+change:
+  id: operator-ui-motion
+  title: 'Motion: theme crossfade + eased interactions across the console'
+  status: proposal
+  tier: 1
+  rationale: The console re-fires between themes with a short colour crossfade instead
+    of a hard cut; hover/active states and menus ease; all motion is disabled under
+    prefers-reduced-motion. Applied on the shared shell and tokens so it reaches every
+    view. Verified across firings; visual approval is reviewer-owned (operator).
+  root_cause: Small nontrivial change whose intent, task, acceptance, and proof fit
+    the PACT fast path.
+  method_metadata:
+    pact_shape: fast_path
+    fast_path: Compact PACT for small nontrivial work. Upgrade when scope, risk, hierarchy,
+      formal proof, graph evidence, or review complexity increases.
+  affected_areas: []
+  affected_code: []
+requirements:
+- id: req.operator-ui-motion
+  title: 'Motion: theme crossfade + eased interactions across the console'
+  statement: The console re-fires between themes with a short colour crossfade instead
+    of a hard cut; hover/active states and menus ease; all motion is disabled under
+    prefers-reduced-motion. Applied on the shared shell and tokens so it reaches every
+    view. Verified across firings; visual approval is reviewer-owned (operator).
+  evidence_policy:
+    required:
+    - executed_test
+  scenarios:
+  - id: scn.operator-ui-motion.fast-path
+    title: Fast-path work is verified
+    given:
+    - a small nontrivial change fits one requirement
+    when:
+    - the declared verification runs
+    then:
+    - the requirement has executed proof before completion
+    and: []
+  acceptance:
+  - id: acc.operator-ui-motion
+    description: Switching firings crossfades the themed surfaces over ~180ms, verified
+      caught mid-transition Lyceaum to Melanomorpha; the theme menu eases in on mount;
+      prefers-reduced-motion reduce makes every transition and animation instant.
+    evidence:
+    - executed_test
+tasks:
+- id: task.operator-ui-motion
+  title: Add the shared motion layer (crossfade, menu ease, reduced-motion) and prove
+    it across firings
+  status: todo
+  verification: npm run operator-ui:test
+  requirements:
+  - req.operator-ui-motion
+  evidence: []
+  environment: []
+dependencies: []
+test_plan:
+- id: test.req-operator-ui-motion.operator-ui-motion-crossfade
+  requirement: req.operator-ui-motion
+  test_id: operator-ui-motion-crossfade
+  command: npm run operator-ui:test
+  evidence:
+  - pytest
+formal: []
+waivers: []
+evidence: []

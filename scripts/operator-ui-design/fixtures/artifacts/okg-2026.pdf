@@ -1,0 +1,97 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Length 1016 >>
+stream
+BT
+/F1 11 Tf
+14 TL
+72 740 Td
+/F1 18 Tf
+(Operational knowledge graphs) Tj T*
+/F1 11 Tf
+T*
+(M. Curie, Radium Institute, 1921) Tj T*
+T*
+/F1 13 Tf
+(Abstract) Tj T*
+/F1 11 Tf
+(Operational knowledge graphs record what an engineering organisation did, decided) Tj T*
+(and observed, so that the next question can be answered from evidence rather than) Tj T*
+(from memory. We describe a substrate that ingests sources into a versioned graph,) Tj T*
+(publishes each version only after its invariants hold, and serves reads pinned to) Tj T*
+(one published version.) Tj T*
+T*
+/F1 13 Tf
+(1 Introduction) Tj T*
+/F1 11 Tf
+(A deployment is a set of producers: sources that read external systems, enrichers) Tj T*
+(that add relationships, and views that derive tables. An update attempt runs every) Tj T*
+(producer, checks the result and publishes a version or blocks with a stated cause.) Tj T*
+(Readers always see one published version at a time and can name which one they read.) Tj T*
+T*
+/F1 9 Tf
+(Page 1 of 2) Tj T*
+/F1 11 Tf
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 880 >>
+stream
+BT
+/F1 11 Tf
+14 TL
+72 740 Td
+/F1 13 Tf
+(2 Retained payloads and artifacts) Tj T*
+/F1 11 Tf
+(A source may retain the canonical record it ingested as JSON, chunked at one) Tj T*
+(mebibyte with a byte count and a SHA-256. The original artifact, when the source) Tj T*
+(keeps a corpus root, stays on disk under the path the record names. Both are served) Tj T*
+(under the policy that masks the record's attributes, so an original file never) Tj T*
+(bypasses the masking applied to its fields.) Tj T*
+T*
+(Table 1. The three raw layers of a record.) Tj T*
+T*
+(layer        holds                                 refusable by policy) Tj T*
+(row          the stored node row                   no, masked in place) Tj T*
+(edges        the stored edge rows                  no) Tj T*
+(payload      the canonical record as JSON          yes) Tj T*
+T*
+/F1 9 Tf
+(Page 2 of 2) Tj T*
+/F1 11 Tf
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000224 00000 n 
+0000001292 00000 n 
+0000001418 00000 n 
+0000002349 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+2475
+%%EOF

@@ -1,0 +1,20 @@
+{
+ "_recorded": "Recorded by .scratch/gen_owui_fixture.py (issue #3059): a hermetic okg branch server answered over an in-memory MCP client session, and the Open WebUI compatibility patch's COMPATIBLE_RESULT_SELECTION, executed as written, selected the content list and raised on isError. Stored as Open WebUI does: an answer as the JSON of the selected list, an error as str(exception) at 0.11.0 and as {\"error\": str(exception)} at 0.11.4. Session and error ids scrubbed. First lines re-pinned to the slice-6 ending grammar (PACT read-model-s6-page-next): answers end complete, refusals end retry before the generation fact; nothing else changed. Re-pinned for PACT read-passage-rows-3666: no generation fact (D8) and no max_bytes line on a search refusal (gate 1).",
+ "forms": {
+  "filter_answer": {
+   "answer": "[{\"type\": \"text\", \"text\": \"filter ok · 1-1 of 1 · complete\\n[1] n:1 (t)\", \"annotations\": null, \"meta\": null}]"
+  },
+  "search_invalid_budget": {
+   "0.11.0": "[{'type': 'text', 'text': 'search refused invalid_response_byte_budget · retry: pass max_bytes between 4096 and 262144\\nmessage: max_bytes must be between 4096 and 262144; it is refused rather than silently clamped\\nremedy: pass max_bytes between 4096 and 262144', 'annotations': None, 'meta': None}]",
+   "0.11.4": "{\"error\": \"[{'type': 'text', 'text': 'search refused invalid_response_byte_budget \\u00b7 retry: pass max_bytes between 4096 and 262144\\\\nmessage: max_bytes must be between 4096 and 262144; it is refused rather than silently clamped\\\\nremedy: pass max_bytes between 4096 and 262144', 'annotations': None, 'meta': None}]\"}"
+  },
+  "search_refused": {
+   "0.11.0": "[{'type': 'text', 'text': 'search refused operator_execution_failed · retry: narrow or correct the request, then retry\\nmessage: the operator failed before producing a bounded MCP response\\nremedy: narrow or correct the request, then retry\\ndata: {\"error_id\":\"<error-id>\"}', 'annotations': None, 'meta': None}]",
+   "0.11.4": "{\"error\": \"[{'type': 'text', 'text': 'search refused operator_execution_failed \\u00b7 retry: narrow or correct the request, then retry\\\\nmessage: the operator failed before producing a bounded MCP response\\\\nremedy: narrow or correct the request, then retry\\\\ndata: {\\\"error_id\\\":\\\"<error-id>\\\"}', 'annotations': None, 'meta': None}]\"}"
+  },
+  "write_raised": {
+   "0.11.0": "[{'type': 'text', 'text': 'Error executing tool widget_write: widget store unavailable', 'annotations': None, 'meta': None}]",
+   "0.11.4": "{\"error\": \"[{'type': 'text', 'text': 'Error executing tool widget_write: widget store unavailable', 'annotations': None, 'meta': None}]\"}"
+  }
+ }
+}

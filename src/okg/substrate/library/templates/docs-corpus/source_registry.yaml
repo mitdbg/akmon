@@ -1,0 +1,25 @@
+sources:
+  docsite:
+    module: okg.substrate.library.sources.docsite
+    class: DocsiteSource
+    ownership_id: docs.docsite
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [path]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    params:
+      fixture_path: ${deployment_dir}/fixtures/docsite.json
+  confluence:
+    module: okg.substrate.library.sources.confluence
+    class: ConfluenceSource
+    ownership_id: docs.confluence
+    source_class: mutable_api
+    record_identity_kind: remote_id
+    record_identity_fields: [page_id]
+    source_revision_kind: updated_at
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    params:
+      fixture_path: ${deployment_dir}/fixtures/confluence.json

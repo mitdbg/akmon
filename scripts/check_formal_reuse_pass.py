@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""Run the ReusePass TLA+ model with TLC.
+
+Positive run (the default, and what the formal suite's smoke tier invokes):
+drives the exhaustive small-scope ``ReusePass.cfg`` and asserts the reuse pass's
+resolved-state-equality invariant holds, emitting a strict ``formal-report.yaml``.
+``--counterexamples`` additionally drives each named counterexample config and
+asserts it refutes exactly its named invariant -- the self-contained local
+falsifiability proof (``scripts/run_formal_suite.py`` also runs these two configs
+via its DIRECT_COUNTEREXAMPLES registry). State counts and wall time are printed
+for every config.
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from pathlib import Path
+
+from okg.substrate.formal_tlc import (
+    TLCProperty,
+    TLCSetupError,
+    run_tlc_formal_report,
+    select_properties,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+MODEL_DIR = REPO_ROOT / "formal" / "consistency"
+DEFAULT_OUT = REPO_ROOT / ".scratch" / "formal" / "reuse-pass"
+DEFAULT_MODEL = MODEL_DIR / "ReusePass.tla"
+DEFAULT_CONFIG = MODEL_DIR / "ReusePass.cfg"
+DEFAULT_CHECKER_COMMAND = (
+    "uv run --extra dev python scripts/check_formal_reuse_pass.py "
+    "--out .scratch/formal/reuse-pass"
+)
+
+# Measured non-vacuity floor: the positive config exhausts to 850 distinct
+# states (OKG_TLC_WORKERS=4, pinned tla2tools). 800 leaves a small headroom while
+# staying far above the DEFAULT_MIN_DISTINCT_STATES=2 vacuity floor, so a
+# constraint-collapsed state space fails closed with failure_class
+# vacuous_state_space. This is a MEASURED vacuity floor, NOT the CI timeout
+# budget -- that budget placeholder is set from measurement in
+# task.formal.lane-integration.
+MIN_DISTINCT_STATES = 800
+
+# Real scheduler / certificate tests that drive the same decision surfaces the
+# model abstracts (bound on each result row; the folder README's maps expand the
+# per-invariant bindings).
+REFINEMENT_TESTS = (
+    "tests/substrate/consistency/test_reuse_scheduler.py::"
+    "test_scheduler_governed_publish_equals_complete_reference",
+    "tests/substrate/consistency/test_reuse_scheduler.py::"
+    "test_mixed_run_skip_fixed_point_every_outcome_cause_recorded",
+    "tests/substrate/consistency/test_reuse_scheduler.py::"
+    "test_valid_prior_certificate_skip",
+    "tests/substrate/consistency/test_reuse_scheduler.py::"
+    "test_policy_and_precedence_fingerprint_changes_force_the_step_to_run",
+    "tests/substrate/consistency/test_reuse_scheduler.py::"
+    "test_no_cone_step_skips_without_certificate",
+    "tests/substrate/consistency/test_reuse_certificates.py::"
+    "test_each_dependency_class_invalidates",
+)
+
+PROPERTIES = [
+    TLCProperty(
+        "ReusePassSoundness",
+        "TLC verified the reuse pass reaches a fixed point whose committed "
+        "resolved state equals the full-recompute resolved state for the same "
+        "delta: every skip stands behind a certificate whose recorded "
+        "dependency classes all match current facts, and a step whose RUN would "
+        "dynamically create a new consumer cannot be skipped.",
+        refinement_tests=REFINEMENT_TESTS,
+        expected_invariants=(
+            "TypeOK",
+            "NoOmittedConsumer",
+            "SkippedOutputsUnchanged",
+            "ResolvedStateEquality",
+            "ReusePassSoundness",
+        ),
+    ),
+]
+
+# Each named counterexample disables exactly one guard and MUST refute exactly
+# one invariant by name (TLC halts at the first violation). run_formal_suite.py
+# also runs these via DIRECT_COUNTEREXAMPLES; --counterexamples here is the
+# self-contained local proof.
+COUNTEREXAMPLES: tuple[tuple[str, str], ...] = (
+    ("ReusePassDynamicConsumerCounterexample.cfg", "NoOmittedConsumer"),
+    ("ReusePassStaleCertCounterexample.cfg", "SkippedOutputsUnchanged"),
+)
+
+
+def _run_positive(args: argparse.Namespace) -> int:
+    start = time.monotonic()
+    try:
+        result = run_tlc_formal_report(
+            repo_root=REPO_ROOT,
+            model_dir=MODEL_DIR,
+            model=args.model,
+            config=args.config,
+            out_dir=args.out,
+            properties=select_properties(PROPERTIES, args.property_ids),
+            expected_properties=PROPERTIES,
+            checker_command=args.checker_command,
+            extra_refinement_tests=args.extra_refinement_tests,
+            timeout_seconds=args.timeout_seconds,
+            min_distinct_states=MIN_DISTINCT_STATES,
+        )
+    except TLCSetupError as exc:
+        print(f"formal-reuse-pass: {exc}", file=sys.stderr)
+        return exc.exit_code
+    wall = time.monotonic() - start
+    if result.run_failed:
+        print(
+            "formal-reuse-pass: TLC failed "
+            f"(distinct_states={result.distinct_states}, {wall:.1f}s); see "
+            f"{result.stdout_path} and {result.stderr_path}",
+            file=sys.stderr,
+        )
+        return result.exit_code or 1
+    print(
+        "formal-reuse-pass: TLC passed "
+        f"(distinct_states={result.distinct_states}, floor={MIN_DISTINCT_STATES}, "
+        f"{wall:.1f}s); report at {result.report_path}"
+    )
+    return 0
+
+
+def _run_counterexamples(args: argparse.Namespace) -> int:
+    ok = True
+    for config_name, invariant in COUNTEREXAMPLES:
+        prop = TLCProperty(
+            invariant,
+            f"{invariant} is genuinely violable when its guard is disabled.",
+            expected_invariants=(invariant,),
+        )
+        out_dir = args.out / "counterexamples" / Path(config_name).stem
+        start = time.monotonic()
+        try:
+            result = run_tlc_formal_report(
+                repo_root=REPO_ROOT,
+                model_dir=MODEL_DIR,
+                model=args.model,
+                config=MODEL_DIR / config_name,
+                out_dir=out_dir,
+                properties=[prop],
+                expected_properties=[prop],
+                checker_command=args.checker_command,
+                expect_counterexample=True,
+                timeout_seconds=args.timeout_seconds,
+                write_report=False,
+            )
+        except TLCSetupError as exc:
+            print(f"formal-reuse-pass: {exc}", file=sys.stderr)
+            return exc.exit_code
+        wall = time.monotonic() - start
+        if result.run_failed:
+            ok = False
+            print(
+                f"  [FAIL] {config_name}: expected {invariant} violated but got "
+                f"{list(result.violated_invariants) or 'no violation'} "
+                f"({wall:.1f}s); see {result.stdout_path}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"  [OK]   {config_name}: {invariant} violated as expected "
+                f"({wall:.1f}s)"
+            )
+    if not ok:
+        print("formal-reuse-pass: counterexample proof FAILED", file=sys.stderr)
+        return 1
+    print("formal-reuse-pass: both counterexamples refuted their named invariant")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_OUT,
+        help="directory for TLC logs and formal-report.yaml",
+    )
+    parser.add_argument(
+        "--model",
+        type=Path,
+        default=DEFAULT_MODEL,
+        help="TLA+ module path; relative paths resolve under formal/consistency",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help="TLC config path; relative paths resolve under formal/consistency",
+    )
+    parser.add_argument(
+        "--checker-command",
+        default=DEFAULT_CHECKER_COMMAND,
+        help="PACT formal binding checker_command represented by this report",
+    )
+    parser.add_argument(
+        "--refinement-test",
+        action="append",
+        default=[],
+        dest="extra_refinement_tests",
+        help="additional refinement test ref included on each result row",
+    )
+    parser.add_argument(
+        "--property-id",
+        action="append",
+        default=[],
+        dest="property_ids",
+        help="property_id row to emit; repeat to emit multiple bound rows",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=120,
+        help="maximum seconds to allow TLC to run (generous local default; the "
+        "gating CI smoke budget is the suite's smoke_timeout, a placeholder set "
+        "from measurement in task.formal.lane-integration)",
+    )
+    parser.add_argument(
+        "--counterexamples",
+        action="store_true",
+        help="also drive each named counterexample config and assert it refutes "
+        "its named invariant (self-contained falsifiability proof)",
+    )
+    args = parser.parse_args(argv)
+
+    rc = _run_positive(args)
+    if rc == 0 and args.counterexamples:
+        rc = _run_counterexamples(args)
+    return rc
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

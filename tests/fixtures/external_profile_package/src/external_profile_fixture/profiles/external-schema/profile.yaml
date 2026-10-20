@@ -1,0 +1,15 @@
+name: external-schema
+version: 1.0.0
+classification: fixture
+description: Packaged external profile with distribution-owned vocabulary
+init_questions:
+  - id: deployment_name
+    prompt: Deployment name
+    type: slug
+    required: true
+  - id: postgres_dsn
+    prompt: PostgreSQL DSN
+    type: string
+    required: true
+modules: modules.yaml
+schemas: schemas/

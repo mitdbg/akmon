@@ -1,0 +1,53 @@
+distribution_release:
+  distribution_id: okg-standard
+  version: "1.0.0"
+  origin: embedded
+  release_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  bundle_ids: [core, search]
+  assets:
+    - owner: okg-standard
+      id: ontology-core
+      kind: ontology
+      version: "1"
+      digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+product_bundles:
+  - bundle_id: core
+    version: "1.0.0"
+    distribution_id: okg-standard
+    distribution_version: "1.0.0"
+    bundle_digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+    assets:
+      - owner: okg-standard
+        id: ontology-core
+        kind: ontology
+        version: "1"
+        digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+  - bundle_id: search
+    version: "1.0.0"
+    distribution_id: okg-standard
+    distribution_version: "1.0.0"
+    bundle_digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    requires_bundle_ids: [core]
+definition:
+  definition_id: embedded-demo
+  distribution_release_ref:
+    distribution_id: okg-standard
+    version: "1.0.0"
+  bundles:
+    - bundle_id: search
+      version: "1.0.0"
+    - bundle_id: core
+      version: "1.0.0"
+  instance_values:
+    deployment_name: embedded-demo
+  overrides:
+    - slot_id: region
+      value_type: string
+      value: us-east
+  local_assets:
+    - asset_id: site-policy
+      kind: policy
+      digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+  secret_references:
+    - secret_id: db-password
+      provider: local-keychain

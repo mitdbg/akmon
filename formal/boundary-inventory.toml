@@ -1,0 +1,321 @@
+schema = "okg.formal.boundary-inventory.v1"
+
+[[direct_models]]
+id = "merge_back.restamp_partition"
+area = "merge_back"
+title = "Merge-back replay, restamp, partition, and blocked-LAND rollback"
+owner_surface = "formal/merge_back/README.md; src/okg/substrate/merge_back.py"
+model_refs = [
+  "formal/merge_back/README.md",
+  "formal/merge_back/MergeBackReplay.tla",
+  "formal/merge_back/MergeBackRestamp.tla",
+  "formal/merge_back/MergeBackPartitionAtomicity.tla",
+  "formal/merge_back/MergeBackLandRollback.tla",
+]
+evidence_refs = [
+  "scripts/check_formal_merge_back_safety.py",
+  "tests/substrate/test_merge_back_orchestrator.py",
+  "tests/substrate/test_merge_restamp.py",
+  "tests/substrate/test_merge_partition.py",
+]
+rationale = "Issue #337 named merge-back/restamp/partition as an example from the earlier audit. The 2026-07-01 formal audit found the first-generation models decorative (atomic single-action scripts with no partial state); the wave-3 rewrite (strengthen-formal-models / formal-strengthen-merge-back) gave LandRollback a delete-failure branch with the loud rollback-incomplete contract, PartitionAtomicity a transaction-buffer structure with crash interleavings, and Restamp per-field provenance with buggy-toggle witnesses -- each invariant now has a named falsifying witness in run_formal_suite. Still runtime-test-only: MergeBackReplay's phantom-retraction and gate-derived-row variables remain coarse (the gate-derived cleanup sweep's LIKE-prefix under-deletion surface is untested formally), and Chronos previews/publisher gates/branch locks stay refinement preconditions."
+
+[[direct_models]]
+id = "consistency.reuse_pass"
+area = "consistency"
+title = "Resolution-aware reuse pass resolved-state equality (differential core)"
+owner_surface = "formal/consistency/README.md; src/okg/substrate/consistency/reuse_scheduler.py"
+model_refs = [
+  "formal/consistency/README.md",
+  "formal/consistency/ReusePass.tla",
+  "formal/consistency/ReusePass.cfg",
+  "formal/consistency/ReusePassDynamicConsumerCounterexample.cfg",
+  "formal/consistency/ReusePassStaleCertCounterexample.cfg",
+]
+evidence_refs = [
+  "scripts/check_formal_reuse_pass.py",
+  "src/okg/substrate/consistency/reuse_scheduler.py",
+  "src/okg/substrate/consistency/reuse_certificates.py",
+  "tests/substrate/consistency/test_reuse_scheduler.py",
+  "tests/substrate/consistency/test_reuse_certificates.py",
+]
+rationale = "formalize-differential-core (task.formal.reuse-model): ReusePass.tla exhausts an 850-state small-scope model of the reuse worklist -- a delta dirties some inputs; each reached step attempts the skip ladder (valid-prior-certificate / degenerate unchanged-inputs / bounded-dominance / run) and commits at the fixed point -- and proves the committed resolved state equals a full recompute of the same delta on every behavior. Two guards are witnessed load-bearing by name: ReusePassDynamicConsumerCounterexample.cfg (GuardDynamicConsumer=FALSE) refutes NoOmittedConsumer when a step whose run would spawn a new consumer is skipped, and ReusePassStaleCertCounterexample.cfg (CertIgnoresStaleClass=TRUE) refutes SkippedOutputsUnchanged when a certificate validates despite one stale dependency class. Deliberate abstractions keep the model small and are runtime-test/claim-core boundaries, not accidental proof: the ten DEPENDENCY_CLASSES are reduced to three representative ones; a step's output is the identity on its recorded facts, so the bounded-dominance authority arithmetic (dominance_is_justifiable / derive_competitor_bound) is NOT exercised here (it is proven by the claim-core precedence model and the scheduler's dominance tests); the new-consumer trigger is modeled independent of the spawner's recorded classes (the section-9 hole) but the possible-effects reach computation itself is not proven; and the discard/abort fallbacks plus the DBOS crash/resume atomicity (coordination-dbos scope) are out of scope for this equality invariant."
+
+[[direct_models]]
+id = "consistency.qualification_gate"
+area = "consistency"
+title = "Consistency publish-gate blocking-policy qualification (finding arm)"
+owner_surface = "formal/consistency/README.md; src/okg/substrate/consistency/gates.py"
+model_refs = [
+  "formal/consistency/README.md",
+  "formal/consistency/QualificationGate.tla",
+  "formal/consistency/QualificationGateSmoke.cfg",
+  "formal/consistency/QualificationGateStanding.cfg",
+  "formal/consistency/QualificationGateOneShotExhibit.cfg",
+  "formal/consistency/QualificationGateStandingCounterexample.cfg",
+]
+evidence_refs = [
+  "scripts/check_formal_qualification_gate.py",
+  "src/okg/substrate/consistency/gates.py",
+  "tests/substrate/test_consistency_gates.py",
+  "tests/substrate/consistency/test_qualification_mapping.py",
+]
+rationale = "formalize-differential-core (task.formal.qualification-model): QualificationGate.tla exhausts a small-scope model (159 distinct states on the positive scope) of the finding-blocking arm of evaluate_consistency_publish_gate -- the finding lifecycle (absent -> open via an observed event -> resolved -> reopened) crossed with the declarative blocking policy (never / new_findings [+ severity floor] / any_open) and a deployment blocks_publish override, across consecutive publish attempts where a blocked attempt retries. It rules on the new_findings one-shot-mandatory semantics: QualificationGateStanding.cfg proves NoPublishWhileMandatoryOpen (Concord's standing qualification predicate) holds exhaustively under any_open; QualificationGateOneShotExhibit.cfg exhibits the reachable violation under new_findings -- a mandatory finding opens (blocks, newly-observed), then on the next attempt emits no re-observed event (bounded-event-growth, the _newly_opened_this_run contract) and publishes over itself as backlog -- proving only any_open implements the standing qualification. The falsifiability witness QualificationGateStandingCounterexample.cfg (BuggyConsultsNewlyOpenedForStanding=TRUE) refutes NoPublishWhileMandatoryOpen by name when an any_open gate consults the newly-opened count instead of the open count, proving the open-count consultation is load-bearing. Deliberate abstractions that stay runtime-test evidence, not accidental proof: operational blocks (timeout / error / incomplete coverage), which the engine always treats as blocking, are out of scope (finding arm only); the observation-ledger SQL and the backpressure probing breaker are unmodeled; and the three-level severity lattice is abstracted to a per-config qualifying/non-qualifying partition at the declared floor. The section-9.10 operator ruling recorded from this model output is manual evidence produced by the orchestrator, outside the spec."
+
+[[direct_models]]
+id = "consistency.dbos_commit_resume"
+area = "consistency"
+title = "Publish commit/resume crash atomicity under the DBOS workflow"
+owner_surface = "formal/consistency/README.md; src/okg/substrate/runtime/reuse_pass_workflow.py"
+model_refs = [
+  "formal/consistency/README.md",
+  "formal/consistency/DbosCommitResume.tla",
+  "formal/consistency/DbosCommitResume.cfg",
+  "formal/consistency/DbosCommitResumeMarkerFirstCounterexample.cfg",
+  "formal/consistency/DbosCommitResumeSplitCommitCounterexample.cfg",
+  "formal/consistency/DbosCommitResumeNonIdempotentCounterexample.cfg",
+]
+evidence_refs = [
+  "scripts/check_formal_dbos_commit.py",
+  "src/okg/substrate/runtime/reuse_pass_workflow.py",
+  "src/okg/substrate/publisher/publisher.py",
+  "tests/substrate/consistency/test_reuse_scheduler.py",
+]
+rationale = "formalize-differential-core (task.formal.coordination-dbos, delivering the commit/resume territory of the formal-strengthening umbrella's open coordination-dbos wave, which remains open for its broader native-coordination scope): DbosCommitResume.tla exhausts a 2944-state small-scope model of the publish commit/resume protocol -- a workflow of ordered steps (derive -> reuse -> admit -> commit-checkpoint) with durable DBOS step-completion markers, a crash allowed at every step boundary (the open transaction is lost, durable state survives), and resume restarting the workflow with marker-complete steps NOT re-executed (DBOS replays the recorded result without re-creating transactional effects), over two successive publish cycles with per-cycle delta inputs ranged. Three invariants hold on every behavior of the sound configuration: NoPartialGenerationObservable (the visible pointer only ever reaches a fully-committed generation), NoDoubleCommit (resume never commits the same generation twice with different content -- effects are transactional AND input-deterministic), and NoCertWithoutCheckpoint (no durable certificate references a generation whose checkpoint never committed). Three guards are witnessed load-bearing by name: DbosCommitResumeMarkerFirstCounterexample.cfg (a step's durability marker written BEFORE its effects are durable -- resume skips the step and the commit checkpoints a partial generation), DbosCommitResumeSplitCommitCounterexample.cfg (the one-transaction commit set split in two -- a crash between them strands certificates for an uncommitted generation), and DbosCommitResumeNonIdempotentCounterexample.cfg (a non-idempotent step writing outside the commit transaction -- resume re-executes and double-commits different content). The commit_maintenance_state single conn.commit() (certificates atomic with the generation checkpoint, markers riding the DBOS same-database boundary) is the modeled sound protocol; the crash-mid-update pytest witness is the single-trace empirical anchor the model generalizes. Deliberate abstractions documented in the folder README: the reuse-pass discard/abort fallback ladder and the blocked-publish path are out of scope; durable-store invariants are asserted at observable states (crash boundaries and termination); the live-DBOS singleton wiring (a step rebuilding effects from serializable identity) remains task.reuse.live-proof scope -- this model pins the marker-no-earlier-than-effects constraint that wiring must satisfy."
+
+[[direct_models]]
+id = "consistency.watermark_retry"
+area = "consistency"
+title = "Watermark-hold retry liveness under publish-cycle skip paths (differential core)"
+owner_surface = "formal/consistency/README.md; src/okg/substrate/publisher/publisher.py"
+model_refs = [
+  "formal/consistency/README.md",
+  "formal/consistency/WatermarkRetry.tla",
+  "formal/consistency/WatermarkRetry.cfg",
+  "formal/consistency/WatermarkRetryStrandedCounterexample.cfg",
+]
+evidence_refs = [
+  "scripts/check_formal_watermark_retry.py",
+  "src/okg/substrate/library/enrichers/extraction/base.py",
+  "src/okg/substrate/publisher/publisher.py",
+  "tests/substrate/test_enricher_input_failure_holds_watermark.py",
+  "tests/substrate/extraction/test_extractor_llm_failure_watermark.py",
+  "tests/substrate/runtime/test_publish_commit_protocol.py",
+]
+rationale = "formalize-differential-core (task.formal.watermark-liveness): WatermarkRetry.tla composes the per-item extractor record-and-hold contract (a failed LLM call records an input failure, the run comes back incomplete, the publisher stamps last_status='failed:...' and holds the enricher watermark) with the publisher's two skip paths -- the per-enricher skip-clean rung that refuses whenever last_status != 'success', and the generation-level no-op-reuse fast path that can put 'enrichers' in skipped_stages on a source-quiescent cycle. The headline is a LIVENESS theorem checked by TLC as a temporal property (19 distinct states, complete state space): under weak fairness on publish cycles, with the fast path consulting retry state (GuardConsultsRetryState=TRUE) and failure transient (a bounded budget -- a retried item eventually succeeds), every failed-and-held item is eventually processed (EveryItemEventuallyProcessed). WatermarkRetryStrandedCounterexample.cfg (GuardConsultsRetryState=FALSE) refutes the SAME property under the SAME fair spec with the stranded-watermark lasso -- item fails, source goes permanently quiescent, no-op-reuse skips the enrichers stage forever -- pinning the pre-P6 dev defect class mechanically (the temporal refutation is checked in-process by the checker; the suite's named-invariant witness registry cannot express it). The live engine HAS the generation-level guard (P6 of specify-publish-commit-protocol: _enricher_retry_pending_name invalidates reuse as 'enricher_retry_pending'; pinned by test_p6_held_enricher_retry_invalidates_reuse and test_p6_never_run_enricher_is_pending). Deliberate abstractions that stay runtime-test evidence: the transient-failure budget is global and bounded, so a permanently failing (poison) item is out of scope; the reuse closure's other invalidation arms (catalog version, lenses, nomos pin, gate inputs, native views, extractor signature) are collapsed into the quiescence test; one enricher, no fact-id arithmetic (the watermark is abstracted to last_status + the pending set); replay-mode exclusions are different bookkeeping, not modeled."
+
+[[direct_models]]
+id = "consistency.enricher_backlog_drain"
+area = "consistency"
+title = "Successful-watermark enricher backlog drainage across generation reuse"
+owner_surface = "formal/consistency/README.md; src/okg/substrate/publisher/publisher.py"
+model_refs = [
+  "formal/consistency/README.md",
+  "formal/consistency/EnricherBacklogDrain.tla",
+  "formal/consistency/EnricherBacklogDrain.cfg",
+  "formal/consistency/EnricherBacklogDrainPreReuseStrandedCounterexample.cfg",
+  "formal/consistency/EnricherBacklogDrainPostReuseUnsafeCounterexample.cfg",
+]
+evidence_refs = [
+  "scripts/check_formal_enricher_backlog_drain.py",
+  "src/okg/substrate/publisher/publisher.py",
+  "tests/substrate/test_publisher.py",
+]
+rationale = "Issue #713: EnricherBacklogDrain.tla exhausts a finite two-stage acyclic enricher DAG under weak fairness and a publisher phase-start node-fact snapshot. It proves EveryEligibleInputEventuallyProcessed and ReuseOnlyWhenNoEligibleBacklog when both generation-reuse decisions consult successful progress watermark lag. The pre-reuse guard-off config exhibits a temporal lasso that strands the upstream-derived fact after source traffic becomes quiescent. The post-reuse guard-off config independently violates the named safety invariant when graph-idempotent upstream work creates lag after the phase-start snapshot. Deliberate bounds: one upstream input, one downstream stage, finite quiescent source input, node-fact selectors only, and no payload semantics. Runtime tests retain authority for subtype filtering, retention-stale progress, retractions, selectorless declarations, and graph-visible published generations. Edge-only prior-segment backlog is explicitly out of scope because the current incremental context cannot reconstruct historical edge facts."
+
+[[boundaries]]
+id = "federation.mailbox_transport"
+area = "federation"
+title = "Federation mailbox transport, HTTP, leases, and object storage"
+classification = "runtime_test_boundary"
+owner_surface = "src/okg/substrate/federation/; src/okg/substrate/federation/mailbox/"
+formal_refs = [
+  "formal/poros/README.md",
+  "formal/nomos/README.md",
+]
+evidence_refs = [
+  "src/okg/substrate/federation/mailbox/service.py",
+  "tests/substrate/federation/test_mailbox_service.py",
+  "tests/substrate/federation/test_mailbox_authz.py",
+  "tests/substrate/federation/test_mailbox_incorporation_demo.py",
+  "tests/substrate/exchange/test_sender_delivery_egress.py",
+]
+rationale = "Poros and Nomos model exchange, admission, proof, and policy semantics; mailbox delivery mechanics, HTTP service behavior, object stores, authentication, and lease handling remain intentional runtime/test evidence."
+
+[[boundaries]]
+id = "llm.embeddings_tracking"
+area = "runtime"
+title = "Embedding pipeline and LLM call tracking"
+classification = "runtime_test_boundary"
+owner_surface = "src/okg/substrate/runtime/embed_workflow.py; src/okg/substrate/llm/tracker.py; src/okg/views/execution/llm.py"
+evidence_refs = [
+  "src/okg/substrate/runtime/embed_workflow.py",
+  "src/okg/substrate/llm/tracker.py",
+  "src/okg/substrate/catalog/invariants_llm.py",
+  "tests/substrate/embeddings/test_hash_embedder.py",
+  "tests/substrate/test_embedding_pipeline.py",
+  "tests/substrate/runtime/test_embed_workflow.py",
+  "tests/substrate/test_llm_tracker.py",
+  "tests/views/test_llm_client.py",
+]
+rationale = "Embedding determinism, cache/idempotency, paid-provider dispatch, best-effort tracking, and nonblocking LLM invariant warnings are operational behaviors with runtime tests; no formal model currently claims these semantics."
+
+[[boundaries]]
+id = "security.sql_role_grants"
+area = "security"
+title = "Concrete SQL roles, grants, and Postgres privilege enforcement"
+classification = "runtime_test_boundary"
+owner_surface = "src/okg/substrate/runtime/sql/role_split.sql; tests/sql/roles/"
+formal_refs = [
+  "formal/nomos/README.md",
+  "formal/chronos/README.md",
+]
+related_gap_ids = [
+  "nomos.iam-scope-too-abstract",
+]
+evidence_refs = [
+  "src/okg/substrate/runtime/sql/role_split.sql",
+  "src/okg/substrate/runtime/audit.py",
+  "tests/sql/roles/app_rw_grants.sql",
+  "tests/sql/roles/app_ro_read_only.sql",
+  "tests/sql/roles/catalog_admin_grants.sql",
+  "tests/sql/roles/test_app_ro_default_deny.py",
+  "tests/substrate/runtime/test_provenance_split_audit.py",
+  "tests/security/test_nomos_runtime_primitives.py",
+]
+rationale = "Nomos models policy semantics and Chronos models SQL read pinning, but concrete Postgres grants, role inheritance, DDL refusal, and view-only read enforcement are intentional runtime/database proof boundaries."
+
+[[boundaries]]
+id = "extraction.parser_alias_linker"
+area = "projection"
+title = "Extractor, parser, alias resolver, and linker route specifics"
+classification = "covered_indirectly"
+owner_surface = "src/okg/substrate/projection/; src/okg/substrate/library/extraction/; src/okg/substrate/catalog/"
+formal_refs = [
+  "formal/source_sync/README.md",
+  "formal/admission/README.md",
+  "formal/transform/README.md",
+]
+evidence_refs = [
+  "src/okg/substrate/library/extraction/parse/dispatch.py",
+  # test_extractor_routing.py was deleted with the unreachable
+  # batch-projection subsystem (retire-dead-projection-pool); the
+  # chronos-native routing tests are its live successor.
+  "tests/substrate/test_chronos_extractor_routing.py",
+  "tests/substrate/property/test_alias_cascade_property.py",
+  "tests/substrate/test_linker_config.py",
+  "tests/substrate/library/extraction/test_parsers.py",
+]
+rationale = "Admission, source-sync, and transform models cover admission consequences, delta/dirty behavior, and narrowing acceptance; adapter parser behavior, alias cascade details, and route selection remain runtime/refinement evidence."
+
+[[boundaries]]
+id = "nomos.iam_scope"
+area = "nomos"
+title = "Deployment-specific IAM provider, claim, binding, grant, and scope semantics"
+classification = "needs_formal_model"
+owner_surface = "formal/nomos/README.md; src/okg/substrate/nomos/"
+gap_id = "nomos.iam-scope-too-abstract"
+evidence_refs = [
+  "formal/gap-inventory.toml",
+  "formal/nomos/README.md",
+  "tests/substrate/nomos/test_nomos_institutional_iam_postgres.py",
+]
+rationale = "The Nomos model is active, but deployment-specific identity-provider and subject-binding semantics remain a named boundary precondition and stay in the formal gap ledger until refined or proven by deployment-specific tests."
+
+[[boundaries]]
+id = "console.legacy_operator_models"
+area = "console"
+title = "Historical legacy console state-machine helpers"
+classification = "obsolete_archive_only"
+owner_surface = "formal/console/README.md; scripts/check_formal_console.py"
+evidence_refs = [
+  "formal/console/README.md",
+  "scripts/check_formal_console.py",
+  "tests/docs/test_formal_readmes.py",
+  "tests/pact/test_formal_report_producers.py",
+]
+rationale = "The legacy console formal helpers are retained as archive-only historical reference material and cannot satisfy active PACT formal evidence."
+
+[[boundaries]]
+id = "formal.tlc_ci_gating"
+area = "formal-verification"
+title = "Formal TLC execution as a non-advisory CI gating boundary"
+classification = "runtime_test_boundary"
+owner_surface = "scripts/run_formal_suite.py; tests/qa_lanes.yaml; .github/workflows/test.yml"
+evidence_refs = [
+  "scripts/run_formal_suite.py",
+  "tests/qa_lanes.yaml",
+  "tests/docs/test_formal_suite_reachability.py",
+]
+rationale = "The corpus is now gated by a non-advisory CI lane that bootstraps the jar and runs every checker's smoke profile plus every counterexample witness, failing the build on any non-pass. Whether a given GitHub run actually executed (jar present, runner healthy) is live CI evidence, not a TLA property; the reachability test keeps every checker on the run path."
+
+[[boundaries]]
+id = "formal.smoke_full_delta"
+area = "formal-verification"
+title = "Smoke profiles check a subset of the headline contract"
+classification = "covered_indirectly"
+owner_surface = "scripts/run_formal_suite.py; formal/nomos/README.md; formal/attributes/README.md"
+related_gap_ids = [
+  "formal.smoke-full-coverage-delta",
+]
+evidence_refs = [
+  "scripts/run_formal_suite.py",
+  "formal/nomos/README.md",
+  "formal/attributes/README.md",
+]
+rationale = "Some smoke profiles run a focused config (e.g. nomos source-lineage only); run_formal_suite --list flags each TLC checker with smoke_is_full_model, and the full profiles cover the dropped invariants on the release path. The tracked work is making each smoke profile non-vacuous for the invariants it names."
+
+[[boundaries]]
+id = "source_sync.record_set_descendants"
+area = "source-sync"
+title = "Record-set diff descendant and edge expansion"
+classification = "needs_formal_model"
+owner_surface = "formal/source_sync/SourceDeltaContract.tla; src/okg/substrate/ingest/runner.py"
+gap_id = "source_sync.record-set-diff-descendants"
+evidence_refs = [
+  "formal/source_sync/SourceDeltaContract.tla",
+  "src/okg/substrate/ingest/runner.py",
+  "formal/gap-inventory.toml",
+]
+rationale = "SourceDeltaContract models a flat set difference; the descendant/edge-expansion logic that is the known incremental-source production regression is not yet modeled and stays in the formal gap ledger until refined or proven by ingest runner refinement tests."
+
+[[boundaries]]
+id = "chronos.mixed_generation"
+area = "chronos"
+title = "Mixed node/edge read-generation JOIN hazard"
+classification = "needs_formal_model"
+owner_surface = "formal/chronos/ChronosReadPin.tla; src/okg/substrate/mcp/run_sql.py"
+gap_id = "chronos.mixed-generation-observation"
+evidence_refs = [
+  "formal/chronos/ChronosReadPin.tla",
+  "src/okg/substrate/mcp/run_sql.py",
+  "formal/gap-inventory.toml",
+]
+rationale = "ChronosReadPin collapses node and edge read generations into one scalar, so NoMixedGenerationObservation cannot fail; the two-checkout mixed-generation hazard needs separate read generations modeled before the invariant proves it."
+
+[[boundaries]]
+id = "poros.sender_authority_denial"
+area = "poros"
+title = "Poros sender-authority denial path in live refinement"
+classification = "runtime_test_boundary"
+owner_surface = "src/okg/substrate/exchange/refinement_db.py; src/okg/substrate/exchange/refinement.py"
+evidence_refs = [
+  "src/okg/substrate/exchange/refinement_db.py",
+  "src/okg/substrate/exchange/refinement.py",
+  "tests/substrate/exchange/test_poros_http.py",
+  "formal/poros/PorosSenderAuthorityWitness.cfg",
+]
+rationale = "Resolved by strengthen-formal-models wave 7 (#565): the live DB refinement now derives receiver_authorized from the receiver's recorded Nomos decision instead of the hardcoded True, so the NoSenderPolicyAuthority denial branch is driven by a real denying trace. The runtime test test_http_sender_hinted_denial_refines_receiver_unauthorized submits a sender-hinted message the receiver denies and asserts receiver_authorized=False and blockedState; the model's NoSenderPolicyAuthority now has a named buggy-toggle witness (PorosSenderAuthorityWitness.cfg)."
+
+[[boundaries]]
+id = "admission.legacy_projectable_views"
+area = "admission"
+title = "Legacy projectable views are zero-row stubs; rejection safety lives in the derived-fact loader deny-list"
+classification = "obsolete_archive_only"
+owner_surface = "src/okg/substrate/db/views.sql; src/okg/substrate/db/management.py"
+evidence_refs = [
+  "src/okg/substrate/publisher/publisher.py",
+  "tests/substrate/test_admission_rejection_projection.py",
+  "src/okg/substrate/db/management.py",
+]
+rationale = "The chronos-native cutover (management.py views_without_legacy_graph_storage) deliberately replaces okg.projectable_node_facts / okg.projectable_edge_facts with zero-row stubs, and the node view has no consumers; the views.sql deny-list text is legacy. Rejection safety for committed derived facts is enforced by the derived-fact loader's (source, run_id) envelope deny-list (wave-2 fix, strengthen-formal-models), pinned by the rejection-projection tests and the stub-honesty test."

@@ -1,0 +1,29 @@
+# Cross-link rules: extraction → canonical subjects via aliases.
+#
+# Per `declarative-cross-source-linker` (2026-04-26): an
+# `entity_mention` whose `entity_value` matches an entry in
+# `okg.aliases` resolves to the canonical node. Aliases are
+# auto-seeded from any subtype whose ontology declares
+# `okg_alias_fields` (e.g. open_spec_change.change_id,
+# proposal_task.task_id, git_commit.commit_sha,
+# issue.url, pull_request.url).
+#
+# Issue #1747: a code symbol's alias is its scoped name
+# (`<repo>:<path>::<symbol>`), because a bare `qualified_name`
+# repeats across files. A mention of a bare name that no alias
+# matches links to a code symbol only when exactly ONE live
+# code_symbol has that `qualified_name`; when several do, the
+# mention links to none of them.
+rules:
+  - id: entity_mention_resolves_via_alias_table
+    src:
+      subtype: entity_mention
+      field: entity_value
+    dst:
+      via: alias_table
+      unique_field_fallback:
+        subtype: code_symbol
+        field: qualified_name
+    matcher: alias_table
+    edge: mentions
+    bidirectional: true

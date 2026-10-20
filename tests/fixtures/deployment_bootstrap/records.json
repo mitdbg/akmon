@@ -1,0 +1,12 @@
+[
+  {
+    "id": "REC-1",
+    "summary": "Paper: coastal salinity trends",
+    "description": "The paper record identifies dataset SALINITY-2026 as the source of its measurements."
+  },
+  {
+    "id": "REC-2",
+    "summary": "Dataset: SALINITY-2026",
+    "description": "The dataset record describes coastal salinity measurements collected in 2026."
+  }
+]

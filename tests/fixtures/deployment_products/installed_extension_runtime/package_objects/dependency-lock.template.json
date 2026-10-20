@@ -1,0 +1,18 @@
+{
+  "dependencies": [
+    {
+      "asset_ref": "neutral-fixture:neutral-dependency-wheel",
+      "normalized_name": "neutral-dependency",
+      "version": "1.0.0",
+      "raw_blob": {
+        "digest": "sha256:__DEPENDENCY_WHEEL_DIGEST__",
+        "digest_domain": "raw-bytes/v1",
+        "size": "__DEPENDENCY_WHEEL_SIZE__"
+      },
+      "wheel_tags": [
+        "py3-none-any"
+      ]
+    }
+  ],
+  "schema_version": "okg.extension_runtime.dependency_lock/v1"
+}

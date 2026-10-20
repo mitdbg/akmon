@@ -1,0 +1,20 @@
+# Cross-link rule: reasoning → concepts.
+#
+# Per `extend-substrate-concepts-as-universal-hub`: an Observation
+# whose frontmatter declares `evidence_for: <name>` gets an
+# `evidence_for` edge into the named Concept. Resolution is
+# exact match against `Concept.name`.
+#
+# Declared, not inferred (umbrella D5).
+
+rules:
+  - id: observation_evidence_for_concept
+    src:
+      subtype: observation
+      field: evidence_for
+    dst:
+      subtype: concept
+      field: name
+    matcher: exact
+    edge: evidence_for
+    bidirectional: false

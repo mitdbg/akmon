@@ -1,0 +1,124 @@
+schema: okg.affected_test_ownership.v1
+
+# This is a reviewed source-impact map, not the exhaustive test inventory.
+# The canonical inventory and lane ownership remain in lane_coverage.py and
+# tests/qa_lanes.yaml. Unlisted production paths fail closed to exhaustive
+# hosted proof until a reviewed relationship is added here.
+test_profiles: []
+
+rules:
+- id: restricted-corpus-contracts
+  source:
+    exact: src/okg/views/restricted_corpus.py
+  selectors:
+  - selector: tests/views/test_restricted_corpus.py
+    purpose: focused
+    reason: Proves restricted corpus access and hermeticity behavior.
+    local_execution: local_serial_safe
+    hosted_profile: python_serial
+  - selector: tests/views/test_cross_cutting.py::TestPositiveHermeticIsolation
+    purpose: cross_cutting
+    reason: Proves restricted corpus isolation across view refresh boundaries.
+    local_execution: local_serial_safe
+    hosted_profile: python_serial
+  - selector: tests/views/test_cross_cutting.py::TestFaultInjectedHermeticity
+    purpose: cross_cutting
+    reason: Proves undeclared reads fail closed across view execution boundaries.
+    local_execution: local_serial_safe
+    hosted_profile: python_serial
+
+# ops/ci-arc/ holds the ARC runner pools' Helm values, pod policies, node
+# bootstrap and runbooks. No product code or database lane reads it: an
+# operator applies it by hand, and the only tests whose verdict it can change
+# are the ones below. They were measured, not guessed: the whole fast lane plus
+# tests/ci and tests/ui_archive (since deleted) ran under an audit hook that recorded every
+# open, scandir and git ls-files, and these are every test that touched
+# ops/ci-arc/. Three read it as text across the whole tree (retired-name and
+# launch-site sweeps, the doc-corpus budget), the rest parse the files.
+# tests/ci/test_affected_ops_ownership.py fails when a test that names
+# ops/ci-arc, or a scripts/ci module that does, is missing here.
+- id: ops-ci-arc
+  source:
+    prefix: ops/ci-arc/
+  selectors:
+  - selector: tests/ci/test_arc_canary.py
+    purpose: focused
+    reason: Reads ops/ci-arc through scripts/ci/arc_canary.py (release lock, node and SSH bootstrap, light README).
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/ci/test_arc_deploy.py
+    purpose: focused
+    reason: Parses the deploy pod class values and policy, the light policy and the host boundary.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/ci/test_arc_image_warm.py
+    purpose: focused
+    reason: Parses the image-warm policy and every pool's runner values.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/ci/test_arc_light.py
+    purpose: focused
+    reason: Parses every pool's runner values and policy, the READMEs and the host boundary.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/ci/test_arc_pool_health.py
+    purpose: focused
+    reason: Reads the pool-health unit, release lock, runner values and READMEs.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/ci/test_arc_runner_image.py
+    purpose: focused
+    reason: Parses the runner image build inputs and every pool's runner values.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/ci/test_ci_artifact_quota_resilience.py
+    purpose: focused
+    reason: Runs the CI artifact server and its expiry script, and parses its manifests, the light and docker runner policies and the host boundary.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/ci/test_container_image_publish_headroom.py
+    purpose: focused
+    reason: Reads the runner image Dockerfile to check the publish gate's input list covers every file it copies.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/ci/test_required_db_lane_transport.py
+    purpose: focused
+    reason: Parses the ARC light-db sidecar runner values and pull-proof pod for their PostgreSQL password-only initdb flags.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/formal/test_tlc_launch_sites_are_bounded.py
+    purpose: cross_cutting
+    reason: Sweeps every file under ops/ for unbounded TLC launch sites.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/okg-workspace/test_source_sync_qa_harness.py::test_doc_corpus_workspace_budget_covers_configured_scope
+    purpose: cross_cutting
+    reason: Counts the workspace doc corpus, which walks ops/ READMEs, against its file budget.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/substrate/test_retire_viz_chat.py
+    purpose: cross_cutting
+    reason: Sweeps every tracked file for references to the retired viz chat surface.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+  - selector: tests/substrate/test_workspace_graph_identity.py
+    purpose: cross_cutting
+    reason: Sweeps ops/ text for the retired workspace identity.
+    local_execution: hosted_only
+    hosted_profile: python_serial
+
+# The rest of ops/ stays on exhaustive proof, by name. Each subtree feeds
+# product code, a database lane, the wheel or a deployment test, and its readers
+# have not been measured; a path under ops/ that neither a rule above nor an
+# entry here names also stays exhaustive, and the drift test refuses it.
+exhaustive_sources:
+- prefix: ops/ci-submit/
+  reason: The CI submit feed and its units; readers not yet measured.
+- prefix: ops/environments/
+  reason: Environment descriptors that src/okg/substrate/deployments reads at runtime and deployment tests load.
+- prefix: ops/kubernetes/
+  reason: The Helm chart that the Kubernetes deployment tests render and install.
+- prefix: ops/openwebui/
+  reason: OpenWebUI image build and compatibility patch that chat and container tests import.
+- prefix: ops/pg/
+  reason: The Postgres image, initdb SQL and compose files the database lanes start from; the wheel ships it.

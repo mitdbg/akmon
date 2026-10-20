@@ -1,0 +1,589 @@
+# Academic-PI ontology module.
+#
+# Per `add-academic-pi-ontology-module` (Child 1 of
+# `add-academic-pi-profile`): lab-management subtypes for a
+# professor's personal-OKG. Eleven subtypes — two via Layer 1A
+# `refines:` (Advisee refines Person; Lab refines Team), nine
+# new top-level (Grant, Deadline, Committee, Review, Course,
+# TalkEngagement, RecommendationLetter, Meeting, ActionItem).
+#
+# Refinement closure: loading `academic_researcher` alongside `person`
+# populates `okg.subtype_ancestors` so closure-join queries
+# filtering `ancestor_name = 'person'` surface Advisees alongside
+# base Persons (similarly for Team → Lab).
+#
+# All narrowings — intra-module AND cross-module — live in this
+# file's `EdgeNarrowings` class. Cross-module narrowings fire only
+# when the target sibling module is loaded (per the composition
+# resolver's `extends: <target>` block semantics in module.yaml).
+# When a sibling is absent, the narrowing-trigger rejects the
+# triple, surfacing the suppressed-edge count in per-cycle stats
+# rather than silent loss.
+
+id: https://palimpzest.mit.edu/okg/modules/academic_researcher
+name: academic_researcher
+title: "Academic-PI — lab management for professors"
+description: |-
+  Lab-management dimension of a professor's personal-OKG. Models
+  advisees, grants, deadlines, committees, reviews, courses,
+  invited talks, recommendation letters, meetings, and action
+  items so daily-use queries ("what's due", "who am I writing
+  letters for", "give me a lab overview") have typed graph state
+  to traverse.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  apipi: https://palimpzest.mit.edu/okg/modules/academic_researcher/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+
+  Advisee:
+    is_a: Person
+    description: |-
+      A student, postdoc, or visitor advised by the deployment's
+      operator. Refines `person.Person` so closure queries against
+      `ancestor_name = 'person'` surface advisees alongside base
+      Persons, AND so narrowings can target advisees specifically
+      (e.g., `Advisee author_of Paper` is a typed slot distinct
+      from any-Person authorship).
+
+      Lifecycle: prospective → active → graduated | departed. The
+      `status` attribute drives `okg doctor --deployment` warnings (e.g.,
+      `advisee_floor` invariant) and the `lab-overview` skill's
+      filtering to currently-active members.
+    class_uri: apipi:Advisee
+    attributes:
+      role:
+        required: true
+        description: |-
+          Enum {phd, masters, postdoc, undergrad, visiting,
+          research_staff}. The role attribute distinguishes the
+          advisee category — distinct from the parent Person's
+          generic identity.
+      status:
+        required: true
+        description: |-
+          Enum {prospective, active, graduated, departed,
+          on_leave}. Filters drive lab-overview / advisee-status
+          skill outputs.
+      lab_ref:
+        description: |-
+          Reference to the Lab node (academic_researcher.Lab) the advisee
+          belongs to. Optional — solo / cross-lab advisees have
+          empty refs.
+      advisor_ref:
+        description: |-
+          Reference to the advisor Person. Typically the
+          deployment's operator. Optional — co-advised students
+          have a `co_advisors` list instead (multivalued attribute,
+          not modeled in v1; falls back to multi-Person via
+          repeated `advises` edges).
+      start_date:
+        description: ISO date the advisee joined the lab.
+      end_date:
+        description: ISO date the advisee left / graduated (null if active).
+      topic_slugs:
+        multivalued: true
+        description: |-
+          Free-form topic slugs (e.g. ["bitemporal_systems",
+          "vector_search"]). Lets advisee-status and
+          paper-drafting-context skills filter by topic.
+    annotations:
+      archetype: actor
+      transient: 'false'
+      okg_searchable_text_fields: role,status,topic_slugs
+      okg_created_at_from: start_date
+
+  Lab:
+    is_a: Team
+    description: |-
+      The PI's research group. Refines `person.Team` so closure
+      queries against `ancestor_name = 'team'` surface Labs.
+      Attributes carry the group webpage URL (used by the
+      group_webpage_scrape source for one-time member ingest)
+      plus parent department for the affiliation graph.
+
+      Members connect via the `person.person_member_of_team`
+      narrowing (inherited from the Team parent).
+    class_uri: apipi:Lab
+    attributes:
+      webpage_url:
+        description: |-
+          Group webpage URL. Read once by `group_webpage_scrape` at
+          install time + on operator demand. Optional.
+      parent_dept_ref:
+        description: |-
+          Reference to the parent department Organization (e.g.,
+          MIT CSAIL). The `lab_affiliated_with_department`
+          narrowing emits the typed edge when scholarly is loaded.
+      research_themes:
+        multivalued: true
+        description: |-
+          Concept refs identifying the lab's research themes. The
+          paper-drafting-context skill uses these to scope concept
+          neighborhoods.
+    annotations:
+      archetype: actor
+      transient: 'false'
+      okg_searchable_text_fields: webpage_url,research_themes
+
+  Grant:
+    description: |-
+      A funded or proposed grant. Lifecycle: drafted → submitted →
+      awarded | declined → active → reporting → closed. Connects
+      to bookkeeping.Project via `funds` (the research project
+      the grant supports), to scholarly.Paper via
+      `acknowledged_in`, to Advisees via the funding graph (Advisee
+      → Grant resolved through the Person → Grant.pi_ref +
+      Advisee.advisor_ref chain).
+    class_uri: apipi:Grant
+    attributes:
+      grant_id:
+        required: true
+        description: |-
+          Stable identifier; recommended prefix `grant:`. For
+          federal grants, derived from the award number (e.g.,
+          `grant:nsf:CCF-2026-1234`). For internal / industry
+          grants, operator-chosen.
+      title:
+        required: true
+        description: Grant title; searchable.
+      funder:
+        required: true
+        description: |-
+          Funder name as a string (e.g., "NSF", "DARPA", "DOE",
+          "Microsoft Research Gift"). Free-form because not every
+          funder warrants its own Organization node; when a funder
+          IS modeled as an Organization (NSF, DARPA, etc.), the
+          deployment can add a `funder_org_ref` attribute via
+          bridge — out of scope v1.
+      award_id:
+        description: |-
+          Award number from the funder (e.g., "CCF-2026-1234").
+          Distinct from `grant_id` which is the OKG-internal slug.
+      period_start:
+        description: ISO date the grant period begins.
+      period_end:
+        description: ISO date the grant period ends.
+      amount_usd:
+        description: |-
+          Award amount in USD (string for currency-handling
+          flexibility; numeric range optional). Used by
+          funding-runway dashboard.
+      status:
+        required: true
+        description: |-
+          Enum {drafted, submitted, awarded, declined, active,
+          reporting, closed}. Filters drive grant-status skill +
+          funding-runway dashboard.
+      pi_ref:
+        description: |-
+          Reference to the lead-PI Person node (usually the
+          deployment's operator).
+      co_pi_refs:
+        multivalued: true
+        description: References to co-PI Person nodes.
+      topic_slugs:
+        multivalued: true
+        description: Free-form topic slugs for cross-grant filtering.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: grant_id,award_id
+      okg_searchable_text_fields: title,funder,award_id,topic_slugs
+      okg_created_at_from: period_start
+
+  Deadline:
+    description: |-
+      A dated obligation. Cross-cutting join across grants
+      (GrantDeliverable.due_date), reviews (Review.due_date),
+      courses (assignment due dates), and operator-tagged
+      personal deadlines. Lifecycle: pending → met | missed.
+
+      The upcoming-deadlines skill unifies queries over this
+      subtype + the kind-specific siblings (GrantDeliverable,
+      Review) into a single ranked list filtered by due-date
+      window.
+    class_uri: apipi:Deadline
+    attributes:
+      deadline_id:
+        required: true
+        description: Stable identifier; recommended prefix `deadline:`.
+      title:
+        required: true
+        description: One-line description; searchable.
+      kind:
+        required: true
+        description: |-
+          Enum {cfp, grant_report, review_due, course_due,
+          personal, other}. Drives display in the
+          upcoming-deadlines skill output.
+      due:
+        required: true
+        description: ISO datetime the deadline falls due.
+      status:
+        required: true
+        description: |-
+          Enum {pending, met, missed, waived}. Default `pending`
+          on emit; transitions on operator authority (or via
+          `grant_milestone_overdue_warn` for missed).
+      subject_ref:
+        description: |-
+          Optional reference to the related entity (Grant, Paper,
+          Course, etc.) the deadline is about.
+    annotations:
+      archetype: event
+      transient: 'false'
+      okg_alias_fields: deadline_id
+      okg_searchable_text_fields: title,kind
+      okg_created_at_from: due
+
+  Committee:
+    description: |-
+      A long-running academic-service body. Captures program
+      committees, executive committees, editorial boards,
+      university committees, departmental committees. The
+      service-load skill queries active Committees as one of
+      three categories alongside open Reviews + open
+      RecommendationLetters.
+
+      Reviews land on a Committee via the
+      `committee_includes_review` narrowing (intra-module).
+    class_uri: apipi:Committee
+    attributes:
+      committee_id:
+        required: true
+        description: Stable identifier; recommended prefix `committee:`.
+      name:
+        required: true
+        description: |-
+          Committee name (e.g., "SIGMOD 2026 PC",
+          "VLDB Journal Editorial Board"); searchable.
+      kind:
+        required: true
+        description: |-
+          Enum {pc, ec, editorial, university, departmental,
+          other}. Filters service-load skill output.
+      role:
+        required: true
+        description: |-
+          Enum {chair, area_chair, member, associate_editor,
+          editor_in_chief, vice_chair}.
+      organization_ref:
+        description: Reference to the host Organization (when applicable).
+      year_range:
+        description: |-
+          Free-form e.g. "2025-2027" or "2026". Drives the
+          past/active filter — the service-load skill includes
+          only Committees whose year_range overlaps the current
+          year.
+      status:
+        required: true
+        description: Enum {active, past, declined}.
+    annotations:
+      archetype: actor
+      transient: 'false'
+      okg_alias_fields: committee_id
+      okg_searchable_text_fields: name,kind,role
+
+  Review:
+    description: |-
+      A unit of reviewing work. Connects a Person (the reviewer
+      — typically the operator) to a subject (Paper for paper
+      review; tenure case file for tenure review; Grant proposal
+      for NSF panel). Lifecycle: assigned → drafted → submitted |
+      declined.
+
+      The service-load skill queries open Reviews (status ∈
+      {assigned, drafted}) as one of three categories.
+    class_uri: apipi:Review
+    attributes:
+      review_id:
+        required: true
+        description: Stable identifier; recommended prefix `review:`.
+      kind:
+        required: true
+        description: |-
+          Enum {paper, tenure_case, grant_panel, journal,
+          dissertation}.
+      subject_ref:
+        description: |-
+          Reference to the subject (Paper, Person for tenure /
+          dissertation, Grant for panel review). Free-form
+          because the subject type varies by kind.
+      assigned_date:
+        description: ISO date the review was assigned.
+      due_date:
+        required: true
+        description: ISO date the review is due.
+      status:
+        required: true
+        description: |-
+          Enum {assigned, drafted, submitted, declined}. Filters
+          drive service-load skill.
+      recommendation:
+        description: |-
+          Free text or enum {accept, reject, weak_accept,
+          weak_reject, revise} captured after submission.
+      committee_ref:
+        description: |-
+          Reference to the Committee that assigned the review
+          (when applicable).
+    annotations:
+      archetype: event
+      transient: 'false'
+      okg_alias_fields: review_id
+      okg_searchable_text_fields: kind,recommendation
+      okg_created_at_from: assigned_date
+
+  Course:
+    description: |-
+      A taught course. Connects to the department Organization via
+      `department_ref` and to the term via a free-form `term`
+      attribute. Lectures, syllabi, and problem sets land as
+      `extraction.Document` instances cross-referenced from the
+      Course (not modeled as new subtypes per the umbrella's
+      "labels are not entities" discipline).
+    class_uri: apipi:Course
+    attributes:
+      course_id:
+        required: true
+        description: |-
+          Stable identifier; recommended `course:<code>:<term>`
+          (e.g., `course:6.5830:2026-Fall`).
+      code:
+        required: true
+        description: Course code (e.g., "6.5830", "8.962"); searchable.
+      title:
+        required: true
+        description: Course title; searchable.
+      term:
+        required: true
+        description: |-
+          Term name as free-form (e.g., "2026-Fall", "Spring 2027").
+          Free-form because term naming conventions vary widely
+          across institutions.
+      role:
+        required: true
+        description: |-
+          Enum {instructor, co_instructor, guest_lecturer,
+          ta_supervisor}.
+      enrollment_count:
+        description: Optional numeric enrollment.
+      department_ref:
+        description: Reference to the department Organization.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: course_id
+      okg_searchable_text_fields: code,title,term
+
+  TalkEngagement:
+    description: |-
+      The *event* of a talk being given (distinct from
+      `scholarly.Paper kind=talk` which is the talk-as-reference
+      / -as-artifact). Captures invited talks, colloquia,
+      keynotes, tutorials, panels.
+
+      Connects to scholarly.Paper via `presents` (the slides /
+      paper being presented) and to scholarly.Organization via
+      `hosted_by` (the inviting institution).
+    class_uri: apipi:TalkEngagement
+    attributes:
+      talk_id:
+        required: true
+        description: Stable identifier; recommended prefix `talk:`.
+      title:
+        required: true
+        description: Talk title; searchable.
+      kind:
+        required: true
+        description: |-
+          Enum {invited_talk, keynote, colloquium, tutorial,
+          panel, workshop}.
+      date:
+        required: true
+        description: ISO date the talk was given (or is scheduled).
+      host_name:
+        description: |-
+          Free-text host name (e.g., "Stanford CS Colloquium").
+          Used when the host isn't modeled as an Organization
+          node.
+      host_org_ref:
+        description: Reference to the host Organization (when modeled).
+      location:
+        description: Free-text location (city / venue).
+      paper_refs:
+        multivalued: true
+        description: References to Paper nodes presented.
+      status:
+        required: true
+        description: Enum {scheduled, given, cancelled}.
+    annotations:
+      archetype: event
+      transient: 'false'
+      okg_alias_fields: talk_id
+      okg_searchable_text_fields: title,kind,host_name,location
+      okg_created_at_from: date
+
+  RecommendationLetter:
+    description: |-
+      A letter of recommendation the operator has been asked to
+      write (or has written). Lifecycle: requested → drafted →
+      sent | declined.
+
+      The service-load skill queries open RecommendationLetters
+      (status ∈ {requested, drafted}) as one of three categories.
+      Draft prose lives as an `extraction.Document` cross-linked
+      via the `recommendation_letter_has_document` narrowing.
+    class_uri: apipi:RecommendationLetter
+    attributes:
+      letter_id:
+        required: true
+        description: Stable identifier; recommended prefix `letter:`.
+      subject_ref:
+        required: true
+        description: |-
+          Reference to the Person being recommended (typically
+          an Advisee or former Advisee).
+      recipient:
+        required: true
+        description: |-
+          Free-text recipient (e.g., "Stanford CS PhD Admissions",
+          "Berkeley Faculty Search"); searchable.
+      purpose:
+        description: |-
+          Free-text purpose (PhD application, faculty job, award
+          nomination, etc.).
+      requested_date:
+        description: ISO date the letter was requested.
+      due:
+        description: ISO date the letter is due to the recipient.
+      sent_date:
+        description: ISO date the letter was sent.
+      status:
+        required: true
+        description: |-
+          Enum {requested, drafted, sent, declined}. Filters drive
+          service-load skill.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: letter_id
+      okg_searchable_text_fields: recipient,purpose
+      okg_created_at_from: requested_date
+
+  # Meeting REMOVED per `refine-academic-pi-with-comms-and-calendar`.
+  # Replaced by `calendar.CalendarEvent` with a broader `kind` enum
+  # covering lab meetings, 1:1s, committee, sponsor_call, colloquia,
+  # seminars, conference_days, travel, external, office_hours,
+  # personal_block, other. Migration was breaking; the profile was
+  # unreleased then, so no production data was affected.
+
+  ActionItem:
+    description: |-
+      A discrete action to be taken. Sourced from meeting-note
+      frontmatter or operator-authored markdown. Lifecycle: open
+      → closed.
+
+      The lab-overview skill queries open ActionItems by owner
+      to surface "what's open for each advisee" without the
+      operator opening Notion / Things / Obsidian. Connects to
+      reasoning.Question via the `action_item_addresses_question`
+      cross-module narrowing — ties the daily-use lab surface
+      back to the gravitational reasoning core.
+    class_uri: apipi:ActionItem
+    attributes:
+      action_id:
+        required: true
+        description: Stable identifier; recommended prefix `action:`.
+      description:
+        required: true
+        description: One-line description of what needs to happen; searchable.
+      owner_ref:
+        required: true
+        description: Reference to the Person responsible.
+      due:
+        description: ISO date the action is due (optional).
+      status:
+        required: true
+        description: Enum {open, in_progress, closed, cancelled}.
+      parent_meeting_ref:
+        description: Reference to the Meeting that produced this action.
+      source:
+        description: |-
+          Enum {meeting, manual, derived}. `meeting` = produced
+          from notes_dir frontmatter; `manual` = operator-authored
+          standalone; `derived` = produced by an enricher.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: action_id
+      okg_searchable_text_fields: description,status
+      okg_created_at_from: due
+
+  EdgeNarrowings:
+    description: |-
+      Academic-PI INTRA-module edge-archetype declarations. The 3
+      narrowings here connect subtypes both housed in this module
+      (Meeting → ActionItem, Grant → Deadline, Committee → Review).
+      Cross-module narrowings (against scholarly, bookkeeping,
+      person, reasoning, extraction) live in `cross_links/*.yaml`
+      per the substrate convention — they fire iff the named
+      sibling is loaded, with silent-skip semantics when absent.
+
+      Relation kinds (encoded under okg_relation_kind):
+      `produces`, `has_deadline` are `contains` (sub-entity
+      ownership). `contains` is already classified by the
+      substrate registry; we declare the other two.
+
+      Cross-module archetype relation kinds (`has_milestone`,
+      `has_document`, `advises`, `author_of`, `acknowledged_in`,
+      `funds`, `reviews`, `presents`, `hosted_by`, `addresses`,
+      `affiliated_with`) are classified in the cross_link rule
+      files via per-file `okg_relation_kind` overrides. For now
+      they all default to `references` per the substrate's safe
+      fallback — operator-visible via per-rule annotations.
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        produces: contains
+        has_deadline: contains
+        has_milestone: contains
+        has_document: contains
+        # Reference archetypes shipped by academic_researcher (default
+        # behavior is already 'references' — declared here for
+        # documentation visibility).
+        advises: references
+        author_of: references
+        acknowledged_in: references
+        funds: references
+        reviews: references
+        presents: references
+        hosted_by: references
+        addresses: references
+        affiliated_with: references
+    attributes:
+
+      # meeting_produces_action_item REMOVED — Meeting migrated to
+      # `calendar.CalendarEvent`. The corresponding narrowing
+      # (`calendar_event_produces_action_item`) now lives in
+      # `calendar/cross_links/calendar_x_academic_researcher.yaml`.
+
+      grant_has_deadline:
+        annotations:
+          edge_archetype: has_deadline
+          src_subtypes: Grant
+          dst_subtypes: Deadline
+
+      committee_includes_review:
+        annotations:
+          edge_archetype: contains
+          src_subtypes: Committee
+          dst_subtypes: Review

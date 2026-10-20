@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://palimpzest.mit.edu/okg/schemas/classes.schema.json",
+  "title": "OKG schemas/classes.yaml (LinkML subset)",
+  "description": "A deliberately-restricted LinkML dialect sufficient for OKG ontology authoring. Full LinkML is valid but extensions beyond this schema are not interpreted by the substrate.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "id": {"type": "string", "format": "uri"},
+    "name": {"type": "string"},
+    "description": {"type": "string"},
+    "prefixes": {"type": "object"},
+    "default_range": {"type": "string"},
+    "imports": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "includes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^okg\\.ontology\\.[a-z_][a-z0-9_]*$"
+      },
+      "description": "OKG library ontology fragments to include."
+    },
+    "classes": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/class"}
+    },
+    "slots": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/slot"}
+    }
+  },
+  "$defs": {
+    "class": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "is_a": {"type": "string"},
+        "description": {"type": "string"},
+        "abstract": {"type": "boolean"},
+        "attributes": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/slot"}
+        }
+      }
+    },
+    "slot": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "range": {"type": "string"},
+        "multivalued": {"type": "boolean"},
+        "required": {"type": "boolean"},
+        "description": {"type": "string"}
+      }
+    }
+  }
+}

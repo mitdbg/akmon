@@ -1,0 +1,410 @@
+/* --- Home ------------------------------------------------------------- */
+
+/* One column, 960 px, centred. The coordinator's review of pass 7: the page
+ * subject was the smallest text on it, the right column held three lines and
+ * 800 px of nothing, eight identical rows repeated on scale-200, and the tail
+ * columns did not line up with the section's right edge. All four follow from
+ * the layout, so the layout is one column with a header that leads it.
+ *
+ * Kept from pass 7: one left edge, white canvas, real icons, tabular numbers,
+ * the collapsed attempt row, the plain-words causes, the loud missing-evidence
+ * check.
+ */
+.okg-console {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 24px 40px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 32 px above the title, 12 px below it, and the next hairline 24 px below the
+ * section's last element. */
+.okg-console__section {
+  padding: 40px 0 24px;
+  border-top: 1px solid var(--okg-color-line-soft);
+}
+
+.okg-console__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.okg-console__section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* A count of open problems is not a neutral number -- and a count of
+ * producers that have not run yet is not a count of problems. The colour
+ * follows the worst state in the list beneath, and ONLY a failed or blocked
+ * state is red. Red by default painted "reading\2026" red before any read
+ * had said anything was wrong (audit B9). */
+.okg-console__section-count { color: inherit; }
+.okg-console__section-count[data-severity="failed"],
+.okg-console__section-count[data-severity="blocked"] { color: var(--okg-color-bad); }
+.okg-console__section-count[data-severity="never-run"] { color: var(--okg-color-warn-text); }
+
+.okg-console__section-aside {
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__dim { color: var(--okg-color-muted); }
+
+.okg-console__id {
+  font-family: var(--okg-font-mono);
+  font-size: 13px;
+}
+
+.okg-console__fact {
+  margin: 0;
+  font-size: 14px;
+  max-width: 78ch;
+}
+
+.okg-console__more {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+/* Links take the theme's link colour and are underlined (operator decision
+ * 2026-09-23); a deployment's accent override is one colour for every theme
+ * and falls below 4.5:1 as text on the light ones. */
+.okg-console a {
+  color: var(--okg-color-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* A link that is a table row's name or arrow, a filter pill, a search
+ * result's title or a page number is not running text: it underlines on
+ * hover only, as every console link did before. */
+.okg-console a.okg-console__prow-name,
+.okg-console [data-col="open"] a,
+.okg-console .okg-console__urow-open a,
+.okg-console a.okg-console__chipclear,
+.okg-console a.okg-console__page-link,
+.okg-console a.okg-console__result-title { text-decoration: none; }
+
+.okg-console a.okg-console__prow-name:hover,
+.okg-console [data-col="open"] a:hover,
+.okg-console .okg-console__urow-open a:hover,
+.okg-console a.okg-console__chipclear:hover,
+.okg-console a.okg-console__page-link:hover,
+.okg-console a.okg-console__result-title:hover { text-decoration: underline; }
+
+.okg-console__link-button {
+  font: inherit;
+  font-size: 13px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--okg-color-link);
+  cursor: pointer;
+}
+
+.okg-console__link-button:hover { text-decoration: underline; }
+
+.okg-console__icon {
+  font-size: 14px;
+  line-height: 1;
+  position: relative;
+  top: 1px;
+}
+
+/* --- header ----------------------------------------------------------- */
+
+.okg-console__header { padding: 28px 0 0; }
+
+.okg-console__header-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.okg-console__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+/* One chip, in the state's colour, beside the name. */
+.okg-console__chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: var(--okg-radius-pill);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.okg-console__chip[data-severity="ok"] {
+  background: var(--okg-color-ok-bg);
+  color: var(--okg-color-ok);
+}
+
+.okg-console__chip[data-severity="blocked"],
+.okg-console__chip[data-severity="failed"] {
+  background: var(--okg-color-bad-bg);
+  color: var(--okg-color-bad);
+}
+
+.okg-console__chip[data-severity="running"] {
+  background: var(--okg-color-info-bg);
+  color: var(--okg-color-info);
+}
+
+/* Amber carries three states on the chip: a deployment that has never
+ * published, a running attempt that has gone past three times its
+ * deployment's normal, and a health read whose verdict is degraded. All three
+ * say "look at this", none says "it failed". */
+.okg-console__chip[data-severity="never-run"] {
+  background: var(--okg-color-warn-bg);
+  color: var(--okg-color-warn-text);
+}
+
+.okg-console__meta {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__status-note {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+
+/* --- figures ---------------------------------------------------------- */
+
+/* The number over its label, not beside it: stacked, the four figures read as
+ * four things rather than as one run-on line. */
+.okg-console__figures {
+  display: flex;
+  align-items: flex-start;
+  gap: 48px;
+  margin: 24px 0 0;
+}
+
+.okg-console__figure {
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+}
+
+.okg-console__figure-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.okg-console__figure-value {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.okg-console__figure-label {
+  font-size: 13px;
+  color: var(--okg-color-muted);
+  margin-top: 2px;
+}
+
+.okg-console__figure-delta {
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+/* --- count strips ----------------------------------------------------- */
+
+.okg-console__count-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.okg-console__count-line + .okg-console__fact,
+.okg-console__count-line + .okg-console__rows {
+  margin-top: 12px;
+}
+
+.okg-console__count-lead { font-size: 13px; color: var(--okg-color-muted); }
+
+.okg-console__count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  text-decoration: none;
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--okg-color-text);
+}
+
+.okg-console__count-value { font-weight: 600; }
+
+a.okg-console__count { text-decoration: none; }
+a.okg-console__count:hover { text-decoration: underline; }
+a.okg-console__count .okg-console__count-value { color: var(--okg-color-link); }
+
+.okg-console__count-label { color: var(--okg-color-muted); }
+
+.okg-console__count[data-severity="failed"] .okg-console__icon,
+.okg-console__count[data-severity="blocked"] .okg-console__icon {
+  color: var(--okg-color-bad);
+}
+
+.okg-console__count[data-severity="ok"] .okg-console__icon { color: var(--okg-color-ok); }
+.okg-console__count[data-severity="never-run"] .okg-console__icon { color: var(--okg-color-warn); }
+.okg-console__count[data-severity="running"] .okg-console__icon { color: var(--okg-color-info); }
+
+/* --- rows ------------------------------------------------------------- */
+
+.okg-console__rows { list-style: none; margin: 0; padding: 0; }
+
+/* The tail lines up with the section's right edge: status 120, age 80. */
+.okg-console__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 80px;
+  align-content: center;
+  gap: 2px 12px;
+  min-height: 44px;
+  padding: 10px 0;
+  border-top: 1px solid var(--okg-color-line-soft);
+  position: relative;
+}
+
+.okg-console__row:first-child { border-top: 0; }
+
+.okg-console__row-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.okg-console__row-headline {
+  font-size: 15px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-console__row-state {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* One style for every annotation on a row: "runtime" beside a runtime
+ * check's status, "reading" after the version the console reads, "superseded"
+ * after a blocked attempt a later version replaced. A tag, not a colour: each
+ * is a fact about this row, not a state of the thing in it. */
+.okg-console__tag {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 12px;
+  line-height: 16px;
+  padding: 1px 6px;
+  border: 1px solid var(--okg-color-line);
+  border-radius: 4px;
+  color: var(--okg-color-muted);
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+
+.okg-console__row-state .okg-console__tag { margin-left: 0; }
+
+.okg-console__row-age {
+  font-size: 13px;
+  color: var(--okg-color-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.okg-console__row-when {
+  grid-column: 2 / -1;
+  text-align: right;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+  white-space: nowrap;
+}
+
+.okg-console__row-sub {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-console__row-expand {
+  grid-column: 1 / -1;
+  font-size: 13px;
+}
+
+.okg-console__row-members {
+  display: block;
+  margin-top: 4px;
+  color: var(--okg-color-muted);
+}
+
+/* --- status ----------------------------------------------------------- */
+
+.okg-console__status {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.okg-console__status-word { color: var(--okg-color-text); }
+
+.okg-console__status[data-severity="ok"] .okg-console__icon,
+.okg-console__status[data-severity="ok"] .okg-console__status-word {
+  color: var(--okg-color-ok);
+}
+
+.okg-console__status[data-severity="failed"] .okg-console__icon,
+.okg-console__status[data-severity="blocked"] .okg-console__icon,
+.okg-console__status[data-severity="failed"] .okg-console__status-word,
+.okg-console__status[data-severity="blocked"] .okg-console__status-word {
+  color: var(--okg-color-bad);
+}
+
+.okg-console__status[data-severity="running"] .okg-console__icon,
+.okg-console__status[data-severity="running"] .okg-console__status-word {
+  color: var(--okg-color-info);
+}
+
+/* The glyph in the warning amber; the WORD in the darker text amber. The
+ * amber is 4.37:1 on Cyclades' page and 4.49:1 on Lyceaum's, under AA for
+ * 13 px text; the text amber is at least 6.6:1 in every theme (audit B6). */
+.okg-console__status[data-severity="never-run"] .okg-console__icon { color: var(--okg-color-warn); }
+
+.okg-console__status[data-severity="never-run"] .okg-console__status-word {
+  color: var(--okg-color-warn-text);
+}
+
+/* An unrecorded state is not a warning. "Never run", "Excluded" and
+ * "Withheld" are recorded facts an operator may need to act on and stay
+ * amber; "State not recorded" means no read said, which is a fact about the
+ * deployment's runtime. Amber there would report a problem nothing found. */
+.okg-console__status[data-severity="unrecorded"] .okg-console__icon,
+.okg-console__status[data-severity="unrecorded"] .okg-console__status-word {
+  color: var(--okg-color-muted);
+}

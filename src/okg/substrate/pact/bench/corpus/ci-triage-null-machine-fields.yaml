@@ -1,0 +1,104 @@
+pact_version: 4
+target_pact_version: 4
+change:
+  id: ci-triage-null-machine-fields
+  title: Align CI machine-field decoding with graph data
+  status: proposal
+  tier: 1
+  rationale: Nomos-safe CI triage must remain usable when valid CI records omit an
+    optional machine value or use a closed string identifier for a non-GitHub run.
+  root_cause: The read-side machine-field decoder treats JSON null as an unsafe type,
+    assumes run_id is globally an unsigned GitHub integer even though triage reads
+    multiple node subtypes, and the text renderer formats nullable job conclusions
+    without an unavailable-state fallback.
+  method_metadata:
+    pact_shape: fast_path
+    fast_path: Compact PACT for small nontrivial work. Upgrade when scope, risk, hierarchy,
+      formal proof, graph evidence, or review complexity increases.
+  affected_areas:
+  - okg-ci operator triage
+  - Nomos-safe graph reads
+  affected_code:
+  - deployments/okg-ci/triage.py
+  - tests/okg-ci/test_triage_health.py
+requirements:
+- id: req.ci-triage-null-machine-fields
+  title: Decode valid optional CI machine fields
+  statement: Triage must preserve JSON null as unavailable, accept run_id as either
+    a non-negative integer or non-empty closed machine token, render nullable job
+    conclusions as pending or unknown, and continue to reject unsafe types, free text,
+    and malformed fenced values.
+  evidence_policy:
+    required:
+    - executed_test
+  scenarios: []
+  acceptance:
+  - id: acc.ci-triage-null-machine-fields
+    description: Focused tests prove null is inert for every closed machine field,
+      numeric and token run IDs decode, unsafe values still fail closed, default text
+      output renders nullable jobs, and an operator-backed report can decode the live
+      graph shapes.
+    evidence:
+    - executed_test
+tasks:
+- id: task.ci-triage-null-machine-fields
+  title: Align CI machine-field decoding with graph data
+  status: done
+  verification: uv run pytest tests/okg-ci/test_triage_health.py -q
+  requirements:
+  - req.ci-triage-null-machine-fields
+  evidence: []
+  environment: []
+dependencies: []
+test_plan:
+- id: test.req-ci-triage-null-machine-fields
+  requirement: req.ci-triage-null-machine-fields
+  test_id: tests/okg-ci/test_triage_health.py
+  evidence:
+  - pytest
+formal: []
+waivers: []
+evidence:
+- id: ev.executed-test.req-ci-triage-null-machine-fields.20260711T162212846172Z
+  kind: executed_test
+  status: pass
+  refs:
+  - req.ci-triage-null-machine-fields
+  artifact: tests/okg-ci/test_triage_health.py
+  command: uv run pytest tests/okg-ci/test_triage_health.py -q
+  summary: 48 focused decoder and operator-read tests passed; full tests/okg-ci suite
+    also passed (68 tests), and a read-only live probe returned a generation-pinned
+    24-job report.
+  data:
+    attached_at: '2026-07-11T16:22:12.846354+00:00'
+- id: ev.executed-test.req-ci-triage-null-machine-fields.20260711T162829585214Z
+  kind: executed_test
+  status: pass
+  refs:
+  - req.ci-triage-null-machine-fields
+  artifact: tests/okg-ci/test_triage_health.py
+  command: uv run pytest tests/okg-ci/test_triage_health.py -q
+  summary: 57 focused machine-field, operator-envelope, and text-render tests passed;
+    full tests/okg-ci suite passed (77 tests).
+  data:
+    attached_at: '2026-07-11T16:28:29.585403+00:00'
+- id: ev.executed-test.req-ci-triage-null-machine-fields.20260711T162845534922Z
+  kind: executed_test
+  status: pass
+  refs:
+  - req.ci-triage-null-machine-fields
+  artifact: live:okg-ci:triage:okg-ci-20260711T162528436077Z-b04b05a82ca5
+  command: scp deployments/okg-ci/triage.py ubuntu@192.0.2.10:/opt/okg/deployments/okg-ci/.triage-null-fix.py
+    && ssh ubuntu@192.0.2.10 'sudo bash -s' < .scratch/probe-okg-ci-triage-fix.sh
+  summary: 'Patched file ran read-only against the live graph: JSON and default text
+    exited 0; generation okg:okg-ci:branch:default:gen:20260711T162528436077Z:b04b05a82ca5;
+    newest in-progress run had 24 jobs, fresh test evidence, and pending (not green)
+    health.'
+  data:
+    attached_at: '2026-07-11T16:28:45.535083+00:00'
+    generation_id: okg:okg-ci:branch:default:gen:20260711T162528436077Z:b04b05a82ca5
+    json_exit: 0
+    text_exit: 0
+    job_count: 24
+    health: pending
+    test_evidence_status: fresh

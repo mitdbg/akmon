@@ -1,0 +1,56 @@
+# The authority-POISONING curve (synth-authority-poisoning): the DETERMINISTIC,
+# LLM-free run whose ONLY swept variable is the poisoning rate r. At rate r, a
+# PRF-chosen fraction of the eligible conflicted buckets gets declared_source_authority
+# stamped on the CORRUPTED claim, so the engine settles the bucket canonically on the
+# corrupted value — a FLIP (a wrong-authority mis-repair). The curve is flip-rate vs r.
+#
+# Poisoning is a PRECEDENCE property (a decisive signal on one claim), so no prose and
+# no LLM are needed: the structured deterministic lane is lossless, every conflicted
+# bucket realizes exactly as planned, and the poisoned-bucket counts below are seeded
+# and EXACT rather than survival draws.
+#
+# THE ELIGIBLE POOL. redundancy 2..3 + 20 value_perturbations, each corrupting exactly
+# ONE rendering (visibility_corrupted 1): every corruption lands as a conflicted bucket
+# carrying 1 corrupted claim and >= 1 clean counterpart, so the corrupted value is never
+# a strict majority — every one is poisonable. The lossless lane realizes all 20, so the
+# eligible pool is exactly 20 buckets (measured, not assumed).
+#
+# THE DECLARED RATES (poisoned = round(r * 20), the arm shuffles the pool ONCE and takes
+# a nested prefix, so a lower r poisons a SUBSET of a higher r's buckets — monotone by
+# construction):
+#
+#   r = 0.0  (baseline / negative control):  round(0.0 * 20) =  0 poisoned  -> 0 flips
+#   r = 0.2  (low):                          round(0.2 * 20) =  4 poisoned  -> 4 flips
+#   r = 0.6  (high):                         round(0.6 * 20) = 12 poisoned  -> 12 flips
+#
+# Both low and high are non-trivial (>= 4) and distinct, and every poisoned bucket flips
+# in the lossless lane, so the per-stamp flip rate is 1.0 (each wrong-authority stamp buys
+# exactly one mis-repair) while the ABSOLUTE flip count rises 0 -> 4 -> 12 with r. The
+# three runs share one world and seed and this one preset name; only precedence_arm.poison_rate
+# differs (the digest-diff witness compares their canonical dumps and proves it). This file
+# declares the r = 0.0 baseline; the curve driver derives r = 0.2 and 0.6 by model_copy so
+# preset_name stays fixed and r is the ONLY config difference.
+#
+# admits is EMPTY: poisoning is orthogonal to the arm roles. It declares its own use of the
+# authority signal (the scope guard admits the wrong-authority stamp on exactly the poisoned
+# claims, nowhere else), so the run carries no isolation/disagreement roles — the only
+# authority stamps in the whole run are the poison.
+preset_name: poison_curve
+seed: "poison-curve-1"
+world_path: world_smoke
+redundancy:
+  renderings_per_fact_min: 2
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 20, magnitude: 0.3, visibility_corrupted: 1}
+benign_variation:
+  unit_rescale_rate: 0.0
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+precedence_arm:
+  admits: []
+  poison_rate: 0.0
+materialize_pdf: false

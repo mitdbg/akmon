@@ -1,0 +1,23 @@
+{
+  "agent_id": "agent_0",
+  "summary_text": "Tested weighted-random routing against greedy-cheapest-first; weighted-random wins by 0.49 on the cost objective. Background: [@vale1986storage] motivates the cost-tuned framing.",
+  "paper_key": "vale1986storage",
+  "empirical_claims": [
+    {
+      "statement": "Cost-tuned weighted-random routing beats greedy-cheapest-first on the cost objective by ~0.49.",
+      "observed_score_delta": -0.49,
+      "paper_key": "vaswani2017attention"
+    },
+    {
+      "statement": "Backend cost variance dominates the regret budget under low-load.",
+      "observed_score_delta": -0.18
+    }
+  ],
+  "failed_approaches": [
+    {
+      "statement": "Tried greedy-cheapest-first; the deterministic choice clumps load on one backend under spike.",
+      "failure_mode": "load_concentration",
+      "experiment_id": "exp_0002"
+    }
+  ]
+}

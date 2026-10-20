@@ -1,0 +1,7 @@
+{
+  "neutral_extension/__init__.py": "from .entry import extract\n",
+  "neutral_extension/entry.py": "import os\nfrom pathlib import Path\n\nfrom .helper import combine\nfrom .sibling_one import VALUE as ONE\nfrom .sibling_two import VALUE as TWO\n\n_sentinel = os.environ.get('NEUTRAL_IMPORT_SENTINEL')\nif _sentinel:\n    Path(_sentinel).write_text('imported', encoding='utf-8')\n\ndef extract(request):\n    return combine(request, ONE, TWO)\n",
+  "neutral_extension/helper.py": "def combine(request, first, second):\n    return {'request': request, 'siblings': [first, second]}\n",
+  "neutral_extension/sibling_one.py": "VALUE = 'one'\n",
+  "neutral_extension/sibling_two.py": "VALUE = 'two'\n"
+}

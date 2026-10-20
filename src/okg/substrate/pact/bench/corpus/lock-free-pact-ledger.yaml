@@ -1,0 +1,101 @@
+pact_version: 4
+target_pact_version: 4
+change:
+  id: lock-free-pact-ledger
+  title: Steady-state pact ledger access takes no DDL locks
+  status: verification
+  tier: 1
+  rationale: Every decision-ledger touch ran the full idempotent DDL, and `ALTER TABLE
+    ... ADD COLUMN IF NOT EXISTS` takes ACCESS EXCLUSIVE even when the column exists.
+    Any `okg pact` verb from any agent therefore briefly exclusive-locked pact_intents;
+    on 2026-07-22 two such touches killed live 6-minute pg_dump runs mid-`okg deployment
+    up` ("could not obtain lock on relation public.pact_intents ... a worker process
+    died unexpectedly"). Once this lands, steady-state ledger access executes zero
+    DDL statements and cannot collide with long-running backups.
+  root_cause: The ensure path had no catalog probe - it re-executed CREATE/ALTER/GRANT
+    on every connection instead of asking whether the schema was already current.
+  method_metadata:
+    pact_shape: fast_path
+    fast_path: Compact PACT for small nontrivial work. Upgrade when scope, risk, hierarchy,
+      formal proof, graph evidence, or review complexity increases.
+  affected_areas:
+  - pact-coordination
+  affected_code:
+  - src/okg/substrate/pact/decisions.py
+  - tests/substrate/pact/test_decisions_lock_free.py
+  - tests/qa_lanes.yaml
+requirements:
+- id: req.lock-free-pact-ledger
+  title: Steady-state pact ledger access takes no DDL locks
+  statement: Opening a decision-ledger connection against an up-to-date schema must
+    execute zero DDL statements (no CREATE, ALTER, GRANT, REVOKE, or DO blocks) -
+    a catalog-read probe decides whether the idempotent DDL runs. Bootstrap on an
+    empty database and repair after a dropped column or table must still run the full
+    DDL and converge to the current schema. Missing table or sequence privileges for
+    the append-only writer must also be repaired before the schema is considered current.
+  evidence_policy:
+    required:
+    - executed_test
+  scenarios:
+  - id: scn.lock-free-pact-ledger.fast-path
+    title: Steady-state access is lock-free; bootstrap and repair still work
+    given:
+    - a database where the ledger schema is already current
+    when:
+    - a second ledger connection is opened
+    then:
+    - no DDL statement executes, so no exclusive lock is taken and a concurrent pg_dump
+      cannot be killed by ledger access
+    and: []
+  acceptance:
+  - id: acc.lock-free-pact-ledger
+    description: A recording-cursor test proves the second ensure executes zero DDL
+      statements; companion tests prove a missing column, missing table, and missing
+      append-only writer grants still repair/bootstrap through the full DDL.
+    evidence:
+    - executed_test
+tasks:
+- id: task.lock-free-pact-ledger
+  title: Guard the ledger DDL behind a catalog-current probe
+  status: done
+  verification: tests/substrate/pact/test_decisions_lock_free.py (4 tests) against
+    real PostgreSQL - zero-DDL steady state, column repair, table bootstrap, and writer-grant
+    repair; the file is selected by the per-PR substrate-db lane.
+  requirements:
+  - req.lock-free-pact-ledger
+  evidence: []
+  environment: []
+dependencies: []
+test_plan:
+- id: test.lock-free-pact-ledger
+  requirement: req.lock-free-pact-ledger
+  test_id: tests/substrate/pact/test_decisions_lock_free.py
+  command: uv run pytest -q tests/substrate/pact/test_decisions_lock_free.py
+  evidence:
+  - executed_test
+formal: []
+waivers: []
+evidence:
+- id: ev.pytest.req-lock-free-pact-ledger.20260722T175223060264Z
+  kind: pytest
+  status: pass
+  refs:
+  - req.lock-free-pact-ledger
+  artifact: tests/substrate/pact/test_decisions_lock_free.py
+  command: OKG_TEST_DSN=... uv run pytest -q tests/substrate/pact/test_decisions_lock_free.py
+  summary: '3 passed against real PostgreSQL: second ensure executes zero DDL; dropped
+    column repairs; empty DB bootstraps.'
+  data:
+    attached_at: '2026-07-22T17:52:23.060549+00:00'
+- id: ev.pytest.req-lock-free-pact-ledger.20260722T200851174741Z
+  kind: pytest
+  status: pass
+  refs:
+  - req.lock-free-pact-ledger
+  artifact: tests/substrate/pact/test_decisions_lock_free.py::test_missing_writer_grants_still_repair
+  command: OKG_TEST_DSN=<disposable> uv run --extra dev --extra postgres pytest -q
+    tests/substrate/pact/test_decisions_lock_free.py
+  summary: 4 passed against CI-equivalent PostgreSQL; steady state executes zero DDL
+    and missing table, column, table SELECT, and sequence grants all repair
+  data:
+    attached_at: '2026-07-22T20:08:51.175044+00:00'

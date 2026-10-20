@@ -1,0 +1,131 @@
+pact_version: 4
+target_pact_version: 4
+change:
+  id: operator-ui-graph-view
+  title: Build the Graph view and shared canvas
+  status: proposal
+  tier: 1
+  rationale: >-
+    Operators need to inspect graph neighborhoods, search for objects, select
+    nodes and subtypes, and understand when a view is only a capped slice.
+  root_cause: >-
+    The backend has graph read endpoints, but there is no active canvas view and
+    no shared canvas for Trace to reuse.
+  affected_areas:
+  - viz
+  - operator-ui
+hierarchy:
+  role: child
+  parent: single-operator-ui-app
+  children: []
+  integration_acceptance:
+  - Graph builds on `operator-ui-shell-api`.
+  - Graph owns the shared canvas used later by Trace.
+requirements:
+- id: req.graph.canvas
+  title: Graph owns the shared canvas
+  statement: >-
+    The Graph view provides one `GraphCanvas` module that accepts a normalized
+    model with nodes, links, metadata, selection, and decorations. Trace must be
+    able to use this same module later.
+  evidence_policy:
+    required_any:
+    - ui_interaction
+    - ui_visual
+    required:
+    - ui_quality_gate
+- id: req.graph.reads
+  title: Graph reads graph, search, node, and subtype data
+  statement: >-
+    Graph loads from `GET /viz/api/console/graph`, searches with
+    `GET /viz/api/console/search`, fetches node detail with
+    `GET /viz/api/console/node`, and fetches subtype detail with
+    `GET /viz/api/console/subtype`.
+  evidence_policy:
+    required_any:
+    - ui_interaction
+    - ui_visual
+    required:
+    - ui_quality_gate
+- id: req.graph.honest-slice
+  title: Graph explains what is shown and what is omitted
+  statement: >-
+    The view shows generation id, source, focus, shown counts, total counts when
+    available, capped or truncated state, and omitted-data explanation. Empty
+    canvases distinguish no data, no filter match, unsupported payload, and
+    backend failure.
+  evidence_policy:
+    required_any:
+    - ui_interaction
+    - ui_visual
+    required:
+    - ui_quality_gate
+tasks:
+- id: task.graph.contract
+  title: Land Graph behavior and canvas model contract
+  status: todo
+  verification: >-
+    `ui/behavior.md` defines canvas model, graph reads, selection behavior,
+    search/focus behavior, capped-data behavior, empty states, failure states,
+    and Trace reuse rules. `uv run okg pact gate post-edit
+    operator-ui-graph-view --json` passes.
+  requirements:
+  - req.graph.canvas
+  - req.graph.reads
+  - req.graph.honest-slice
+- id: task.graph.canvas-fixtures
+  title: Render the shared canvas with fixtures
+  status: todo
+  verification: >-
+    Fixture browser proof renders nonblank graph pixels, deterministic layout,
+    selection, empty-canvas clearing, detail rail updates, capped-data message,
+    and desktop/narrow screenshots.
+  requirements:
+  - req.graph.canvas
+  - req.graph.honest-slice
+- id: task.graph.live-view
+  title: Wire Graph to live read endpoints
+  status: todo
+  verification: >-
+    Browser proof covers initial load, source switch, search/focus, node detail,
+    subtype detail, capped-data explanation, backend error state, no console
+    errors, and GET-only requests.
+  requirements:
+  - req.graph.reads
+  - req.graph.canvas
+  - req.graph.honest-slice
+dependencies:
+- from: task.graph.contract
+  to: task.graph.canvas-fixtures
+  kind: blocks
+- from: task.graph.canvas-fixtures
+  to: task.graph.live-view
+  kind: blocks
+test_plan:
+- id: test.graph.shared-canvas
+  requirement: req.graph.canvas
+  test_id: operator-graph-shared-canvas-fixtures
+  command: "<single-app gate> GraphCanvas fixture browser and import check"
+  evidence:
+  - ui_interaction
+  - ui_visual
+  - ui_quality_gate
+- id: test.graph.live
+  requirement: req.graph.reads
+  test_id: operator-graph-live-browser-flow
+  command: "<single-app gate> Graph live browser flow"
+  evidence:
+  - ui_interaction
+  - ui_quality_gate
+- id: test.graph.slice
+  requirement: req.graph.honest-slice
+  test_id: operator-graph-capped-empty-error-states
+  command: "<single-app gate> Graph capped, empty, and failure states"
+  evidence:
+  - ui_interaction
+  - ui_visual
+  - ui_quality_gate
+formal: []
+waivers: []
+evidence: []
+edits: []

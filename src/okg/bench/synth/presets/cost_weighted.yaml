@@ -1,0 +1,43 @@
+# Cost-weighted preset with NO mandatory violation (synth-cost-weighted-gold).
+#
+# The other half of the both-directions requirement on the gold side: this corpus
+# prices its corruption classes at genuinely different dollar amounts — a swapped
+# entity costs far more than a transposed digit — but declares NO class mandatory,
+# so every result it grades qualifies whatever survives. Contrast cost_mandatory,
+# which names value_perturbation mandatory and can therefore disqualify a run.
+#
+# Distinct per-class costs are the point: a weighted total over this corpus cannot
+# coincide with the unweighted count, so a scorer that quietly ignored the table
+# would be visible immediately.
+preset_name: cost_weighted
+seed: "cost-weighted-1"
+world_path: world_smoke
+redundancy:
+  renderings_per_fact_min: 1
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    value_perturbation: {count: 2, magnitude: 0.2, visibility_corrupted: 1}
+    entity_swap: {count: 1, visibility_corrupted: 1}
+    digit_transposition: {count: 1}
+    polarity_flip: {count: 1, visibility_corrupted: 1}
+benign_variation:
+  unit_rescale_rate: 0.4
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+cost:
+  default_error_cost: 4.0
+  error_costs:
+    entity_swap: 500.0
+    polarity_flip: 250.0
+    value_perturbation: 40.0
+    digit_transposition: 12.5
+  action_prices:
+    parse: 0.02
+    extract_document: 0.15
+    check: 0.5
+    correction: 20.0
+    publish: 5.0
+materialize_pdf: false

@@ -1,0 +1,6 @@
+name: code
+version: 1.0.0
+description: Legacy code subtypes (code_symbol, code_import, code_reference).
+  Superseded by code_graph for most deployments; retained for back-compat.
+provides:
+  subtypes_file: schema.yaml

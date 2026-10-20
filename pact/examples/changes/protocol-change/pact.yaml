@@ -1,0 +1,86 @@
+pact_version: 0
+change:
+  id: protocol-change
+  title: Protocol Change
+  status: proposal
+  rationale: Example PACT protocol change.
+  root_cause: Protocol intent, tests, formal properties, and runtime evidence
+    need one validated trace.
+  affected_areas:
+    - akmon
+    - pact-example
+  affected_code:
+    - src/okg/substrate/pact/
+requirements:
+  - id: req.admission.visible-after-publish
+    title: Published admissions are visible
+    statement: A published AKMON admission MUST be visible to pinned reads only
+      after the publish transition completes.
+    severity: must
+    evidence_policy:
+      required:
+        - planned_test
+        - formal
+        - published_generation
+    scenarios:
+      - id: scn.admission.visible-after-publish
+        title: admission is visible after publish
+        given:
+          - an accepted admission exists for a pending generation
+        when:
+          - the publisher completes the generation
+        then:
+          - pinned reads can observe the admission in the published generation
+          - older pins retain their previous view
+    acceptance:
+      - id: acc.admission.visible-after-publish
+        description: Implementation tests and formal checks cover the
+          publish-before-visible contract.
+        evidence:
+          - planned_test
+          - formal
+          - published_generation
+tasks:
+  - id: task.model-admission-visibility
+    title: Model admission visibility
+    status: todo
+    verification: tlc2.TLC formal/akmon/Admission.tla
+    requirements:
+      - req.admission.visible-after-publish
+  - id: task.implement-admission-tests
+    title: Implement admission visibility tests
+    status: todo
+    verification: uv run --extra dev pytest tests/substrate/admission -q
+    requirements:
+      - req.admission.visible-after-publish
+dependencies:
+  - from: task.model-admission-visibility
+    to: task.implement-admission-tests
+    kind: blocks
+    rationale: Implementation tests should cite the formal property id.
+test_plan:
+  - id: test.admission.visible-after-publish
+    requirement: req.admission.visible-after-publish
+    test_id: tests/substrate/admission/test_publish.py::test_admission_visible_after_publish
+    command: uv run --extra dev pytest tests/substrate/admission/test_publish.py -q
+    evidence:
+      - pytest
+formal:
+  - id: formal.visible-implies-published
+    requirement: req.admission.visible-after-publish
+    property_id: VisibleImpliesPublishedAdmission
+    module: formal/akmon/Admission.tla
+    config: formal/akmon/Admission.cfg
+    checker_command: tlc2.TLC -config formal/akmon/Admission.cfg formal/akmon/Admission.tla
+    refinement_tests:
+      - tests/substrate/admission/test_publish.py::test_admission_visible_after_publish
+waivers: []
+evidence:
+  - id: ev.published-generation.req-admission-visible-after-publish.planned
+    kind: published_generation
+    status: planned
+    refs:
+      - req.admission.visible-after-publish
+    summary: Planned publish evidence will include generation id, row delta,
+      metrics, doctor output, and queue/DLQ bounds.
+edits: []

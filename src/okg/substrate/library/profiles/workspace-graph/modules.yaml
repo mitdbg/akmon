@@ -1,0 +1,13 @@
+# Modules loaded by the workspace-graph profile.
+modules:
+  - git_graph
+  - openspec
+  - agent_sessions
+  - agent_memory
+  - compute_env
+  - code_graph
+  - extraction
+  - reasoning
+  - ci
+  - quality_evidence
+  - views

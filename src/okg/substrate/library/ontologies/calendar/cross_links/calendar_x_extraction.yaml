@@ -1,0 +1,11 @@
+rules:
+  - id: calendar_event_has_document
+    src:
+      subtype: calendar_event
+      field: notes_doc_ref
+    dst:
+      subtype: document
+      field: document_id
+    matcher: exact
+    edge: has_document
+    bidirectional: false

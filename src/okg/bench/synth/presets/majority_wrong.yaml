@@ -1,0 +1,47 @@
+# Majority-wrong arm: the CORRUPTED value is asserted by more distinct sources
+# than the clean one, so bucket-level corroboration settles the bucket on the
+# LIE. This is the direct test of the naive-corroboration risk that
+# claim-corroboration-signal shipped and recorded as unmitigated -- copies count
+# as independent support, so a value repeated by two documents beats a correct
+# original stated once.
+#
+# Without this arm mis_repaired is pinned at zero BY CONSTRUCTION (every other
+# preset renders the corruption into fewer documents than the clean value, so
+# whatever wins is correct), and a metric that can only read zero measures
+# nothing.
+#
+# WHY cardinality_violation
+# A majority needs >= 3 renderings of one fact: 2 corrupted against 1 surviving
+# clean. When this arm was built, only `care_provider` reached three genres
+# (measured then: effective_k {2: 146, 3: 4}) and cardinality_violation -- the
+# class that targets it -- was the ONLY class that could express the axis. That
+# cap is also why the real LLM corpus produced 378 one-vs-one buckets out of
+# 398: a property of the pack, not the world.
+#
+# The referral_letter genre has since lifted the ceiling: this preset now
+# realizes effective_k {3: 150} and at least three classes can express a
+# majority (see synth-prose-renderer req.prose.redundancy). The arm KEEPS
+# cardinality_violation deliberately -- 4 sites in a small, stable,
+# fully-eligible pool make the cleanest paired comparison, and the pinned
+# numbers should not churn as the pack grows.
+#
+# Pair with majority_clean.yaml: SAME world, SAME seed, only
+# visibility_corrupted differs.
+preset_name: majority_wrong
+seed: "majority-arm-1"
+world_path: world_smoke
+redundancy:
+  # 3 renderings so 2 corrupted still leaves 1 clean counterpart. With v >= k
+  # the site is demoted out of cross_doc and there is nothing to disagree with.
+  renderings_per_fact_min: 3
+  renderings_per_fact_max: 3
+corruption:
+  classes:
+    cardinality_violation: {count: 4, visibility_corrupted: 2}
+benign_variation:
+  unit_rescale_rate: 0.0
+scale:
+  patients: 8
+  max_facts_per_patient: 40
+clean_fp_ceiling: 0
+materialize_pdf: false

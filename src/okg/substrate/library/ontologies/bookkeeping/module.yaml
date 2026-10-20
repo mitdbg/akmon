@@ -1,0 +1,24 @@
+name: bookkeeping
+version: 1.0.0
+description: 'Project containers: Project, ProjectGoal, ProjectMilestone,
+  ProjectDeliverable, ProjectRisk, ProjectStakeholder. Composes with openspec
+  / person / reasoning to wire research-thread bookkeeping into the knowledge
+  graph.'
+provides:
+  subtypes_file: schema.yaml
+extends:
+  openspec:
+    description: OpenSpecChange member_of Project; openspec Goal/Risk/Stakeholder
+      contribute_to / identify_as the corresponding bookkeeping Project* subtypes.
+    cross_link_rules:
+    - cross_links/bookkeeping_to_openspec.yaml
+  person:
+    description: ProjectStakeholder identifies one or more Person nodes when
+      the operator names the individual.
+    cross_link_rules:
+    - cross_links/bookkeeping_to_person.yaml
+  reasoning:
+    description: Project investigates Hypothesis; ProjectGoal guided_by Principle;
+      Hypothesis predicts ProjectRisk (Pattern B reasoning citation).
+    cross_link_rules:
+    - cross_links/bookkeeping_to_reasoning.yaml

@@ -1,0 +1,242 @@
+id: https://palimpzest.mit.edu/okg/modules/kinship
+name: kinship
+title: Kinship — base family relations, friendship, and personal attributes
+description: |-
+  The relations a BIOGRAPHICAL ARTICLE states about a person, and nothing
+  more. Eight family relations (mother, father, son, daughter, sister,
+  brother, wife, husband), one friendship relation, and personal attributes
+  as shared value nodes.
+
+  WHAT IS DELIBERATELY ABSENT, AND WHY THE ABSENCE IS THE POINT. There is
+  no `grandmother`, `niece`, `cousin`, `great_granddaughter`,
+  `mother_in_law` — no COMPOSED relation of any kind. The PhantomWiki
+  benchmark this module was written for phrases its questions in exactly
+  that composed vocabulary while its articles state only the eight base
+  relations above, and it ships a Prolog rule file DEFINING the composition
+  (`great_granddaughter(X, Y) :- great_grandchild(X, Y), female(Y).`).
+  Admitting those clauses as edges would hand a graph-backed agent the
+  reasoning schema a prose-reading agent has to infer, which is the
+  treatment the A/B is measuring rather than a property of the corpus. The
+  narrowing catalog is therefore the enforcement point: an edge typed
+  `great_granddaughter` has no narrowing here and is REFUSED at insert, so
+  a future source that ingests the rule file fails the publish instead of
+  quietly winning the experiment.
+
+  Nor is there a `parent` or `sibling` narrowing. Those two ARE ground /
+  base predicates in the released knowledge base, but the articles never
+  state them (PhantomWiki's article generator drops parent, child and
+  sibling by construction), and the questions DO use them. Deriving
+  `parent` as the union of `mother` and `father` is a one-hop inference
+  either arm can make; declaring it as source-carried structure would put
+  a question-vocabulary relation in the graph that no article states.
+
+  IDENTITY. Person here is an ALTERNATIVE POPULATION of the `person`
+  subtype name — the substrate's `person` module owns a differently-shaped
+  Person (accounts, teams, ORCIDs, real humans). A deployment composes one
+  or the other, not both; this is the same arrangement `literature` and
+  `concepts` have over `Concept`. The pii annotations say `non_pii`
+  because a kinship corpus of this shape is generated: the people do not
+  exist, and a universe regenerated at a new seed has never existed. A
+  deployment that pointed this module at REAL biographies would have to
+  restate them.
+
+  PACT okg-bench-graph-benchmarks / req.pw.corpus.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  kin: https://palimpzest.mit.edu/okg/modules/kinship/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Person:
+    description: |-
+      One person a biographical article is about. Conventionally node id
+      `person:<repo>:<name>`, so the article path and the node id are
+      derivable from each other without a lookup.
+
+      The generation parameters are carried ON EVERY PERSON rather than on
+      a single universe-root node. A root node would need a membership
+      edge to every person to avoid sitting isolated, and that hub edge
+      would make "zero isolated persons" true of a graph with no kinship
+      edges at all — a connectivity clause satisfied by a star. Carrying
+      the parameters as attributes keeps provenance queryable per node and
+      leaves the isolation clause meaning what it says.
+    class_uri: kin:Person
+    attributes:
+      name:
+        required: true
+        description: The person's full name, unique within a universe.
+        annotations:
+          pii_class: non_pii
+      article_path:
+        required: true
+        description: |-
+          Snapshot-relative path of the article this person's relations
+          were read from. The prose half of the corpus parses the same
+          file into Document / DocumentChunk nodes.
+        annotations:
+          pii_class: non_pii
+      universe_seed:
+        range: integer
+        description: Generator seed. One third of the generation triple.
+      universe_family_trees:
+        range: integer
+        description: Number of family trees requested from the generator.
+      universe_max_family_tree_size:
+        range: integer
+        description: Maximum people per family tree.
+      universe_question_depth:
+        range: integer
+        description: |-
+          Question-template depth the instance was generated at. Recorded
+          on the corpus because size splits at a FIXED SEED are NESTED —
+          two universes generated at the same seed and different sizes
+          begin with the same people and identical family sections — so a
+          comparison across sizes is only meaningful if the full triple
+          travels with the data.
+      universe_id:
+        description: |-
+          Short digest of the generation triple. Two corpora sharing this
+          value are the same universe; two sharing only the seed are
+          nested, not independent.
+      relation_line_count:
+        range: integer
+        description: |-
+          Number of relation sentences the article stated about this
+          person. Zero is legitimate — an only child with no spouse, no
+          children and no friends — and is the input-derived fact the
+          isolation stamp below is computed from.
+      no_relations_reason:
+        description: |-
+          Why this person has no incident edge. Present ONLY when the
+          ARTICLE stated no relation sentence (`article_states_no_relations`),
+          i.e. derived from the parsed input and never from whether an edge
+          was emitted. A person with no edges and no stamp is a parsing
+          regression, not an upstream hermit.
+    annotations:
+      archetype: actor
+      transient: 'false'
+  PersonAttribute:
+    description: |-
+      One (kind, value) pair a biographical article states about a person —
+      date of birth, occupation, hobby, gender. Conventionally node id
+      `person_attribute:<repo>:<kind>:<value>`.
+
+      Value nodes are SHARED across people rather than inlined as node
+      attributes, because the benchmark's questions enter the graph through
+      them: "the person whose occupation is early years teacher" is one hop
+      backwards along `has_attribute`, and gender is what turns a
+      `grandchild` walk into a `granddaughter` answer. Inlining them would
+      make both a scan.
+    class_uri: kin:PersonAttribute
+    attributes:
+      kind:
+        required: true
+        description: |-
+          The attribute name as the article words it — `date of birth`,
+          `occupation`, `hobby`, `gender`.
+        annotations:
+          pii_class: non_pii
+      value:
+        required: true
+        annotations:
+          pii_class: non_pii
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  EdgeNarrowings:
+    description: |-
+      Exactly the relations a biographical article states. Ten narrowings:
+      the eight base family relations, friendship, and the attribute link.
+
+      Every one of these is stated in the article prose verbatim ("The
+      mother of X is Y."). Nothing composed appears here, and that is the
+      leakage boundary — see the module description.
+    annotations:
+      okg_edge_narrowings: 'true'
+      # EVERY relation here is `references`, `son` and `daughter` included.
+      # They are the forward-containment direction of the family tree and a
+      # drill-down walker could follow them, but the subtype graph they
+      # induce is the self-loop `person contains person`, and the catalog's
+      # containment-cycle check is Tarjan SCC with `len(scc) > 1` — it
+      # reports nothing for a one-node cycle. Rather than lean on a check
+      # that cannot see this shape, the hierarchy for this deployment comes
+      # from `document contains document_chunk`, which is a real DAG, and
+      # kinship stays lateral.
+      okg_relation_kind:
+        has_attribute: references
+        mother: references
+        father: references
+        son: references
+        daughter: references
+        sister: references
+        brother: references
+        wife: references
+        husband: references
+        friend: references
+    attributes:
+      person_mother_person:
+        description: The article states Y is the mother of X.
+        annotations:
+          edge_archetype: mother
+          src_subtypes: Person
+          dst_subtypes: Person
+      person_father_person:
+        description: The article states Y is the father of X.
+        annotations:
+          edge_archetype: father
+          src_subtypes: Person
+          dst_subtypes: Person
+      person_son_person:
+        description: The article states Y is a son of X.
+        annotations:
+          edge_archetype: son
+          src_subtypes: Person
+          dst_subtypes: Person
+      person_daughter_person:
+        description: The article states Y is a daughter of X.
+        annotations:
+          edge_archetype: daughter
+          src_subtypes: Person
+          dst_subtypes: Person
+      person_sister_person:
+        description: The article states Y is a sister of X.
+        annotations:
+          edge_archetype: sister
+          src_subtypes: Person
+          dst_subtypes: Person
+      person_brother_person:
+        description: The article states Y is a brother of X.
+        annotations:
+          edge_archetype: brother
+          src_subtypes: Person
+          dst_subtypes: Person
+      person_wife_person:
+        description: The article states Y is the wife of X.
+        annotations:
+          edge_archetype: wife
+          src_subtypes: Person
+          dst_subtypes: Person
+      person_husband_person:
+        description: The article states Y is the husband of X.
+        annotations:
+          edge_archetype: husband
+          src_subtypes: Person
+          dst_subtypes: Person
+      person_friend_person:
+        description: |-
+          The article states Y is a friend of X. Friendship is symmetric
+          upstream, and BOTH directions are stated — each of the two
+          articles names the other person — so both edges are read off
+          prose rather than one being synthesised.
+        annotations:
+          edge_archetype: friend
+          src_subtypes: Person
+          dst_subtypes: Person
+      person_has_attribute_person_attribute:
+        description: The article states this (kind, value) pair about the person.
+        annotations:
+          edge_archetype: has_attribute
+          src_subtypes: Person
+          dst_subtypes: PersonAttribute

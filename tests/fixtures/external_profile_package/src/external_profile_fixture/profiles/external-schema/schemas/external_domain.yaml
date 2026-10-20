@@ -1,0 +1,14 @@
+id: https://example.test/external-profile-fixture
+name: external_profile_fixture
+title: External profile fixture ontology
+prefixes:
+  linkml: https://w3id.org/linkml/
+  fixture: https://example.test/external-profile-fixture/
+default_range: string
+imports:
+  - linkml:types
+classes:
+  ExternalRecord:
+    description: A subtype owned by the external distribution.
+    annotations:
+      archetype: document

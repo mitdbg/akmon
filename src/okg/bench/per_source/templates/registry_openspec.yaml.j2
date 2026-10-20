@@ -1,0 +1,32 @@
+sources:
+  openspec:
+    module: okg.substrate.library.sources.openspec
+    class: OpenSpecSource
+    ownership_id: {{ deployment }}.openspec
+    params:
+      openspec_root: {{ repo_root }}/openspec
+      repo: tinydb
+      include_archived: true
+
+    source_class: discovery_crawl
+    record_identity_kind: scoped_locator
+    record_identity_fields: [repo, node_id]
+    source_revision_kind: content_hash
+    deletion_semantics: missing_from_completed_scope
+    publication_mode: published_generation
+    sync:
+      watch:
+        roots: ["{{ repo_root }}/openspec"]
+        include_globs: ["**/*"]
+        exclude_globs: []
+      triggers: [fs_event, manual, reconcile]
+      default_event_mode: scope_complete
+      reconcile_mode: scope_complete
+      deletes_require_reconcile: true
+      cheap_probe: stat_tree
+      scope:
+        accepts: [path]
+        unsupported_fallback: scope_complete
+      dependents:
+        on_event: direct
+        on_reconcile: closure

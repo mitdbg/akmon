@@ -1,0 +1,15 @@
+name: extraction
+version: 1.0.0
+description: >-
+  Document chunking, entity mentions, claim extraction, critiques,
+  extraction-dropped audit trail. Intra-module narrowings include
+  claim_supported_by_evidence. (claim_supports/contradicts_claim retired
+  under ruling D7 - cross-claim conflict lives in the claim plane's
+  declared checks, not LLM-adjudicated edges.)
+provides:
+  subtypes_file: schema.yaml
+  edge_types:
+  - caption_of
+  intra_cross_link_rules:
+  - cross_links/claim_supported_by_evidence.yaml
+  - cross_links/mentions_to_canonical.yaml

@@ -1,0 +1,29 @@
+pact_version: 5
+id: smoke-chart-install
+title: Install the Helm chart against an empty database
+tier: 1
+why: >-
+  Fixture content for the kubernetes-smoke deployment. The Kubernetes proof
+  must publish a non-empty graph from a copy of the source with no Git
+  history and no PACT records of its own, so the deployment ships its own
+  small set of changes.
+affected_code:
+- ops/kubernetes/okg/
+requirements:
+- id: req.smoke-chart-install.bootstrap
+  statement: >-
+    The chart's bootstrap init container provisions an empty database and
+    publishes a generation before the runtime starts.
+- id: req.smoke-chart-install.read
+  statement: >-
+    After the install, the MCP service answers a read against the published
+    generation.
+tasks:
+- id: task.smoke-chart-install.bootstrap
+  requirement: req.smoke-chart-install.bootstrap
+  verification: okg provision --deployment kubernetes-smoke --publish-once
+- id: task.smoke-chart-install.read
+  requirement: req.smoke-chart-install.read
+  verification: helm test against the installed release
+evidence: []
+decisions: []

@@ -1,0 +1,37 @@
+name: consistency
+version: 1.0.0
+description: >
+  Claim-consistency node types — the (C, Σ, ≻) model's tier-0 graph facts
+  (PACT consistency-claim-model-core task.core.ontology-module; normative
+  model: docs/develop/architecture/consistency.md; representation decisions
+  D1-D3 + review amendments F1/F4/F6 in designs/graph-derivation-model.md).
+  ConsistencyClaim refines extraction's abstract Claim with the claim-model
+  coordinates (predicate, normalized key, value, heading-path scope);
+  ClaimCorrection / ClaimPrecedent are the one-decision-one-object operator
+  writes (a correction updates C, a precedent updates ≻); PredicatePolicy
+  rows are Σ as admitted data (policy-kind / incompatible-pair /
+  linked-pair / unresolved-key); ConflictFinding is the tier-2 derived
+  finding shape.
+
+provides:
+  subtypes_file: schema.yaml
+  edge_types:
+    - corrects
+    - involves_claim
+    - constrained_by
+  intra_cross_link_rules:
+    - cross_links/consistency_intra.yaml
+
+extends:
+  extraction:
+    description: >
+      ConsistencyClaim refines extraction.Claim (is_a) — the grounded
+      evidence quote, extraction state, and confidence discipline are the
+      abstract Claim's; this module adds the claim-model coordinates.
+      HARD DEPENDENCY (review M1): the is_a parent is harvested
+      unconditionally by compose, so a deployment composing consistency
+      WITHOUT extraction fails at apply time with a subtypes_parent_fk
+      violation — only the extends cross-link rules silently skip, not
+      the refinement. Compose extraction alongside this module, always.
+    cross_link_rules:
+      - cross_links/consistency_x_extraction.yaml

@@ -1,0 +1,307 @@
+{
+ "clean_fp_ceiling": 0,
+ "clean_gate_passed": true,
+ "clean_run_fp": 0,
+ "config_digest": "18c2815662ec946093ca3b1f0d7f77b57e08fd27a83448a29fc94f54fe2d268d",
+ "corrupted_unexpected_findings": {
+  "engine_attributed": [],
+  "extractor_attributed": []
+ },
+ "cross_doc_recall": {
+  "denominator": 5,
+  "recovered": 5
+ },
+ "extraction": {
+  "denominator": 308,
+  "missed": [],
+  "recovered": 308
+ },
+ "funnel": {
+  "detection_recall": {
+   "conditional": {
+    "denominator": 6,
+    "detected": 5
+   },
+   "end_to_end": {
+    "denominator": 11,
+    "detected": 6
+   }
+  },
+  "partition_state": {
+   "cross_doc": {
+    "detected_only": 1,
+    "repaired": 4
+   },
+   "internal_only": {
+    "not_detected": 1
+   },
+   "undetectable_by_construction": {
+    "not_detected": 4
+   },
+   "world_knowledge": {
+    "detected_only": 1
+   }
+  },
+  "repair_rate": {
+   "conditional": {
+    "denominator": 6,
+    "repaired": 4
+   },
+   "end_to_end": {
+    "denominator": 11,
+    "repaired": 4
+   }
+  },
+  "states": {
+   "counterpart_lost": 0,
+   "detected_only": 2,
+   "laundered_at_extraction": 0,
+   "mis_repaired": 0,
+   "missed_at_extraction": 0,
+   "not_detected": 5,
+   "removed_from_scope": 0,
+   "repaired": 4
+  },
+  "total": 11
+ },
+ "majority_flavor": {
+  "copy": {
+   "mis_repaired": 0,
+   "preserved": 0
+  },
+  "independent": {
+   "mis_repaired": 0,
+   "preserved": 0
+  }
+ },
+ "manifest_digest": "b7ddaa7a3d4b68fa59b855f99108b7389bf12d8193ec78b909f79ac9066d8bf9",
+ "per_class": {
+  "broken_reference": {
+   "candidate": 0,
+   "denominator": 1,
+   "layer": "render",
+   "missed_buckets": [
+    "birthdate:patient_katia630_guillermina633_berge125"
+   ],
+   "routed": 0,
+   "verdict": 0
+  },
+  "cardinality_violation": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "kg_fork",
+   "missed_buckets": [],
+   "routed": 0,
+   "verdict": 1
+  },
+  "dangling_entity": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "render",
+   "missed_buckets": [],
+   "routed": 0,
+   "verdict": 1
+  },
+  "derived_value": {
+   "candidate": 0,
+   "denominator": 1,
+   "layer": "kg_fork",
+   "missed_buckets": [
+    "body_mass_index:patient_karen597_marlen929_rogahn59"
+   ],
+   "routed": 0,
+   "verdict": 0
+  },
+  "digit_transposition": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "render",
+   "missed_buckets": [],
+   "routed": 1,
+   "verdict": 1
+  },
+  "entity_swap": {
+   "candidate": 0,
+   "denominator": 1,
+   "layer": "kg_fork",
+   "missed_buckets": [
+    "medication_naproxen:patient_margret280_sherell789_daniel959"
+   ],
+   "routed": 0,
+   "verdict": 0
+  },
+  "label_value_mismatch": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "render",
+   "missed_buckets": [],
+   "routed": 1,
+   "verdict": 1
+  },
+  "polarity_flip": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "kg_fork",
+   "missed_buckets": [],
+   "routed": 0,
+   "verdict": 1
+  },
+  "unit_conversion_error": {
+   "candidate": 1,
+   "denominator": 1,
+   "layer": "render",
+   "missed_buckets": [],
+   "routed": 0,
+   "verdict": 1
+  },
+  "value_perturbation": {
+   "candidate": 0,
+   "denominator": 2,
+   "layer": "kg_fork",
+   "missed_buckets": [
+    "body_height:patient_margret280_sherell789_daniel959",
+    "hemoglobin_a1c:patient_katia630_guillermina633_berge125"
+   ],
+   "routed": 0,
+   "verdict": 0
+  }
+ },
+ "per_class_survival": {
+  "by_class": {
+   "broken_reference": {
+    "sites": 1,
+    "survived": 1
+   },
+   "cardinality_violation": {
+    "sites": 1,
+    "survived": 1
+   },
+   "dangling_entity": {
+    "sites": 1,
+    "survived": 1
+   },
+   "derived_value": {
+    "sites": 1,
+    "survived": 1
+   },
+   "digit_transposition": {
+    "sites": 1,
+    "survived": 1
+   },
+   "entity_swap": {
+    "sites": 1,
+    "survived": 1
+   },
+   "label_value_mismatch": {
+    "sites": 1,
+    "survived": 1
+   },
+   "polarity_flip": {
+    "sites": 1,
+    "survived": 1
+   },
+   "unit_conversion_error": {
+    "sites": 1,
+    "survived": 1
+   },
+   "value_perturbation": {
+    "sites": 2,
+    "survived": 2
+   }
+  },
+  "non_surviving_sites": []
+ },
+ "per_kind_detection": {
+  "by_kind": {
+   "functional": {
+    "conditional": {
+     "denominator": 11,
+     "detected": 6
+    },
+    "end_to_end": {
+     "denominator": 11,
+     "detected": 6
+    }
+   },
+   "incompatible_pair": {
+    "conditional": {
+     "denominator": 0,
+     "detected": 0
+    },
+    "end_to_end": {
+     "denominator": 0,
+     "detected": 0
+    }
+   },
+   "linked_pair": {
+    "conditional": {
+     "denominator": 0,
+     "detected": 0
+    },
+    "end_to_end": {
+     "denominator": 0,
+     "detected": 0
+    }
+   },
+   "unresolved_key": {
+    "conditional": {
+     "denominator": 0,
+     "detected": 0
+    },
+    "end_to_end": {
+     "denominator": 0,
+     "detected": 0
+    }
+   }
+  },
+  "linked_cross_bucket": []
+ },
+ "per_partition": {
+  "cross_doc": {
+   "denominator": 5,
+   "verdict": 5
+  },
+  "internal_only": {
+   "denominator": 1,
+   "verdict": 0
+  },
+  "undetectable_by_construction": {
+   "denominator": 4,
+   "verdict": 0
+  },
+  "world_knowledge": {
+   "denominator": 1,
+   "verdict": 1
+  }
+ },
+ "poisoning": {
+  "all_flips_on_authority": true,
+  "by_basis": {},
+  "eligible": 6,
+  "enabled": false,
+  "expected_basis": "declared_source_authority",
+  "flip_rate": 0.0,
+  "flipped": 0,
+  "per_bucket": [],
+  "poison_rate": 0.0,
+  "poisoned": 0
+ },
+ "repair": {
+  "detected": 6,
+  "detected_only": 2,
+  "mis_repaired": 0,
+  "repaired": 4,
+  "total": 11,
+  "unadjudicated": 5
+ },
+ "schema": "okg.synth.scorecard.v1",
+ "twins": {
+  "denominator": 3,
+  "flagged": 0
+ },
+ "undetectable_flagged_fp": 0,
+ "world_knowledge": {
+  "denominator": 1,
+  "verdict": 1
+ }
+}

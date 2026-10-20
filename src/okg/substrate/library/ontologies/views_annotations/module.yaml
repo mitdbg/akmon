@@ -1,0 +1,5 @@
+name: views_annotations
+version: 1.0.0
+description: PublicationAnnotation subtype for the viz PDF overlay layer.
+provides:
+  subtypes_file: schema.yaml

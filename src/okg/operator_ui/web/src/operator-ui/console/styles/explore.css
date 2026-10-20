@@ -1,0 +1,164 @@
+/* --- Explore ---------------------------------------------------------- */
+
+/* The same shell a fourth time. What is new: type chips as filters (the
+ * chip strip Updates and Sources use, the type in mono), result rows as a
+ * list in Home's row form, the match marked with a token tint, and a record
+ * page whose tabs are a strip of links. */
+
+.okg-console__chips { margin: 24px 0 0; }
+
+.okg-console__chips .okg-console__count-line { margin: 0; }
+
+.okg-console .okg-console__typechip .okg-console__typechip-name {
+  margin-left: 0;
+  font-family: var(--okg-font-mono);
+  font-size: 13px;
+  color: var(--okg-color-text);
+}
+
+.okg-console__chipmore { align-self: center; }
+
+/* The results: a 12 px uppercase tracked head over each group, the count
+ * beside the head, then rows of 15/500 subject, 13 muted meta, 13 muted
+ * snippet on one line. */
+.okg-console__results { margin-top: 24px; }
+
+.okg-console__results-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 24px 0 4px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__results-head:first-child { margin-top: 0; }
+
+.okg-console__results-showing {
+  margin: 0;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+}
+
+.okg-console__result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 4px 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--okg-color-line-soft);
+}
+
+.okg-console__result:first-child { border-top: 0; }
+
+.okg-console__result[data-focused="true"] {
+  background: var(--okg-color-surface-muted);
+  box-shadow: -8px 0 0 var(--okg-color-surface-muted), 8px 0 0 var(--okg-color-surface-muted);
+}
+
+.okg-console .okg-console__result-link {
+  display: block;
+  min-width: 0;
+  color: inherit;
+}
+
+.okg-console .okg-console__result-link:hover { text-decoration: none; }
+
+.okg-console .okg-console__result-link:hover .okg-console__result-label { text-decoration: underline; }
+
+.okg-console__result-label {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-console__result-meta,
+.okg-console__result-snippet {
+  display: block;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-console__result-meta { margin-top: 2px; }
+
+.okg-console__result-snippet { margin-top: 2px; }
+
+.okg-console__result-id { padding-top: 2px; }
+
+/* The match: a token tint, not a highlighter. */
+.okg-console__mark {
+  background: var(--okg-color-info-bg);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+/* A policy-hidden value is the word, in the muted grey, never a token. */
+.okg-console__hidden {
+  font-style: italic;
+  color: var(--okg-color-muted);
+}
+
+/* One type's records, and the record page's tables: the producer table's
+ * clothes with their own columns. */
+.okg-console__listing { margin-top: 24px; }
+
+.okg-console__ltable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.okg-console__ltable th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--okg-color-muted);
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--okg-color-line);
+  white-space: nowrap;
+}
+
+.okg-console__ltable td {
+  padding: 0 12px 0 0;
+  height: 44px;
+  border-bottom: 1px solid var(--okg-color-line-soft);
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-console__ltable th:last-child,
+.okg-console__ltable td:last-child { padding-right: 0; }
+
+.okg-console__ltable [data-col="type"] { width: 150px; }
+.okg-console__ltable [data-col="source"] { width: 200px; color: var(--okg-color-muted); }
+.okg-console__ltable [data-col="id"] { width: 260px; }
+.okg-console__ltable [data-col="rel"] { width: 160px; }
+
+/* Related's Relationship cell carries EVERY relationship one neighbour is
+   recorded under -- "contains · member_of" where the graph records the pair
+   both ways -- so it is sized for two names. At 160 px it ellipsised to
+   "contains · member…", which names one relationship and half of another. */
+.okg-console__reltable [data-col="rel"] { width: 230px; }
+.okg-console__ltable [data-col="producer"] { width: 240px; }
+.okg-console__ltable [data-col="count"] { width: 80px; text-align: right; }
+.okg-console__ltable th[data-col="count"] { text-align: right; }
+.okg-console__ltable [data-col="fact"] { width: 200px; }
+.okg-console__ltable [data-col="time"] { width: 170px; color: var(--okg-color-muted); }
+
+.okg-console__ltable td[data-col="id"] .okg-console__copyable { max-width: 100%; }

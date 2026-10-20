@@ -1,0 +1,128 @@
+name: academic_researcher
+version: 1.0.0
+description: |-
+  Lab-management ontology for a professor's personal-OKG. Eleven
+  subtypes (Advisee, Lab, Grant, Deadline, Committee, Review,
+  Course, TalkEngagement, RecommendationLetter, Meeting,
+  ActionItem) plus the `affiliated_with` edge archetype enable
+  the substrate to model a PI's daily-use surface: who advises
+  whom, which grants fund what, what's due next, current service
+  load, scheduled talks, meetings + action items.
+
+  Two subtypes refine existing person-module classes via the
+  Layer 1A `refines:` mechanism:
+
+    - Advisee   (is_a: Person) — students, postdocs, visitors.
+    - Lab       (is_a: Team)   — the PI's research group.
+
+  Refinement closure means `subtype_ancestors` queries filtering
+  `ancestor_name = 'person'` surface Advisees alongside base Person
+  nodes; ancestor_name = 'team' surfaces Labs.
+
+  Loaded by the `academic-researcher` profile by default
+  (alongside its research-base module set). Opt-in for any other
+  deployment.
+
+  No sources or enrichers ship in this module — they live in the
+  `add-academic-pi-sources` proposal. Subtype instances arrive
+  via the profile's source-defaults (ORCID for Paper / Person,
+  NSF Award Search for Grant, group webpage scrape for Advisee,
+  CV LLM extract for TalkEngagement / Committee / Course /
+  RecommendationLetter, calendar `.ics` for Meeting, notes_dir
+  for Meeting + ActionItem).
+
+provides:
+  subtypes_file: schema.yaml
+  edge_types:
+    - advises
+    - has_deadline
+    - has_milestone
+    - acknowledged_in
+    - author_of
+    - funds
+    - reviews
+    - presents
+    - hosted_by
+    - addresses
+    - produces
+    - has_document
+    - affiliated_with
+  intra_cross_link_rules:
+    - cross_links/academic_researcher_intra.yaml
+
+extends:
+  person:
+    description: |-
+      Advisee refines `person.Person` and Lab refines `person.Team`
+      via LinkML `is_a:` declarations in `schema.yaml`. The Layer 1A
+      closure populates `okg.subtype_ancestors` so closure-join
+      queries surface refinements automatically.
+
+      Two cross-module narrowings live in
+      `cross_links/academic_researcher_x_person.yaml`:
+
+        - Person `advises` Advisee (the canonical lab-membership edge)
+        - Person `owns` ActionItem (ActionItem.owner_ref)
+
+      Cross-link rules silently skip when `person` isn't loaded.
+    cross_link_rules:
+      - cross_links/academic_researcher_x_person.yaml
+
+  scholarly:
+    description: |-
+      Eight cross-module narrowings against scholarly live in
+      `cross_links/academic_researcher_x_scholarly.yaml`:
+
+        - Advisee `author_of` Paper
+        - Grant `acknowledged_in` Paper
+        - Review `reviews` Paper
+        - TalkEngagement `presents` Paper
+        - TalkEngagement `hosted_by` Organization
+        - Lab `affiliated_with` Organization
+        - Person `affiliated_with` Organization
+        - Course `hosted_by` Organization
+
+      Cross-link rules silently skip when `scholarly` isn't loaded —
+      the resolver only fires extends.scholarly when scholarly is
+      in the deployment's `modules:` list.
+    cross_link_rules:
+      - cross_links/academic_researcher_x_scholarly.yaml
+
+  bookkeeping:
+    description: |-
+      Two cross-module narrowings against bookkeeping live in
+      `cross_links/academic_researcher_x_bookkeeping.yaml`:
+
+        - Grant `funds` bookkeeping.Project
+        - Grant `has_milestone` bookkeeping.ProjectMilestone
+
+      Silently skipped when bookkeeping isn't loaded.
+    cross_link_rules:
+      - cross_links/academic_researcher_x_bookkeeping.yaml
+
+  reasoning:
+    description: |-
+      One cross-module narrowing against reasoning lives in
+      `cross_links/academic_researcher_x_reasoning.yaml`:
+
+        - ActionItem `addresses` reasoning.Question
+
+      Ties the daily-use lab surface back to the gravitational
+      reasoning core. Silently skipped when reasoning isn't loaded.
+    cross_link_rules:
+      - cross_links/academic_researcher_x_reasoning.yaml
+
+  extraction:
+    description: |-
+      Two cross-module narrowings against extraction live in
+      `cross_links/academic_researcher_x_extraction.yaml`:
+
+        - RecommendationLetter `has_document` extraction.Document
+        - Meeting `has_document` extraction.Document
+
+      Letters' draft prose and meeting notes both land as Documents
+      (provenance=explicit when operator-authored, extracted_model
+      when LLM-proposed). Silently skipped when extraction isn't
+      loaded.
+    cross_link_rules:
+      - cross_links/academic_researcher_x_extraction.yaml

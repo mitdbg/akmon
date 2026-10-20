@@ -1,0 +1,8 @@
+# consistency × extraction cross-link rules.
+#
+# ConsistencyClaim refines extraction's abstract Claim via is_a (the
+# refinement is declared in schema.yaml, like academic_researcher's Advisee is_a
+# Person); no cross-module narrowing slots are needed yet — evidence
+# anchoring to document chunks rides on the inherited Claim shape. Reserved
+# for future slots (e.g. finding annotations onto documents).
+rules: []

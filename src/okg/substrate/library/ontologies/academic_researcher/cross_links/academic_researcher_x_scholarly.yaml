@@ -1,0 +1,125 @@
+# academic_researcher ↔ scholarly cross-link rules.
+#
+# Per `add-academic-pi-ontology-module` (Child 1 of
+# `add-academic-pi-profile`): eight narrowings between academic_researcher
+# subtypes and the scholarly module's Paper / Organization.
+#
+# Rules with deferred resolution (sources may not have resolved the
+# target node yet on first emit):
+#
+#   - `advisee_author_of_paper`: ORCID-sourced Paper rows carry the
+#     paper_id alias; advisee_dir-frontmatter declared papers list
+#     via cite_key_ref. Both endpoints have cite_key_ref so the rule
+#     resolves once both lands.
+#   - `grant_acknowledged_in_paper`: NSF Award Search sources emit
+#     Grant + paper_acknowledges_grant cite_key_ref pair.
+#   - `lab_affiliated_with_organization`: Lab.parent_dept_ref points
+#     at the department Organization.
+#   - `person_affiliated_with_organization`: ORCID-employment-block
+#     source emits the affiliated_with edge using Person's
+#     organization_ref.
+#   - `course_offered_by_organization`: Course.department_ref.
+#
+# Rules with direct emission (sources emit full src+dst pairs at
+# projection time): for these, the rule's field is set to
+# stable-but-non-matching pairs (subtype-prefixed IDs don't collide
+# across subtypes) so the deferred-resolution pass emits zero
+# spurious edges. The narrowing IS still registered in the catalog,
+# letting sources emit edges directly via the standard EdgeFact path.
+#
+#   - `review_reviews_paper`: Review.subject_ref points at Paper.
+#   - `talk_engagement_presents_paper`: TalkEngagement.paper_refs.
+#   - `talk_engagement_hosted_by_organization`: TalkEngagement.host_org_ref.
+#
+# All rules silently skip when `scholarly` isn't loaded — the
+# composition resolver's `extends: scholarly` block in module.yaml
+# only fires when scholarly is in `modules:`.
+
+rules:
+  - id: advisee_author_of_paper
+    src:
+      subtype: advisee
+      field: cite_key_ref
+    dst:
+      subtype: paper
+      field: cite_key_ref
+    matcher: exact
+    edge: author_of
+    bidirectional: false
+
+  - id: grant_acknowledged_in_paper
+    src:
+      subtype: grant
+      field: cite_key_ref
+    dst:
+      subtype: paper
+      field: cite_key_ref
+    matcher: exact
+    edge: acknowledged_in
+    bidirectional: false
+
+  - id: review_reviews_paper
+    src:
+      subtype: review
+      field: review_id
+    dst:
+      subtype: paper
+      field: paper_id
+    matcher: exact
+    edge: reviews
+    bidirectional: false
+
+  - id: talk_engagement_presents_paper
+    src:
+      subtype: talk_engagement
+      field: talk_id
+    dst:
+      subtype: paper
+      field: paper_id
+    matcher: exact
+    edge: presents
+    bidirectional: false
+
+  - id: talk_engagement_hosted_by_organization
+    src:
+      subtype: talk_engagement
+      field: talk_id
+    dst:
+      subtype: organization
+      field: organization_id
+    matcher: exact
+    edge: hosted_by
+    bidirectional: false
+
+  - id: lab_affiliated_with_organization
+    src:
+      subtype: lab
+      field: parent_dept_ref
+    dst:
+      subtype: organization
+      field: organization_id
+    matcher: exact
+    edge: affiliated_with
+    bidirectional: false
+
+  - id: person_affiliated_with_organization
+    src:
+      subtype: person
+      field: organization_ref
+    dst:
+      subtype: organization
+      field: organization_id
+    matcher: exact
+    edge: affiliated_with
+    bidirectional: false
+
+  - id: course_offered_by_organization
+    src:
+      subtype: course
+      field: department_ref
+    dst:
+      subtype: organization
+      field: organization_id
+    matcher: exact
+    edge: hosted_by
+    bidirectional: false

@@ -1,0 +1,93 @@
+name: lifecycle-exec-dogfood
+description: Dogfood-posture sibling of lifecycle-exec. Identical except for the Nomos
+  posture, which is what admits the routine no-dump backup path.
+postgres:
+  dsn: ${OKG_DSN}
+schema_dir: schemas
+source_registry: source_registry.yaml
+modules:
+- git_graph
+- openspec
+- extraction
+- agent_memory
+- reasoning
+nomos:
+  runtime_enforcement: enforce
+  deployment_posture:
+    deployment_class: dogfood_workspace
+    read_principals:
+    - human_operator
+    - okg_service
+    - mcp_client
+    write_principals:
+    - human_operator
+    - okg_service
+    - source_adapter
+    mcp_write_default: review
+    export_policy: internal_only
+    secret_handling: secret_ref_required
+    live_call_default: review
+    # The dogfood_workspace class requires local_private to be allowed; the
+    # audit refuses a posture weaker than its declared class.
+    allowed_source_sensitivities:
+    - internal
+    - private
+    - local_private
+    allowed_data_classifications:
+    - internal
+    - private
+    allowed_exportability:
+    - internal
+    - no_export
+    privacy_obligations:
+    - audit
+    - review
+    - secret_ref_required
+    readiness_profiles:
+    - dogfood
+  source_policy_defaults:
+    by_source_class:
+      discovery_crawl:
+        store_raw: true
+        sensitivity: private
+        data_classification: private
+        credential_ref_policy: none
+        live_call_allowed: false
+        exportability: no_export
+        retention: source_defined
+        provenance: declared
+        privacy_obligations:
+        - audit
+        - no_export
+release:
+  channel: dev
+host_storage:
+  warn_available_pct: 15
+  blocker_available_pct: 6
+deployment_up:
+  backup:
+    verification_policy: risk_admitted
+    restore_peak_factor: 1.25
+    restore_volume:
+      kind: docker_data_root
+    disaster_recovery_archive_max_age_seconds: 86400
+    disaster_recovery_restore_max_age_seconds: 604800
+    recovery_point_objective_seconds: 86400
+    budgets_seconds:
+      routine:
+        backup: 60
+        attribute_read_model: 30
+        total: 600
+      forced:
+        dump: 1012
+        backup: 4200
+        total: 7200
+native_views:
+  attribute_effective_view_empty_overlay_fast_path: true
+runtime:
+  enabled: true
+  # See the sibling fixture: the DBOS admin server's fixed default port would
+  # collide with co-located jobs on the shared CI runner.
+  run_admin_server: false
+  smoke_sources:
+  - pact

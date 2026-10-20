@@ -1,0 +1,6 @@
+# Calendar intra-module cross-link rules. The single intra
+# narrowing (CalendarEvent at_feed CalendarFeed) lives in
+# schema.yaml's EdgeNarrowings block. This file reserves the
+# path for future declarative resolver rules.
+
+rules: []

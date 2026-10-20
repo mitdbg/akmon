@@ -1,0 +1,1624 @@
+{
+ "about": "Refused search calls of two agent runs on one deployment, for step 2b of issue 3666. Every value is replaced by a neutral one; argument names, operators, field kinds, methods, views and select lists are kept. `types` are the record types that deployment has, `sources` its sources; it declares no source family and one profile, `content`.",
+ "families": [],
+ "profiles": [
+  "content"
+ ],
+ "rows": [
+  {
+   "arguments": {
+    "completeness": "exact",
+    "context_chars": 2000,
+    "limit": 100,
+    "matching": "record",
+    "max_bytes": 45000,
+    "method": "grep",
+    "query": "re:/term[0-9]+/",
+    "scope": {
+     "records": [
+      "rec:1",
+      "rec:2"
+     ]
+    },
+    "view": "windows"
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_bytes": 12000,
+    "method": "attrs",
+    "profile": "all",
+    "select": [
+     "node_id",
+     "attrs"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "type",
+       "op": "eq",
+       "value": "type_e"
+      },
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      },
+      {
+       "field": "attrs.key",
+       "op": "prefix",
+       "value": "value"
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_bytes": 12000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "subtype",
+     "handle",
+     "provenance"
+    ],
+    "where": {
+     "field": "attrs.key",
+     "op": "suffix",
+     "value": "value"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_bytes": 12000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "handle",
+     "attrs"
+    ],
+    "where": {
+     "field": "attrs.key",
+     "op": "eq",
+     "value": 1
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_bytes": 16000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "subtype",
+     "handle"
+    ],
+    "where": {
+     "field": "attrs.key",
+     "op": "suffix",
+     "value": "value"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_bytes": 20000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "subtype"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "type",
+       "op": "eq",
+       "value": "type_e"
+      },
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_bytes": 20000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "type",
+       "op": "eq",
+       "value": "type_f"
+      },
+      {
+       "field": "attrs.key",
+       "op": "prefix",
+       "value": "value"
+      },
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_bytes": 20000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "handle",
+     "attrs"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": 1
+      },
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": 1
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_bytes": 24000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      },
+      {
+       "field": "date.created",
+       "op": "between",
+       "values": [
+        "value",
+        "value"
+       ]
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_bytes": 25000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": 1
+      },
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": 1
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_chars": 1100,
+    "method": "grep",
+    "query": "term",
+    "select": [
+     "node_id",
+     "excerpt",
+     "handle"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "type",
+       "value": "type_a"
+      },
+      {
+       "field": "attrs.key",
+       "value": "value"
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_chars": 1100,
+    "method": "grep",
+    "query": "term",
+    "select": [
+     "node_id",
+     "excerpt",
+     "handle"
+    ],
+    "where": {
+     "field": "type",
+     "value": "type_a"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 1000,
+    "max_bytes": 20000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      },
+      {
+       "field": "date.created",
+       "op": "between",
+       "values": [
+        "value",
+        "value"
+       ]
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 1000,
+    "max_bytes": 25000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      },
+      {
+       "field": "date.created",
+       "op": "gt",
+       "value": "value"
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 1000,
+    "max_bytes": 30000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "handle"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      },
+      {
+       "field": "date.created",
+       "op": "gt",
+       "value": "value"
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 1000,
+    "max_bytes": 50000,
+    "method": "grep",
+    "query": "term",
+    "select": [
+     "node_id",
+     "handle",
+     "match_windows"
+    ],
+    "where": {
+     "field": "title",
+     "op": "prefix",
+     "value": "value"
+    }
+   },
+   "calls": 2,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 20,
+    "max_bytes": 12000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "subtype",
+     "attrs",
+     "handle",
+     "source_family"
+    ],
+    "where": {
+     "field": "attrs.key",
+     "op": "suffix",
+     "value": "value"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 200,
+    "max_bytes": 20000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "handle",
+     "subtype",
+     "citation"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      },
+      {
+       "field": "date.created",
+       "op": "gt",
+       "value": "value"
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 3,
+    "max_bytes": 5000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "subtype",
+     "handle",
+     "provenance"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "type",
+       "op": "eq",
+       "value": "type_c"
+      },
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      },
+      {
+       "field": "date.created",
+       "op": "between",
+       "values": [
+        "value",
+        "value"
+       ]
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 5,
+    "max_bytes": 6000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "type",
+       "op": "eq",
+       "value": "type_c"
+      },
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "agent_run"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_bytes": 6000,
+    "path_prefix": "dir/",
+    "query": "term",
+    "select": [
+     "node_id",
+     "handle",
+     "excerpt",
+     "location"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "path_prefix_not_applicable",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "max_bytes": 8000,
+    "method": "lexical",
+    "path_prefix": "dir/",
+    "query": "term",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_record_id",
+     "location"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "path_prefix_not_applicable",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "max_chars": 1000,
+    "path_prefix": "dir/",
+    "query": "\"a phrase\"",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "citation",
+     "source_revision"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "path_prefix_not_applicable",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_bytes": 20000,
+    "method": "grep",
+    "query": "term",
+    "select": [
+     "node_id",
+     "handle",
+     "excerpt",
+     "match_windows",
+     "score",
+     "match_kind"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "type_c"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 100,
+    "max_bytes": 30000,
+    "method": "grep",
+    "query": "term",
+    "select": [
+     "node_id",
+     "parent",
+     "excerpt",
+     "handle",
+     "source_record_id",
+     "match_windows"
+    ],
+    "where": {
+     "field": "source",
+     "op": "eq",
+     "value": "depot.source-4"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "completeness": "exact",
+    "limit": 1000,
+    "max_bytes": 20000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "handle",
+     "subtype"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      },
+      {
+       "field": "date.created",
+       "op": "between",
+       "values": [
+        "value",
+        "value"
+       ]
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_completeness_refused",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 12000,
+    "max_chars": 1000,
+    "method": "grep",
+    "query": "term",
+    "scope": {
+     "records": [
+      "rec:1",
+      "rec:2"
+     ]
+    },
+    "select": [
+     "node_id",
+     "handle",
+     "match_windows",
+     "excerpt",
+     "attrs"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "search_scope_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 15000,
+    "method": "grep",
+    "query": "re:/term[0-9]+/",
+    "scope": {
+     "edge_type": "value",
+     "records": [
+      "rec:1",
+      "rec:2"
+     ]
+    },
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "source_record_id",
+     "match_windows"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "search_scope_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 15000,
+    "method": "grep",
+    "query": "re:/term[0-9]+/",
+    "scope": {
+     "records": [
+      "rec:1",
+      "rec:2"
+     ]
+    },
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "source_record_id",
+     "match_windows"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "search_scope_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 30000,
+    "method": "grep",
+    "query": "term",
+    "scope": {
+     "records": [
+      "rec:1",
+      "rec:2"
+     ]
+    },
+    "select": [
+     "node_id",
+     "handle",
+     "match_windows"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "search_scope_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "query": "term",
+    "rank_by": "passages",
+    "scope": {
+     "record": "rec:1"
+    },
+    "select": [
+     "node_id",
+     "parent",
+     "excerpt",
+     "location",
+     "chunk_kind",
+     "score"
+    ]
+   },
+   "calls": 4,
+   "refusal_code": "search_scope_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 50,
+    "max_bytes": 6000,
+    "method": "identifier_mentions",
+    "scope": {
+     "record": "rec:1"
+    },
+    "select": [
+     "value",
+     "id_type",
+     "span_start",
+     "span_end",
+     "evidence_kind"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "search_scope_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 1,
+    "max_bytes": 4000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "handle"
+    ],
+    "view": "list",
+    "where": {
+     "clauses": [
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      },
+      {
+       "clause": {
+        "field": "attrs.key",
+        "op": "eq",
+        "value": "value"
+       },
+       "op": "not"
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_view_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 10000,
+    "method": "grep",
+    "query": "term",
+    "select": [
+     "node_id",
+     "parent",
+     "excerpt",
+     "handle",
+     "source_record_id",
+     "citation",
+     "location"
+    ],
+    "view": "list"
+   },
+   "calls": 1,
+   "refusal_code": "search_view_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 10000,
+    "method": "lexical",
+    "query": "",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle"
+    ],
+    "view": "list",
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "type_b"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_view_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 12000,
+    "method": "lexical",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle"
+    ],
+    "view": "list",
+    "where": {
+     "field": "path",
+     "op": "prefix",
+     "value": "value"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_view_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 20000,
+    "method": "lexical",
+    "query": "term",
+    "rank_by": "records",
+    "select": [
+     "node_id",
+     "parent",
+     "excerpt",
+     "handle",
+     "source_record_id",
+     "citation",
+     "location"
+    ],
+    "view": "list"
+   },
+   "calls": 1,
+   "refusal_code": "search_view_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "method": "lexical",
+    "select": [
+     "node_id",
+     "attrs"
+    ],
+    "view": "list",
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "not_a_type"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_view_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "max_bytes": 10000,
+    "method": "lexical",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle"
+    ],
+    "view": "list",
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "not_a_type"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_view_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "select": [
+     "node_id",
+     "handle"
+    ],
+    "view": "list",
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "type_b"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "search_view_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 12000,
+    "method": "attrs",
+    "profile": "all",
+    "query": "",
+    "select": [
+     "node_id",
+     "attrs"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "type_b"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "type_only_lookup",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 2,
+    "max_bytes": 6000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "attrs"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "type_c"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "type_only_lookup",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 2,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "handle"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "type_c"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "type_only_lookup",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "max_bytes": 9000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "handle"
+    ],
+    "where": {
+     "field": "subtype",
+     "op": "eq",
+     "value": "type_b"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "type_only_lookup",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 3,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "subtype",
+     "handle"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "type_a"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "type_only_lookup",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 3,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "type_a"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "type_only_lookup",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "max_bytes": 10000,
+    "method": "attrs",
+    "select": [
+     "node_id",
+     "attrs",
+     "subtype"
+    ],
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "not_a_type"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "type_only_lookup",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 10000,
+    "method": "grep",
+    "profile": "type_c",
+    "query": "term",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "unknown_search_profile",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 40000,
+    "profile": "type_c",
+    "query": "term",
+    "select": [
+     "node_id",
+     "attrs",
+     "excerpt",
+     "handle"
+    ]
+   },
+   "calls": 4,
+   "refusal_code": "unknown_search_profile",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "profile": "type_c",
+    "query": "term",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "attrs",
+     "source_family"
+    ]
+   },
+   "calls": 4,
+   "refusal_code": "unknown_search_profile",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "profile": "type_d",
+    "query": "\"a phrase\"",
+    "select": [
+     "node_id",
+     "attrs",
+     "excerpt",
+     "provenance",
+     "source_lineage"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "unknown_search_profile",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 18000,
+    "method": "grep",
+    "query": "re:/term[0-9]+/",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "source_record_id",
+     "match_windows"
+    ],
+    "source_family": "depot.source-4"
+   },
+   "calls": 1,
+   "refusal_code": "unknown_source_family",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 30000,
+    "query": "term",
+    "select": [
+     "node_id",
+     "handle",
+     "excerpt",
+     "location",
+     "score"
+    ],
+    "source_family": "depot.source-3",
+    "where": {
+     "field": "type",
+     "op": "eq",
+     "value": "type_a"
+    }
+   },
+   "calls": 3,
+   "refusal_code": "unknown_source_family",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_bytes": 40000,
+    "query": "term",
+    "select": [
+     "node_id",
+     "attrs",
+     "excerpt",
+     "handle"
+    ],
+    "source_family": "depot.source-2"
+   },
+   "calls": 4,
+   "refusal_code": "unknown_source_family",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "max_chars": 1000,
+    "method": "grep",
+    "query": "\"a phrase\"",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_family",
+     "parent"
+    ],
+    "source_family": "depot.source-1"
+   },
+   "calls": 1,
+   "refusal_code": "unknown_source_family",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 100,
+    "method": "grep",
+    "query": "re:/term[0-9]+/",
+    "select": [
+     "node_id",
+     "excerpt",
+     "handle"
+    ],
+    "source_family": "depot.source-1"
+   },
+   "calls": 1,
+   "refusal_code": "unknown_source_family",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 2,
+    "query": "term",
+    "source_family": ""
+   },
+   "calls": 1,
+   "refusal_code": "unknown_source_family",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 30,
+    "max_bytes": 16000,
+    "method": "grep",
+    "query": "re:/term[0-9]+/",
+    "select": [
+     "node_id",
+     "source_family",
+     "handle",
+     "excerpt",
+     "match_windows",
+     "source_record_id"
+    ],
+    "source_family": "depot.source-1"
+   },
+   "calls": 1,
+   "refusal_code": "unknown_source_family",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 5,
+    "profile": "all",
+    "query": "term",
+    "select": [
+     "node_id",
+     "handle",
+     "excerpt",
+     "url"
+    ],
+    "source_family": "depot.source-1"
+   },
+   "calls": 6,
+   "refusal_code": "unknown_source_family",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 50,
+    "max_bytes": 18000,
+    "query": "term",
+    "select": [
+     "node_id",
+     "subtype",
+     "citation",
+     "excerpt",
+     "attrs",
+     "handle",
+     "source_family"
+    ],
+    "source_family": "depot.source-5"
+   },
+   "calls": 1,
+   "refusal_code": "unknown_source_family",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "context_chars": 100,
+    "limit": 100,
+    "matching": "record",
+    "max_bytes": 15000,
+    "method": "grep",
+    "query": "re:/term[0-9]+/",
+    "scope": {
+     "records": [
+      "rec:1",
+      "rec:2"
+     ]
+    },
+    "select": [
+     "node_id",
+     "handle",
+     "source_record_id",
+     "match_windows"
+    ],
+    "view": "windows"
+   },
+   "calls": 1,
+   "refusal_code": "window_argument_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "context_chars": 120,
+    "limit": 100,
+    "max_bytes": 10000,
+    "method": "grep",
+    "query": "re:/term[0-9]+/",
+    "scope": {
+     "records": [
+      "rec:1",
+      "rec:2"
+     ]
+    },
+    "select": [
+     "node_id",
+     "handle",
+     "match_windows",
+     "excerpt",
+     "attrs"
+    ],
+    "view": "windows"
+   },
+   "calls": 1,
+   "refusal_code": "window_argument_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "context_chars": 200,
+    "limit": 100,
+    "max_chars": 1500,
+    "method": "grep",
+    "query": "term",
+    "select": [
+     "node_id",
+     "handle",
+     "attrs",
+     "match_windows"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "type",
+       "op": "eq",
+       "value": "type_c"
+      },
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      },
+      {
+       "field": "attrs.key",
+       "op": "prefix",
+       "value": "value"
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "window_argument_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "context_chars": 500,
+    "limit": 100,
+    "max_bytes": 20000,
+    "method": "grep",
+    "query": "re:/term[0-9]+/",
+    "select": [
+     "node_id",
+     "handle",
+     "excerpt",
+     "match_windows"
+    ],
+    "where": {
+     "clauses": [
+      {
+       "field": "type",
+       "op": "eq",
+       "value": "type_a"
+      },
+      {
+       "field": "attrs.key",
+       "op": "eq",
+       "value": "value"
+      }
+     ],
+     "op": "and"
+    }
+   },
+   "calls": 1,
+   "refusal_code": "window_argument_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "context_chars": 500,
+    "limit": 20,
+    "max_bytes": 10000,
+    "method": "grep",
+    "query": "\"a phrase\"",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "match_windows"
+    ],
+    "view": "windows"
+   },
+   "calls": 1,
+   "refusal_code": "window_argument_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 10,
+    "matching": "record",
+    "max_chars": 3500,
+    "method": "grep",
+    "query": "term",
+    "select": [
+     "node_id",
+     "excerpt",
+     "matching_passages",
+     "citation"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "window_argument_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "matching": "record",
+    "max_bytes": 12000,
+    "method": "grep",
+    "path_prefix": "dir/",
+    "query": "term",
+    "select": [
+     "node_id",
+     "subtype",
+     "handle",
+     "excerpt",
+     "source_record_id"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "window_argument_unsupported",
+   "run": "earlier_replay"
+  },
+  {
+   "arguments": {
+    "limit": 20,
+    "matching": "record",
+    "method": "grep",
+    "query": "\"a phrase\"",
+    "select": [
+     "node_id",
+     "handle",
+     "excerpt"
+    ]
+   },
+   "calls": 1,
+   "refusal_code": "window_argument_unsupported",
+   "run": "earlier_replay"
+  }
+ ],
+ "sources": [
+  "depot.source-1",
+  "depot.source-2",
+  "depot.source-3",
+  "depot.source-4",
+  "depot.source-5"
+ ],
+ "types": [
+  "type_a",
+  "type_b",
+  "type_c",
+  "type_d",
+  "type_e",
+  "type_f"
+ ]
+}

@@ -1,0 +1,27 @@
+# BibTeX ingest from the operator-curated `papers_dir`. Expects
+# `*.bib` files at the top level of `papers_dir`.
+bib_references:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.scholarly.bib_references
+  class: BibReferencesSource
+  ownership_id: ${deployment_name}.bib_references
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [bib_paths, bib_key]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    bib_paths:
+      - ${papers_dir}/*.bib
+    # Optional raw-alias -> canonical-display-name map. Matching normalizes
+    # Unicode/case/punctuation; ambiguous aliases and chains fail closed.
+    venue_aliases: {}
+    # File-only compatibility default. Project mode is an explicit opt-in and
+    # reuses this source's existing ownership id for the two-run handoff.
+    project_manifest: null
+    source_root: ${papers_dir}
+    migration:
+      legacy_ownership_id: ${deployment_name}.bib_references
+      legacy_bib_paths:
+        - ${papers_dir}/*.bib

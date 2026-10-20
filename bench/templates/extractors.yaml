@@ -1,0 +1,25 @@
+# Minimal extractor chain for bench deployments.
+#
+# Loaded by `DocCorpusSource` via
+# `okg.substrate.library.extraction.registry.load_extractors`.
+# Keeps to text-shaped formats (markdown / text / yaml / toml /
+# json / python AST) — no tree-sitter dependencies, no NER backends,
+# no chunking specifics.  The bench's job is to characterize the
+# substrate's per-commit cost, not to exercise every extractor.
+
+parser:
+  - format: markdown
+    class: okg.substrate.library.extraction.parse.markdown.MarkdownParser
+  - format: text
+    class: okg.substrate.library.extraction.parse.text.TextParser
+  - format: yaml
+    class: okg.substrate.library.extraction.parse.yaml_struct.YamlParser
+  - format: toml
+    class: okg.substrate.library.extraction.parse.toml_struct.TomlParser
+  - format: json
+    class: okg.substrate.library.extraction.parse.json_struct.JsonParser
+  - format: code
+    class: okg.substrate.library.extraction.parse.code_python.PythonAstParser
+
+chunker: []
+ner: []

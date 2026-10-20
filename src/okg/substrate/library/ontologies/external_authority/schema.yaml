@@ -1,0 +1,111 @@
+id: https://palimpzest.mit.edu/okg/modules/external_authority
+name: external_authority
+title: "External Authority — live tool authority and applicability"
+description: |-
+  Low-cardinality authority graph for deployment-declared external-live
+  tools. This module models capability metadata and applicability profiles,
+  not live result payloads.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  extauth: https://palimpzest.mit.edu/okg/modules/external_authority/
+default_range: string
+imports:
+- linkml:types
+classes:
+  ExternalAuthority:
+    description: External system or source family that owns live truth.
+    class_uri: extauth:ExternalAuthority
+    attributes:
+      authority_id:
+        required: true
+      name:
+        required: true
+      boundary:
+      source_family:
+      description:
+      text:
+    annotations:
+      archetype: resource
+      transient: 'false'
+      okg_searchable_text_fields: name,source_family,description,text
+  ExternalLiveTool:
+    description: Deployment-declared tool that reads live external evidence.
+    class_uri: extauth:ExternalLiveTool
+    attributes:
+      tool_id:
+        required: true
+      tool_name:
+        required: true
+      deployment:
+        required: true
+      boundary:
+        required: true
+      requires_env_names:
+      optional:
+        range: boolean
+      module:
+      function:
+      description:
+      result_contract:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: tool_name,boundary,description,result_contract,text
+  ToolAuthorityProfile:
+    description: Bounded applicability contract for one external-live tool.
+    class_uri: extauth:ToolAuthorityProfile
+    attributes:
+      profile_id:
+        required: true
+      name:
+        required: true
+      tool_name:
+        required: true
+      authority_id:
+        required: true
+      intent:
+        required: true
+      source_family:
+      subject_subtypes:
+      result_kind:
+      default_time_window:
+      freshness_note:
+      query_examples:
+      search_terms:
+      text:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: name,tool_name,intent,source_family,subject_subtypes,result_kind,freshness_note,query_examples,search_terms,text
+  EdgeNarrowings:
+    description: Intra-module and service bridge narrowings for external authority.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      external_live_tool_depends_on_external_authority:
+        annotations:
+          edge_archetype: depends_on
+          src_subtypes: ExternalLiveTool
+          dst_subtypes: ExternalAuthority
+      external_live_tool_references_tool_authority_profile:
+        annotations:
+          edge_archetype: references
+          src_subtypes: ExternalLiveTool
+          dst_subtypes: ToolAuthorityProfile
+      tool_authority_profile_references_external_authority:
+        annotations:
+          edge_archetype: references
+          src_subtypes: ToolAuthorityProfile
+          dst_subtypes: ExternalAuthority
+      external_live_tool_exposes_endpoint:
+        annotations:
+          edge_archetype: exposes
+          src_subtypes: ExternalLiveTool
+          dst_subtypes: Endpoint
+      tool_authority_profile_references_service:
+        annotations:
+          edge_archetype: references
+          src_subtypes: ToolAuthorityProfile
+          dst_subtypes: Service

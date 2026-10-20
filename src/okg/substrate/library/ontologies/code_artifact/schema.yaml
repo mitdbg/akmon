@@ -1,0 +1,75 @@
+id: https://palimpzest.mit.edu/okg/modules/code_artifact
+name: code_artifact
+title: "Code Artifact — packages, container images, build outputs"
+description: |-
+  Built / published artifacts (packages, container
+  images, binaries) and the relationships between them
+  and the source they were built from. Promoted from the
+  legacy `okg.ontology.code_artifact` fragment (per
+  `unify-ontology-systems`, 2026-04-26).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  ca: https://palimpzest.mit.edu/okg/modules/code_artifact/
+default_range: string
+imports:
+- linkml:types
+classes:
+  CodeArtifact:
+    description: A built/published artifact (package, container image, binary).
+    class_uri: ca:CodeArtifact
+    attributes:
+      artifact_id:
+        required: true
+      kind:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Package:
+    description: A versioned library package (pip / npm / crate / etc.).
+    class_uri: ca:Package
+    attributes:
+      package_id:
+        required: true
+      name:
+      version:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  Image:
+    description: A container image reference.
+    class_uri: ca:Image
+    attributes:
+      image_id:
+        required: true
+      registry_uri:
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  EdgeNarrowings:
+    description: Intra-module + cross-module narrowings for code_artifact.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      code_artifact_published_from_repo:
+        description: Cross-module to repo_starter.
+        annotations:
+          edge_archetype: published_from
+          src_subtypes: CodeArtifact
+          dst_subtypes: Repo
+      code_artifact_built_from_commit:
+        description: Cross-module to repo_starter.
+        annotations:
+          edge_archetype: built_from
+          src_subtypes: CodeArtifact
+          dst_subtypes: Commit
+      package_depends_on_package:
+        annotations:
+          edge_archetype: depends_on
+          src_subtypes: Package
+          dst_subtypes: Package
+      image_packaged_in_image:
+        annotations:
+          edge_archetype: packaged_in
+          src_subtypes: Image
+          dst_subtypes: Image

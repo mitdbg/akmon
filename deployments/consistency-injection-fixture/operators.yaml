@@ -1,0 +1,98 @@
+# Ring-0 tuned mutation-operator registry (PACT ship-okg-bench,
+# req.ship.core-operators-neutral). Core operators ship NEUTRAL — every
+# targeting decision (predicates / keys / source docs / counterpart docs /
+# substitution pools) is deployment-supplied here and loaded via
+# okg.bench.injection.operators.load_operators_yaml.
+# Two library families are deliberately absent: config_swap and
+# hn_conditional key on configuration-key normalized keys, while ring 0's
+# uniform extraction keys every kv claim by its H1 entity (a scope-aware
+# targeting field is their recorded follow-up).
+operators:
+  - module: okg.bench.injection.operators.library
+    class: NumericValueOperator
+    params:
+      predicates: [memory]
+      counterpart_docs: [ops_mirror.md]
+  - module: okg.bench.injection.operators.library
+    class: DateTransposeOperator
+    params:
+      predicates: [released]
+      counterpart_docs: [ops_mirror.md]
+  - module: okg.bench.injection.operators.library
+    class: IdentifierSubstOperator
+    params:
+      predicates: [primary_node]
+      source_docs: [ops_alpha.md]
+      counterpart_docs: [ops_mirror.md]
+      alternatives: [DB-02, DB-03]
+  - module: okg.bench.injection.operators.library
+    class: UrlSwapOperator
+    params:
+      predicates: [endpoint]
+  - module: okg.bench.injection.operators.library
+    class: StatusInversionOperator
+    params:
+      predicates: [status]
+      source_docs: [ops_alpha.md]
+      counterpart_docs: [ops_mirror.md]
+  - module: okg.bench.injection.operators.library
+    class: StaleCopiedMetadataOperator
+    params:
+      predicates: [version, reviewed]
+      source_docs: [ops_alpha.md]
+      counterpart_docs: [ops_mirror.md]
+  - module: okg.bench.injection.operators.library
+    class: CrossDocUpdateOperator
+    params:
+      predicates: [owner]
+      source_docs: [ops_mirror.md]
+      counterpart_docs: [ops_alpha.md]
+  - module: okg.bench.injection.operators.library
+    class: TemporalMutationOperator
+    params:
+      predicates: [certified]
+      source_docs: [ops_mirror.md]
+      counterpart_docs: [ops_alpha.md]
+  - module: okg.bench.injection.operators.library
+    class: MalformedValueOperator
+    params:
+      predicates: [retry_limit]
+  - module: okg.bench.injection.operators.library
+    class: OmittedStepOperator
+    params:
+      predicates: [step]
+      keys: ["alpha_service:step_2"]
+  - module: okg.bench.injection.operators.library
+    class: HnRoundingOperator
+    params:
+      predicates: [uptime]
+      source_docs: [ops_mirror.md]
+      counterpart_docs: [ops_alpha.md]
+  - module: okg.bench.injection.operators.library
+    class: HnAliasOperator
+    params:
+      predicates: [backup_node]
+      source_docs: [ops_mirror.md]
+      counterpart_docs: [ops_alpha.md]
+  - module: okg.bench.injection.operators.library
+    class: HnDifferentEntityOperator
+    params:
+      predicates: [version]
+      source_docs: [ops_beta.md]
+  - module: okg.bench.injection.operators.library
+    class: HnSuccessionOperator
+    params:
+      predicates: [runbook]
+      source_docs: [ops_mirror.md]
+      counterpart_docs: [ops_alpha.md]
+  - module: okg.bench.injection.operators.library
+    class: HnPlanVsObservationOperator
+    params:
+      predicates: [upgrade]
+      source_docs: [ops_mirror.md]
+      counterpart_docs: [ops_alpha.md]
+  - module: okg.bench.injection.operators.library
+    class: HnOptionalStepRemovedOperator
+    params:
+      predicates: [step]
+      keys: ["alpha_service:step_4"]

@@ -1,0 +1,215 @@
+{
+ "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T192337381212Z:8ffa3e3b9d09",
+ "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T194457201461Z:dc13ae2f6701",
+ "deployment": "synthetic-corpus-smoke",
+ "extraction_cost": {
+  "calls": 205,
+  "completion_tokens": 679686,
+  "cost_usd": 1.816226,
+  "off_vocabulary": 0,
+  "prompt_tokens": 312187,
+  "reasoning_share": 0.595,
+  "reasoning_tokens": 404219
+ },
+ "extraction_failed_documents": [
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__clinic_note.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__clinic_note.md",
+   "phase": "clean",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__referral_letter.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__referral_letter.md",
+   "phase": "clean",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Record Reference",
+   "cause": "kiehn525_bobbie849__discharge_summary.md: quote for 'Record Reference' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "kiehn525_bobbie849__discharge_summary.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Care Provider",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Care Provider' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Record Reference",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Record Reference' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Age Years' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Body Weight",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Body Weight' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Body Height",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Body Height' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Total Cholesterol",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Total Cholesterol' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Body Mass Index",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Body Mass Index' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Hemoglobin A1c",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Hemoglobin A1c' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Anemia Disorder",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Condition Anemia Disorder' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Educated To High School Level Finding",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Condition Educated To High School Level Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Prediabetes Finding",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Condition Prediabetes Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition History Of Appendectomy Situation",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Condition History Of Appendectomy Situation' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Body Mass Index 30 Obesity Finding",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Condition Body Mass Index 30 Obesity Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Full Time Employment Finding",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Condition Full Time Employment Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Stress Finding",
+   "cause": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md: quote for 'Condition Stress Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "marroqu\u00edn624_alfredo17_alejandro916__clinic_note.md",
+   "phase": "clean",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "valle770_norma469_in\u00e9s791__discharge_summary.md: quote for 'Age Years' occurs 4 times across 2 sections (['Patient Norma469 In\u00e9s791 Valle770 > Medications', 'Patient Norma469 In\u00e9s791 Valle770 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '3'",
+   "doc": "valle770_norma469_in\u00e9s791__discharge_summary.md",
+   "phase": "clean",
+   "quote": "3",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "valle770_norma469_in\u00e9s791__referral_letter.md: quote for 'Age Years' occurs 4 times across 2 sections (['Patient Norma469 In\u00e9s791 Valle770 > Medications', 'Patient Norma469 In\u00e9s791 Valle770 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '3'",
+   "doc": "valle770_norma469_in\u00e9s791__referral_letter.md",
+   "phase": "clean",
+   "quote": "3",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__clinic_note.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__referral_letter.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "valle770_norma469_in\u00e9s791__referral_letter.md: quote for 'Age Years' occurs 4 times across 2 sections (['Patient Norma469 In\u00e9s791 Valle770 > Medications', 'Patient Norma469 In\u00e9s791 Valle770 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '3'",
+   "doc": "valle770_norma469_in\u00e9s791__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "3",
+   "scope": "fact"
+  }
+ ],
+ "extractor": "llm",
+ "ledger": [
+  {
+   "latency_ms": 1235010.558457987,
+   "stage": "clean_publish"
+  },
+  {
+   "latency_ms": 1278256.2176249921,
+   "stage": "corrupted_publish"
+  }
+ ],
+ "schema": "okg.synth.run-binding.v1",
+ "surviving_conflict_floor": 30,
+ "surviving_conflict_floor_passed": true,
+ "surviving_conflict_realized": 129
+}

@@ -1,0 +1,35 @@
+name: acme-ops
+description: On-call knowledge graph for Acme ops
+
+# The strict loader requires these two paths, relative to this file.
+schema_dir: schemas
+source_registry: source_registry.yaml
+
+postgres:
+  dsn: ${ACME_OPS_DSN}
+
+modules:
+  - git_graph
+
+embeddings:
+  enabled: false
+  reason: Acme ops searches by exact identifiers only.
+
+publisher:
+  hard_statement_timeout_seconds: 900
+  lock_hold_headroom_factor: 2.0
+  allow_raised_statement_timeout: false
+  # Optional warning thresholds in effective graph rows (illustrative only).
+  first_publish_warning_budget:
+    node_count: 2330000
+    edge_count: 3650000
+
+# How long superseded graph history is kept. Without this block every
+# superseded node and edge version accumulates forever (issue #1309).
+# Declaring it also turns off the publisher per-cycle prune, so a confirmed
+# `okg generation compact` plan becomes the sole deletion authority.
+chronos:
+  history_retention:
+    default:
+      horizon: 14d
+    audit_tail_generations: 50

@@ -1,0 +1,102 @@
+id: https://palimpzest.mit.edu/okg/modules/views_annotations
+name: views_annotations_module
+title: "Publication Annotations — graphical overlays on rendered PDFs"
+description: >-
+  In-document annotations rendered on top of a publication's PDF in
+  the viz inspector. An annotation node carries a (page, bbox)
+  coordinate pair in PDF user-space; the viz overlay layer (see
+  `viz-pdf-annotations`) converts to viewport pixels at render time
+  via PDF.js's `pdfPageView.viewport.convertToViewportPoint` API.
+
+  This module declares only the `PublicationAnnotation` class —
+  generic across deployments. The narrowing
+  `annotation_annotates_publication` (PublicationAnnotation →
+  publication, archetype: references) lives in each consuming
+  deployment's bridge ontology because the `publication` subtype
+  itself is deployment-defined.
+
+  The `annotation_derived_from_finding` narrowing
+  (PublicationAnnotation → publication_finding) is deferred until a
+  deployment has a first-class finding subtype to point at; today
+  af_pubs models inconsistencies as attribute flags + derived edges
+  rather than finding nodes.
+
+  Loaded by listing `views_annotations` under `modules:` in a
+  deployment's `deployment.yaml`.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  va: https://palimpzest.mit.edu/okg/modules/views_annotations/
+
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+  PublicationAnnotation:
+    description: >-
+      One graphical annotation overlaid on a publication's PDF. The
+      `(page, bbox)` pair locates a single rectangle on a single
+      page in PDF user-space coordinates (origin at bottom-left,
+      72 units per inch). The viz overlay positions an absolute-div
+      against this rectangle, severity-tinted per `severity`.
+    class_uri: va:PublicationAnnotation
+    attributes:
+      annotation_id:
+        required: true
+        identifier: true
+        description: Stable id; typically uuid5(source_id, pub_id, page, bbox).
+      pub_id:
+        required: true
+        description: node_id of the targeted publication.
+      page:
+        range: integer
+        required: true
+        description: 1-indexed PDF page number.
+      bbox:
+        required: true
+        description: >-
+          JSON-encoded `[x, y, w, h]` rectangle in PDF user-space.
+          The viz overlay converts to viewport pixels at render time.
+      kind:
+        required: true
+        description: >-
+          One of `finding`, `user_note`, `resolved`, `fallback`. A
+          fallback annotation marks "rule fired but bbox could not
+          be located" — renders as a side-margin badge instead of a
+          highlight.
+      severity:
+        required: true
+        description: >-
+          One of `high`, `medium`, `low`, `resolved`, `grey`.
+          Drives the overlay tint (red / wheat / mustard / green /
+          neutral). The viz palette is defined in the
+          `viz-pdf-annotations` proposal.
+      title:
+        description: One-line headline shown in the margin-note panel.
+      body:
+        description: >-
+          Margin-note prose. May include `[open AFI 10-1002 ▾]`
+          citation chips that the viz parses to trigger
+          side-by-side mode.
+      confidence:
+        description: >-
+          One of `high`, `approximate`, `low`. `approximate` adds a
+          `?` glyph at the top-right of the highlight; `low`
+          accompanies a fallback annotation.
+      source_id:
+        description: >-
+          node_id of the producing artifact (e.g. a finding or a
+          user). Lets the viz "open source finding" chip
+          navigate back.
+      created_at:
+        range: datetime
+        description: When the annotation was emitted.
+      text:
+        description: Searchable text (typically title + body).
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: title,body

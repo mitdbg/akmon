@@ -1,0 +1,13 @@
+name: git_graph
+version: 1.0.0
+description: 'Git history: source_file, git_commit, git_author, git_branch,
+  git_tag.'
+provides:
+  subtypes_file: schema.yaml
+extends:
+  openspec:
+    description: Commits whose message_subject leads with a known change_id
+      slug (`<slug>:` or `<slug> `) emit a `references` edge into the matching
+      OpenSpecChange.
+    cross_link_rules:
+    - cross_links/git_to_openspec.yaml

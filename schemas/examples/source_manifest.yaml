@@ -1,0 +1,29 @@
+manifest: okg.source/v1
+description: Tickets exported from our tracker every night.
+
+read:
+  files: /data/exports/tickets/*.json
+  format: json
+  records: issues
+
+types:
+  tracker_ticket:
+    key: "{key}"
+    title: fields.summary
+    text: fields.description
+    dates:
+      created: fields.created
+      modified: fields.updated
+    fields:
+      status: fields.status.name
+      votes: { from: fields.votes, type: integer }
+    links:
+      assigned_to: { to: tracker_person, key: "{fields.assignee.email}" }
+      blocks: { to: tracker_ticket, each: fields.blocks, key: "{.}" }
+
+  tracker_person:
+    from: fields.assignee
+    key: "{email}"
+    title: displayName
+
+deletion: missing_from_full_read

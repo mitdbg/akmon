@@ -1,0 +1,36 @@
+# dblp_by_orcid — single-HTTP-call publication ingest via DBLP's
+# ORCID endpoint (https://dblp.org/orcid/<orcid>.xml). Replaces the
+# legacy venue × year × by_author DBLP scrape for the zero-config
+# path: one round-trip returns the author's canonical publication
+# set, much faster + more precise than crawling the venue matrix.
+#
+# Operator can still enable the venue-scoped `dblp` source for
+# discovery beyond their own author record (e.g. collaborator
+# publications), but `dblp_by_orcid` is the default because the
+# install path already has the operator's ORCID.
+
+dblp_by_orcid:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.scholarly.dblp_by_orcid
+  class: DblpByOrcidSource
+  ownership_id: ${deployment_name}.dblp_by_orcid
+  source_class: mutable_api
+  record_identity_kind: remote_id
+  record_identity_fields: [dblp_key]
+  source_revision_kind: version_token
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    orcid: ${orcid}
+    # `extend-dblp-by-orcid-with-name-fallback` resolution chain:
+    # `orcid` → `dblp_pid` → `author_name`. Empty values are
+    # equivalent to "not configured" — the source soft-fails
+    # cleanly when no path resolves. `${pi_name}` and
+    # `${dblp_pid}` interpolate to empty when the operator
+    # didn't pass `--pi-name` / `--dblp-pid` at install.
+    dblp_pid: ${dblp_pid}
+    author_name: ${pi_name}
+    # Per-deployment cache survives `okg reset` only on demand
+    # (the source class falls back to the cache when the network
+    # roundtrip fails). Cleared via standard `okg reset` flow.
+    cache_root: ${HOME}/.cache/okg/${deployment_name}/dblp_orcid

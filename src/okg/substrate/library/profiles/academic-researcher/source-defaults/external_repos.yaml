@@ -1,0 +1,25 @@
+# External repos the operator depends on (Palimpzest, etc.). The
+# factory spawns parameterized git_files / git_history /
+# code_structure instances per declared repo. Operator curates
+# `<papers_dir>/external_repos.yaml`.
+#
+# `enabled_by_default: false` per `fix-academic-pi-source-templating-
+# defaults` Phase 1: this source requires an operator-curated
+# `external_repos.yaml` declaring which external repos to index.
+# With no `papers_dir` answer at install time the template renders
+# `repos_config_path` as `/external_repos.yaml` (root) and the
+# factory fails. Operator enables it later by hand-editing the
+# registry once the YAML is in place.
+external_repos:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.external_repos.factory
+  class: ExternalRepoFactory
+  ownership_id: ${deployment_name}.external_repos
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [repos_config_path, repo_name]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    repos_config_path: ${papers_dir}/external_repos.yaml

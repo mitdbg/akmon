@@ -1,0 +1,37 @@
+The LaTeX structural extraction and normalization implementation includes
+adapted portions of archi-physics/cooper:
+
+  https://github.com/archi-physics/cooper
+  Copyright (c) 2026 archi-physics
+
+Upstream files, with the immutable Git blob identifiers of the versions
+adapted (the adapted source-module headers name the same blobs):
+
+  deployments/cooper/tier1/chunker.py
+    blob 35d1440b9eb250f84b4958235bc2a017fde1b193
+  deployments/cooper/tier1/latex_ascii.py
+    blob 5ae03b7b9be2bdbed667eb736b50d300a075647d
+  deployments/cooper/tier1/latex_macros.py
+    blob 4a6f17bfd5b33ca4a3a39a6b8b0876092ca4d740
+
+MIT License
+
+Copyright (c) 2026 archi-physics
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

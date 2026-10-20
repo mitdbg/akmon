@@ -1,0 +1,87 @@
+name: communications
+version: 1.0.0
+description: |-
+  Email + chat surfaces for academic-researcher (and any future
+  deployment ingesting messaging). Four subtypes:
+
+    - Email          — single email message
+    - EmailThread    — conversation thread (parent of Emails)
+    - ChatChannel    — Slack / Discord / Teams channel
+    - ChatMessage    — single chat message
+
+  Sources for both ship in the academic-researcher profile per
+  `refine-academic-pi-with-comms-and-calendar`: `gmail_api`
+  emits Email + EmailThread; `slack_api` emits ChatChannel +
+  ChatMessage. Both connectors use the substrate OAuth library
+  + redaction layer.
+
+  Strict allowlist filtering is enforced source-side:
+  `gmail_api` requires `gmail_labels`; `slack_api` requires
+  `slack_channels`. Wholesale inbox or workspace ingest is
+  not supported by design.
+
+provides:
+  subtypes_file: schema.yaml
+  edge_types:
+    - authored
+    - received
+    - cc_on
+    - sent
+    - has_member
+    - mentions
+    - thread_about
+    - replies_to
+  intra_cross_link_rules:
+    - cross_links/communications_intra.yaml
+
+extends:
+  person:
+    description: |-
+      Person plays multiple roles against Email + ChatMessage:
+      sender (authored / sent), recipient (received), CC
+      (cc_on), member (has_member ChatChannel).
+    cross_link_rules:
+      - cross_links/communications_x_person.yaml
+
+  extraction:
+    description: |-
+      Email bodies + ChatMessage bodies land as
+      extraction.Document rows via Email.body_doc_ref /
+      ChatMessage.body_doc_ref. The redaction layer truncates
+      bodies > 50KB; the Document carries `truncated: true`
+      when applicable.
+    cross_link_rules:
+      - cross_links/communications_x_extraction.yaml
+
+  concepts:
+    description: |-
+      Emails + ChatMessages mention Concepts (via the LLM
+      mention-extraction enricher). The cross-link emits
+      `Email mentions Concept` / `ChatMessage mentions Concept`
+      edges when a Concept is named in the body.
+    cross_link_rules:
+      - cross_links/communications_x_concepts.yaml
+
+  scholarly:
+    description: |-
+      Emails + ChatMessages mention Papers (citations,
+      attachments, links).
+    cross_link_rules:
+      - cross_links/communications_x_scholarly.yaml
+
+  academic_researcher:
+    description: |-
+      Emails + ChatMessages are *about* lab entities:
+      Advisees, Grants, Projects (via bookkeeping). The
+      cross-link emits `Email about Advisee` /
+      `EmailThread thread_about Grant` edges when the
+      operator's Gmail labels or LLM extraction maps a
+      message to a lab entity.
+    cross_link_rules:
+      - cross_links/communications_x_academic_researcher.yaml
+
+  bookkeeping:
+    description: |-
+      Emails + ChatMessages can be about Projects (per the
+      bookkeeping module).
+    cross_link_rules: []

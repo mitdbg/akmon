@@ -1,0 +1,90 @@
+pact_version: 4
+target_pact_version: 4
+change:
+  id: idempotent-worker-stop
+  title: Stopping an already-stopped worker is a successful stop
+  status: verification
+  tier: 1
+  rationale: The deployment-up stop phase failed on 2026-07-22 after a fully successful
+    60-minute backup + restore proof, because `launchctl bootout` returns exit 5 (Input/output
+    error) when the service is not loaded - the worker had been stopped all night.
+    The stop path treated the nonzero exit as fatal even though its own process audit
+    saw zero workers and the service manager provably had nothing to respawn. Once
+    this lands, a stop whose post-failure probe proves the service is not loaded (launchctl's
+    exact "Could not find service" signature) succeeds; a failed stop with the service
+    still loaded (respawn risk) still fails loudly.
+  root_cause: The down path had a pre-check for a never-installed service (missing
+    plist + not-found probe) but no post-failure probe for the installed-but-not-loaded
+    case, so it conflated "the stop command errored" with "the service may still respawn".
+  method_metadata:
+    pact_shape: fast_path
+    fast_path: Compact PACT for small nontrivial work. Upgrade when scope, risk, hierarchy,
+      formal proof, graph evidence, or review complexity increases.
+  affected_areas:
+  - deployment-lifecycle
+  affected_code:
+  - src/okg/substrate/cli/dogfood.py
+  - tests/substrate/cli/test_dogfood_runtime_control_cli.py
+requirements:
+- id: req.idempotent-worker-stop
+  title: Stop succeeds iff nothing can be or remain running
+  statement: A `dogfood down` whose stop command fails must re-probe the service manager.
+    When launchctl's exact service-not-found signature proves the service is not loaded
+    AND the process audit shows zero runtime-worker processes, the stop reports success
+    with the probe recorded (final_state absent_after_failed_command). Any other failure
+    signature - including unknown errors from the probe itself - keeps the stop failed,
+    because a still-loaded service can respawn the worker.
+  evidence_policy:
+    required:
+    - executed_test
+  scenarios:
+  - id: scn.idempotent-worker-stop.fast-path
+    title: Not-loaded proof flips a failed bootout to success; unknown does not
+    given:
+    - a launchd service whose plist exists but which is not loaded
+    when:
+    - dogfood down runs and bootout exits 5
+    then:
+    - the post-failure probe sees "Could not find service" and the stop succeeds;
+      with any other probe outcome the stop stays failed
+    and: []
+  acceptance:
+  - id: acc.idempotent-worker-stop
+    description: CLI tests prove the not-loaded case succeeds with the probe recorded,
+      the unknown-error case still fails, and the pre-existing never-installed and
+      racing-worker behaviors are unchanged (full dogfood runtime-control suite green).
+    evidence:
+    - executed_test
+tasks:
+- id: task.idempotent-worker-stop
+  title: Add the post-failure not-loaded probe to dogfood down
+  status: done
+  verification: tests/substrate/cli/test_dogfood_runtime_control_cli.py - 28 passed,
+    including the new not-loaded-succeeds regression and the updated unknown-status-still-fails
+    expectations.
+  requirements:
+  - req.idempotent-worker-stop
+  evidence: []
+  environment: []
+dependencies: []
+test_plan:
+- id: test.idempotent-worker-stop
+  requirement: req.idempotent-worker-stop
+  test_id: tests/substrate/cli/test_dogfood_runtime_control_cli.py
+  command: uv run pytest -q tests/substrate/cli/test_dogfood_runtime_control_cli.py
+  evidence:
+  - executed_test
+formal: []
+waivers: []
+evidence:
+- id: ev.pytest.req-idempotent-worker-stop.20260722T182214962432Z
+  kind: pytest
+  status: pass
+  refs:
+  - req.idempotent-worker-stop
+  artifact: tests/substrate/cli/test_dogfood_runtime_control_cli.py
+  command: uv run pytest -q tests/substrate/cli/test_dogfood_runtime_control_cli.py
+  summary: '28 passed: not-loaded-after-failed-bootout succeeds with probe recorded;
+    unknown probe error still fails; never-installed and racing-worker behaviors unchanged.'
+  data:
+    attached_at: '2026-07-22T18:22:14.963473+00:00'

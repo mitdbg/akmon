@@ -1,0 +1,17 @@
+name: experimental
+version: 1.0.0
+description: Experiment, Trial, Result. Pattern A evidence source — raw Results
+  derived_from by interpreted Observations.
+provides:
+  subtypes_file: schema.yaml
+extends:
+  reasoning:
+    description: Observation derives_from Result — interpreted Observation
+      derives from the raw Result it interprets.
+    cross_link_rules:
+    - cross_links/experimental_to_reasoning.yaml
+  concepts:
+    description: 'Experiment concerns Concept via the operator-declared `concerns:
+      <name>` field.'
+    cross_link_rules:
+    - cross_links/experiment_concerns_concept.yaml

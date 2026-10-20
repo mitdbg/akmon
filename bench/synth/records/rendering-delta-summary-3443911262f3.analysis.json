@@ -1,0 +1,104 @@
+{
+ "arms": [
+  "prose",
+  "structured"
+ ],
+ "cost_usd_by_arm": {
+  "prose": 11.200955,
+  "structured": 5.702683
+ },
+ "cost_usd_by_record": {
+  "synth-117cf0552e68-da92cb2ab095": 1.816226,
+  "synth-44a5a9bb58db-ff08e1f150f0": 2.198629,
+  "synth-509bf705dae3-e5698e13cb81": 1.937793,
+  "synth-85814e01a8a1-983c858cc079": 1.948664,
+  "synth-a482ca353494-0cbdc7786f17": 2.203177,
+  "synth-a482ca353494-da2d7488d4d5": 2.232034,
+  "synth-a482ca353494-fdd6851ccf96": 2.181284,
+  "synth-ef1829af74c6-23e767fdc702": 2.385831
+ },
+ "design": "3 seed-matched pairs (one prose draw and one structured draw per seed), plus 3 repeated decodes of seed prose-749-1's prose arm on a byte-identical corpus.",
+ "draws_by_arm_and_seed": {
+  "prose/prose-749-1": [
+   "synth-a482ca353494-0cbdc7786f17",
+   "synth-a482ca353494-da2d7488d4d5",
+   "synth-a482ca353494-fdd6851ccf96"
+  ],
+  "prose/prose-749-2": [
+   "synth-ef1829af74c6-23e767fdc702"
+  ],
+  "prose/prose-749-3": [
+   "synth-44a5a9bb58db-ff08e1f150f0"
+  ],
+  "structured/prose-749-1": [
+   "synth-85814e01a8a1-983c858cc079"
+  ],
+  "structured/prose-749-2": [
+   "synth-117cf0552e68-da92cb2ab095"
+  ],
+  "structured/prose-749-3": [
+   "synth-509bf705dae3-e5698e13cb81"
+  ]
+ },
+ "metric": "extraction/recall",
+ "paired_effects": [
+  {
+   "mean_delta_points": 1.6001803020058603,
+   "n_pairs": 3,
+   "per_seed_delta_points": {
+    "prose-749-1": 0.20283975659228792,
+    "prose-749-2": 1.893171061528065,
+    "prose-749-3": 2.704530087897228
+   },
+   "repeat_draw_taken": "synth-a482ca353494-0cbdc7786f17",
+   "separated_at_95": false,
+   "stdev_points": 1.2763214004748975,
+   "t_critical_two_sided_95": 4.303,
+   "t_statistic": 2.1715483132334823
+  },
+  {
+   "mean_delta_points": -0.36060401171962664,
+   "n_pairs": 3,
+   "per_seed_delta_points": {
+    "prose-749-1": -5.679513184584173,
+    "prose-749-2": 1.893171061528065,
+    "prose-749-3": 2.704530087897228
+   },
+   "repeat_draw_taken": "synth-a482ca353494-da2d7488d4d5",
+   "separated_at_95": false,
+   "stdev_points": 4.624140131884483,
+   "t_critical_two_sided_95": 4.303,
+   "t_statistic": -0.1350704026906335
+  },
+  {
+   "mean_delta_points": 1.825557809330632,
+   "n_pairs": 3,
+   "per_seed_delta_points": {
+    "prose-749-1": 0.8789722785666032,
+    "prose-749-2": 1.893171061528065,
+    "prose-749-3": 2.704530087897228
+   },
+   "repeat_draw_taken": "synth-a482ca353494-fdd6851ccf96",
+   "separated_at_95": false,
+   "stdev_points": 0.9146551222764471,
+   "t_critical_two_sided_95": 4.303,
+   "t_statistic": 3.4569957581882047
+  }
+ ],
+ "schema": "okg.synth.rendering-delta-summary.v1",
+ "seeds": [
+  "prose-749-1",
+  "prose-749-2",
+  "prose-749-3"
+ ],
+ "separated_under_every_choice": false,
+ "separated_under_no_choice": true,
+ "within_seed_decode_noise": {
+  "max_points": 89.58755916159568,
+  "min_points": 83.0290736984449,
+  "n": 3,
+  "range_points": 6.558485463150776,
+  "seed": "prose-749-1",
+  "stdev_points": 3.6072372364964376
+ }
+}

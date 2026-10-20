@@ -1,0 +1,33 @@
+{
+  "agent_examples": {
+    "plan": "sha256:d98ba80a654e314007a32b079fc5d358b022bdd16c4b2403b47c5a1c993cff1c",
+    "questions": "sha256:c6ea067e70e486ef3e17db646459535963cde1690307d078e1fc27aee46de35f",
+    "read_status_v1": "sha256:fc5f06e039dc17ffc9749f45c9119065e4b69769e7750231467f98d7e67b01ea",
+    "read_status_v2": "sha256:f1127cff7f97584c0def181a9784a87b5c798f354c634e190e09c40e8e42ccfc",
+    "status": "sha256:0d6f34324c957128128ac4ed4c2891439c10377749fe3a5811bd81ca5749085b"
+  },
+  "api_version": "okg.deployment_product.api/v1",
+  "contract_version": "v1",
+  "registry": "sha256:fd4fd8c083677b0f17c2cd04e567ec89fead155186fa17a82ffbf3616bbe3df2",
+  "renderers": {
+    "human_plan": "sha256:65a1389226a28bbf0c6fa7590e6692002e825c7f970b4bef27081ebdedf59959",
+    "human_questions": "sha256:297a6630d755b405fe1db12e0b191da30062dfa993a7b0f4d96719fcaae846d2",
+    "human_read_status": "sha256:05b05072a2c147d0c0548cd1140466a1163fa0f3cd70daf5ca87b4cbca93d4f0",
+    "human_status": "sha256:5aafbe9350f147f189e2c487e62c8383a01a082d0459b57fd44402fea88ebf5c"
+  },
+  "schema_version": "okg.deployment_product.projection_conformance/v1",
+  "schemas": {
+    "agent_diagnostic": "sha256:7c08ddd8c75d358e966a7b23e1a8282ba2ce2e0da741779d0364b1ec734d435d",
+    "agent_operation": "sha256:1aca1da844a3766b5df21e8adf157fdfef5cb83517f8c0f0db4280f09c34bd8e",
+    "agent_plan": "sha256:84b7c2e24d8f8b2e3218e27878ed994142769a8f2da26be8a24c57df8f2da332",
+    "agent_questions": "sha256:293dc026a8f2d9d4b03ef7c9ba18ec521fe790cba1225a5e07f5410c33768c33",
+    "agent_status": "sha256:b1bc5c75d73998696257471871782e1c19720302a1969237a484c3390c1f6d1d",
+    "applied_instance": "sha256:6ecca1b623266a901e90fb6f68377e7a916061d2892cc774aa8ba16f86a0ffa9",
+    "authored_deployment_definition": "sha256:91536c3cfc5e7d15bfdaa98159af1032df3b1abdf276b5718ac2fba21484618a",
+    "deployment_read_status": "sha256:e75ce6e7f4185d90a0fcda3f7e2a35ace1448b4b4050137aaaaff916c7a0d136",
+    "distribution_release": "sha256:df828a3e95ca366718914c92e72de99075749e239e55c93bdc9656d98c70329f",
+    "product_bundle": "sha256:a79f7e2e0e6ddd9c73de8e4f6af3e7df0eb242de51d4d103d8270f19c72d4b1a",
+    "resolved_lock": "sha256:913e728b98fed3730bc2694cf1f1c7fc84a99216a833917106d21bd309a2285a",
+    "sealed_release": "sha256:e3d837f0ec08d7f8bf91f49563619c3dc0575b3cdf925f29b902591e4366a985"
+  }
+}

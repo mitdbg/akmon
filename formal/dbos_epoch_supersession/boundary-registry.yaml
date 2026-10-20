@@ -1,0 +1,172 @@
+schema: okg.dbos_boundary_registry/v1
+inventory_file: boundary-inventory.yaml
+inventory_roots:
+- src/okg/substrate/runtime
+- src/okg/substrate/source_sync_enqueue.py
+- src/okg/substrate/source_sync_producers.py
+- src/okg/substrate/source_sync_recovery.py
+- src/okg/substrate/deployment_upgrade.py
+- src/okg/substrate/publisher
+- src/okg/substrate/consistency/chronos_sql_mirror.py
+binding_profiles:
+  full:
+  - lifecycle_activation_epoch
+  - activation_receipt_digest
+  - database_writer_epoch
+  - dbos_application_version
+  - worktree_write_capability_epoch
+  - binding_epoch
+  - operation_id
+  - operation_digest
+  - equivalence_class
+  - expected_parent
+  - capsule_digest
+equivalence:
+  key_fields:
+  - deployment
+  - operation_kind
+  - logical_target
+  recovery_cardinality: 1
+  selection: exact-current-binding-then-lowest-operation-id
+expected_parent:
+  field: expected_parent
+  compare_to: current_published_generation
+  mismatch: refuse
+tla_mapping:
+  lifecycle_activation_epoch: workEpoch
+  activation_receipt_digest: workReceipt
+  database_writer_epoch: databaseEpoch
+  dbos_application_version: workApplication
+  worktree_write_capability_epoch: CurrentWorktreeCapabilityEpoch
+  binding_epoch: CurrentBranchBindingEpoch
+  operation_id: OperationId
+  operation_digest: OperationDigest
+  equivalence_class: EquivalenceClass
+  expected_parent: ExpectedParent
+  capsule_digest: CapsuleDigest
+fence:
+  namespace: okg-dbos-epoch-boundary
+  key_fields:
+  - deployment
+  - lifecycle_activation_epoch
+  - activation_receipt_digest
+  shared:
+    implementation: pg_advisory_xact_lock_shared
+    held_from: dequeue
+    held_through: transaction_commit_or_refusal
+  exclusive:
+    implementation: pg_advisory_lock
+    owner: activation_controller
+    precondition: shared_holders_drained
+    held_from: activation_authorization
+    held_through: activation_receipt_commit
+boundaries:
+- id: enqueue
+  binding_profile: full
+  equivalence_fields: [deployment, operation_kind, logical_target]
+  expected_parent_field: expected_parent
+  fence_mode: shared
+  mutation_class: workflow_create
+  sources:
+  - path: src/okg/substrate/runtime/dbos_enqueue.py
+    entrypoint: enqueue_deployment_workflow
+- id: dequeue
+  binding_profile: full
+  equivalence_fields: [deployment, operation_kind, logical_target]
+  expected_parent_field: expected_parent
+  fence_mode: shared
+  mutation_class: workflow_claim
+  sources:
+  - path: src/okg/substrate/runtime/worker.py
+    entrypoint: run_worker
+- id: body_entry
+  binding_profile: full
+  equivalence_fields: [deployment, operation_kind, logical_target]
+  expected_parent_field: expected_parent
+  fence_mode: shared
+  mutation_class: workflow_body
+  sources:
+  - path: src/okg/substrate/runtime/source_sync_workflow.py
+    entrypoint: source_sync_workflow_impl
+  - path: src/okg/substrate/runtime/publisher_workflow.py
+    entrypoint: publisher_cycle_workflow
+- id: schedule
+  binding_profile: full
+  equivalence_fields: [deployment, operation_kind, logical_target]
+  expected_parent_field: expected_parent
+  fence_mode: shared
+  mutation_class: scheduled_enqueue
+  sources:
+  - path: src/okg/substrate/runtime/_schedule_factory.py
+    entrypoint: make_enqueue_schedule
+- id: poller
+  binding_profile: full
+  equivalence_fields: [deployment, operation_kind, logical_target]
+  expected_parent_field: expected_parent
+  fence_mode: shared
+  mutation_class: source_poll
+  sources:
+  - path: src/okg/substrate/runtime/source_poll_schedule.py
+    entrypoint: register_source_poll_schedules
+- id: compactor
+  binding_profile: full
+  equivalence_fields: [deployment, operation_kind, logical_target]
+  expected_parent_field: expected_parent
+  fence_mode: shared
+  mutation_class: history_compaction
+  sources:
+  - path: src/okg/substrate/runtime/services.py
+    entrypoint: cleanup_stale_pending_workflows
+- id: lease
+  binding_profile: full
+  equivalence_fields: [deployment, operation_kind, logical_target]
+  expected_parent_field: expected_parent
+  fence_mode: shared
+  mutation_class: capability_lease
+  sources:
+  - path: src/okg/substrate/runtime/promotion_fence.py
+    entrypoint: promotion_enqueue_permit
+- id: mutation
+  binding_profile: full
+  equivalence_fields: [deployment, operation_kind, logical_target]
+  expected_parent_field: expected_parent
+  fence_mode: shared
+  mutation_class: postgres_write
+  sources:
+  - path: src/okg/substrate/runtime/source_sync_workflow.py
+    entrypoint: source_sync_workflow_impl
+  - path: src/okg/substrate/runtime/publisher_workflow.py
+    entrypoint: publisher_cycle_workflow
+- id: receipt_transition
+  binding_profile: full
+  equivalence_fields: [deployment, operation_kind, logical_target]
+  expected_parent_field: expected_parent
+  fence_mode: exclusive
+  mutation_class: activation_receipt
+  sources:
+  - path: src/okg/substrate/runtime/promotion_fence.py
+    entrypoint: release_promotion_fence
+- id: publish
+  binding_profile: full
+  equivalence_fields: [deployment, operation_kind, logical_target]
+  expected_parent_field: expected_parent
+  fence_mode: shared
+  mutation_class: generation_publish
+  sources:
+  - path: src/okg/substrate/runtime/publisher_workflow.py
+    entrypoint: publisher_cycle_workflow
+direct_producers:
+- path: src/okg/substrate/runtime/_schedule_factory.py
+  owner: production-schedule-factory
+- path: src/okg/substrate/runtime/admin.py
+  owner: production-admin-client
+- path: src/okg/substrate/runtime/dbos_enqueue.py
+  owner: production-generic-enqueue
+- path: src/okg/substrate/runtime/embed_workflow.py
+  owner: production-embed-schedule
+- path: src/okg/substrate/runtime/hooks.py
+  owner: production-post-publish-hook
+- path: src/okg/substrate/runtime/recovery_test.py
+  owner: diagnostic-recovery-probe
+- path: src/okg/substrate/runtime/smoke.py
+  owner: diagnostic-smoke-probe

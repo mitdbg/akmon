@@ -1,0 +1,28 @@
+# communications ↔ extraction cross-link rules.
+#
+# Email bodies + ChatMessage bodies land as Documents via
+# the body_doc_ref attribute. Redaction policy applies at
+# source-emit time.
+
+rules:
+  - id: email_has_document
+    src:
+      subtype: email
+      field: body_doc_ref
+    dst:
+      subtype: document
+      field: document_id
+    matcher: exact
+    edge: has_document
+    bidirectional: false
+
+  - id: chat_message_has_document
+    src:
+      subtype: chat_message
+      field: body_doc_ref
+    dst:
+      subtype: document
+      field: document_id
+    matcher: exact
+    edge: has_document
+    bidirectional: false

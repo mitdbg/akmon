@@ -1,0 +1,276 @@
+/* The Graph view: the head, the stage (type map and record tree), its rail.
+ *
+ * Ported from the approved prototype (console-graph-views v2.html). Every rule
+ * is scoped under .okg-graph, and the prototype's colour variables are mapped
+ * onto the console's tokens (styles/tokens.css) here, once, so the rules below
+ * read as the prototype's did. No raw hex. Tables and grids: graph-tables.css.
+ */
+
+.okg-console.okg-graph {
+  --g-bg: var(--okg-color-bg);
+  --g-surface: var(--okg-color-surface);
+  --g-muted-bg: var(--okg-color-surface-muted);
+  --g-text: var(--okg-color-text);
+  --g-strong: var(--okg-color-strong);
+  --g-muted: var(--okg-color-muted);
+  --g-line: var(--okg-color-line);
+  --g-line-soft: var(--okg-color-line-soft);
+  --g-link: var(--okg-color-link);
+  --g-sel: var(--okg-color-accent);
+  --g-sel-bg: var(--okg-color-link-bg);
+  --g-canvas: var(--okg-color-canvas);
+  --g-edge: var(--okg-graph-edge);
+  --g-edge-hi: var(--okg-graph-edge-hi);
+  --g-halo: var(--okg-graph-halo);
+  --g-sans: var(--okg-font-sans);
+  --g-mono: var(--okg-font-mono);
+  --g-rail-w: 340px;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--g-bg);
+  color: var(--g-text);
+}
+
+/* In the two dark firings the selection ring is the flame-blue link, as the
+ * prototype drew it; their accent is orange. */
+:root[data-theme="hephaestus"] .okg-graph,
+:root[data-theme="melanomorpha"] .okg-graph { --g-sel: var(--okg-color-link); }
+
+@media (min-width: 821px) {
+  /* The stage fills the window below the bar; the height is measured by
+     Graph.tsx, because the bar's height moves with its failure line. */
+  .okg-console.okg-graph { height: var(--okg-graph-height, calc(100dvh - 64px)); overflow: hidden; }
+}
+
+.okg-graph button, .okg-graph select, .okg-graph input { font: inherit; color: inherit; }
+.okg-graph code, .okg-graph .mono { font-family: var(--g-mono); font-size: 12px; }
+.okg-graph :focus-visible { outline: 2px solid var(--g-link); outline-offset: 2px; }
+.okg-graph table { border-collapse: collapse; font-size: inherit; }
+
+/* --- head -------------------------------------------------------------- */
+.okg-graph .head { display: flex; align-items: center; gap: 8px 16px; padding: 14px 24px; flex-wrap: wrap; border-bottom: 1px solid var(--g-line); background: var(--g-bg); flex: none; min-height: 61px; }
+.okg-graph .head h1 { font-size: 20px; line-height: 32px; margin: 0; color: var(--g-strong); font-weight: 700; letter-spacing: -.005em; }
+.okg-graph .head .okg-console__switcher { flex: none; }
+.okg-graph .head .okg-console__switch { padding: 3px 12px; line-height: 20px; }
+.okg-graph .head .okg-console__switch[data-checked="true"] { color: var(--g-strong); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .14), 0 0 0 1px var(--g-line-soft); }
+.okg-graph .crumb { display: flex; align-items: center; gap: 6px; color: var(--g-muted); min-width: 0; flex: 0 1 auto; line-height: 20px; margin-left: 4px; }
+.okg-graph .crumb a { color: var(--g-link); flex: none; text-decoration: none; }
+.okg-graph .crumb a:hover { text-decoration: underline; }
+.okg-graph .crumb .sepr { color: var(--g-muted); flex: none; }
+.okg-graph .crumb b.prose { font-family: var(--g-sans); font-size: 13px; }
+.okg-graph .crumb b { color: var(--g-strong); font-family: var(--g-mono); font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 420px; }
+.okg-graph .head .okg-console__copy--page { margin-left: auto; }
+
+/* --- work area, stage, rail -------------------------------------------- */
+.okg-graph .work { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) var(--g-rail-w); grid-template-rows: minmax(0, 1fr); min-height: 0; }
+.okg-graph .work.single { display: block; overflow: auto; }
+.okg-graph .stagecol { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.okg-graph .stage { position: relative; background: var(--g-canvas); overflow: hidden; min-height: 320px; flex: 1; }
+.okg-graph .stage svg { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.okg-graph .stage svg:active { cursor: grabbing; }
+.okg-graph .rail { border-left: 1px solid var(--g-line); background: var(--g-surface); padding: 18px 20px 24px; overflow: auto; min-height: 0; }
+.okg-graph .legend { position: absolute; left: 14px; top: 12px; width: 210px; background: color-mix(in srgb, var(--g-surface) 92%, transparent); border: 1px solid var(--g-line-soft); border-radius: 8px; padding: 8px 10px; font-size: 12px; max-width: 260px; }
+.okg-graph .legend h4 { margin: 0 0 4px; font-size: 11px; color: var(--g-muted); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.okg-graph .legend button { display: flex; align-items: center; gap: 7px; border: 0; background: none; padding: 2px 0; cursor: pointer; width: 100%; text-align: left; }
+.okg-graph .legend button.off { opacity: .35; }
+.okg-graph .legend .lcount { margin-left: auto; color: var(--g-muted); font-variant-numeric: tabular-nums; }
+.okg-graph .legend .lname { min-width: 0; overflow-wrap: anywhere; }
+.okg-graph .legend .lnote { margin-top: 6px; color: var(--g-muted); }
+.okg-graph .legend { max-height: calc(100% - 24px); overflow: auto; }
+.okg-graph .legend button.lhead { margin: 0; font-size: 11px; color: var(--g-muted); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.okg-graph .legend button.lhead::after { content: " ▾"; }
+.okg-graph .legend button.lhead[aria-expanded="true"]::after { content: " ▴"; }
+/* A URL value the map left out, and the map with every producer switched off. */
+.okg-graph .map-empty { position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%); margin: 0; padding: 10px 14px; max-width: calc(100% - 32px); background: var(--g-surface); border: 1px solid var(--g-line); border-radius: 8px; color: var(--g-text); }
+.okg-graph .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block; }
+.okg-graph .zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; border: 1px solid var(--g-line); border-radius: 7px; overflow: hidden; background: var(--g-surface); }
+.okg-graph .zoom button { border: 0; background: none; width: 30px; height: 28px; cursor: pointer; font-size: 15px; color: var(--g-muted); }
+.okg-graph .zoom button + button { border-top: 1px solid var(--g-line-soft); }
+.okg-graph .status { flex: none; font-size: 12px; line-height: 18px; color: var(--g-muted); padding: 7px 16px; border-top: 1px solid var(--g-line); background: var(--g-surface); font-variant-numeric: tabular-nums; }
+
+/* --- svg marks ---------------------------------------------------------- */
+.okg-graph svg text { font-family: var(--g-sans); }
+.okg-graph .labels .bg { fill: var(--g-canvas); opacity: .94; }
+.okg-graph .labels text { fill: var(--g-text); }
+.okg-graph .labels .nm { font-family: var(--g-mono); font-size: 12px; font-weight: 600; }
+.okg-graph .labels .ct { font-size: 11px; fill: var(--g-muted); font-variant-numeric: tabular-nums; }
+.okg-graph .labels .el { font-size: 11px; font-weight: 600; }
+.okg-graph .labels .cap { font-size: 11px; font-weight: 700; letter-spacing: .06em; fill: var(--g-muted); }
+.okg-graph .labels .cap.capid, .okg-graph .legend .lname.lid { font-family: var(--okg-font-mono); font-weight: 400; letter-spacing: 0; }
+.okg-graph .labels .faint .nm { fill: var(--g-muted); font-weight: 400; }
+.okg-graph .labels .faint .ct { display: none; }
+.okg-graph .labels .focus .bg { fill: var(--g-surface); stroke: var(--g-line); opacity: 1; }
+.okg-graph .labels .focus .nm { fill: var(--g-strong); }
+.okg-graph .labels .edge .bg { fill: var(--g-surface); opacity: .96; }
+.okg-graph .labels .edge .el { fill: var(--g-text); }
+.okg-graph .n circle.body { stroke-width: 2; }
+.okg-graph .n { cursor: pointer; }
+.okg-graph .n.sel circle.body { stroke: var(--g-strong); stroke-width: 3; }
+.okg-graph .l path { fill: none; }
+.okg-graph .l .ln { stroke: var(--g-edge); stroke-opacity: .6; }
+.okg-graph .l .hit { stroke: transparent; stroke-width: 12; }
+.okg-graph .l.hi .ln { stroke: var(--g-edge-hi); stroke-opacity: .9; }
+.okg-graph .dim { opacity: .13; }
+.okg-graph .more circle { stroke-dasharray: 3 3; }
+.okg-graph .tmap .n circle.body { stroke: var(--g-halo); stroke-width: 1.5; }
+.okg-graph .tmap .n .ring { fill: none; stroke: none; pointer-events: none; }
+.okg-graph .tmap .n.sel circle.body { stroke: var(--g-halo); stroke-width: 1.5; }
+.okg-graph .tmap .n.sel .ring { stroke: var(--g-sel); stroke-width: 2.25; }
+.okg-graph .tmap .n.hov .ring { stroke: var(--g-edge-hi); stroke-width: 1.25; stroke-opacity: .5; }
+.okg-graph .tmap .n:focus { outline: none; }
+.okg-graph .tmap .n:focus-visible .ring { stroke: var(--g-link); stroke-width: 2; stroke-dasharray: 3 2; }
+.okg-graph .tmap .n, .okg-graph .tmap .l { transition: opacity .14s ease; }
+.okg-graph .tmap .dim { opacity: .16; }
+.okg-graph .tmap .preview .dim { opacity: .34; }
+/* The hit area: at least 12 screen px, whatever the zoom (typeMapDraw). */
+.okg-graph .tmap .n circle.hit { fill: transparent; stroke: none; }
+/* A producer's circle, its types folded in: a ring inside. */
+.okg-graph .tmap .n.src circle.inner { fill: none; stroke: var(--g-halo); stroke-width: 1.5; stroke-opacity: .85; pointer-events: none; }
+/* Switched off in the legend: faded out in place, lines gone, nothing moves. */
+.okg-graph .tmap .n.off { opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+.okg-graph .tmap .l.off { display: none; }
+.okg-graph .labels .nm.prose { font-family: var(--g-sans); font-weight: 600; }
+
+/* --- record tree -------------------------------------------------------- */
+.okg-graph .rt-lk { fill: none; }
+.okg-graph .rt-lk.trunk { stroke-opacity: .55; }
+.okg-graph .rt-lk.twig { stroke: var(--g-edge); stroke-width: 1; stroke-opacity: .9; }
+.okg-graph .rt-lk.dash { stroke-dasharray: 3 3; }
+/* Other groups step back, but stay legible and clickable. */
+.okg-graph .rt-head.dim, .okg-graph .rt-grp.dim, .okg-graph .rt-leaf.dim { opacity: .45; }
+.okg-graph .rt-lk.dim { opacity: .2; }
+.okg-graph .rt-grp.open circle.body, .okg-graph .rt-grp.sel circle.body { stroke: var(--g-strong); stroke-width: 2; }
+.okg-graph .rt-head { cursor: pointer; outline: none; }
+.okg-graph .rt-head .hit { fill: transparent; }
+.okg-graph .rt-head:hover .hit, .okg-graph .rt-head.sel .hit { fill: var(--g-sel-bg); }
+.okg-graph .rt-head:focus-visible .hit { stroke: var(--g-link); stroke-width: 2; }
+.okg-graph .rt-head text { font-size: 12.5px; paint-order: stroke; stroke: var(--g-halo); stroke-width: 4px; stroke-linejoin: round; }
+.okg-graph .rt-head:hover text, .okg-graph .rt-head.sel text { stroke: none; }
+.okg-graph .rt-head .t { font-family: var(--g-mono); font-weight: 650; fill: var(--g-strong); }
+.okg-graph .rt-head .e { font-family: var(--g-mono); font-size: 11.5px; fill: var(--g-muted); }
+.okg-graph .rt-head .c { font-size: 11.5px; fill: var(--g-muted); font-variant-numeric: tabular-nums; }
+.okg-graph .rt-head .k { fill: var(--g-link); font-weight: 600; }
+.okg-graph .rt-leaf { outline: none; }
+.okg-graph .rt-leaf text { font-family: var(--g-mono); font-size: 12px; fill: var(--g-text); paint-order: stroke; stroke: var(--g-halo); stroke-width: 4px; stroke-linejoin: round; }
+.okg-graph .rt-leaf text.prose, .okg-graph .rt-centre text.prose { font-family: var(--g-sans); }
+.okg-graph .rt-leaf .x { font-family: var(--g-sans); font-size: 11.5px; fill: var(--g-muted); }
+.okg-graph .rt-leaf circle.body { stroke-width: 1.5; }
+.okg-graph .rt-leaf.more text { font-family: var(--g-sans); font-weight: 600; fill: var(--g-link); }
+.okg-graph .rt-leaf:hover text tspan:first-child { text-decoration: underline; }
+.okg-graph .rt-leaf .rowbg { fill: transparent; }
+.okg-graph .rt-leaf .ring { fill: none; stroke: none; }
+.okg-graph .rt-leaf:hover .rowbg { fill: color-mix(in srgb, var(--g-sel-bg) 55%, transparent); }
+/* A selected record: a filled row and a ring on its dot, as the type map rings its selection. */
+.okg-graph .rt-leaf.sel .rowbg { fill: var(--g-sel-bg); }
+.okg-graph .rt-leaf.sel .ring { stroke: var(--g-sel); stroke-width: 2; }
+.okg-graph .rt-leaf.sel text { fill: var(--g-strong); stroke: none; }
+.okg-graph .rt-leaf:focus-visible .ring { stroke: var(--g-link); stroke-width: 2; stroke-dasharray: 3 2; }
+.okg-graph .rt-leaf:focus-visible .rowbg { stroke: var(--g-link); stroke-width: 1; }
+.okg-graph .rt-centre:focus-visible circle.body { stroke: var(--g-link); stroke-width: 3; }
+.okg-graph .rt-centre:focus-visible rect { stroke: var(--g-link); stroke-width: 2; }
+.okg-graph .rt-side { font-size: 11px; font-weight: 700; letter-spacing: .06em; fill: var(--g-muted); }
+.okg-graph .rt-side .c { font-weight: 600; letter-spacing: 0; fill: var(--g-text); font-variant-numeric: tabular-nums; }
+.okg-graph .rt-centre { cursor: pointer; outline: none; }
+.okg-graph .rt-centre circle.body { stroke: var(--g-strong); stroke-width: 2; }
+.okg-graph .rt-centre rect { fill: var(--g-surface); stroke: var(--g-strong); stroke-width: 1.25; }
+.okg-graph .rt-centre text { font-family: var(--g-mono); font-size: 12.5px; font-weight: 700; fill: var(--g-strong); }
+
+/* --- rail --------------------------------------------------------------- */
+.okg-graph .rail h2 { font-size: 15px; margin: 0; color: var(--g-strong); font-family: var(--g-mono); word-break: break-all; }
+.okg-graph .rail h2.plain { font-family: var(--g-sans); }
+.okg-graph .rail h3 { font-size: 12px; color: var(--g-muted); text-transform: uppercase; letter-spacing: .04em; margin: 16px 0 6px; font-weight: 600; }
+.okg-graph .rail p { margin: 4px 0; }
+.okg-graph .rail table { width: 100%; }
+.okg-graph .rail td { padding: 4px 0; border-bottom: 1px solid var(--g-line-soft); vertical-align: top; }
+.okg-graph .rail td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 10px; cursor: default; }
+.okg-graph .sub { color: var(--g-muted); font-size: 12px; }
+.okg-graph .rail .big { font-size: 22px; font-weight: 700; color: var(--g-strong); font-variant-numeric: tabular-nums; }
+.okg-graph .linkbtn { border: 0; background: none; color: var(--g-link); cursor: pointer; padding: 0; text-align: left; text-decoration: none; }
+.okg-graph .linkbtn:hover { text-decoration: underline; }
+.okg-graph .rail .tr-h { display: flex; align-items: center; gap: 8px; }
+.okg-graph .rail .tr-big { margin-top: 8px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.okg-graph .rail .tr-kv { margin-top: 10px; }
+.okg-graph .rail h3 .cnt { font-weight: 500; letter-spacing: 0; color: var(--g-muted); margin-left: 4px; }
+.okg-graph .rail .tr-rel .rel { font-size: 12px; color: var(--g-muted); }
+.okg-graph .rail .tr-rel td { padding: 5px 0; }
+.okg-graph .rail .okg-console__read-failed { margin-top: 8px; font-size: 13px; }
+.okg-graph .rail .tr-h:focus { outline: none; }
+.okg-graph .rail .tr-h:focus-visible { outline: 2px solid var(--g-link); outline-offset: 2px; }
+.okg-graph .rail .tr-h .okg-console__id { font-size: 15px; font-weight: 700; color: var(--g-strong); }
+.okg-graph .rail .tr-open { margin: 12px 0 0; }
+.okg-graph .rail .tr-open a, .okg-graph .rail .tr-kv a { color: var(--g-link); text-decoration: none; }
+.okg-graph .rail .tr-open a:hover, .okg-graph .rail .tr-kv a:hover { text-decoration: underline; }
+.okg-graph .rail .map-hidden { margin: 10px 0 0; padding: 7px 10px; border-radius: 6px; background: var(--g-muted-bg); }
+.okg-graph .rail .tr-fold { margin-top: 14px; }
+.okg-graph .rail .tr-types { list-style: none; margin: 0; padding: 0; }
+.okg-graph .rail .tr-types button { display: flex; align-items: center; gap: 7px; width: calc(100% + 8px); border: 0; background: none; padding: 3px 4px; margin-left: -4px; border-radius: 5px; cursor: pointer; text-align: left; line-height: 20px; }
+.okg-graph .rail .tr-types button:hover, .okg-graph .rail .tr-types button:focus-visible { background: var(--g-sel-bg); }
+.okg-graph .rail .tr-types .tname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--g-link); }
+.okg-graph .rail .tr-types .n { margin-left: auto; color: var(--g-muted); font-variant-numeric: tabular-nums; padding-left: 10px; }
+.okg-graph .rail .rt-id { word-break: break-all; margin-top: 2px; }
+.okg-graph .rt-dot { display: inline-block; margin-right: 7px; vertical-align: 0; }
+.okg-graph .rt-rel { font-family: var(--g-mono); font-size: 12px; color: var(--g-muted); }
+.okg-graph .rt-h3n { font-weight: 600; letter-spacing: 0; color: var(--g-text); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.okg-graph .rt-groups td { padding: 0; vertical-align: middle; }
+.okg-graph .rt-groups td.n { padding: 5px 0 5px 10px; }
+.okg-graph .rt-row { display: flex; align-items: center; gap: 0; width: 100%; border: 0; background: none; padding: 5px 4px; margin-left: -4px; cursor: pointer; text-align: left; border-radius: 5px; flex-wrap: wrap; }
+.okg-graph .rt-row code { margin-right: 8px; }
+.okg-graph .rt-row:hover, .okg-graph .rt-row[aria-pressed="true"] { background: var(--g-sel-bg); }
+.okg-graph .rt-items td { padding: 6px 0; }
+.okg-graph .rt-back { margin: 0 0 10px; font-size: 12px; }
+.okg-graph .rt-h2 { word-break: normal !important; overflow-wrap: break-word; }
+.okg-graph .rt-h2.prose { font-family: var(--g-sans) !important; font-size: 15px; }
+.okg-graph .rt-narrow h2 { font-size: 15px; margin: 0 0 2px; color: var(--g-strong); font-family: var(--g-mono); }
+.okg-graph .rt-type { text-decoration: none; }
+.okg-graph .rt-type:hover { text-decoration: underline; }
+.okg-graph .rt-type code { color: var(--g-link); }
+.okg-graph .rt-ids { margin-top: 6px; display: grid; gap: 2px; }
+.okg-graph .rt-idrow { min-width: 0; overflow-wrap: anywhere; }
+.okg-graph .rt-idrow .okg-console__id { font-size: 12px; color: var(--g-muted); word-break: break-all; }
+.okg-graph .rt-idrow[data-current="true"] .okg-console__id { color: var(--g-text); }
+.okg-graph .rt-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 12px !important; }
+.okg-graph .rt-actions a, .okg-graph .rt-type, .okg-graph .rail a { color: var(--g-link); }
+.okg-graph .rail .rt-kv { margin-top: 8px; }
+.okg-graph ul.rt-items, .okg-graph ul.rt-list { list-style: none; margin: 0; padding: 0; }
+.okg-graph ul.rt-items li { padding: 6px 0; border-bottom: 1px solid var(--g-line-soft); }
+.okg-graph ul.rt-items li .linkbtn { overflow-wrap: anywhere; }
+.okg-graph .rt-x { color: var(--g-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.okg-graph .rt-list li[data-current="true"] > a { font-weight: 600; }
+.okg-graph .rt-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; color: var(--g-muted); font-size: 14px; }
+/* The record lists: the name column takes the width, the count column its own. */
+.okg-graph .rt-tt tr.rt-trow > td.l { width: auto; }
+.okg-graph .rt-tt tr.rt-trow > td:last-child { width: 76px; }
+
+@media (max-width: 820px) {
+  /* The page runs to the bottom of the window even when its lists are short. */
+  .okg-console.okg-graph { min-height: var(--okg-graph-height, auto); }
+  .okg-graph .work { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; flex: none; }
+  .okg-graph .stagecol .stage { height: min(62vh, 520px); flex: none; }
+  .okg-graph .stage { min-height: 0; }
+  .okg-graph .rail { border-left: 0; border-top: 1px solid var(--g-line); padding: 16px 16px 28px; overflow: visible; }
+  .okg-graph .head { padding: 12px 16px; gap: 10px 12px; min-height: 0; }
+  .okg-graph .head h1 { font-size: 18px; }
+  .okg-graph .crumb { flex: 1 1 auto; }
+  .okg-graph .crumb b { max-width: none; }
+  .okg-graph .status { padding: 7px 16px; }
+  /* Closed on a phone: its heading is a button (aria-expanded); the entries
+     are `hidden`, so they leave the tab order too. */
+  .okg-graph .legend { width: auto; max-width: 230px; padding: 4px 10px; }
+  .okg-graph .legend.open { padding: 8px 10px; }
+}
+
+/* --- the top bar's record picker (Graph only) --------------------------- */
+.okg-console-bar__search-field { position: relative; }
+.okg-console-bar__picker { position: absolute; right: -1px; top: calc(100% + 6px); z-index: 20; list-style: none; margin: 0; padding: 4px; width: max(100%, 440px); max-width: calc(100vw - 32px); background: var(--okg-color-surface); color: var(--okg-color-text); border: 1px solid var(--okg-color-line); border-radius: 10px; box-shadow: 0 10px 28px rgba(0, 0, 0, .16), 0 2px 6px rgba(0, 0, 0, .06); font-size: 13px; white-space: normal; }
+.okg-console-bar__picker li { padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; gap: 12px; justify-content: space-between; align-items: baseline; line-height: 20px; }
+.okg-console-bar__picker li[aria-selected="true"] { background: var(--okg-color-link-bg); }
+.okg-console-bar__picker li code { color: var(--okg-color-muted); flex: none; font-family: var(--okg-font-mono); font-size: 12px; }
+.okg-console-bar__picker li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.okg-console-bar__picker li.okg-console-bar__picker-none { cursor: default; color: var(--okg-color-muted); display: block; }
+.okg-console-bar__picker li.okg-console-bar__picker-failed { color: var(--okg-color-bad); overflow-wrap: anywhere; }
+@media (max-width: 760px) { .okg-console-bar__picker { width: 100%; max-width: none; } }

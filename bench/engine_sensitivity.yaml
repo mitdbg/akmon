@@ -1,0 +1,65 @@
+schema: okg.bench.engine_sensitivity.v1
+id: engsens
+mode: one_factor_at_a_time
+description: >-
+  Default differential-engine sensitivity matrix. It builds on the tinydb
+  commit-replay benchmark but varies workload shape and active engine knobs
+  one factor at a time so deltas are attributable and the run is not redundant.
+
+baseline:
+  repo:
+    name: tinydb
+    url: https://github.com/msiemens/tinydb.git
+  source_set: files+code
+  replay:
+    strategy: first_n
+    n: 10
+  config:
+    enrichers: none
+    views: true
+    chronos_continuation_pct: 95
+    embedding: false
+
+axes:
+  workload:
+    source_set:
+      - files-only
+      - files+code
+      - tier1
+    replay:
+      - {strategy: first_n, n: 5}
+      - {strategy: first_n, n: 10}
+      - {strategy: first_n, n: 25}
+  engine:
+    enrichers:
+      - none
+      - declarative
+      - all
+    views:
+      - true
+      - false
+    chronos_continuation_pct:
+      - 50
+      - 95
+    # Keep embedding explicit but off by default; enabling it requires a real
+    # embedding backend and changes the benchmark from publisher-only to
+    # publisher-plus-embedding workload.
+    embedding:
+      - false
+
+reports:
+  branching:
+    enabled: true
+    n_commits: 5
+    nodes_per_commit: 25
+
+unavailable_axes:
+  projection_batch:
+    reason: >-
+      Recognized by BenchConfig but not rendered into bench deployment.yaml yet;
+      do not include it in axes.engine until the deployment/publisher path wires
+      it through.
+  branching:
+    reason: >-
+      Branching is measured by reports.branching because it mutates Chronos
+      branches after the linear replay, not by a linear replay config cell.

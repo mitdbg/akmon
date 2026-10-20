@@ -1,0 +1,38 @@
+invariants:
+  - name: workspace_graph_core_subtypes_present
+    severity: warn
+    scope: cross
+    timeout_ms: 5000
+    description: >-
+      Core Workspace Graph subtypes should appear after the first
+      successful publish. A fresh or tiny repository may start below
+      this floor, but a mature deployment falling to zero indicates
+      source coverage or projection trouble.
+    sql: |
+      WITH required(subtype) AS (
+        VALUES
+          ('source_file'),
+          ('git_commit'),
+          ('code_symbol'),
+          ('open_spec_change')
+      ),
+      counts AS (
+        SELECT subtype, count(*) AS n
+          FROM okg.v_nodes
+         GROUP BY subtype
+      )
+      SELECT r.subtype, coalesce(c.n, 0) AS live_count
+        FROM required r
+        LEFT JOIN counts c USING (subtype)
+       WHERE coalesce(c.n, 0) = 0
+
+  - name: workspace_graph_source_sync_dlq_zero
+    severity: warn
+    scope: cross
+    timeout_ms: 5000
+    description: Workspace Graph source-sync dead-letter queue should stay empty.
+    sql: |
+      SELECT queue_name, workflow_name, availability, dlq_count
+        FROM okg.v_runtime_queue_health
+       WHERE availability <> 'available'
+          OR dlq_count > 0

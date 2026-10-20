@@ -1,0 +1,14 @@
+name: doc_snapshot
+version: 1.0.0
+description: >-
+  Dated document snapshot — the ontology a corpus loads when it is ONE
+  observation of a document set at a stated date rather than a standing
+  index. Declares no subtypes of its own: it composes `extraction`
+  (Document / DocumentChunk) with `git_graph` (SourceFile) and states the
+  cross-module provenance narrowing that lets a passage be traced to the
+  file it was parsed from. Loading this module alongside those two is what
+  makes the doc-corpus benchmark vertical's shape DECLARED rather than
+  inherited from whatever the extraction pipeline happened to emit
+  (PACT okg-corpus-doc-corpus / req.fresh.passage).
+provides:
+  subtypes_file: schema.yaml

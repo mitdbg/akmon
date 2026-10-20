@@ -1,0 +1,7 @@
+name: ops
+version: 1.0.0
+description: 'Ops: IT incident scenarios, their alerts, and recorded
+  telemetry runs ingested from operator-frozen local copies
+  (ops_telemetry source).'
+provides:
+  subtypes_file: schema.yaml

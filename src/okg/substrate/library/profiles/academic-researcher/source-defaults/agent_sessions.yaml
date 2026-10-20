@@ -1,0 +1,24 @@
+# Claude Code agent_sessions transcripts. Scoped to sessions whose
+# cwd matches one of the operator's git repos so the deployment
+# doesn't pull in unrelated work from other projects.
+agent_sessions:
+  enabled_by_default: false
+  module: okg.substrate.library.sources.agent_sessions
+  class: AgentSessionsSource
+  ownership_id: ${deployment_name}.agent_sessions
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [repo, claude_projects_root, session_id]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    repo: ${deployment_name}
+    claude_projects_root: ~/.claude/projects
+    cwd_filter:
+      - ${git_repos}
+    # Capture all sessions regardless of age. A personal memex is
+    # an extension of memory — a hard time horizon would silently
+    # truncate older context.
+    since: null
+    capture_tool_use_events: [Edit, Write, Bash, NotebookEdit]

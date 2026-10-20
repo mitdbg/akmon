@@ -1,0 +1,538 @@
+/* The record page. */
+
+/* Paper. A PDF page and a sandboxed HTML document are documents, not console
+ * surfaces: they carry their own colours and cannot be recoloured from here,
+ * so they need a backing sheet rather than `--okg-color-surface`. The default
+ * is the white those documents assume, which keeps the two light themes
+ * (cyclades, the default, and lyceaum) rendering exactly as the captures the
+ * operator approved. The dark themes dim it, because a pure-white sheet in a
+ * dark shell glares; it stays light, because the document drawn on it is.
+ * Defined here rather than in styles/tokens.css: that file is shared with the
+ * rest of the product and is outside this change. */
+:root {
+  --okg-console-paper: #fff;
+}
+
+:root[data-theme="melanomorpha"] {
+  --okg-console-paper: #e9e3d9;
+}
+
+:root[data-theme="hephaestus"] {
+  --okg-console-paper: #e5e9ef;
+}
+
+.okg-console__record-meta .okg-console__copyable { vertical-align: baseline; }
+
+.okg-console__tabs { margin-top: 24px; }
+
+/* The tab strip: links on one hairline, the current one in full text
+ * weight. Styled by data-current, so a cut tab takes its rule with it. */
+.okg-console__tabstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 24px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--okg-color-line);
+}
+
+.okg-console .okg-console__tab {
+  padding: 8px 0;
+  font-size: 14px;
+  font-family: var(--okg-font-sans);
+  color: var(--okg-color-muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.okg-console .okg-console__tab:hover { color: var(--okg-color-text); }
+
+.okg-console .okg-console__tab[data-current="true"] {
+  color: var(--okg-color-text);
+  font-weight: 600;
+  border-bottom-color: var(--okg-color-text);
+}
+
+/* Fields: name in mono over a fixed column, value wrapping. */
+.okg-console__ftable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.okg-console__ftable th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--okg-color-muted);
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--okg-color-line);
+}
+
+.okg-console__ftable td {
+  padding: 10px 12px 10px 0;
+  min-height: 44px;
+  border-bottom: 1px solid var(--okg-color-line-soft);
+  vertical-align: top;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.okg-console__ftable [data-col="name"] { width: 220px; }
+
+.okg-console__ftable td[data-col="value"] { font-size: 14px; }
+
+.okg-console__field-value[data-long="true"] { white-space: pre-wrap; }
+
+.okg-console__related + .okg-console__related { margin-top: 32px; }
+
+.okg-console__related-group + .okg-console__related-group { margin-top: 20px; }
+
+.okg-console__related .okg-console__results-head { margin-top: 0; }
+
+/* Source: a definition list in the console's type. */
+.okg-console__facts {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0 0 24px;
+  font-size: 14px;
+}
+
+.okg-console__facts dt { color: var(--okg-color-muted); font-size: 13px; padding-top: 1px; }
+
+.okg-console__facts dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Raw: three blocks, each with a 14/600 title and its Copy. */
+.okg-console__block + .okg-console__block { margin-top: 24px; }
+
+.okg-console__block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.okg-console__block-title { font-size: 14px; font-weight: 600; }
+
+/* --- Explore: the record page's Content, Related, Provenance and Raw ---- */
+
+/* "Open in source": accent 13 px beside the title, the external-link glyph
+ * first. Never a button. */
+.okg-console .okg-console__open-source {
+  margin-left: 16px;
+  font-size: 13px;
+  white-space: nowrap;
+  align-self: baseline;
+}
+
+.okg-console__open-source .okg-icon { font-size: 12px; margin-right: 4px; }
+
+/* A chunk's page says what it is part of before anything else. */
+.okg-console__partof { margin-bottom: 16px; }
+
+/* The Content toolbar: format, size, hash and the page position as facts,
+ * then the actions at the right. One hairline under it. */
+.okg-console__content-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-bottom: 10px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--okg-color-line);
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__content-fact { white-space: nowrap; }
+
+.okg-console__content-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.okg-console__content-actions .okg-console__copy--text { margin-left: 0; }
+
+.okg-console__panes-toggle { font-size: 13px; }
+
+/* Two panes at 1440, each its own scroll, the same height. */
+.okg-console__panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+}
+
+.okg-console__panes[data-panes="two"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+
+.okg-console__pane { min-width: 0; }
+
+.okg-console__pane-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__pane-head .okg-console__section-aside {
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+}
+
+.okg-console__viewer-failed { margin-bottom: 12px; }
+
+.okg-console__absence { margin: 0 0 16px; }
+
+.okg-console__verbatim--capped { max-height: 640px; overflow: auto; }
+
+/* The extracted text. Preformatted either way -- every line and paragraph
+ * break the source recorded survives -- but a document is PROSE: 15 px in the
+ * page's own face, at the console's reading measure, with no box around it.
+ * Only a record that IS code or structured data keeps the mono block. */
+.okg-console__extracted {
+  margin: 0;
+  max-height: 640px;
+  overflow: auto;
+  font-size: 15px;
+  line-height: 1.65;
+  max-width: var(--okg-prose, 78ch);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--okg-color-text);
+}
+
+.okg-console__extracted[data-face="prose"] {
+  font-family: var(--okg-font-sans);
+}
+
+.okg-console__extracted[data-face="code"] {
+  padding: 12px 14px;
+  max-width: none;
+  border: 1px solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-surface-muted);
+  font-family: var(--okg-font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* The PDF: pages as canvases in one scrollable column. */
+.okg-console__pdf {
+  max-height: 640px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-surface-muted);
+}
+
+.okg-console__pdf-page {
+  display: block;
+  margin: 0 auto 12px;
+  background: var(--okg-console-paper);
+  box-shadow: 0 0 0 1px var(--okg-color-line-soft);
+}
+
+.okg-console__pdf-page:last-child { margin-bottom: 0; }
+
+/* Rendered Markdown, in the console's scale: 14 px prose, headings one
+ * and two sizes up, code in mono 13, tables in the console's table type. */
+.okg-console__rendered {
+  max-height: 640px;
+  overflow: auto;
+  padding: 4px 14px;
+  border: 1px solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-sm);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.okg-console__rendered > :first-child { margin-top: 12px; }
+
+.okg-console__rendered h1 { font-size: 20px; font-weight: 600; margin: 20px 0 8px; }
+.okg-console__rendered h2 { font-size: 16px; font-weight: 600; margin: 20px 0 6px; }
+.okg-console__rendered h3, .okg-console__rendered h4 { font-size: 14px; font-weight: 600; margin: 16px 0 4px; }
+.okg-console__rendered p, .okg-console__rendered ul, .okg-console__rendered ol { margin: 0 0 10px; }
+.okg-console__rendered li { margin: 2px 0; }
+.okg-console__rendered code { font-family: var(--okg-font-mono); font-size: 13px; }
+
+.okg-console__rendered pre {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-surface-muted);
+  font-family: var(--okg-font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow: auto;
+}
+
+.okg-console__rendered table {
+  border-collapse: collapse;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.okg-console__rendered th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--okg-color-muted);
+  padding: 0 16px 6px 0;
+  border-bottom: 1px solid var(--okg-color-line);
+}
+
+.okg-console__rendered td {
+  padding: 6px 16px 6px 0;
+  border-bottom: 1px solid var(--okg-color-line-soft);
+}
+
+.okg-console__rendered blockquote {
+  margin: 0 0 10px;
+  padding-left: 12px;
+  border-left: 2px solid var(--okg-color-line);
+  color: var(--okg-color-muted);
+}
+
+/* Code: mono 13 with a muted line number column; the token colours are
+ * the console's, through shiki's CSS-variables theme. */
+.okg-console__code {
+  --shiki-foreground: var(--okg-color-text);
+  --shiki-background: transparent;
+  --shiki-token-constant: var(--okg-color-info);
+  --shiki-token-string: var(--okg-color-ok);
+  --shiki-token-comment: var(--okg-color-muted);
+  --shiki-token-keyword: var(--okg-color-accent);
+  --shiki-token-parameter: var(--okg-color-text);
+  --shiki-token-function: var(--okg-color-strong);
+  --shiki-token-string-expression: var(--okg-color-ok);
+  --shiki-token-punctuation: var(--okg-color-muted);
+  --shiki-token-link: var(--okg-color-link);
+  margin: 0;
+  padding: 10px 0;
+  max-height: 640px;
+  overflow: auto;
+  border: 1px solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-surface-muted);
+  font-family: var(--okg-font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.okg-console__code-line { display: flex; min-height: 1.6em; }
+
+.okg-console__code-number {
+  flex: none;
+  width: 3.5em;
+  padding-right: 12px;
+  text-align: right;
+  color: var(--okg-color-muted);
+  user-select: none;
+  white-space: pre;
+}
+
+.okg-console__code-text { flex: 1; white-space: pre; padding-right: 14px; }
+
+/* The HTML frame: no scripts (sandbox=""), the page's own scroll. */
+.okg-console__frame {
+  display: block;
+  width: 100%;
+  height: 480px;
+  border: 1px solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-console-paper);
+}
+
+/* An image at its natural size, never wider than the pane. */
+.okg-console__image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-sm);
+}
+
+/* The record's content: heading, placement and page above each block, then
+ * the block's text. `--okg-prose` is the measure this console reads prose
+ * at; below it the column is narrower than the measure and the max-width
+ * does nothing, which is what holds 390 without a horizontal scroll. */
+.okg-console__chunks { margin-top: 32px; }
+
+.okg-console__prose { max-width: var(--okg-prose, 78ch); }
+
+.okg-console__outline {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__chunklist { list-style: none; margin: 0; padding: 0; }
+
+.okg-console__chunk {
+  padding: 10px 0;
+  border-top: 1px solid var(--okg-color-line-soft);
+}
+
+.okg-console__chunk-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__chunk-ordinal {
+  font-family: var(--okg-font-mono);
+  font-size: 13px;
+  color: var(--okg-color-text);
+  min-width: 2ch;
+}
+
+.okg-console__chunk-heading { color: var(--okg-color-text); font-weight: 500; }
+
+.okg-console__chunk-link { margin-left: auto; font-size: 13px; }
+
+/* A block of the record's content. Preformatted so every line and paragraph
+ * break the source recorded survives, wrapped so no line runs past the
+ * column, and NOT height-capped: a scroll box inside the page would hide the
+ * end of a chunk behind a second scrollbar, which is the opposite of being
+ * able to read the record. */
+/* A chunk's text inside the read-end-to-end column: prose by default, for
+ * the same reason as the pane above it. */
+.okg-console__chunk-text {
+  margin: 6px 0 0;
+  font-family: var(--okg-font-sans);
+  font-size: 15px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.okg-console__chunk-text[data-face="code"] {
+  font-family: var(--okg-font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Related: chips and the direction control on one bar, then the table. */
+.okg-console__related-bar { margin: 0 0 12px; }
+
+.okg-console__related-bar .okg-console__chipgroup { margin: 0; }
+
+.okg-console__ltable [data-col="dir"] { width: 90px; color: var(--okg-color-muted); }
+
+/* The sentence that stands in for the count line stands off the table the
+   same distance the count line did. */
+.okg-console__reltable-summary { margin: 0 0 8px; }
+
+/* Related's Record cell holds the name AND the id's copy control, so the
+   control has to sit inside the cell rather than push it wider. */
+.okg-console__reltable td[data-col="label"] .okg-console__copyable {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.okg-console__reltable td[data-col="label"] .okg-console__prow-name {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.okg-console__ltable [data-col="attempt"] { width: 130px; }
+.okg-console__ltable [data-col="src"], .okg-console__ltable [data-col="dst"] { width: 240px; }
+.okg-console__ltable [data-col="open"] { width: 50px; text-align: right; }
+
+.okg-console__edge-json td { padding: 8px 0 12px; height: auto; white-space: normal; }
+
+/* The JSON tree: mono 13, one row per line, a triangle to fold. */
+.okg-console__jsontree {
+  padding: 10px 14px;
+  border: 1px solid var(--okg-color-line-soft);
+  border-radius: var(--okg-radius-sm);
+  background: var(--okg-color-surface-muted);
+  font-family: var(--okg-font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 640px;
+  overflow: auto;
+}
+
+.okg-console__json-row { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.okg-console__json-fold {
+  font: inherit;
+  padding: 0 6px 0 0;
+  border: 0;
+  background: none;
+  color: var(--okg-color-muted);
+  cursor: pointer;
+}
+
+.okg-console__json-key { color: var(--okg-color-text); }
+.okg-console__json-string { color: var(--okg-color-ok); }
+.okg-console__json-number, .okg-console__json-boolean { color: var(--okg-color-info); }
+.okg-console__json-null { color: var(--okg-color-muted); }
+.okg-console__json-size { color: var(--okg-color-muted); }
+
+/* --- an identity, as rows ----------------------------------------------- */
+
+/* `source_record_id` and `source_revision`: a label and a value per key, in
+ * the fact list's own type, instead of one line of JSON. */
+.okg-console__identity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.okg-console__identity-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.okg-console__identity-row + .okg-console__identity-row { margin-top: 2px; }
+
+.okg-console__identity-label {
+  flex: 0 0 auto;
+  min-width: 132px;
+  font-size: 12px;
+  color: var(--okg-color-muted);
+}
+
+.okg-console__identity-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A value the read shortened, marked where it is rather than in a paragraph
+ * at the top of the page. The rule is in the title attribute. */
+.okg-console__shortened {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border: 1px solid var(--okg-color-line);
+  border-radius: var(--okg-radius-sm);
+  font-size: 11px;
+  color: var(--okg-color-muted);
+  cursor: help;
+}

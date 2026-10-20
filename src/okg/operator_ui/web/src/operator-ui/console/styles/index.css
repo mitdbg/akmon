@@ -1,0 +1,17 @@
+/* The console's stylesheet, one file per view, imported in the order the one
+ * file had them so the cascade is unchanged: the shell (base and top bar),
+ * then Home (the page, the metric chart, the contents tables), Updates,
+ * Sources and Explore (the landing, the record page, the results), then
+ * the 390 px rules, then the shared components. Vite inlines these imports into one sheet. */
+@import "./shell.css";
+@import "./home.css";
+@import "./chart.css";
+@import "./home-contents.css";
+@import "./updates.css";
+@import "./sources.css";
+@import "./explore.css";
+@import "./record.css";
+@import "./results.css";
+@import "./narrow.css";
+@import "./components.css";
+@import "./recovery.css";

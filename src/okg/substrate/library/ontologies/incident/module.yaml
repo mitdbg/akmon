@@ -1,0 +1,5 @@
+name: incident
+version: 1.0.0
+description: Incidents, alerts, postmortems.
+provides:
+  subtypes_file: schema.yaml

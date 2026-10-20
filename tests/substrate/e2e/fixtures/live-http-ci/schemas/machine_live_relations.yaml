@@ -1,0 +1,82 @@
+# Deployment-local declaration of what THIS deployment's machine node may be
+# asked (issue #2164, PACT laptop-monitor-live-example, req.lmle.relations).
+#
+# WHY IT IS HERE AND NOT IN `compute_env`. `Machine` is a shared library
+# subtype: okg-workspace, okg-ci and okg-ci-dev all enrol it and
+# none of them binds a host-telemetry adapter. A live relation declared on the
+# library class is published by `inspect` in every one of them, so an agent
+# would be told it can ask any machine node for its process table and be
+# refused `live_relation_unbound` on the first call. The declaration belongs
+# wherever the answer exists, and it exists only here.
+#
+# The composer reads a deployment's own `schemas/*.yaml` through exactly the
+# path it reads a module's `schema.yaml` (`modules_compose.py`,
+# `_extract_subtypes`), so `okg_live_relations` compiles here identically --
+# the catalog stores the same compiled declaration and `inspect` publishes the
+# same subset. `archetype` is required for the class to be read as a subtype
+# at all; it repeats `compute_env`'s value rather than changing it, and this
+# file declares no attributes, so `Machine`'s shape stays the library's.
+#
+# NEITHER RELATION TAKES AN ARGUMENT, and that is a constraint of the
+# transport, not an oversight. The HTTP adapter refuses a `GET` that declares
+# any argument -- a GET has no body and query-string arguments are not
+# supported -- and the host-telemetry API this binds to is GET-only. The bound
+# on each answer is therefore operator config in two places a caller cannot
+# raise: a literal in the binding's path, and `max_rows`.
+#
+# `principal_mode: service` is the only mode served this sprint (#2013
+# decision 4); `caller` is refused at deployment load. `sample_policy: inline`
+# keeps the rows WITH the sample, so a finding about a busy machine can cite
+# what was actually read. `retention_class: hot` is 7 days rather than the
+# 90 `warm` would give: these rows carry process names, usernames and full
+# command lines off whatever host runs the test, and the sample is kept to prove
+# the call happened, not to build a history of what was running.
+#
+# ONE ACTION, TWO RELATIONS. That is deliberate: it is what forces the Nomos
+# bundle to NAME the relations it authorizes rather than matching the action
+# alone, so a third relation reusing `external.host.read_telemetry` arrives
+# denied.
+id: https://palimpzest.mit.edu/okg/deployments/live_http_ci
+name: live_http_ci_machine_live_relations
+title: "Machine — what this fixture's host may be asked"
+description: |-
+  Adds two live relations to the `machine` subtype for the live-http-ci
+  fixture only. Declares no attributes: `Machine`'s shape is `compute_env`'s.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Machine:
+    description: >-
+      The host the CI walk runs on. Declared in `compute_env`; this file
+      adds only what it may be asked and how it is found.
+    annotations:
+      archetype: resource
+      transient: 'false'
+      # Without these a Machine is reachable only by id, which is no use to
+      # an agent that starts from a name. The walk begins with a search for
+      # the operator's own machine, so the hostname is the searchable field
+      # and os_release/arch are carried too: "my mac" and "arm64" should both
+      # find it. The path form additionally contributes the component words
+      # of a structured hostname, which the BM25 `english` config would
+      # otherwise lex as one token.
+      okg_searchable_text_fields: hostname,os_release,arch
+      okg_searchable_text_path_fields: hostname
+      okg_live_relations:
+        cpu_per_core:
+          action: external.host.read_telemetry
+          principal_mode: service
+          sample_policy: inline
+          retention_class: hot
+          deadline_seconds: 10
+          args: {}
+        top_processes:
+          action: external.host.read_telemetry
+          principal_mode: service
+          sample_policy: inline
+          retention_class: hot
+          deadline_seconds: 10
+          args: {}

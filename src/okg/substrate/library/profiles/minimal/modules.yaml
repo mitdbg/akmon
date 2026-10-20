@@ -1,0 +1,5 @@
+# Modules loaded by the minimal profile. `document_starter` is the smallest
+# shipped ontology; `okg deployment add-source` adds the modules each new
+# source needs (for example `extraction` for a local folder).
+modules:
+  - document_starter

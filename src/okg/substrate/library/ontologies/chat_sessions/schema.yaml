@@ -1,0 +1,572 @@
+id: https://palimpzest.mit.edu/okg/modules/chat_sessions
+name: chat_sessions
+title: "Chat Sessions — Open WebUI conversations, ratings, arena preferences"
+description: >-
+  Conversations held against a deployment's Open WebUI chat instance, the
+  messages inside them, the ratings and arena preferences people leave, and
+  one pointer per turn into the context-audit artifact.
+
+  Message text is NOT stored. Every message node carries a BOUNDED excerpt
+  plus a sha256 of the full content, following the agent_sessions precedent
+  ("full transcript payloads are not stored; message nodes carry bounded
+  excerpts and content hashes"). The audit record's payload bytes stay in the
+  operator-state artifact, which remains the byte authority; the graph holds
+  its digest, its record-id pointer, and a bounded excerpt.
+
+  Every attribute carrying user content or identity declares a `pii_class`,
+  so a deployment that runs a not-store-raw posture classifies these
+  attributes by declaration rather than by the fail-safe mask-everything
+  default. User prose is `free_text` rather than `sensitive_attribute`
+  deliberately: `sensitive_attribute` is exactly what an UNDECLARED attribute
+  already resolves to, so declaring it would carry no information, while
+  `free_text` routes the value to the free-text detector.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  chs: https://palimpzest.mit.edu/okg/modules/chat_sessions/
+default_range: string
+imports:
+- linkml:types
+classes:
+  ChatSession:
+    description: >-
+      One Open WebUI conversation, identified by the instance's own chat id.
+      The conversation body is not stored on the node; its messages are
+      separate nodes carrying bounded excerpts.
+    class_uri: chs:ChatSession
+    attributes:
+      chat_session_id:
+        required: true
+        description: >-
+          `chat:<instance>:<chat id>`. The instance segment is part of the
+          identity because two deployments' chat instances mint ids in
+          disjoint databases that could otherwise collide.
+        annotations:
+          pii_class: non_pii
+      instance:
+        required: true
+        description: The chat instance label this conversation was held in.
+        annotations:
+          pii_class: non_pii
+      remote_chat_id:
+        required: true
+        description: The Open WebUI `chat.id` value, unqualified.
+        annotations:
+          pii_class: non_pii
+      title:
+        description: >-
+          The conversation title. Open WebUI generates it from the first turn,
+          so it is user-derived text and is redacted and bounded like any
+          other excerpt.
+        annotations:
+          pii_class: free_text
+      principal:
+        description: >-
+          The Open WebUI user id that holds the conversation. The opaque
+          instance-local uuid, never an email or display name -- this source
+          does not read the `user` table at all.
+        annotations:
+          pii_class: quasi_identifier
+      archived:
+        range: boolean
+        description: Whether the conversation is archived in the instance.
+        annotations:
+          pii_class: non_pii
+      message_count:
+        range: integer
+        description: Number of messages ingested for this conversation.
+        annotations:
+          pii_class: non_pii
+      models:
+        description: >-
+          Comma-joined sorted list of the model ids that answered in this
+          conversation.
+        annotations:
+          pii_class: non_pii
+      openwebui_version:
+        description: The pinned Open WebUI version the app database was read under.
+        annotations:
+          pii_class: non_pii
+      app_db_revision:
+        description: >-
+          The Open WebUI app-database migration revision observed at read
+          time. Recorded on the node so a later reader can tell which schema
+          the rows were parsed under.
+        annotations:
+          pii_class: non_pii
+      started_at:
+        range: datetime
+        description: Conversation creation time reported by the instance.
+      updated_at:
+        range: datetime
+        description: Last conversation update time reported by the instance.
+      created_at:
+        range: datetime
+        description: >-
+          Earliest known timestamp for this entity, populated by the
+          pipeline's TimeResolver chain.
+      text:
+        description: Searchable text for this node.
+        annotations:
+          pii_class: free_text
+    annotations:
+      archetype: process
+      transient: 'false'
+      okg_alias_fields: chat_session_id
+      okg_searchable_text_fields: title,chat_session_id
+      okg_created_at_from: started_at
+
+  ChatMessage:
+    description: >-
+      One message in a conversation. Carries a BOUNDED excerpt and a content
+      digest, never the full text.
+    class_uri: chs:ChatMessage
+    attributes:
+      chat_message_id:
+        required: true
+        description: "`chat-msg:<instance>:<Open WebUI chat_message.id>`."
+        annotations:
+          pii_class: non_pii
+      instance:
+        required: true
+        annotations:
+          pii_class: non_pii
+      remote_message_id:
+        required: true
+        description: The Open WebUI `chat_message.id` value, unqualified.
+        annotations:
+          pii_class: non_pii
+      remote_chat_id:
+        required: true
+        annotations:
+          pii_class: non_pii
+      role:
+        required: true
+        description: "`user`, `assistant`, or `system`."
+        annotations:
+          pii_class: non_pii
+      model_id:
+        description: >-
+          The model that produced an assistant message. Operator-supplied
+          preset identifiers are user-authored strings, so this is a
+          quasi-identifier rather than non-PII.
+        annotations:
+          pii_class: quasi_identifier
+      principal:
+        description: The opaque Open WebUI user id that sent or received the message.
+        annotations:
+          pii_class: quasi_identifier
+      excerpt:
+        description: >-
+          Bounded, credential-redacted prefix of the message text. The
+          deployment's PII posture applies to THIS attribute; the full text is
+          never emitted.
+        annotations:
+          pii_class: free_text
+      excerpt_truncated:
+        range: boolean
+        description: Whether the excerpt is shorter than the full message text.
+        annotations:
+          pii_class: non_pii
+      content_sha256:
+        description: >-
+          sha256 of the full message text as read from the app database,
+          computed AFTER credential redaction so the digest never certifies a
+          secret the graph does not hold.
+        annotations:
+          pii_class: non_pii
+      content_chars:
+        range: integer
+        description: Length of the full (redacted) message text.
+        annotations:
+          pii_class: non_pii
+      redacted_secret_classes:
+        description: >-
+          Comma-joined classes of credential-shaped material found and
+          replaced in this message (for example `token_value`,
+          `secret_assignment`). Empty when the message carried none.
+        annotations:
+          pii_class: non_pii
+      sent_at:
+        range: datetime
+      created_at:
+        range: datetime
+        description: Earliest known timestamp, populated by the TimeResolver chain.
+      text:
+        description: Searchable text for this node.
+        annotations:
+          pii_class: free_text
+    annotations:
+      archetype: event
+      transient: 'false'
+      okg_alias_fields: chat_message_id
+      okg_searchable_text_fields: excerpt,chat_message_id
+      okg_created_at_from: sent_at
+
+  ChatRating:
+    description: >-
+      A thumbs-up / thumbs-down (or scored) rating left on one assistant
+      message. The preference substrate okg-bench reads.
+    class_uri: chs:ChatRating
+    attributes:
+      chat_rating_id:
+        required: true
+        description: "`chat-rating:<instance>:<Open WebUI feedback.id>`."
+        annotations:
+          pii_class: non_pii
+      instance:
+        required: true
+        annotations:
+          pii_class: non_pii
+      rated_message_id:
+        required: true
+        description: The chat_message node id this rating is about.
+        annotations:
+          pii_class: non_pii
+      remote_chat_id:
+        annotations:
+          pii_class: non_pii
+      principal:
+        description: The opaque Open WebUI user id that left the rating.
+        annotations:
+          pii_class: quasi_identifier
+      rating:
+        required: true
+        description: The rating value as the instance recorded it (for example `1` / `-1`).
+        annotations:
+          pii_class: non_pii
+      model_id:
+        description: The model whose answer was rated.
+        annotations:
+          pii_class: quasi_identifier
+      reason:
+        description: The instance's structured reason code, when one was chosen.
+        annotations:
+          pii_class: non_pii
+      comment_excerpt:
+        description: >-
+          Bounded, credential-redacted prefix of the free-text comment. The
+          full comment is not stored.
+        annotations:
+          pii_class: free_text
+      rated_at:
+        range: datetime
+      created_at:
+        range: datetime
+      text:
+        description: Searchable text for this node.
+        annotations:
+          pii_class: free_text
+    annotations:
+      archetype: evidence
+      transient: 'false'
+      okg_alias_fields: chat_rating_id
+      okg_searchable_text_fields: chat_rating_id,reason
+      okg_created_at_from: rated_at
+
+  ArenaPreference:
+    description: >-
+      One side-by-side comparison outcome: which of two (or more) models a
+      person preferred for the same prompt. The with-OKG vs without-OKG
+      comparison okg-bench needs is computed from these.
+    class_uri: chs:ArenaPreference
+    attributes:
+      arena_preference_id:
+        required: true
+        description: "`chat-arena:<instance>:<Open WebUI feedback.id>`."
+        annotations:
+          pii_class: non_pii
+      instance:
+        required: true
+        annotations:
+          pii_class: non_pii
+      remote_chat_id:
+        annotations:
+          pii_class: non_pii
+      compared_message_id:
+        description: The chat_message node id the comparison was made on.
+        annotations:
+          pii_class: non_pii
+      principal:
+        description: The opaque Open WebUI user id that expressed the preference.
+        annotations:
+          pii_class: quasi_identifier
+      chosen_model_id:
+        required: true
+        description: The model the person preferred.
+        annotations:
+          pii_class: quasi_identifier
+      compared_model_ids:
+        required: true
+        description: >-
+          Comma-joined sorted list of EVERY model in the comparison, the
+          chosen one included, so a reader never has to reconstruct the field
+          from the chosen side plus the siblings.
+        annotations:
+          pii_class: quasi_identifier
+      sibling_model_ids:
+        description: >-
+          Comma-joined sorted list of the models that were NOT chosen, as the
+          instance recorded them.
+        annotations:
+          pii_class: quasi_identifier
+      rating:
+        description: The rating value recorded alongside the preference.
+        annotations:
+          pii_class: non_pii
+      preferred_at:
+        range: datetime
+      created_at:
+        range: datetime
+      text:
+        description: Searchable text for this node.
+        annotations:
+          pii_class: free_text
+    annotations:
+      archetype: evidence
+      transient: 'false'
+      okg_alias_fields: arena_preference_id
+      okg_searchable_text_fields: arena_preference_id,chosen_model_id
+      okg_created_at_from: preferred_at
+
+  ChatContextRecord:
+    description: >-
+      A pointer to one immutable record in the context-audit artifact owned by
+      the chat-context-audit-filter child: the exact bytes that turn's model
+      received. The graph stores the DIGEST, the artifact record-id pointer,
+      and a bounded excerpt -- never the payload bytes, which stay in the
+      operator-state artifact as the byte authority.
+    class_uri: chs:ChatContextRecord
+    attributes:
+      chat_context_record_id:
+        required: true
+        description: "`chat-ctx:<instance>:<artifact record_id>`."
+        annotations:
+          pii_class: non_pii
+      instance:
+        required: true
+        annotations:
+          pii_class: non_pii
+      audit_record_id:
+        required: true
+        description: >-
+          The artifact's own injective `record_id` (`<artifact_id>:<seq>`).
+          This is the pointer a reader follows back to the byte authority.
+        annotations:
+          pii_class: non_pii
+      audit_schema_version:
+        required: true
+        description: >-
+          The artifact schema version the record was read under. An
+          unrecognized major is a refusal upstream of this node, so a stored
+          value is always one this reader recognized.
+        annotations:
+          pii_class: non_pii
+      payload_sha256:
+        required: true
+        description: >-
+          The artifact's own `payload_sha256`, verified by this source against
+          the recorded payload before the fact is emitted.
+        annotations:
+          pii_class: non_pii
+      payload_chars:
+        range: integer
+        description: Length of the canonical payload string in the artifact.
+        annotations:
+          pii_class: non_pii
+      payload_excerpt:
+        description: >-
+          Bounded, credential-redacted prefix of the canonical payload. The
+          deployment's PII posture applies to THIS attribute.
+        annotations:
+          pii_class: free_text
+      task_kind:
+        description: >-
+          Open WebUI's own task label for the call (`user_turn`, or one of the
+          auxiliary kinds). Auxiliary calls are recorded as what they are and
+          are never promoted to user turns.
+        annotations:
+          pii_class: non_pii
+      model:
+        annotations:
+          pii_class: quasi_identifier
+      provider:
+        annotations:
+          pii_class: quasi_identifier
+      principal:
+        description: The principal the audit record recorded for the turn.
+        annotations:
+          pii_class: quasi_identifier
+      compaction_enabled:
+        range: boolean
+        description: Whether the preset had context compaction configured on.
+        annotations:
+          pii_class: non_pii
+      compaction_observed:
+        range: boolean
+        description: Whether THIS payload actually carried a compaction summary.
+        annotations:
+          pii_class: non_pii
+      graph_read:
+        range: boolean
+        description: >-
+          Whether the turn read the graph at all. Absent when the artifact
+          holds no completion record for the turn -- which is a distinct state
+          from "the turn read nothing".
+        annotations:
+          pii_class: non_pii
+      generation_agreement:
+        description: >-
+          `no_graph_read`, `single`, `missing`, or `conflicting`, copied from
+          the completion record. Absent when there is no completion record.
+        annotations:
+          pii_class: non_pii
+      observed_generation_id:
+        description: The single generation the turn's MCP envelopes reported, when they agreed.
+        annotations:
+          pii_class: non_pii
+      recorded_at:
+        range: datetime
+      created_at:
+        range: datetime
+      text:
+        description: Searchable text for this node.
+        annotations:
+          pii_class: free_text
+    annotations:
+      archetype: evidence
+      transient: 'false'
+      okg_alias_fields: chat_context_record_id
+      okg_searchable_text_fields: chat_context_record_id,audit_record_id
+      okg_created_at_from: recorded_at
+
+  EdgeNarrowings:
+    description: >-
+      Intra-module and cross-module edge narrowings for chat_sessions.
+
+      The `chat_message references X` family is a CLOSED enumeration: there is
+      one attribute per allowlisted target class and no wildcard, because a
+      narrowing catalog admits named triples only. Each cross-module triple
+      carries `optional_when_subtypes_missing` so it resolves to nothing when
+      the target module is not loaded. The adapter drops, with a named reason,
+      any citation whose id does not resolve to one of these classes -- so an
+      out-of-allowlist citation is a visible adapter refusal, never a silent
+      narrowing_violation at insert.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      chat_session_contains_chat_message:
+        description: A conversation contains its messages.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: ChatSession
+          dst_subtypes: ChatMessage
+      chat_message_contains_chat_rating:
+        description: A rated message contains the rating left on it.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: ChatMessage
+          dst_subtypes: ChatRating
+      chat_session_contains_arena_preference:
+        description: >-
+          A conversation contains the arena preferences expressed in it. The
+          preference hangs off the conversation rather than the message
+          because a comparison is about the turn as a whole, and Open WebUI
+          records comparisons whose message id points at a sibling branch this
+          source may not have ingested.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: ChatSession
+          dst_subtypes: ArenaPreference
+      chat_message_contains_chat_context_record:
+        description: A message contains the audit pointer for its own turn.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: ChatMessage
+          dst_subtypes: ChatContextRecord
+
+      # --- the CLOSED cited-subtype allowlist -------------------------------
+      chat_message_references_open_spec_change:
+        description: A chat answer cited an OpenSpec change.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: OpenSpecChange
+          optional_when_subtypes_missing: 'true'
+      chat_message_references_pact_change:
+        description: A chat answer cited a PACT change.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: PactChange
+          optional_when_subtypes_missing: 'true'
+      chat_message_references_pact_task:
+        description: A chat answer cited a PACT task.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: PactTask
+          optional_when_subtypes_missing: 'true'
+      chat_message_references_agent_session:
+        description: A chat answer cited a coding-agent session.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: AgentSession
+          optional_when_subtypes_missing: 'true'
+      chat_message_references_sub_agent_session:
+        description: A chat answer cited a sub-agent session.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: SubAgentSession
+          optional_when_subtypes_missing: 'true'
+      chat_message_references_source_file:
+        description: A chat answer cited a repository file.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: SourceFile
+          optional_when_subtypes_missing: 'true'
+      chat_message_references_git_commit:
+        description: A chat answer cited a commit.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: GitCommit
+          optional_when_subtypes_missing: 'true'
+      chat_message_references_pull_request:
+        description: A chat answer cited a pull request.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: PullRequest
+          optional_when_subtypes_missing: 'true'
+      chat_message_references_issue:
+        description: A chat answer cited an issue.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: Issue
+          optional_when_subtypes_missing: 'true'
+      chat_message_references_document:
+        description: A chat answer cited a corpus document.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: Document
+          optional_when_subtypes_missing: 'true'
+      chat_message_references_document_chunk:
+        description: A chat answer cited a corpus chunk.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: DocumentChunk
+          optional_when_subtypes_missing: 'true'
+      chat_message_references_test_case:
+        description: A chat answer cited a test case.
+        annotations:
+          edge_archetype: references
+          src_subtypes: ChatMessage
+          dst_subtypes: TestCase
+          optional_when_subtypes_missing: 'true'

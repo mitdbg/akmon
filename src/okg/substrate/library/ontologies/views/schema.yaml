@@ -1,0 +1,205 @@
+id: https://palimpzest.mit.edu/okg/modules/views
+name: views_module
+title: "Materialized Views — derived data products with catalog recipes"
+description: >-
+  Views are functions from substrate state to a rendered artifact
+  (markdown report, structured table, LLM-generated prose) with
+  declared dependencies, fragment-level provenance, and replayable
+  refresh.
+
+  This module declares the catalog recipe node for native views plus
+  the legacy rendered-output node shape retained for compatibility.
+  Per
+  `establish-views-contract` (the umbrella) and
+  `viz-materialized-view-nodes` (the substrate-side child):
+
+  * **`ViewDefinition`** — the *recipe*. Carries `planner_ref`,
+    `assembler_ref`, `params`, optional `schedule`. Loaded into
+    `okg.nodes_live` by `okg catalog load` from a deployment-
+    scoped registry; versioned with the catalog.
+  * **`View`** — the legacy *rendered output* node shape. Native V1
+    view publication does not write this node. Readers resolve native
+    view output through completed derived-artifact manifests and typed
+    slots, and UI adapters may synthesize a legacy-shaped payload at
+    request time.
+
+  The module is loaded into a deployment's catalog by listing
+  `views_module` under `modules:` in `deployment.yaml`. Each
+  deployment may also extend with cross-cutting narrowings under
+  `deployments/<name>/schemas/bridges/` for application-specific
+  cite-target subtypes.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  v: https://palimpzest.mit.edu/okg/modules/views/
+default_range: string
+imports:
+- linkml:types
+classes:
+  ViewDefinition:
+    description: >-
+      One registered view's recipe at the catalog version that
+      installed it. Identified by `view_def_id` (e.g.
+      `af_pubs.supersedure_health`). The native view publisher reads
+      ViewDefinition nodes at publish time and runs the
+      framework's `refresh()` per `establish-views-contract`
+      Decision 2.
+    class_uri: v:ViewDefinition
+    attributes:
+      view_def_id:
+        required: true
+        identifier: true
+        description: >-
+          Stable, deployment-scoped slug. Convention:
+          `<deployment>.<view>` (e.g. `af_pubs.supersedure_health`).
+      view_name:
+        description: Human-readable view name; falls back to view_def_id.
+      planner_ref:
+        required: true
+        description: >-
+          Python qualified name resolving to the planner callable
+          (`(corpus, view_def) -> list[FragmentSpec]`). Loaded by
+          import at materialization time. E.g.
+          `views.supersedure_health:supersedure_health_planner`
+          (relative to the deployment's sys.path root, per
+          openspec/project.md's deployment-scripts convention).
+      assembler_ref:
+        required: true
+        description: >-
+          Python qualified name resolving to the assembler callable
+          (`(View) -> str`). Same import discipline as planner_ref.
+      params:
+        description: >-
+          JSON-encoded planner kwargs. The native view registry binds
+          these into the `ViewDefinition` factory before refresh.
+      schedule:
+        description: >-
+          Optional cron expression for future catalog scheduling.
+          Empty/null means the view materializes only when the publish
+          cycle runs or an explicit native scheduling surface is added.
+      deployment:
+        required: true
+        description: >-
+          Deployment name this view belongs to. Tenancy is enforced
+          here so a single substrate can host views from multiple
+          deployments without name collisions.
+      view_def_hash:
+        description: >-
+          Hash of the planner + params identity. A change here
+          invalidates native fragment-cache reuse on the next refresh
+          so refresh sees a different definition.
+      created_at:
+        range: datetime
+        description: First time this ViewDefinition was loaded into the catalog.
+      last_modified_at:
+        range: datetime
+        description: Last time `okg catalog load` upserted this ViewDefinition.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: view_def_id
+      okg_searchable_text_fields: view_name
+  View:
+    description: >-
+      Legacy rendered-view graph node shape. Native V1 view
+      publication no longer writes this node; the read side resolves
+      `view_id` through `derived_artifact_definitions`,
+      `derived_output_manifests`, and `derived_output_slots`, then
+      may synthesize an equivalent inspector payload for existing UI
+      renderers. Any persisted View node is pre-V1 compatibility data,
+      not the authoritative materialized view.
+    class_uri: v:View
+    attributes:
+      view_id:
+        required: true
+        identifier: true
+        description: Stable slug, e.g. `af_pubs.supersedure_health`.
+      view_name:
+        description: Human-readable view name; falls back to view_id.
+      markdown_body:
+        description: >-
+          Rendered markdown body. Activated by the viz's view-
+          markdown renderer; citation chips `[N]` resolve via
+          `attrs.citations` to specific source nodes.
+      markdown_format_version:
+        description: >-
+          Schema version for the markdown_body + citations format.
+          Bumped when the renderer contract changes incompatibly.
+      last_refreshed_generation:
+        range: integer
+        description: >-
+          Substrate generation_id this view was last materialized
+          against.
+      freshness:
+        description: >-
+          One of `fresh`, `stale`, `failed`. `fresh` = last native
+          view run completed; `stale` = the view
+          hasn't run for the latest generation; `failed` = the
+          most recent run threw.
+      citations:
+        description: >-
+          JSON-encoded array of `{n, target_node_id}` mapping
+          numbered references in `markdown_body` to specific
+          source nodes. The viz renderer reads this for citation
+          chip activation.
+      manifest_path:
+        description: >-
+          Legacy compatibility path, if an external importer supplied
+          one. Native V1 publication does not use filesystem manifests
+          as commit records.
+      manifest_hash:
+        description: Hash of the native output-set manifest.
+      text:
+        description: >-
+          Searchable text (typically view_name + a short summary
+          extracted from markdown_body). Lets `search` surface
+          views by content.
+      created_at:
+        range: datetime
+        description: First time this view materialized.
+      last_modified_at:
+        range: datetime
+        description: Last successful materialization timestamp.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_alias_fields: view_id
+      okg_searchable_text_fields: view_name,markdown_body
+  EdgeNarrowings:
+    description: >-
+      Narrowings for view-related edges. Slice A/B of
+      ``viz-materialized-view-nodes`` ships only the
+      narrowings the native view publisher actually projects today:
+
+      * `view_def_describes_view` (ViewDefinition → View) —
+        legacy only. Native V1 publication does not create rendered
+        View nodes.
+      * `view_cites_node` — declared per-(View → cited-subtype)
+        pair, in the deployment's bridge ontology. The
+        substrate-shipped module does NOT include
+        `view_cites_node` here because narrowings need a
+        concrete destination subtype; deployment-specific
+        cite targets (e.g. `view_cites_publication`,
+        `view_cites_open_spec_change`) belong in
+        `deployments/<name>/schemas/bridges/`.
+
+      Two narrowings the umbrella named are deferred until
+      they have concrete destination subtypes shipping in the
+      substrate:
+
+      * `view_def_uses_planner` (ViewDefinition → Query) —
+        no `Query` subtype ships today; defer until a
+        deployment introduces one OR until native view publication
+        needs to project these edges.
+      * `view_refreshed_at_generation` (View →
+        GraphGeneration) — no `GraphGeneration` subtype
+        ships today; native V1 generation binding lives on the
+        completed output-set manifest.
+    annotations:
+      okg_edge_narrowings: 'true'
+    attributes:
+      view_def_describes_view:
+        annotations:
+          edge_archetype: describes
+          src_subtypes: ViewDefinition
+          dst_subtypes: View

@@ -1,0 +1,31 @@
+id: https://example.invalid/okg/records
+name: example_records
+title: Example records
+description: One JSON snapshot and the records it contains.
+imports:
+  - linkml:types
+prefixes:
+  linkml: https://w3id.org/linkml/
+  example: https://example.invalid/okg/records/
+default_range: string
+classes:
+  ExampleCollection:
+    description: The snapshot a complete scan speaks for.
+    class_uri: example:ExampleCollection
+    annotations:
+      archetype: entity
+      transient: 'false'
+    attributes:
+      text:
+        range: string
+        required: true
+  ExampleRecord:
+    description: One record with an immutable upstream identifier.
+    class_uri: example:ExampleRecord
+    annotations:
+      archetype: artifact
+      transient: 'false'
+    attributes:
+      text:
+        range: string
+        required: true

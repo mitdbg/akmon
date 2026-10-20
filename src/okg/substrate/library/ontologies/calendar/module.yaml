@@ -1,0 +1,60 @@
+name: calendar
+version: 1.0.0
+description: |-
+  Calendar surface: CalendarEvent (broad-kind events) +
+  CalendarFeed (per-source tracking for multi-feed deployments).
+
+  Replaces academic_researcher.Meeting per
+  `refine-academic-pi-with-comms-and-calendar`. The broader
+  CalendarEvent.kind enum (13 values) covers lab meetings,
+  1:1s, committee, sponsor calls, colloquia, seminars,
+  conference days, travel, external visits, office hours,
+  personal blocks.
+
+  Sources shipping in the academic-researcher profile:
+    - calendar_ics       (Tier A: file/URL)
+    - notes_dir          (Tier A: markdown frontmatter)
+    - google_calendar_api (Tier C: OAuth)
+    - apple_calendar_local (Tier C: macOS sqlite)
+
+provides:
+  subtypes_file: schema.yaml
+  edge_types:
+    - attended
+    - at_feed
+    - at
+    - produces
+    - has_document
+    - presents
+    - mentions
+  intra_cross_link_rules:
+    - cross_links/calendar_intra.yaml
+
+extends:
+  person:
+    description: |-
+      Person attended CalendarEvent (participants).
+    cross_link_rules:
+      - cross_links/calendar_x_person.yaml
+
+  scholarly:
+    description: |-
+      CalendarEvent at Organization (host institution for
+      colloquia, external visits). CalendarEvent presents
+      Paper (talks given at the event).
+    cross_link_rules:
+      - cross_links/calendar_x_scholarly.yaml
+
+  extraction:
+    description: |-
+      CalendarEvent has_document Document (meeting notes).
+    cross_link_rules:
+      - cross_links/calendar_x_extraction.yaml
+
+  academic_researcher:
+    description: |-
+      CalendarEvent produces ActionItem (notes-derived).
+      CalendarEvent about Advisee | Grant | Project (LLM
+      or label-driven).
+    cross_link_rules:
+      - cross_links/calendar_x_academic_researcher.yaml

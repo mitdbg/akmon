@@ -1,0 +1,65 @@
+# Intra-scholarly cross-link rules.
+#
+# Per `extend-substrate-scholarly-with-paper-anatomy` S-A1-R4:
+# a Citation node carries `attrs.cited_paper_ref` set to the
+# canonical alias of the cited Paper. When the target Paper
+# already exists in nodes_live, the DeclarativeLinker emits a
+# typed `citation_cites_paper` edge. When the target is absent,
+# the Citation node still lands but no edge is emitted; the rule
+# re-evaluates each publish cycle, so the edge appears
+# automatically once the absent Paper is added.
+#
+# This is intra-module (scholarly→scholarly), but the file is
+# named `scholarly_intra.yaml` to avoid the alphabetical-
+# self-reference (`scholarly_to_scholarly.yaml` is also valid;
+# the substrate's loader is path-name-insensitive).
+rules:
+  # Per dogfood-canary DQ audit (2026-05-19): bib_references emits
+  # Papers whose `node_id` is `paper:bib:<key>` (canonical, includes
+  # provenance prefix), while `latex_structural` emits Citations whose
+  # `cited_paper_ref` is `paper:<key>` (literal from \cite{key}).
+  # The two never matched on `paper_id` alone. The bib source now
+  # ALSO emits `cite_key_ref: paper:<key>` on each Paper, and this
+  # rule matches against that secondary attr so the resolution works
+  # without forcing latex_structural to know the bib namespace
+  # convention.
+  - id: citation_cites_paper
+    src:
+      subtype: citation
+      field: cited_paper_ref
+    dst:
+      subtype: paper
+      field: cite_key_ref
+    matcher: exact
+    edge: cites
+    bidirectional: false
+
+  # DOI identity may collapse multiple BibTeX declarations into one Paper.
+  # `bib_key_refs` retains every case- and punctuation-preserving
+  # `paper:<literal-key>` reference. Exact matching expands string arrays, while
+  # the scalar rule above remains available for legacy rows.
+  - id: citation_cites_paper_by_bib_key
+    src:
+      subtype: citation
+      field: cited_paper_ref
+    dst:
+      subtype: paper
+      field: bib_key_refs
+    matcher: exact
+    edge: cites
+    bidirectional: false
+
+  # Self-citation: a Paper that has paper_id set (its canonical
+  # node_id) also resolves when a Citation references it via that
+  # node_id directly (the case for the vision.tex `our_drafts`
+  # paper, whose paper_id == node_id).
+  - id: citation_cites_paper_by_paper_id
+    src:
+      subtype: citation
+      field: cited_paper_ref
+    dst:
+      subtype: paper
+      field: paper_id
+    matcher: exact
+    edge: cites
+    bidirectional: false

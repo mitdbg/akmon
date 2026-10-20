@@ -1,0 +1,1573 @@
+{
+ "action_cost": {
+  "complete": {
+   "action_counts": {
+    "provenance": {
+     "field": "action_counts_from_step_ledger",
+     "source": "the complete mode's work ledger, reduced to priced classes"
+    },
+    "value": {
+     "check": 376,
+     "correction": 0,
+     "extract_document": 812,
+     "parse": 812,
+     "publish": 22
+    }
+   },
+   "publishes": {
+    "provenance": {
+     "field": "count(LedgerRow.published)",
+     "source": "the complete mode's work ledger"
+    },
+    "value": 22
+   },
+   "skips_by_cause": {
+    "provenance": {
+     "field": "LedgerRow.skips_by_cause",
+     "source": "the complete mode's work ledger"
+    },
+    "value": {}
+   },
+   "spent_action_cost": {
+    "provenance": {
+     "field": "LedgerRow.run_steps / .published x cost_model.action_prices",
+     "ledger_rows": 22,
+     "note": null,
+     "price_table": {
+      "check": 0.5,
+      "correction": 20.0,
+      "extract_document": 0.15,
+      "parse": 0.02,
+      "publish": 5.0
+     },
+     "priced_corpus": true,
+     "source": "the complete mode's work ledger, priced through the manifest's sealed action_prices"
+    },
+    "value": {
+     "by_class": {
+      "check": {
+       "cost": 188.0,
+       "count": 376,
+       "unit_price": 0.5
+      },
+      "correction": {
+       "cost": 0.0,
+       "count": 0,
+       "unit_price": 20.0
+      },
+      "extract_document": {
+       "cost": 121.8,
+       "count": 812,
+       "unit_price": 0.15
+      },
+      "parse": {
+       "cost": 16.240000000000002,
+       "count": 812,
+       "unit_price": 0.02
+      },
+      "publish": {
+       "cost": 110.0,
+       "count": 22,
+       "unit_price": 5.0
+      }
+     },
+     "total": 436.04
+    }
+   },
+   "steps_reached": {
+    "provenance": {
+     "field": "sum(LedgerRow.steps_reached)",
+     "source": "the complete mode's work ledger"
+    },
+    "value": 878
+   },
+   "steps_run": {
+    "provenance": {
+     "field": "sum(LedgerRow.steps_run)",
+     "source": "the complete mode's work ledger"
+    },
+    "value": 878
+   },
+   "steps_skipped": {
+    "provenance": {
+     "field": "sum(LedgerRow.steps_skipped)",
+     "source": "the complete mode's work ledger"
+    },
+    "value": 0
+   }
+  },
+  "dependency_only": {
+   "action_counts": {
+    "provenance": {
+     "field": "action_counts_from_step_ledger",
+     "source": "the dependency_only mode's work ledger, reduced to priced classes"
+    },
+    "value": {
+     "check": 376,
+     "correction": 0,
+     "extract_document": 54,
+     "parse": 54,
+     "publish": 22
+    }
+   },
+   "publishes": {
+    "provenance": {
+     "field": "count(LedgerRow.published)",
+     "source": "the dependency_only mode's work ledger"
+    },
+    "value": 22
+   },
+   "skips_by_cause": {
+    "provenance": {
+     "field": "LedgerRow.skips_by_cause",
+     "source": "the dependency_only mode's work ledger"
+    },
+    "value": {}
+   },
+   "spent_action_cost": {
+    "provenance": {
+     "field": "LedgerRow.run_steps / .published x cost_model.action_prices",
+     "ledger_rows": 22,
+     "note": null,
+     "price_table": {
+      "check": 0.5,
+      "correction": 20.0,
+      "extract_document": 0.15,
+      "parse": 0.02,
+      "publish": 5.0
+     },
+     "priced_corpus": true,
+     "source": "the dependency_only mode's work ledger, priced through the manifest's sealed action_prices"
+    },
+    "value": {
+     "by_class": {
+      "check": {
+       "cost": 188.0,
+       "count": 376,
+       "unit_price": 0.5
+      },
+      "correction": {
+       "cost": 0.0,
+       "count": 0,
+       "unit_price": 20.0
+      },
+      "extract_document": {
+       "cost": 8.1,
+       "count": 54,
+       "unit_price": 0.15
+      },
+      "parse": {
+       "cost": 1.08,
+       "count": 54,
+       "unit_price": 0.02
+      },
+      "publish": {
+       "cost": 110.0,
+       "count": 22,
+       "unit_price": 5.0
+      }
+     },
+     "total": 307.18
+    }
+   },
+   "steps_reached": {
+    "provenance": {
+     "field": "sum(LedgerRow.steps_reached)",
+     "source": "the dependency_only mode's work ledger"
+    },
+    "value": 120
+   },
+   "steps_run": {
+    "provenance": {
+     "field": "sum(LedgerRow.steps_run)",
+     "source": "the dependency_only mode's work ledger"
+    },
+    "value": 120
+   },
+   "steps_skipped": {
+    "provenance": {
+     "field": "sum(LedgerRow.steps_skipped)",
+     "source": "the dependency_only mode's work ledger"
+    },
+    "value": 0
+   }
+  },
+  "differential": {
+   "action_counts": {
+    "provenance": {
+     "field": "action_counts_from_step_ledger",
+     "source": "the differential mode's work ledger, reduced to priced classes"
+    },
+    "value": {
+     "check": 217,
+     "correction": 0,
+     "extract_document": 48,
+     "parse": 48,
+     "publish": 16
+    }
+   },
+   "publishes": {
+    "provenance": {
+     "field": "count(LedgerRow.published)",
+     "source": "the differential mode's work ledger"
+    },
+    "value": 16
+   },
+   "skips_by_cause": {
+    "provenance": {
+     "field": "LedgerRow.skips_by_cause",
+     "source": "the differential mode's work ledger"
+    },
+    "value": {
+     "certificate_degenerate_unchanged": 47,
+     "certificate_valid": 711,
+     "skip_dominance": 5,
+     "skip_justified": 1
+    }
+   },
+   "spent_action_cost": {
+    "provenance": {
+     "field": "LedgerRow.run_steps / .published x cost_model.action_prices",
+     "ledger_rows": 22,
+     "note": null,
+     "price_table": {
+      "check": 0.5,
+      "correction": 20.0,
+      "extract_document": 0.15,
+      "parse": 0.02,
+      "publish": 5.0
+     },
+     "priced_corpus": true,
+     "source": "the differential mode's work ledger, priced through the manifest's sealed action_prices"
+    },
+    "value": {
+     "by_class": {
+      "check": {
+       "cost": 108.5,
+       "count": 217,
+       "unit_price": 0.5
+      },
+      "correction": {
+       "cost": 0.0,
+       "count": 0,
+       "unit_price": 20.0
+      },
+      "extract_document": {
+       "cost": 7.199999999999999,
+       "count": 48,
+       "unit_price": 0.15
+      },
+      "parse": {
+       "cost": 0.96,
+       "count": 48,
+       "unit_price": 0.02
+      },
+      "publish": {
+       "cost": 80.0,
+       "count": 16,
+       "unit_price": 5.0
+      }
+     },
+     "total": 196.66
+    }
+   },
+   "steps_reached": {
+    "provenance": {
+     "field": "sum(LedgerRow.steps_reached)",
+     "source": "the differential mode's work ledger"
+    },
+    "value": 860
+   },
+   "steps_run": {
+    "provenance": {
+     "field": "sum(LedgerRow.steps_run)",
+     "source": "the differential mode's work ledger"
+    },
+    "value": 96
+   },
+   "steps_skipped": {
+    "provenance": {
+     "field": "sum(LedgerRow.steps_skipped)",
+     "source": "the differential mode's work ledger"
+    },
+    "value": 764
+   }
+  }
+ },
+ "detection": {
+  "complete": {
+   "live_corruptions": {
+    "provenance": {
+     "field": "HistoryStep.live_corruptions",
+     "source": "the sealed history's final step"
+    },
+    "value": 7
+   },
+   "precision_attribution": {
+    "provenance": {
+     "classes": [
+      "true_positive",
+      "extractor_false_positive",
+      "roster_artifact",
+      "engine_false_positive"
+     ],
+     "field": "classify_flagged_buckets",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235632322224Z:77220f3f6d39",
+     "source": "every flagged bucket at the complete mode's final published generation, classified against the SEALED per-step gold (expected_state, corpus surfaces, delta list)"
+    },
+    "value": {
+     "by_class": {
+      "engine_false_positive": [],
+      "extractor_false_positive": [],
+      "roster_artifact": [
+       "body_mass_index:patient_domenica436_sharen57_barrows492",
+       "body_mass_index:patient_katia630_guillermina633_berge125",
+       "total_cholesterol:patient_deeann517_nader710",
+       "total_cholesterol:patient_domenica436_sharen57_barrows492"
+      ],
+      "true_positive": [
+       "allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783",
+       "body_height:patient_domenica436_sharen57_barrows492",
+       "body_weight:patient_katia630_guillermina633_berge125",
+       "body_weight:patient_merideth332_leola603_dickinson688"
+      ]
+     },
+     "gold_conflict_agreement": {
+      "agreed": 8,
+      "conflicted_not_flagged": [],
+      "flagged_buckets": 8,
+      "flagged_not_conflicted": [],
+      "gold_conflicted_buckets": 8
+     },
+     "table": [
+      {
+       "bucket": "allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:wuckert783_kam191_emerita401__discharge_summary.md:allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783:0": "present",
+        "claim:wuckert783_kam191_emerita401__medication_list.md:allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783:0": "denied",
+        "claim:wuckert783_kam191_emerita401__referral_letter.md:allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783:0": "present"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_height:patient_domenica436_sharen57_barrows492",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:barrows492_domenica436_sharen57__discharge_summary.md:body_height:patient_domenica436_sharen57_barrows492:0": "81.1 cm",
+        "claim:barrows492_domenica436_sharen57__referral_letter.md:body_height:patient_domenica436_sharen57_barrows492:0": "164.0 cm"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_mass_index:patient_domenica436_sharen57_barrows492",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:barrows492_domenica436_sharen57__clinic_note.md:body_mass_index:patient_domenica436_sharen57_barrows492:0": "30.1 kg/m2",
+        "claim:barrows492_domenica436_sharen57__referral_letter.md:body_mass_index:patient_domenica436_sharen57_barrows492:0": "30.1 kg/m2",
+        "claim:update_15_fresh.md:body_mass_index:patient_domenica436_sharen57_barrows492:0": "34.6 kg/m2"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_15_fresh.md",
+         "update": 15,
+         "value": "34.6 kg/m2"
+        }
+       ],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_mass_index:patient_katia630_guillermina633_berge125",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:berge125_katia630_guillermina633__discharge_summary.md:body_mass_index:patient_katia630_guillermina633_berge125:0": "27.7 kg/m2",
+        "claim:berge125_katia630_guillermina633__referral_letter.md:body_mass_index:patient_katia630_guillermina633_berge125:0": "27.7 kg/m2",
+        "claim:update_13_fresh.md:body_mass_index:patient_katia630_guillermina633_berge125:0": "31.9 kg/m2"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_13_fresh.md",
+         "update": 13,
+         "value": "31.9 kg/m2"
+        }
+       ],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_weight:patient_katia630_guillermina633_berge125",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:berge125_katia630_guillermina633__clinic_note.md:body_weight:patient_katia630_guillermina633_berge125:0": "77.2 kg",
+        "claim:berge125_katia630_guillermina633__discharge_summary.md:body_weight:patient_katia630_guillermina633_berge125:0": "77.2 kg",
+        "claim:berge125_katia630_guillermina633__referral_letter.md:body_weight:patient_katia630_guillermina633_berge125:0": "170.2 kg"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_weight:patient_merideth332_leola603_dickinson688",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:dickinson688_merideth332_leola603__discharge_summary.md:body_weight:patient_merideth332_leola603_dickinson688:0": "32.9 kg",
+        "claim:dickinson688_merideth332_leola603__referral_letter.md:body_weight:patient_merideth332_leola603_dickinson688:0": "23.9 kg"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "total_cholesterol:patient_deeann517_nader710",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:nader710_deeann517__clinic_note.md:total_cholesterol:patient_deeann517_nader710:0": "178.0 mg/dL",
+        "claim:nader710_deeann517__discharge_summary.md:total_cholesterol:patient_deeann517_nader710:0": "178.0 mg/dL",
+        "claim:nader710_deeann517__referral_letter.md:total_cholesterol:patient_deeann517_nader710:0": "178.0 mg/dL",
+        "claim:update_19_fresh.md:total_cholesterol:patient_deeann517_nader710:0": "204.7 mg/dL"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_19_fresh.md",
+         "update": 19,
+         "value": "204.7 mg/dL"
+        }
+       ],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "total_cholesterol:patient_domenica436_sharen57_barrows492",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:barrows492_domenica436_sharen57__clinic_note.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:barrows492_domenica436_sharen57__discharge_summary.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:barrows492_domenica436_sharen57__referral_letter.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:update_00_fresh.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "191.4 mg/dL",
+        "claim:update_01_increment.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "141.4 mg/dL",
+        "claim:update_03_dominated.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:update_10_dominated.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:update_12_dominated.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:update_17_dominated.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_00_fresh.md",
+         "update": 0,
+         "value": "191.4 mg/dL"
+        },
+        {
+         "cause": "history_update_conflict",
+         "delta": "bucket_increment",
+         "doc": "update_01_increment.md",
+         "update": 1,
+         "value": "141.4 mg/dL"
+        }
+       ],
+       "unsealed_claims": []
+      }
+     ]
+    }
+   },
+   "precision_conditional": {
+    "provenance": {
+     "field": "findings x corruption_bucket_map (surviving sites)",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235632322224Z:77220f3f6d39",
+     "source": "finding rows on channels ['definite', 'possible'] at the complete mode's final published generation, joined to the live gold bucket roster"
+    },
+    "value": {
+     "denominator": 8,
+     "false_positive": 4,
+     "rate": 0.5,
+     "true_positive": 4
+    }
+   },
+   "precision_end_to_end": {
+    "provenance": {
+     "field": "findings x corruption_bucket_map (all live sites)",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235632322224Z:77220f3f6d39",
+     "source": "finding rows on channels ['definite', 'possible'] at the complete mode's final published generation, joined to the live gold bucket roster"
+    },
+    "value": {
+     "denominator": 8,
+     "false_positive": 4,
+     "rate": 0.5,
+     "true_positive": 4
+    }
+   },
+   "precision_engine": {
+    "provenance": {
+     "excluded_buckets": [
+      "body_mass_index:patient_domenica436_sharen57_barrows492",
+      "body_mass_index:patient_katia630_guillermina633_berge125",
+      "total_cholesterol:patient_deeann517_nader710",
+      "total_cholesterol:patient_domenica436_sharen57_barrows492"
+     ],
+     "field": "precision_attribution.engine",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235632322224Z:77220f3f6d39",
+     "raw_figure": {
+      "denominator": 8,
+      "false_positive": 4,
+      "rate": 0.5,
+      "true_positive": 4
+     },
+     "source": "the same flagged set as precision_end_to_end, with the roster artifacts and extractor defects removed from BOTH the numerator and the denominator"
+    },
+    "value": {
+     "conditional": {
+      "denominator": 4,
+      "false_positive": 0,
+      "rate": 1.0,
+      "true_positive": 4
+     },
+     "end_to_end": {
+      "denominator": 4,
+      "false_positive": 0,
+      "rate": 1.0,
+      "true_positive": 4
+     }
+    }
+   },
+   "recall_conditional": {
+    "provenance": {
+     "field": "detection_recall.conditional",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235632322224Z:77220f3f6d39",
+     "source": "funnel at the complete mode's final published generation"
+    },
+    "value": {
+     "denominator": 4,
+     "detected": 3,
+     "rate": 0.75
+    }
+   },
+   "recall_end_to_end": {
+    "provenance": {
+     "field": "detection_recall.end_to_end",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235632322224Z:77220f3f6d39",
+     "source": "funnel at the complete mode's final published generation"
+    },
+    "value": {
+     "denominator": 7,
+     "detected": 4,
+     "rate": 0.5714285714285714
+    }
+   }
+  },
+  "dependency_only": {
+   "live_corruptions": {
+    "provenance": {
+     "field": "HistoryStep.live_corruptions",
+     "source": "the sealed history's final step"
+    },
+    "value": 7
+   },
+   "precision_attribution": {
+    "provenance": {
+     "classes": [
+      "true_positive",
+      "extractor_false_positive",
+      "roster_artifact",
+      "engine_false_positive"
+     ],
+     "field": "classify_flagged_buckets",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235653629310Z:6d7ec596e9d4",
+     "source": "every flagged bucket at the dependency_only mode's final published generation, classified against the SEALED per-step gold (expected_state, corpus surfaces, delta list)"
+    },
+    "value": {
+     "by_class": {
+      "engine_false_positive": [],
+      "extractor_false_positive": [],
+      "roster_artifact": [
+       "body_mass_index:patient_domenica436_sharen57_barrows492",
+       "body_mass_index:patient_katia630_guillermina633_berge125",
+       "total_cholesterol:patient_deeann517_nader710",
+       "total_cholesterol:patient_domenica436_sharen57_barrows492"
+      ],
+      "true_positive": [
+       "allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783",
+       "body_height:patient_domenica436_sharen57_barrows492",
+       "body_weight:patient_katia630_guillermina633_berge125",
+       "body_weight:patient_merideth332_leola603_dickinson688"
+      ]
+     },
+     "gold_conflict_agreement": {
+      "agreed": 8,
+      "conflicted_not_flagged": [],
+      "flagged_buckets": 8,
+      "flagged_not_conflicted": [],
+      "gold_conflicted_buckets": 8
+     },
+     "table": [
+      {
+       "bucket": "allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:wuckert783_kam191_emerita401__discharge_summary.md:allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783:0": "present",
+        "claim:wuckert783_kam191_emerita401__medication_list.md:allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783:0": "denied",
+        "claim:wuckert783_kam191_emerita401__referral_letter.md:allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783:0": "present"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_height:patient_domenica436_sharen57_barrows492",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:barrows492_domenica436_sharen57__discharge_summary.md:body_height:patient_domenica436_sharen57_barrows492:0": "81.1 cm",
+        "claim:barrows492_domenica436_sharen57__referral_letter.md:body_height:patient_domenica436_sharen57_barrows492:0": "164.0 cm"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_mass_index:patient_domenica436_sharen57_barrows492",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:barrows492_domenica436_sharen57__clinic_note.md:body_mass_index:patient_domenica436_sharen57_barrows492:0": "30.1 kg/m2",
+        "claim:barrows492_domenica436_sharen57__referral_letter.md:body_mass_index:patient_domenica436_sharen57_barrows492:0": "30.1 kg/m2",
+        "claim:update_15_fresh.md:body_mass_index:patient_domenica436_sharen57_barrows492:0": "34.6 kg/m2"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_15_fresh.md",
+         "update": 15,
+         "value": "34.6 kg/m2"
+        }
+       ],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_mass_index:patient_katia630_guillermina633_berge125",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:berge125_katia630_guillermina633__discharge_summary.md:body_mass_index:patient_katia630_guillermina633_berge125:0": "27.7 kg/m2",
+        "claim:berge125_katia630_guillermina633__referral_letter.md:body_mass_index:patient_katia630_guillermina633_berge125:0": "27.7 kg/m2",
+        "claim:update_13_fresh.md:body_mass_index:patient_katia630_guillermina633_berge125:0": "31.9 kg/m2"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_13_fresh.md",
+         "update": 13,
+         "value": "31.9 kg/m2"
+        }
+       ],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_weight:patient_katia630_guillermina633_berge125",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:berge125_katia630_guillermina633__clinic_note.md:body_weight:patient_katia630_guillermina633_berge125:0": "77.2 kg",
+        "claim:berge125_katia630_guillermina633__discharge_summary.md:body_weight:patient_katia630_guillermina633_berge125:0": "77.2 kg",
+        "claim:berge125_katia630_guillermina633__referral_letter.md:body_weight:patient_katia630_guillermina633_berge125:0": "170.2 kg"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_weight:patient_merideth332_leola603_dickinson688",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:dickinson688_merideth332_leola603__discharge_summary.md:body_weight:patient_merideth332_leola603_dickinson688:0": "32.9 kg",
+        "claim:dickinson688_merideth332_leola603__referral_letter.md:body_weight:patient_merideth332_leola603_dickinson688:0": "23.9 kg"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "total_cholesterol:patient_deeann517_nader710",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:nader710_deeann517__clinic_note.md:total_cholesterol:patient_deeann517_nader710:0": "178.0 mg/dL",
+        "claim:nader710_deeann517__discharge_summary.md:total_cholesterol:patient_deeann517_nader710:0": "178.0 mg/dL",
+        "claim:nader710_deeann517__referral_letter.md:total_cholesterol:patient_deeann517_nader710:0": "178.0 mg/dL",
+        "claim:update_19_fresh.md:total_cholesterol:patient_deeann517_nader710:0": "204.7 mg/dL"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_19_fresh.md",
+         "update": 19,
+         "value": "204.7 mg/dL"
+        }
+       ],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "total_cholesterol:patient_domenica436_sharen57_barrows492",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:barrows492_domenica436_sharen57__clinic_note.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:barrows492_domenica436_sharen57__discharge_summary.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:barrows492_domenica436_sharen57__referral_letter.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:update_00_fresh.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "191.4 mg/dL",
+        "claim:update_01_increment.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "141.4 mg/dL",
+        "claim:update_03_dominated.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:update_10_dominated.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:update_12_dominated.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:update_17_dominated.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_00_fresh.md",
+         "update": 0,
+         "value": "191.4 mg/dL"
+        },
+        {
+         "cause": "history_update_conflict",
+         "delta": "bucket_increment",
+         "doc": "update_01_increment.md",
+         "update": 1,
+         "value": "141.4 mg/dL"
+        }
+       ],
+       "unsealed_claims": []
+      }
+     ]
+    }
+   },
+   "precision_conditional": {
+    "provenance": {
+     "field": "findings x corruption_bucket_map (surviving sites)",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235653629310Z:6d7ec596e9d4",
+     "source": "finding rows on channels ['definite', 'possible'] at the dependency_only mode's final published generation, joined to the live gold bucket roster"
+    },
+    "value": {
+     "denominator": 8,
+     "false_positive": 4,
+     "rate": 0.5,
+     "true_positive": 4
+    }
+   },
+   "precision_end_to_end": {
+    "provenance": {
+     "field": "findings x corruption_bucket_map (all live sites)",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235653629310Z:6d7ec596e9d4",
+     "source": "finding rows on channels ['definite', 'possible'] at the dependency_only mode's final published generation, joined to the live gold bucket roster"
+    },
+    "value": {
+     "denominator": 8,
+     "false_positive": 4,
+     "rate": 0.5,
+     "true_positive": 4
+    }
+   },
+   "precision_engine": {
+    "provenance": {
+     "excluded_buckets": [
+      "body_mass_index:patient_domenica436_sharen57_barrows492",
+      "body_mass_index:patient_katia630_guillermina633_berge125",
+      "total_cholesterol:patient_deeann517_nader710",
+      "total_cholesterol:patient_domenica436_sharen57_barrows492"
+     ],
+     "field": "precision_attribution.engine",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235653629310Z:6d7ec596e9d4",
+     "raw_figure": {
+      "denominator": 8,
+      "false_positive": 4,
+      "rate": 0.5,
+      "true_positive": 4
+     },
+     "source": "the same flagged set as precision_end_to_end, with the roster artifacts and extractor defects removed from BOTH the numerator and the denominator"
+    },
+    "value": {
+     "conditional": {
+      "denominator": 4,
+      "false_positive": 0,
+      "rate": 1.0,
+      "true_positive": 4
+     },
+     "end_to_end": {
+      "denominator": 4,
+      "false_positive": 0,
+      "rate": 1.0,
+      "true_positive": 4
+     }
+    }
+   },
+   "recall_conditional": {
+    "provenance": {
+     "field": "detection_recall.conditional",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235653629310Z:6d7ec596e9d4",
+     "source": "funnel at the dependency_only mode's final published generation"
+    },
+    "value": {
+     "denominator": 4,
+     "detected": 3,
+     "rate": 0.75
+    }
+   },
+   "recall_end_to_end": {
+    "provenance": {
+     "field": "detection_recall.end_to_end",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235653629310Z:6d7ec596e9d4",
+     "source": "funnel at the dependency_only mode's final published generation"
+    },
+    "value": {
+     "denominator": 7,
+     "detected": 4,
+     "rate": 0.5714285714285714
+    }
+   }
+  },
+  "differential": {
+   "live_corruptions": {
+    "provenance": {
+     "field": "HistoryStep.live_corruptions",
+     "source": "the sealed history's final step"
+    },
+    "value": 7
+   },
+   "precision_attribution": {
+    "provenance": {
+     "classes": [
+      "true_positive",
+      "extractor_false_positive",
+      "roster_artifact",
+      "engine_false_positive"
+     ],
+     "field": "classify_flagged_buckets",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235713101809Z:adb712de7197",
+     "source": "every flagged bucket at the differential mode's final published generation, classified against the SEALED per-step gold (expected_state, corpus surfaces, delta list)"
+    },
+    "value": {
+     "by_class": {
+      "engine_false_positive": [],
+      "extractor_false_positive": [],
+      "roster_artifact": [
+       "body_mass_index:patient_domenica436_sharen57_barrows492",
+       "body_mass_index:patient_katia630_guillermina633_berge125",
+       "total_cholesterol:patient_deeann517_nader710",
+       "total_cholesterol:patient_domenica436_sharen57_barrows492"
+      ],
+      "true_positive": [
+       "allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783",
+       "body_height:patient_domenica436_sharen57_barrows492",
+       "body_weight:patient_katia630_guillermina633_berge125",
+       "body_weight:patient_merideth332_leola603_dickinson688"
+      ]
+     },
+     "gold_conflict_agreement": {
+      "agreed": 8,
+      "conflicted_not_flagged": [],
+      "flagged_buckets": 8,
+      "flagged_not_conflicted": [],
+      "gold_conflicted_buckets": 8
+     },
+     "table": [
+      {
+       "bucket": "allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:wuckert783_kam191_emerita401__discharge_summary.md:allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783:0": "present",
+        "claim:wuckert783_kam191_emerita401__medication_list.md:allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783:0": "denied",
+        "claim:wuckert783_kam191_emerita401__referral_letter.md:allergy_tree_nut_substance:patient_kam191_emerita401_wuckert783:0": "present"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_height:patient_domenica436_sharen57_barrows492",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:barrows492_domenica436_sharen57__discharge_summary.md:body_height:patient_domenica436_sharen57_barrows492:0": "81.1 cm",
+        "claim:barrows492_domenica436_sharen57__referral_letter.md:body_height:patient_domenica436_sharen57_barrows492:0": "164.0 cm"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_mass_index:patient_domenica436_sharen57_barrows492",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:barrows492_domenica436_sharen57__clinic_note.md:body_mass_index:patient_domenica436_sharen57_barrows492:0": "30.1 kg/m2",
+        "claim:barrows492_domenica436_sharen57__referral_letter.md:body_mass_index:patient_domenica436_sharen57_barrows492:0": "30.1 kg/m2",
+        "claim:update_15_fresh.md:body_mass_index:patient_domenica436_sharen57_barrows492:0": "34.6 kg/m2"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_15_fresh.md",
+         "update": 15,
+         "value": "34.6 kg/m2"
+        }
+       ],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_mass_index:patient_katia630_guillermina633_berge125",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:berge125_katia630_guillermina633__discharge_summary.md:body_mass_index:patient_katia630_guillermina633_berge125:0": "27.7 kg/m2",
+        "claim:berge125_katia630_guillermina633__referral_letter.md:body_mass_index:patient_katia630_guillermina633_berge125:0": "27.7 kg/m2",
+        "claim:update_13_fresh.md:body_mass_index:patient_katia630_guillermina633_berge125:0": "31.9 kg/m2"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_13_fresh.md",
+         "update": 13,
+         "value": "31.9 kg/m2"
+        }
+       ],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_weight:patient_katia630_guillermina633_berge125",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:berge125_katia630_guillermina633__clinic_note.md:body_weight:patient_katia630_guillermina633_berge125:0": "77.2 kg",
+        "claim:berge125_katia630_guillermina633__discharge_summary.md:body_weight:patient_katia630_guillermina633_berge125:0": "77.2 kg",
+        "claim:berge125_katia630_guillermina633__referral_letter.md:body_weight:patient_katia630_guillermina633_berge125:0": "170.2 kg"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "body_weight:patient_merideth332_leola603_dickinson688",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:dickinson688_merideth332_leola603__discharge_summary.md:body_weight:patient_merideth332_leola603_dickinson688:0": "32.9 kg",
+        "claim:dickinson688_merideth332_leola603__referral_letter.md:body_weight:patient_merideth332_leola603_dickinson688:0": "23.9 kg"
+       },
+       "classification": "true_positive",
+       "evidence": "carries a corruption the history declares LIVE at this step",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": true,
+       "sealed_causes": [],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "total_cholesterol:patient_deeann517_nader710",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:nader710_deeann517__clinic_note.md:total_cholesterol:patient_deeann517_nader710:0": "178.0 mg/dL",
+        "claim:nader710_deeann517__discharge_summary.md:total_cholesterol:patient_deeann517_nader710:0": "178.0 mg/dL",
+        "claim:nader710_deeann517__referral_letter.md:total_cholesterol:patient_deeann517_nader710:0": "178.0 mg/dL",
+        "claim:update_19_fresh.md:total_cholesterol:patient_deeann517_nader710:0": "204.7 mg/dL"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_19_fresh.md",
+         "update": 19,
+         "value": "204.7 mg/dL"
+        }
+       ],
+       "unsealed_claims": []
+      },
+      {
+       "bucket": "total_cholesterol:patient_domenica436_sharen57_barrows492",
+       "channels": [
+        "definite"
+       ],
+       "claims": {
+        "claim:barrows492_domenica436_sharen57__clinic_note.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:barrows492_domenica436_sharen57__discharge_summary.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:barrows492_domenica436_sharen57__referral_letter.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "166.4 mg/dL",
+        "claim:update_00_fresh.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "191.4 mg/dL",
+        "claim:update_01_increment.md:total_cholesterol:patient_domenica436_sharen57_barrows492:0": "141.4 mg/dL"
+       },
+       "classification": "roster_artifact",
+       "evidence": "sealed per-step gold declares this bucket CONFLICTED (['history_update_conflict']); the live corruption roster does not enumerate it",
+       "gold_declares_conflicted": true,
+       "in_live_gold_roster": false,
+       "sealed_causes": [
+        {
+         "cause": "history_update_conflict",
+         "delta": "fresh_conflict",
+         "doc": "update_00_fresh.md",
+         "update": 0,
+         "value": "191.4 mg/dL"
+        },
+        {
+         "cause": "history_update_conflict",
+         "delta": "bucket_increment",
+         "doc": "update_01_increment.md",
+         "update": 1,
+         "value": "141.4 mg/dL"
+        }
+       ],
+       "unsealed_claims": []
+      }
+     ]
+    }
+   },
+   "precision_conditional": {
+    "provenance": {
+     "field": "findings x corruption_bucket_map (surviving sites)",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235713101809Z:adb712de7197",
+     "source": "finding rows on channels ['definite', 'possible'] at the differential mode's final published generation, joined to the live gold bucket roster"
+    },
+    "value": {
+     "denominator": 8,
+     "false_positive": 4,
+     "rate": 0.5,
+     "true_positive": 4
+    }
+   },
+   "precision_end_to_end": {
+    "provenance": {
+     "field": "findings x corruption_bucket_map (all live sites)",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235713101809Z:adb712de7197",
+     "source": "finding rows on channels ['definite', 'possible'] at the differential mode's final published generation, joined to the live gold bucket roster"
+    },
+    "value": {
+     "denominator": 8,
+     "false_positive": 4,
+     "rate": 0.5,
+     "true_positive": 4
+    }
+   },
+   "precision_engine": {
+    "provenance": {
+     "excluded_buckets": [
+      "body_mass_index:patient_domenica436_sharen57_barrows492",
+      "body_mass_index:patient_katia630_guillermina633_berge125",
+      "total_cholesterol:patient_deeann517_nader710",
+      "total_cholesterol:patient_domenica436_sharen57_barrows492"
+     ],
+     "field": "precision_attribution.engine",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235713101809Z:adb712de7197",
+     "raw_figure": {
+      "denominator": 8,
+      "false_positive": 4,
+      "rate": 0.5,
+      "true_positive": 4
+     },
+     "source": "the same flagged set as precision_end_to_end, with the roster artifacts and extractor defects removed from BOTH the numerator and the denominator"
+    },
+    "value": {
+     "conditional": {
+      "denominator": 4,
+      "false_positive": 0,
+      "rate": 1.0,
+      "true_positive": 4
+     },
+     "end_to_end": {
+      "denominator": 4,
+      "false_positive": 0,
+      "rate": 1.0,
+      "true_positive": 4
+     }
+    }
+   },
+   "recall_conditional": {
+    "provenance": {
+     "field": "detection_recall.conditional",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235713101809Z:adb712de7197",
+     "source": "funnel at the differential mode's final published generation"
+    },
+    "value": {
+     "denominator": 4,
+     "detected": 3,
+     "rate": 0.75
+    }
+   },
+   "recall_end_to_end": {
+    "provenance": {
+     "field": "detection_recall.end_to_end",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235713101809Z:adb712de7197",
+     "source": "funnel at the differential mode's final published generation"
+    },
+    "value": {
+     "denominator": 7,
+     "detected": 4,
+     "rate": 0.5714285714285714
+    }
+   }
+  }
+ },
+ "error_cost": {
+  "disclosure_misses": {
+   "deferred": true,
+   "gating_surface": "concord-disclosure-budget / task.budget.gate (status: blocked)",
+   "reason": "disclosure grading needs budgeted runs that DEFER work and disclose what they deferred. With no approximate scheduler there is nothing to disclose and nothing to grade, so any number here \u2014 including zero \u2014 would be a claim about an unexercised surface",
+   "value": "DEFERRED"
+  },
+  "remaining_at_declared_budgets": {
+   "deferred": true,
+   "gating_surface": "concord-disclosure-budget / task.budget.gate (status: blocked)",
+   "reason": "a remaining-error-cost figure AT A DECLARED BUDGET requires a scheduler that can defer work to respect a budget. That scheduler does not exist: the exact mode either proves a skip sound or runs the step, and has no budget input at all. The unbudgeted figure in remaining_unbudgeted is a measurement at the run's own operating point and is NOT a proxy for this cell",
+   "value": "DEFERRED"
+  },
+  "remaining_unbudgeted": {
+   "provenance": {
+    "field": "cost.remaining_error_cost (scale 1.0, no budget)",
+    "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235713101809Z:adb712de7197",
+    "source": "the exact mode's funnel at its final published generation, priced through the manifest's sealed error costs"
+   },
+   "value": {
+    "by_stage": {
+     "detection": {
+      "corruptions": 3,
+      "cost": 3.0,
+      "mandatory_unresolved": 0
+     },
+     "extraction": {
+      "corruptions": 0,
+      "cost": 0.0,
+      "mandatory_unresolved": 0
+     },
+     "repair": {
+      "corruptions": 2,
+      "cost": 2.0,
+      "mandatory_unresolved": 0
+     }
+    },
+    "corruptions": 5,
+    "infinite": false,
+    "mandatory_unresolved": 0,
+    "scale": 1.0,
+    "total": 5.0,
+    "unresolved_mandatory_corruptions": []
+   }
+  }
+ },
+ "history": {
+  "config_digest": {
+   "provenance": {
+    "field": "config_digest",
+    "source": "the sealed manifest"
+   },
+   "value": "1c541060e16655de839c3742b3b07eb5e91a5e16670f293a47c967f1911a499f"
+  },
+  "direct_path_seal": {
+   "provenance": {
+    "field": "history_replay report",
+    "source": "the direct-path replay that recorded the fact sets"
+   },
+   "value": {
+    "expected_diff_problems": 0,
+    "skippable_steps": [
+     3,
+     10,
+     12,
+     16,
+     17,
+     20,
+     21
+    ],
+    "updates": 22
+   }
+  },
+  "history_digest": {
+   "provenance": {
+    "field": "History.history_digest",
+    "source": "the sealed history"
+   },
+   "value": "533301c94fa5b2deec5f3ec83c7d534fa8bd78eeb107271bed42511a2add4e28"
+  },
+  "manifest_digest": {
+   "provenance": {
+    "field": "manifest_digest",
+    "source": "the sealed manifest"
+   },
+   "value": "2089b6fd41b3fc4f9333c0c67dbacb1335a8c616cd4f9d88365ed59d32be204e"
+  },
+  "updates": {
+   "provenance": {
+    "field": "History.steps",
+    "source": "the sealed history"
+   },
+   "value": 22
+  }
+ },
+ "parity": {
+  "certified_updates": {
+   "provenance": {
+    "field": "UpdateVerdict.verdict == EQUAL-with-certified-differences",
+    "source": "per-update parity verdicts"
+   },
+   "value": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+   ]
+  },
+  "qualification": {
+   "mandatory_planted": 0,
+   "mandatory_unresolved": 0,
+   "qualified": true,
+   "reason": "the corpus plants no mandatory violation",
+   "unresolved_mandatory_corruptions": []
+  },
+  "qualified": {
+   "provenance": {
+    "field": "cost.qualification over remaining_error_cost",
+    "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235713101809Z:adb712de7197",
+    "reason": "the corpus plants no mandatory violation",
+    "source": "the exact mode's funnel at its final published generation"
+   },
+   "value": true
+  },
+  "silent_divergences": {
+   "provenance": {
+    "field": "verdicts that are neither EQUAL nor EQUAL-with-certified-differences, or that disagree with gold, or that consumed different bytes",
+    "offending_updates": [],
+    "source": "per-update parity verdicts"
+   },
+   "value": 0
+  },
+  "verdicts": {
+   "provenance": {
+    "field": "UpdateVerdict.verdict",
+    "source": "per-update parity verdicts, exact mode vs the complete reference",
+    "updates": 22
+   },
+   "value": {
+    "EQUAL": 3,
+    "EQUAL-with-certified-differences": 19
+   }
+  }
+ },
+ "restoration": {
+  "complete": {
+   "mis_repaired": {
+    "provenance": {
+     "field": "states.mis_repaired",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235632322224Z:77220f3f6d39",
+     "source": "funnel at the complete mode's final published generation"
+    },
+    "value": 0
+   },
+   "repaired": {
+    "provenance": {
+     "field": "states.repaired",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235632322224Z:77220f3f6d39",
+     "source": "funnel at the complete mode's final published generation"
+    },
+    "value": 2
+   },
+   "states": {
+    "provenance": {
+     "field": "states (exhaustive over the live corruption roster)",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235632322224Z:77220f3f6d39",
+     "source": "funnel at the complete mode's final published generation"
+    },
+    "value": {
+     "counterpart_lost": 0,
+     "detected_only": 2,
+     "laundered_at_extraction": 0,
+     "mis_repaired": 0,
+     "missed_at_extraction": 0,
+     "not_detected": 3,
+     "removed_from_scope": 0,
+     "repaired": 2
+    }
+   }
+  },
+  "dependency_only": {
+   "mis_repaired": {
+    "provenance": {
+     "field": "states.mis_repaired",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235653629310Z:6d7ec596e9d4",
+     "source": "funnel at the dependency_only mode's final published generation"
+    },
+    "value": 0
+   },
+   "repaired": {
+    "provenance": {
+     "field": "states.repaired",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235653629310Z:6d7ec596e9d4",
+     "source": "funnel at the dependency_only mode's final published generation"
+    },
+    "value": 2
+   },
+   "states": {
+    "provenance": {
+     "field": "states (exhaustive over the live corruption roster)",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235653629310Z:6d7ec596e9d4",
+     "source": "funnel at the dependency_only mode's final published generation"
+    },
+    "value": {
+     "counterpart_lost": 0,
+     "detected_only": 2,
+     "laundered_at_extraction": 0,
+     "mis_repaired": 0,
+     "missed_at_extraction": 0,
+     "not_detected": 3,
+     "removed_from_scope": 0,
+     "repaired": 2
+    }
+   }
+  },
+  "differential": {
+   "mis_repaired": {
+    "provenance": {
+     "field": "states.mis_repaired",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235713101809Z:adb712de7197",
+     "source": "funnel at the differential mode's final published generation"
+    },
+    "value": 0
+   },
+   "repaired": {
+    "provenance": {
+     "field": "states.repaired",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235713101809Z:adb712de7197",
+     "source": "funnel at the differential mode's final published generation"
+    },
+    "value": 2
+   },
+   "states": {
+    "provenance": {
+     "field": "states (exhaustive over the live corruption roster)",
+     "pin": "okg:synthetic-corpus-smoke:branch:default:gen:20260729T235713101809Z:adb712de7197",
+     "source": "funnel at the differential mode's final published generation"
+    },
+    "value": {
+     "counterpart_lost": 0,
+     "detected_only": 2,
+     "laundered_at_extraction": 0,
+     "mis_repaired": 0,
+     "missed_at_extraction": 0,
+     "not_detected": 3,
+     "removed_from_scope": 0,
+     "repaired": 2
+    }
+   }
+  }
+ },
+ "row": "Controlled fixture",
+ "safety": {
+  "unsound_reuses": {
+   "provenance": {
+    "field": "a reuse is UNSOUND iff the state it produced differs from the complete reference's outside a certificate licence, or disagrees with gold",
+    "source": "the exact mode's per-update parity verdicts over the whole history",
+    "updates_graded": 22
+   },
+   "value": 0
+  },
+  "why_the_zero_is_evidence": {
+   "provenance": {
+    "field": "one broken assumption at a time; each witness records what FIRED",
+    "mutations": 5,
+    "source": "the safety mutations, each run against this same sealed history"
+   },
+   "value": [
+    {
+     "certificates_invalidated": 33,
+     "detail": {
+      "mutated_class": "constraint_set"
+     },
+     "fired": "certificate for 'claim_source:barrows492_domenica436_sharen57__clinic_note.md' invalidated on ['constraint_set', 'input_digests']; 36 step(s) RAN",
+     "mutation": "dependency_fact_mutated",
+     "parity_restored": true,
+     "steps_run": 36,
+     "update": 2
+    },
+    {
+     "detail": {
+      "poisoned_producer": "claim_source"
+     },
+     "fallback_steps_skipped": 0,
+     "fired": "producer 'claim_source' violated its envelope; the pass DISCARDED into complete execution rather than approving a skip",
+     "mutation": "effects_envelope_violated",
+     "parity_restored": true,
+     "refusal": "update 2 [differential]: the reuse pass did not commit \u2014 terminal='discard' cause='envelope_violation' failed_step='claim_source:barrows492_domenica436_sharen57__clinic_note.md' detail={'producer_id': 'claim_source', 'reason': 'producer has an envelope_violations poisoning row'}. No generation was published (the commit gate is upstream of the publish).",
+     "update": 2
+    },
+    {
+     "detail": {
+      "deleted_doc": "barrows492_domenica436_sharen57__clinic_note.md",
+      "had_prior_result": true
+     },
+     "fallback_steps_skipped": 0,
+     "fired": "the stored prior result for 'barrows492_domenica436_sharen57__clinic_note.md' was gone; the executor REFUSED to publish a state that quietly drops the step's output",
+     "mutation": "prior_result_deleted",
+     "parity_restored": true,
+     "refusal": "update 4 [differential]: the reuse pass did not commit \u2014 terminal='abort' cause='operator_failure' failed_step='claim_producer' detail={'error': \"ParityReplayError: update 4: document step 'claim_source:barrows492_domenica436_sharen57__clinic_note.md' was not run, and the prior result it would carry forward is GONE. Reuse is impossible, not silently assumed \u2014 refusing to publish a state that quiet",
+     "update": 4
+    },
+    {
+     "detail": {
+      "corrupted_step": "claim_source:barrows492_domenica436_sharen57__clinic_note.md"
+     },
+     "fallback_steps_skipped": 0,
+     "fired": "the stored certificate for 'claim_source:barrows492_domenica436_sharen57__clinic_note.md' was tampered with after write; the store recomputed its digest on read and REFUSED the row",
+     "mutation": "certificate_row_corrupted",
+     "parity_restored": true,
+     "refusal": "stored reuse certificate digest does not match the recomputed digest \u2014 the row was corrupted after write (spec \u00a79.5)",
+     "update": 2
+    },
+    {
+     "detail": {
+      "stated_buckets": 0
+     },
+     "fired": "an EMPTY change statement made the ladder approve a skip for every reached step on a FIRST publish; the executor refused to absorb an update with no prior generation to carry forward",
+     "mutation": "vacuous_change_statement",
+     "parity_restored": true,
+     "refusal": "update 0: the pass absorbed the update with no prior generation to carry forward \u2014 a first update can never be absorbed",
+     "update": 0
+    }
+   ]
+  }
+ },
+ "schema": "okg.synth.controlled-fixture-row.v1"
+}

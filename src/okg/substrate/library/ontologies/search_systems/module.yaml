@@ -1,0 +1,28 @@
+name: search_systems
+version: 1.0.0
+description: |-
+  Search clusters and the indices they hold, modelled so an agent can find
+  the right index and then ask that system directly. PACT
+  `opensearch-reference-integration` (issue #2014).
+
+  The graph stores no logs. It stores which cluster exists, which indices
+  it holds, what shape those indices have, and which services write to
+  them.
+provides:
+  subtypes_file: schema.yaml
+  edge_types:
+  - logs_to
+extends:
+  service:
+    description: |-
+      A Service writes events to a SearchIndex. The narrowing lives here
+      rather than in this module's own EdgeNarrowings because `Service`
+      belongs to the `service` module: `modules_compose`
+      validates every narrowing endpoint against the COMPOSED subtype
+      set, so declaring a foreign class inline would make
+      `search_systems` refuse to compose in any deployment that does not
+      also load `service`. As an `extends:` cross-link rule it is
+      injected when `service` is loaded and silently skipped when it is
+      not.
+    cross_link_rules:
+    - cross_links/search_systems_x_service.yaml

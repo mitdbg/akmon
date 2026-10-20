@@ -1,0 +1,122 @@
+# Required database-lane Postgres for OpenStack self-hosted CI.
+#
+# Docker bridge port forwarding on these runners can accept TCP and then stall
+# PostgreSQL login traffic. Required lanes use host networking so their verdict
+# reflects executed tests. The workflow supplies a unique Compose project and
+# OKG_REQUIRED_CI_PG_PORT per lane; omitting container_name keeps container and
+# volume identities project-scoped.
+
+services:
+  db:
+    build:
+      context: .
+      network: host
+    image: okg-pg17:local
+    # Init as PID 1; see the note in ops/pg/docker-compose.yaml. This
+    # healthcheck runs several psql calls, so a slow one is the likeliest to
+    # time out and leave an orphan.
+    init: true
+    network_mode: host
+    shm_size: 2gb
+    labels:
+      okg.runner.owner: job
+      okg.runner.retention: ephemeral
+    environment:
+      POSTGRES_PASSWORD: okg
+      POSTGRES_DB: okg
+      # Password logins only (PACT ci-postgres-scram). Without --auth-*,
+      # initdb writes `trust` rules for the local socket and 127.0.0.1, which
+      # come before the image's own password rule, so any password -- or none
+      # -- logged in over loopback. A test that checks a rotated or random
+      # password then passed against a server that never checked it.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8 --auth-local=scram-sha-256 --auth-host=scram-sha-256"
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=timescaledb,pg_cron,pg_textsearch
+      - -c
+      - cron.database_name=okg
+      - -c
+      - max_connections=100
+      - -c
+      - listen_addresses=127.0.0.1
+      - -c
+      - port=${OKG_REQUIRED_CI_PG_PORT:?required}
+      # Every disposable-database DROP in tests/substrate/conftest.py forces an
+      # immediate cluster-wide checkpoint. log_checkpoints prints each one's
+      # sync time and file count so a clean run's own container log says what
+      # that costs on CI storage, which a local laptop measurement cannot.
+      - -c
+      - log_checkpoints=on
+      # This cluster is created by `down -v` and destroyed with the job, so it
+      # survives no crash and durability buys nothing: a lost cluster fails the
+      # job either way. Turning off fsync and full-page writes removes the
+      # per-checkpoint file sync that those forced checkpoints pay for.
+      # Measured locally: checkpoint total 25.3s -> 2.2s, 166,920 files synced
+      # -> 0, lane wall 525s -> 498s. No test in any lane sharing this file
+      # restarts PostgreSQL or asserts crash recovery.
+      #
+      # `synchronous_commit=off` is deliberately NOT set here, and adding it
+      # back breaks this lane. Under an asynchronous commit the commit record
+      # is not yet flushed, so PostgreSQL refuses to set the
+      # HEAP_XMIN_COMMITTED hint bit on the rows it wrote; VACUUM then cannot
+      # mark those pages all-visible, the visibility map stays empty, and the
+      # planner drops every index-only plan. A test that bulk-loads rows,
+      # VACUUMs, and requires an `Index Only Scan`
+      # (tests/substrate/publisher/test_first_publish_count_cost.py::
+      # test_the_access_path_probe_distinguishes_the_two_plans) then fails with
+      # `Seq Scan`. It also buys nothing on top of the line above: with
+      # `fsync=off` a synchronous commit's flush is already a no-op.
+      - -c
+      - fsync=off
+      - -c
+      - full_page_writes=off
+    volumes:
+      - okg_pgdata:/home/postgres/pgdata/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        # The healthcheck's psql uses the local socket, which now asks for a
+        # password too; it reads it from the container's own environment.
+        #
+        # It also re-sets okg_mcp's password to 'okg_mcp' on every run (every
+        # 5 s, for the life of the container). A test on this server must not
+        # rotate okg_mcp's password, or any shared role's, and expect the new
+        # value to hold: the next healthcheck puts it back. Use a role the
+        # test creates for itself.
+        #
+        # That ALTER ROLE runs beside the tests, so it takes the role's
+        # cluster-wide lock first, the way every other writer of the role does
+        # (src/okg/substrate/db/role_lock.py): COMMENT ON ROLE with the
+        # comment the role already has, in the same DO block and so the same
+        # transaction. Without it, a test altering okg_mcp under the lock at
+        # the same moment fails with "tuple concurrently updated" (#2554).
+        # `\$$\$$` reaches psql as the DO block's dollar quote: compose turns
+        # `$$` into `$`, and the backslash keeps the shell from expanding it.
+        - >-
+          export PGPASSWORD="$$POSTGRES_PASSWORD" &&
+          if ! psql -U postgres -d okg -p ${OKG_REQUIRED_CI_PG_PORT:?required} -tAc
+          "SELECT 1 FROM pg_roles WHERE rolname = 'okg_mcp'" | grep -q 1;
+          then psql -v ON_ERROR_STOP=1 -U postgres -d okg
+          -p ${OKG_REQUIRED_CI_PG_PORT:?required} -c
+          "CREATE ROLE okg_mcp LOGIN PASSWORD 'okg_mcp' NOSUPERUSER
+          NOCREATEDB NOCREATEROLE"; fi && psql -v ON_ERROR_STOP=1 -U postgres
+          -d okg -p ${OKG_REQUIRED_CI_PG_PORT:?required} -c
+          "DO \$$\$$ DECLARE note text; BEGIN
+          SELECT shobj_description(oid, 'pg_authid') INTO note
+          FROM pg_roles WHERE rolname = 'okg_mcp';
+          EXECUTE format('COMMENT ON ROLE okg_mcp IS %L', note);
+          ALTER ROLE okg_mcp LOGIN PASSWORD 'okg_mcp';
+          END \$$\$$;" &&
+          pg_isready -U postgres -d okg -h 127.0.0.1
+          -p ${OKG_REQUIRED_CI_PG_PORT:?required}
+      interval: 5s
+      timeout: 3s
+      retries: 40
+
+volumes:
+  okg_pgdata:
+    labels:
+      okg.runner.owner: job
+      okg.runner.retention: ephemeral

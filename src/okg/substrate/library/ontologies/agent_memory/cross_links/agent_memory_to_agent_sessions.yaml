@@ -1,0 +1,36 @@
+# Cross-link rules: agent_memory -> agent_sessions.
+rules:
+  - id: agent_records_reference_sessions
+    src:
+      subtype:
+        - agent_claim
+        - agent_observation
+        - agent_experiment
+        - verification_result
+        - agent_decision
+      field: session_ref
+    dst:
+      subtype:
+        - agent_session
+        - sub_agent_session
+      field: session_id
+    matcher: exact
+    edge: references
+    bidirectional: false
+  # `actor_ref` — the agent that produced the record. Without this narrowing the
+  # field resolves a prefix and is then dropped for missing_narrowing.
+  - id: agent_records_reference_actor_agent
+    src:
+      subtype:
+        - agent_claim
+        - agent_observation
+        - agent_experiment
+        - verification_result
+        - agent_decision
+      field: actor_ref
+    dst:
+      subtype: agent
+      field: node_id
+    matcher: exact
+    edge: references
+    bidirectional: false

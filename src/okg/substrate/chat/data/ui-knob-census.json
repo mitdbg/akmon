@@ -1,0 +1,376 @@
+{
+  "schema_version": "1.0.0",
+  "openwebui_version": "0.11.4",
+  "openwebui_version_source": "GET /api/version -> {\"version\":\"0.11.4\",\"deployment_id\":\"\"} on the upstream v0.11.4 image below, which the pinned compatibility image (okg-openwebui-compat@sha256:2561170716571aaf7e41417decd7e23b43c390a00395c957b362a17e80557c11) is built from and changes only in MCP result selection (see remeasurement_0_11_4). The original census answered {\"version\":\"0.11.0\",\"deployment_id\":\"\"}.",
+  "openwebui_image_digest": "ghcr.io/open-webui/open-webui@sha256:9591b13f13843c7721c2b8eaf7382846c81b3ffe126526d1888d1fed50c6a33f",
+  "taken_at": "2026-08-04T04:45:00Z",
+  "host_os": "macOS 26.5.2 (build 25F84), arm64",
+  "container_runtime": "Docker Desktop 20.10.22 (context desktop-linux, moby)",
+  "remeasurement_0_11_4": {
+    "recorded_at": "2026-09-29",
+    "why": "The deployment pin moved from the v0.11.0-based compatibility image to the v0.11.4-based one (PACT openwebui-0114-pin-and-cuts). Every knob below was re-read at its call site in the v0.11.4 source, and the ones okg chat sync drives were driven and read back on a live v0.11.4 instance.",
+    "previous": {
+      "openwebui_version": "0.11.0",
+      "openwebui_image_digest": "ghcr.io/open-webui/open-webui@sha256:72c0ba641ba75e7aa52655cb242570906ececd09b1140fb736483038a22b3228"
+    },
+    "upstream_revision": "8bd8b4fac5e059578ac0c74b3c18d11139f88b7d (tag v0.11.4)",
+    "config_storage": "v0.11.4 stores config one row per dotted key (models/config.py:100-107). GET /api/v1/configs/export returns the STORED rows only (models/config.py:186-196), so a key never written is absent from the export rather than shown at its default; POST /api/v1/configs/import upserts (routers/configs.py:101-110). Readers call Config.get per request (for example main.py:2256-2310), so an import takes effect without a restart. The false-positive guard still applies: every key below is registered in the defaults table at config.py:2823-3149.",
+    "source_verdicts": [
+      {"knob": "site_name", "verdict": "HOLDS", "detail": "WEBUI_NAME is read at env.py:951 and suffixed at env.py:953; GET /api/config -> .name (main.py:2313)."},
+      {"knob": "logo / favicon / splash", "verdict": "HOLDS", "detail": "STATIC_DIR config.py:98 / env.py:252; no upload route."},
+      {"knob": "theme.base (light / dark)", "verdict": "HOLDS", "detail": "Still browser-local: src/app.html:54-71 resolves localStorage.theme."},
+      {"knob": "theme.accent", "verdict": "HOLDS", "detail": "src/app.html:39 links /static/custom.css unconditionally; no accent key, env var or route."},
+      {"knob": "banner", "verdict": "HOLDS", "detail": "ui.banners (config.py:3126); POST/GET /api/v1/configs/banners (routers/configs.py:852, :872)."},
+      {"knob": "features.web_search", "verdict": "HOLDS", "detail": "web.search.enable (config.py:2941) plus permission features.web_search."},
+      {"knob": "features.image_generation", "verdict": "HOLDS", "detail": "image_generation.enable (config.py:3019) plus permission features.image_generation."},
+      {"knob": "features.code_interpreter", "verdict": "HOLDS", "detail": "code_interpreter.enable (config.py:2843) and code_execution.enable (config.py:2836) plus permission features.code_interpreter."},
+      {"knob": "features.arena", "verdict": "HOLDS", "detail": "evaluation.arena.enable (config.py:3120), vendor default ON (config.py:2054)."},
+      {"knob": "features.channels", "verdict": "HOLDS", "detail": "channels.enable (config.py:3104) gates routers/channels.py:143 for everyone; features.channels at :151 for non-admins."},
+      {"knob": "features.context_compaction", "verdict": "HOLDS", "detail": "chat.context_compaction.enable (config.py:3133)."},
+      {"knob": "features.memory", "verdict": "HOLDS", "detail": "memories.enable (config.py:2844) 404s every memory route before the role test (routers/memories.py:35-40); features.memories binds non-admins only (:42)."},
+      {"knob": "features.byok (per-user direct connections)", "verdict": "HOLDS, storage key renamed", "detail": "GET/POST /api/v1/configs/connections still carries ENABLE_DIRECT_CONNECTIONS (routers/configs.py:133-144); it is now stored as direct.enable (routers/configs.py:41, config.py:2823). okg reads and writes the route, not the key."},
+      {"knob": "models.default", "verdict": "HOLDS", "detail": "ui.default_models (config.py:3087); /api/v1/configs/models (routers/configs.py:749-754)."},
+      {"knob": "models.builtin (admin-curated list)", "verdict": "HOLDS", "detail": "ui.model_order_list (config.py:3093) plus per-model access grants."},
+      {"knob": "prompt suggestions", "verdict": "HOLDS, with an i18n companion", "detail": "POST /api/v1/configs/suggestions now writes ui.prompt_suggestions AND ui.prompt_suggestions_i18n (routers/configs.py:817-840). A null list means the browser's localized defaults; an empty list disables them (config.py:1678)."},
+      {"knob": "mcp tool server registration", "verdict": "HOLDS", "detail": "POST /api/v1/configs/tool_servers (routers/configs.py:240) and /tool_servers/verify (:551)."},
+      {"knob": "pipe __user__ group context (governed-capability observation)", "verdict": "HOLDS", "detail": "functions.py:277 still passes user.model_dump(); UserModel (models/users.py) has the same 22 fields and still no 'groups'."}
+    ],
+    "live_readback": {
+      "instance": "throwaway upstream v0.11.4 container (the digest above) on a shared Linux build host, rootless podman, loopback 127.0.0.1:5890, SQLite data in /var/tmp; removed after measurement",
+      "record": "pact/changes/openwebui-0114-pin-and-cuts/evidence/knobs-remeasure-0114.json",
+      "method": "Each config key was imported FALSE then TRUE through POST /api/v1/configs/import and read back after each write from GET /api/v1/configs/export (the stored row) and, where the application serves it, from GET /api/config features (the value the running app reads). The task.* keys are not in /api/config; GET /api/v1/tasks/config reflected them instead.",
+      "result": "Every key read back the value just written on the export, and on /api/config where served: web.search.enable, image_generation.enable, code_interpreter.enable, code_execution.enable, evaluation.arena.enable (export only), channels.enable, chat.context_compaction.enable, memories.enable, plus the cut-list keys task.follow_up.enable, task.tags.enable, task.query.retrieval.enable, task.autocomplete.enable, ui.enable_community_sharing, users.enable_status, calendar.enable, automations.enable and notes.enable. POST /api/v1/configs/suggestions {suggestions: [], i18n: {}} read back [] and {} on both surfaces. ui.default_interface_settings {showChangelog: false} made the admin's merged GET /api/v1/users/user/settings read false, and the admin's own true won over it until reset. POST /api/v1/users/default/permissions set chat.call and workspace.knowledge false and read back false. With the container started without ENABLE_EASTER_EGGS / ENABLE_VERSION_UPDATE_CHECK both served true, and Settings > General offered the Her theme and the Doge language; restarted with both false, both served false and neither option was offered.",
+      "deployment_readback": "2026-09-29 on a shared Linux build host, a disposable test deployment's instance on the pinned compatibility image (sha256:2561170716571aaf7e41417decd7e23b43c390a00395c957b362a17e80557c11, pasta network mode, /api/version 0.11.4, app database migrated f0bd01a18a3d -> d4c1a8e37b62): okg chat setup exit 0 (converged, conversation ready); okg chat sync --plan exit 0 with 0 changes and every census knob and cut-list key verified; okg chat readback --plan exit 0 with no deviations. Records: the setup, sync and readback reports in the openwebui-0114-pin-and-cuts change record."
+    }
+  },
+  "corrections": [
+    {
+      "id": "correction-1",
+      "recorded_at": "2026-08-10",
+      "severity": "P0",
+      "title": "A global memories.enable key EXISTS and is the governing gate; this census recorded that it does not.",
+      "affects": [
+        "knobs[features.memory].mechanism_detail",
+        "knobs[features.memory].notes",
+        "knobs[features.memory].drivable",
+        "rejected_keys[memory.enable].why",
+        "floor.governed_feature_toggles"
+      ],
+      "originally_recorded": "knobs[features.memory].mechanism_detail read verbatim: 'Per-user permission features.memories via GET/POST /api/v1/users/default/permissions. There is NO global memory.enable key. Adjacent global keys are memories.system_context.enable and memories.background_review.enable (seeded from ENABLE_MEMORY_SYSTEM_CONTEXT / ENABLE_MEMORY_BACKGROUND_REVIEW).' Its notes read: 'This knob is governed on the permissions surface, not the config surface.' rejected_keys[memory.enable].why read: 'The real memory governance key is the per-user permission features.memories.' On that basis the knob was recorded drivable: true, proven by driving features.memories to false and reading it back false.",
+      "actually_true": "A global key exists and is declared. config.py:2809 is 'memories.enable': ENABLE_MEMORIES, defined at config.py:416 as ENABLE_MEMORIES = os.getenv('ENABLE_MEMORIES', 'True').lower() == 'true'. It sits ONE LINE ABOVE the two adjacent keys this census transcribed at config.py:2810-2811. Verified 2026-08-10 against the running pinned container (image digest sha256:72c0ba641ba75e7aa52655cb242570906ececd09b1140fb736483038a22b3228) with: docker exec open-webui grep -n \"'memories\" /app/backend/open_webui/config.py.",
+      "why_it_matters": "memories.enable is the STRONGER gate, not a peer of the permission. routers/memories.py:35-39 reads memories.enable and raises HTTP 404 BEFORE any role test, so it stops admins as well as users. The per-user permission features.memories is consulted only at routers/memories.py:42, inside a branch guarded by user.role != 'admin' -- it EXEMPTS admins by construction. By naming the permission as the governing control, this census sent the program to drive the admin-exempt lever; the projection would then have read that lever back green while every instance admin retained memory. The readback would have confirmed a governance claim the instance was not enforcing.",
+      "how_the_miss_happened": "The survey enumerated the 'memory.*' name namespace -- see rejected_keys[memory.enable], which correctly established that 'memory.enable' is undeclared -- and inferred from that single absence that NO global key existed. The declared key is spelled 'memories.*', a different name, so it fell outside the namespace searched. A negative existence claim derived from one spelling of a name is not a measurement of the behaviour. The call-site search -- open routers/memories.py, read the gate, see which config key it consults -- answers the question in one command and was not run.",
+      "corrected_governing_mechanism": "Global config key memories.enable (PersistentConfig; readback GET /api/v1/configs/export -> memories.enable) is the FIRST and governing control. The per-user permission features.memories is a SECOND, weaker control that binds non-admins only. A projection that intends memory to be off MUST drive memories.enable; driving features.memories alone is not sufficient and MUST NOT be read back as evidence of governance.",
+      "consequence_for_this_artifact": "The corrected governing mechanism has NOT been driven and read back on a live instance, so under this census's own drivable_test it is not yet proven drivable. knobs[features.memory].drivable is therefore set to false with remeasure_required: true. This is a NOT-YET-MEASURED verdict, not a proof of absence, and it is deliberately fail-closed: no consumer may admit the knob on the strength of the lever this census got wrong. The exact re-measurement is recorded on the knob as remeasure_command.",
+      "consequence_for_consumers": "Until that re-measurement lands, chat.ui.features.memory is NOT an admitted knob, so the manifest cannot carry the design's memory-off policy through it. A consumer MUST NOT substitute features.memories in its place -- that substitution is the defect this correction records. Either the re-measurement runs first, or the policy is held by a mechanism outside the chat.ui schema and stated as such."
+    },
+    {
+      "id": "correction-2",
+      "recorded_at": "2026-08-10",
+      "severity": "P2",
+      "title": "Citation drift: the admin-only model admit is at utils/models.py:522-525, not :521.",
+      "affects": [
+        "knobs[models.builtin (admin-curated list)].notes"
+      ],
+      "originally_recorded": "notes cited 'utils/models.py:521 admits a model that has no DB row ONLY for admins'.",
+      "actually_true": "At the pinned version, utils/models.py:521 is the append inside the 'if model_info:' arm. The no-DB-row admin-only branch is utils/models.py:522-525 (elif user.role == 'admin': at :522, the quoted comment at :523-524, the append at :525). Verified 2026-08-10 with docker exec open-webui sed -n '515,530p' /app/backend/open_webui/utils/models.py.",
+      "substance": "UNCHANGED. The quoted comment and the measured behaviour (a non-admin saw GET /api/models -> {\"data\":[]}) both stand; only the line citation moves."
+    }
+  ],
+  "negative_claim_reverification": {
+    "recorded_at": "2026-08-10",
+    "why": "correction-1 is a negative existence claim that was derived from a name-namespace survey rather than from the call site of the behaviour. Every OTHER negative existence claim in this artifact was therefore re-checked by the same technique that would have caught it: read the code that implements the behaviour and see which key, route, or field it actually consults. Verdicts are recorded below for all seven, including the six that held.",
+    "method": "docker exec open-webui grep/sed against /app/backend/open_webui/ and the served /app/build/index.html, on the running pinned container at image digest sha256:72c0ba641ba75e7aa52655cb242570906ececd09b1140fb736483038a22b3228 (v0.11.0). Scripts: .scratch/verify-census-negatives{,-2,-3}.sh.",
+    "claims": [
+      {
+        "claim": "There is NO global memory.enable key; memory is governed on the permissions surface.",
+        "location": "knobs[features.memory].mechanism_detail, .notes",
+        "call_site_checked": "routers/memories.py check_memories_permission -- the gate every memory route passes through.",
+        "verdict": "FALSIFIED",
+        "detail": "See correction-1. The gate reads memories.enable (config.py:2809) at routers/memories.py:35-39 and 404s before the role test; features.memories is the admin-exempt second control at :42."
+      },
+      {
+        "claim": "'memory.enable' round-trips through /configs/import-export but is NOT declared in config.py's defaults table -- dead data.",
+        "location": "rejected_keys[0].why, .verdict",
+        "call_site_checked": "config.py defaults table, searched for the literal prefix 'memory. -- docker exec open-webui grep -n \"'memory\\.\" /app/backend/open_webui/config.py returned ZERO hits.",
+        "verdict": "HOLDS -- but its trailing sentence is FALSIFIED",
+        "detail": "The rejection itself stands: 'memory.enable' is undeclared and the verdict 'not a knob' is correct. The sentence 'The real memory governance key is the per-user permission features.memories' is the same false claim as correction-1 and has been corrected in place. A key being undeclared under one spelling says nothing about the behaviour being ungoverned."
+      },
+      {
+        "claim": "'rag.web.search.enable' is a false positive; the declared key is web.search.enable.",
+        "location": "rejected_keys[1].why, .verdict",
+        "call_site_checked": "config.py defaults table plus the consuming router. 'rag.web.search.enable' returns zero hits. config.py:2905 declares 'web.search.enable': ENABLE_WEB_SEARCH, and routers/retrieval.py:295 maps 'ENABLE_WEB_SEARCH' -> 'web.search.enable' at the call site.",
+        "verdict": "HOLDS",
+        "detail": "Both arms confirmed: the rejected spelling is undeclared AND the named replacement is the key the retrieval router actually reads."
+      },
+      {
+        "claim": "theme.base has no config key and no env var; the theme is browser-local.",
+        "location": "knobs[theme.base (light / dark)].mechanism_detail, .notes",
+        "call_site_checked": "The served /app/build/index.html, which is the code that decides what theme renders. Lines 50-66 read and write localStorage.theme over the fixed set (system | dark | light | oled-dark | her), defaulting to 'system'. No THEME env var exists in env.py or config.py; 'theme' in config.py matches only two prompt-template strings (:2180, :2203). UserSettings (models/users.py:40-43) carries an opaque ui dict with no server-side theme default, and /api/config emits no theme field.",
+        "verdict": "HOLDS",
+        "detail": "Strengthened rather than weakened: the browser is not merely the default owner, it is the only reader. No server-supplied seed exists on any of the three surfaces checked (env, config defaults table, user settings)."
+      },
+      {
+        "claim": "There is no ui.theme key anywhere in the exported config.",
+        "location": "knobs[theme.base (light / dark)].notes",
+        "call_site_checked": "The full 'ui.' namespace of the config.py defaults table, enumerated: ui.enable_signup, ui.enable_login_form, ui.enable_password_change_form, ui.default_locale, ui.default_models, ui.default_pinned_models, ui.prompt_suggestions, ui.model_order_list, ui.default_user_role, ui.default_group_id, ui.pending_user_overlay_title, ui.pending_user_overlay_content, ui.watermark, ui.enable_community_sharing, ui.enable_message_rating, ui.enable_user_webhooks, ui.banners (config.py:3043-3083).",
+        "verdict": "HOLDS",
+        "detail": "The enumerated namespace matches the census's transcription exactly and contains no theme entry."
+      },
+      {
+        "claim": "There is no accent config key, no accent env var, and no admin API; the only lever is STATIC_DIR/custom.css.",
+        "location": "knobs[theme.accent].mechanism_detail, .notes; floor.blocking_result",
+        "call_site_checked": "Case-insensitive 'accent' across config.py and env.py returns zero hits. The styling call site is the served /app/build/index.html:35, which links /static/custom.css unconditionally with crossorigin=use-credentials -- the file is delivered whether or not it exists, and nothing reads a value out of it.",
+        "verdict": "HOLDS",
+        "detail": "The unconditional link is what makes this a byte-delivery mechanism rather than a knob: the instance is never asked, and never answers, what its accent is. floor.theme_accent = NOT MET and floor_met = false both stand on a re-verified basis."
+      },
+      {
+        "claim": "Branding assets are replaced by mounting files over STATIC_DIR; there is no upload API.",
+        "location": "knobs[logo / favicon / splash].mechanism_detail",
+        "call_site_checked": "Every inbound route touching STATIC_DIR. main.py:2823 mounts it as StaticFiles (read-only by construction -- StaticFiles serves GET/HEAD and exposes no write verb). routers/users.py:827,839 and routers/channels.py:1812,1837 only return FileResponse. No POST/PUT/PATCH handler writes into STATIC_DIR.",
+        "verdict": "HOLDS -- with a previously unrecorded adjacent path",
+        "detail": "No INBOUND upload API exists, as recorded. But config.py:184-211 implements a legacy OUTBOUND branding path: if the CUSTOM_NAME env var is non-empty, the process fetches https://api.openwebui.com/api/v1/custom/<CUSTOM_NAME> at import time and, on a 200, overwrites STATIC_DIR/favicon.png and STATIC_DIR/splash.png from vendor-supplied URLs AND reassigns WEBUI_NAME from the response body. CUSTOM_NAME defaults to '' so the block is inert unless set, and this census's instance did not set it. It is recorded here because it is a silent-override hazard for the site_name knob and a third-party egress at boot -- see the cross-reference added to knobs[site_name].notes."
+      },
+      {
+        "claim": "The Pipe __user__ dict has 22 keys and 'groups' is NOT among them; 'role' IS present.",
+        "location": "knobs[pipe __user__ group context].mechanism_detail, .notes",
+        "call_site_checked": "The construction site rather than the observed dict. utils/middleware.py:2404, :3508, :3769 and functions.py:271 all build '__user__': user.model_dump() from a UserModel; utils/plugin.py:121-122 does the same for plugin methods. UserModel is declared at models/users.py:86-116 and has no groups field. 'role' is declared at models/users.py:91 as a str.",
+        "verdict": "HOLDS",
+        "detail": "Confirmed structurally, not just observationally: the absence is a property of the model being dumped, so it cannot vary by user, role, or group membership -- which is what makes the fail-closed admin gate in chat-review-queue-pipe refuse EVERYONE rather than refuse intermittently. A 'groups' field does exist at models/users.py:217, but on UserInfoResponse, a different model that is never the source of __user__. That near-miss is the same shape as correction-1: the right name on the wrong object."
+      }
+    ]
+  },
+  "method": {
+    "drivable_test": "The knob was SET through its mechanism on a live instance and READ BACK through an instance surface. A knob is only marked drivable when the readback reflected the value that was set.",
+    "false_positive_guard": "POST /api/v1/configs/import upserts ARBITRARY keys, and GET /api/v1/configs/export echoes them back. Write-then-read therefore proves nothing on its own. Every api-mechanism knob below was additionally checked against the application's own defaults table in backend/open_webui/config.py; keys absent from that table are recorded as not-drivable no matter how cleanly they round-tripped. Two keys failed this check and are recorded as such (see rejected_keys).",
+    "persistent_config_test": "The instance was snapshotted with `docker commit` (preserving its SQLite DB and secret key) and relaunched with CHANGED env for WEBUI_NAME, ENABLE_IMAGE_GENERATION and ENABLE_CHANNELS. Both outcomes were read back, so a null result would be visible."
+  },
+  "rejected_keys": [
+    {
+      "key": "memory.enable",
+      "why": "Round-tripped through /configs/import and /configs/export but is NOT declared in config.py's defaults table. It is dead data the application never reads. CORRECTED 2026-08-10 (see corrections[correction-1]): this entry originally continued 'The real memory governance key is the per-user permission features.memories', which is false. The governing key is the global memories.enable (config.py:2809), read by routers/memories.py:35-39 before any role test; features.memories is a weaker second control that exempts admins at :42. The rejection of the SPELLING 'memory.enable' stands -- it is undeclared, re-verified 2026-08-10 -- but the absence of that spelling was never evidence that the behaviour is ungoverned globally.",
+      "verdict": "not a knob",
+      "correction_ref": "correction-1"
+    },
+    {
+      "key": "rag.web.search.enable",
+      "why": "Same false positive. The declared key is web.search.enable.",
+      "verdict": "not a knob"
+    }
+  ],
+  "knobs": [
+    {
+      "knob": "site_name",
+      "manifest_field": "chat.ui.site_name",
+      "mechanism": "env",
+      "mechanism_detail": "WEBUI_NAME. env.py:891 reads it with os.getenv at import time; it is NOT a PersistentConfig.",
+      "persistent_config": false,
+      "persistent_config_evidence": "Changed WEBUI_NAME to \"Renamed After First Boot\" and restarted the SAME database. GET /api/config returned name = \"Renamed After First Boot (Open WebUI)\". The env change took effect, so the value is re-read every boot.",
+      "readback": "GET /api/config -> .name",
+      "drivable": true,
+      "notes": "VALUE IS TRANSFORMED. env.py:892-893 appends the literal ' (Open WebUI)' whenever WEBUI_NAME != 'Open WebUI'. Setting 'OKG Read Handshake' reads back as 'OKG Read Handshake (Open WebUI)'. A projection that compares the readback for equality against the manifest's site_name WILL report drift on every run. The comparison must be against the effective desired state (manifest value + the vendor suffix), not the manifest value. SILENT-OVERRIDE HAZARD recorded 2026-08-10 (negative_claim_reverification, logo/upload-API claim): config.py:184-211 is a legacy path where a non-empty CUSTOM_NAME env var makes the process fetch https://api.openwebui.com/api/v1/custom/<CUSTOM_NAME> at import time and, on HTTP 200, REASSIGN WEBUI_NAME from the response body (and overwrite STATIC_DIR/favicon.png and splash.png). CUSTOM_NAME defaults to '' and was unset on the measured instance, so this did not affect the measurement -- but on an instance where it is set, the site_name a projection writes is silently replaced by a third party's value and the readback reports the third party's name. A projection MUST assert CUSTOM_NAME is unset, or treat this knob as ungoverned."
+    },
+    {
+      "knob": "logo / favicon / splash",
+      "manifest_field": "chat.ui.logo_ref",
+      "mechanism": "file",
+      "mechanism_detail": "Static assets served from STATIC_DIR (env, default backend/open_webui/static): logo.png, favicon.png, favicon.svg, favicon.ico, favicon-96x96.png, apple-touch-icon.png, splash.png, splash-dark.png, web-app-manifest-{192,512}.png. Replaced by mounting files over that directory. There is no upload API.",
+      "persistent_config": false,
+      "readback": "GET /static/<asset> (bytes)",
+      "drivable": true,
+      "notes": "GOTCHA: the served directory is STATIC_DIR = backend/open_webui/static, NOT the frontend build's build/static. Writing to build/static changes nothing -- measured: a 165-byte file written to /app/build/static/custom.css still served 0 bytes; the same file written to /app/backend/open_webui/static/custom.css served immediately. Readback is byte identity only; there is no semantic 'which logo is configured' surface."
+    },
+    {
+      "knob": "theme.base (light / dark)",
+      "manifest_field": "chat.ui.theme.base",
+      "mechanism": "none",
+      "mechanism_detail": "Browser-local. The served index.html resolves the theme from localStorage.theme, defaulting to 'system', over a fixed value set (system | dark | light | oled-dark | her). No config key and no env var exists.",
+      "persistent_config": false,
+      "readback": "none",
+      "drivable": false,
+      "notes": "There is no ui.theme key anywhere in the exported config (the ui.* namespace contains banners, default_group_id, default_locale, default_models, default_pinned_models, default_user_role, enable_community_sharing, enable_login_form, enable_message_rating, enable_password_change_form, enable_signup, enable_user_webhooks, model_order_list, pending_user_overlay_content, pending_user_overlay_title, prompt_suggestions, watermark -- and no theme entry). A deployment cannot set the base theme for its users; each browser owns it."
+    },
+    {
+      "knob": "theme.accent",
+      "manifest_field": "chat.ui.theme.accent",
+      "mechanism": "file",
+      "mechanism_detail": "The only deployment-level styling lever is STATIC_DIR/custom.css, which the served index.html links unconditionally. There is no accent config key, no accent env var, and no admin API.",
+      "persistent_config": false,
+      "readback": "GET /static/custom.css (bytes)",
+      "drivable": false,
+      "notes": "FLOOR FAILURE. CSS can be injected and read back byte-for-byte -- measured: a custom.css declaring --okg-accent: #10b981 was served verbatim. But an accent COLOUR is not addressable: nothing in Open WebUI consumes a caller-defined custom property, so restyling requires overriding Open WebUI's own build-generated class names, which carry no compatibility guarantee across versions. The instance cannot be asked what its accent is; a projection can only assert that the bytes it shipped are the bytes being served. That is file-delivery verification, not knob verification, so this knob is recorded as NOT drivable rather than drivable-with-caveat."
+    },
+    {
+      "knob": "banner",
+      "manifest_field": "chat.ui.banner",
+      "mechanism": "api",
+      "mechanism_detail": "POST /api/v1/configs/banners (config key ui.banners)",
+      "persistent_config": true,
+      "readback": "GET /api/v1/configs/banners",
+      "drivable": true,
+      "notes": "Set and read back verbatim, and survived the env-changed restart. Banner objects carry id/type/title/content/dismissible/timestamp."
+    },
+    {
+      "knob": "features.web_search",
+      "manifest_field": "chat.ui.features.web_search",
+      "mechanism": "api",
+      "mechanism_detail": "Global capability key web.search.enable, plus the independent per-user permission features.web_search.",
+      "persistent_config": true,
+      "readback": "GET /api/v1/configs/export -> web.search.enable; GET /api/v1/users/default/permissions -> features.web_search",
+      "drivable": true,
+      "notes": "TWO INDEPENDENT SWITCHES. Setting only one leaves the other at its default. Both were driven and read back."
+    },
+    {
+      "knob": "features.image_generation",
+      "manifest_field": "chat.ui.features.image_generation",
+      "mechanism": "api",
+      "mechanism_detail": "Global key image_generation.enable (seeded from ENABLE_IMAGE_GENERATION on first boot), plus per-user permission features.image_generation.",
+      "persistent_config": true,
+      "persistent_config_evidence": "PERSISTENTCONFIG TRAP CONFIRMED. With image_generation.enable = true in the DB, the instance was relaunched with ENABLE_IMAGE_GENERATION=false against the same database. The readback still reported true. The env var is dead once the key is seeded.",
+      "readback": "GET /api/v1/configs/export -> image_generation.enable",
+      "drivable": true,
+      "notes": "Drivable by API only. Driving it by env works exactly once, on a database that has never booted before -- so an env-based projection is correct on a fresh instance and silently wrong on every existing one."
+    },
+    {
+      "knob": "features.code_interpreter",
+      "manifest_field": "chat.ui.features.code_interpreter",
+      "mechanism": "api",
+      "mechanism_detail": "Global key code_interpreter.enable (and the separate code_execution.enable), plus per-user permission features.code_interpreter. Dedicated endpoint: GET/POST /api/v1/configs/code_execution.",
+      "persistent_config": true,
+      "readback": "GET /api/v1/configs/export -> code_interpreter.enable, code_execution.enable",
+      "drivable": true,
+      "notes": "code_interpreter (in-chat execution) and code_execution (the engine) are separate keys; both were driven and read back."
+    },
+    {
+      "knob": "features.arena",
+      "manifest_field": "chat.ui.features.arena",
+      "mechanism": "api",
+      "mechanism_detail": "evaluation.arena.enable",
+      "persistent_config": true,
+      "readback": "GET /api/v1/configs/export -> evaluation.arena.enable",
+      "drivable": true,
+      "notes": "Driven to false and read back false. Arena models are listed under evaluation.arena.models."
+    },
+    {
+      "knob": "features.channels",
+      "manifest_field": "chat.ui.features.channels",
+      "mechanism": "api",
+      "mechanism_detail": "Global key channels.enable (seeded from ENABLE_CHANNELS), plus per-user permission features.channels.",
+      "persistent_config": true,
+      "persistent_config_evidence": "Same trap as image_generation: relaunched with ENABLE_CHANNELS=false, readback still true.",
+      "readback": "GET /api/v1/configs/export -> channels.enable",
+      "drivable": true
+    },
+    {
+      "knob": "features.context_compaction",
+      "manifest_field": "chat.ui.features.context_compaction",
+      "mechanism": "api",
+      "mechanism_detail": "chat.context_compaction.enable, with companion keys chat.context_compaction.{model,prompt_template,retention_percentage,token_cap,token_threshold}.",
+      "persistent_config": true,
+      "readback": "GET /api/v1/configs/export -> chat.context_compaction.enable",
+      "drivable": true,
+      "notes": "The companion keys matter for the audit-filter child: compaction rewrites the payload the filter observes, and the threshold/cap/retention are what decide when."
+    },
+    {
+      "knob": "features.memory",
+      "manifest_field": "chat.ui.features.memory",
+      "mechanism": "api",
+      "mechanism_detail": "CORRECTED 2026-08-10 (corrections[correction-1]). GOVERNING control: the global config key memories.enable (config.py:2809, from ENABLE_MEMORIES at config.py:416), a PersistentConfig, readback GET /api/v1/configs/export -> memories.enable. routers/memories.py:35-39 raises HTTP 404 on it BEFORE any role test, so it stops admins too. SECOND, weaker control: the per-user permission features.memories via GET/POST /api/v1/users/default/permissions, consulted at routers/memories.py:42 inside a user.role != 'admin' branch -- it EXEMPTS admins. Further companion globals: memories.system_context.enable and memories.background_review.enable (config.py:2810-2811, seeded from ENABLE_MEMORY_SYSTEM_CONTEXT / ENABLE_MEMORY_BACKGROUND_REVIEW). This census ORIGINALLY recorded 'There is NO global memory.enable key' and named the permission as the governing control; both statements are false.",
+      "persistent_config": true,
+      "readback": "GOVERNING: GET /api/v1/configs/export -> memories.enable (NOT YET MEASURED). SECOND control: GET /api/v1/users/default/permissions -> features.memories (measured).",
+      "drivable": false,
+      "remeasure_required": true,
+      "remeasure_command": "POST /api/v1/configs/import with {\"memories.enable\": false}, then GET /api/v1/configs/export and assert memories.enable == false; then confirm behaviourally that a memory route returns HTTP 404 for an ADMIN principal (the arm the permission surface cannot produce).",
+      "notes": "NOT-YET-MEASURED, NOT proven absent. The weaker control was driven to false and read back false; the GOVERNING control memories.enable was never driven, because this census recorded that it did not exist. Under this artifact's own drivable_test -- set through the mechanism, read back through an instance surface -- the governing mechanism is unproven, so drivable is false and fail-closed rather than true on the strength of the admin-exempt lever. CONSUMER RULE: a projection that intends memory off MUST drive memories.enable; driving features.memories alone is NOT sufficient and MUST NOT be read back as governance -- it reads green while every instance admin retains memory. A projection that writes 'memory.enable' (the obvious guess, and a different key again) writes dead data; see rejected_keys."
+    },
+    {
+      "knob": "features.byok (per-user direct connections)",
+      "manifest_field": "chat.ui.features.byok",
+      "mechanism": "api",
+      "mechanism_detail": "GET/POST /api/v1/configs/connections -> ENABLE_DIRECT_CONNECTIONS. The related per-user permission is features.direct_tool_servers.",
+      "persistent_config": true,
+      "readback": "GET /api/v1/configs/connections -> ENABLE_DIRECT_CONNECTIONS",
+      "drivable": true,
+      "notes": "Driven false -> true and read back true."
+    },
+    {
+      "knob": "models.default",
+      "manifest_field": "chat.models.default",
+      "mechanism": "api",
+      "mechanism_detail": "config key ui.default_models (comma-separated model ids); GET /api/v1/configs/models / POST /api/v1/configs/models is the dedicated endpoint.",
+      "persistent_config": true,
+      "readback": "GET /api/v1/configs/export -> ui.default_models",
+      "drivable": true,
+      "notes": "Set to 'qwen3:32b' and read back."
+    },
+    {
+      "knob": "models.builtin (admin-curated list)",
+      "manifest_field": "chat.models.builtin",
+      "mechanism": "api",
+      "mechanism_detail": "Visibility is per-model access grants (access_grant rows: resource_type=model, principal_type=user|group|anyone, permission=read|write), plus ordering via ui.model_order_list.",
+      "persistent_config": true,
+      "readback": "GET /api/v1/models/export (rows + access_grants); GET /api/models as the target principal",
+      "drivable": true,
+      "notes": "CURATION IS NOT A LIST, IT IS A GRANT SET. utils/models.py:522-525 (cited as :521 before corrections[correction-2]) admits a model that has no DB row ONLY for admins -- 'No DB entry means no access control configured yet; only admins can see unconfigured models.' Measured: a non-admin saw GET /api/models -> {\"data\":[]} and got HTTP 400 'Model not found' until a Model row with a group read grant was created. So a deployment that ships models without grant rows is admin-only and silently empty for everyone else."
+    },
+    {
+      "knob": "preset (display name, description, system prompt, suggestions)",
+      "manifest_field": "chat.preset",
+      "mechanism": "api",
+      "mechanism_detail": "POST /api/v1/models/sync (whole-set reconciliation), or POST /api/v1/models/create and POST /api/v1/models/model/update for single rows.",
+      "persistent_config": true,
+      "readback": "GET /api/v1/models/export",
+      "drivable": false,
+      "notes": "BROKEN AT THIS VERSION FOR RECONCILIATION. /api/v1/models/sync inserts and deletes correctly but CANNOT UPDATE an existing preset, and fails silently. See models_sync_semantics below. Single-row create/update endpoints remain available and are the viable path."
+    },
+    {
+      "knob": "prompt suggestions",
+      "manifest_field": "chat.preset.suggestions",
+      "mechanism": "api",
+      "mechanism_detail": "config key ui.prompt_suggestions; POST /api/v1/configs/suggestions. Also settable per-preset via the model row's meta.suggestion_prompts.",
+      "persistent_config": true,
+      "readback": "GET /api/v1/configs/export -> ui.prompt_suggestions",
+      "drivable": true
+    },
+    {
+      "knob": "mcp tool server registration",
+      "manifest_field": "chat.mcp",
+      "mechanism": "api",
+      "mechanism_detail": "POST /api/v1/configs/tool_servers with a connection of type 'mcp'; POST /api/v1/configs/tool_servers/verify performs a live initialize + tools/list.",
+      "persistent_config": true,
+      "readback": "GET /api/v1/configs/tool_servers, and /tool_servers/verify for a live tool listing",
+      "drivable": true,
+      "notes": "NO RESTART REQUIRED and no PersistentConfig no-op: the POST handler calls set_tool_servers(request) inline, and the registration was live immediately. It also survived the env-changed restart. The speculative 'registration needs a restart' trap flagged in review round 1 did NOT reproduce."
+    },
+    {
+      "knob": "pipe __user__ group context (governed-capability observation)",
+      "manifest_field": "chat.access.groups (consumed by chat-review-queue-pipe)",
+      "mechanism": "none",
+      "mechanism_detail": "Open WebUI calls a Pipe function's pipe() with a __user__ dict. Measured for an admin and for a group member: 22 keys, identical in both arms, and 'groups' is NOT among them. 'role' IS present as a str ('admin' / 'user').",
+      "persistent_config": false,
+      "readback": "invoke the Pipe and inspect __user__ (see evidence/pipe-user-context-probe.md)",
+      "drivable": false,
+      "notes": "BLOCKING for chat-review-queue-pipe (PR #1021) as written: its admin gate fails closed when 'groups' is absent, and 'groups' is always absent, so the gate refuses everyone including admins. Re-key onto 'role' plus a server-side membership lookup from __user__['id']. Full transcript in evidence/pipe-user-context-probe.md."
+    }
+  ],
+  "models_sync_semantics": {
+    "replace_or_merge": "replace",
+    "evidence": "models/models.py:629-632 deletes every existing row whose id is absent from the payload. Confirmed behaviourally: syncing {\"models\": []} deleted the previously synced preset (readback went from one row to []).",
+    "insert_arm": "works",
+    "delete_arm": "works",
+    "update_arm": "BROKEN",
+    "update_arm_evidence": "Re-syncing an EXISTING id raises sqlalchemy.sql.dml.ValuesBase.values() got multiple values for keyword argument 'user_id' -- models/models.py:609-617 splats model.model_dump() (which already contains user_id) and then passes user_id= again. sync_models catches the exception, logs it, and returns []. The router returns HTTP 200. Measured: a sync changing name and description left the stored row completely unchanged, with HTTP 200 and body [].",
+    "silent_failure": "The response body is NOT the resulting state. [] is returned both when the sync threw and when the set is legitimately empty, always with HTTP 200. A caller that treats the POST response as confirmation cannot distinguish success from failure; only a separate GET /api/v1/models/export readback is trustworthy.",
+    "required_fields": "The payload requires server-owned fields (user_id, created_at, updated_at); omitting them is a 422. The server then overwrites user_id and updated_at anyway, so a byte-identical round trip is impossible by construction."
+  },
+  "floor": {
+    "required": ["site_name", "theme accent", "banner", "governed feature toggles"],
+    "site_name": "met, with a value transform the projection must model",
+    "theme_accent": "NOT MET",
+    "banner": "met",
+    "governed_feature_toggles": "met for SEVEN of eight, CORRECTED 2026-08-10 (corrections[correction-1]). Driven and read back on both the global-capability and per-user-permission surfaces: web_search, image_generation, code_interpreter, arena, channels, context_compaction, byok. NOT met for memory: this census originally counted it here, but it drove only the per-user permission features.memories, which exempts admins (routers/memories.py:42); the governing global memories.enable (config.py:2809, checked first at routers/memories.py:35-39) was never driven because this census recorded that it did not exist. memory is therefore pending re-measurement, not proven. The floor clause reads 'the governed feature toggles the per-deployment identity claim depends on' -- seven remain driven and read back, so the toggles arm is not what breaks the floor; theme accent is.",
+    "floor_met": false,
+    "blocking_result": "The census is below the floor on theme accent. Open WebUI v0.11.0 exposes no accent knob: no config key, no env var, no admin API, and no readable accent value. The only lever is the static custom.css file, which delivers opaque bytes and requires overriding build-generated class names that carry no cross-version guarantee. theme.base is likewise not deployment-drivable -- it is browser-local.",
+    "consequence": "Per req.openwebui-chat-frontend.knob-census this is a PROGRAM-BLOCKING result that reopens the instance-topology decision rather than a silently smaller schema. Concretely: chat.ui.theme.accent and chat.ui.theme.base MUST NOT be admitted into the chat.ui schema as drivable knobs on this version. Either (a) the shared visual-identity token coupling in chat-manifest-block drops the chat surface and keeps accent as an operator-UI-only token, or (b) the program accepts a css-bundle mechanism whose contract is byte delivery -- explicitly not readback of a value -- and states that per-deployment chat accent is best-effort and version-fragile. Option (b) weakens the per-deployment identity claim that motivated one-site-per-deployment, which is why this reopens the topology decision rather than being absorbed."
+  }
+}

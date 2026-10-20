@@ -1,0 +1,18 @@
+OKG deployment {{ .Values.okg.deployment | quote }} is installed as release
+{{ .Release.Name | quote }} in namespace {{ .Release.Namespace | quote }}.
+
+The worker is intentionally a singleton. Its bootstrap init container must
+publish successfully before worker, mirror, and read-only MCP containers start.
+
+Check rollout:
+  kubectl -n {{ .Release.Namespace }} get pods,pvc
+  kubectl -n {{ .Release.Namespace }} logs statefulset/{{ include "okg.fullname" . }}-runtime -c bootstrap
+  kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "okg.fullname" . }}-runtime
+
+Run the generation-pinned readiness test:
+  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+  kubectl -n {{ .Release.Namespace }} logs pod/{{ include "okg.fullname" . }}-readiness-test -c readiness
+  kubectl -n {{ .Release.Namespace }} logs pod/{{ include "okg.fullname" . }}-readiness-test -c mcp
+
+MCP remains cluster-internal:
+  kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "okg.fullname" . }}-mcp {{ .Values.mcp.port }}:{{ .Values.mcp.port }}

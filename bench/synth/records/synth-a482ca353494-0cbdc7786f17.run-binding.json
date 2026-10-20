@@ -1,0 +1,183 @@
+{
+ "clean_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T202734945340Z:70f1bcdc81c0",
+ "corrupted_generation_id": "okg:synthetic-corpus-smoke:branch:default:gen:20260727T205541443245Z:193a984b47a4",
+ "deployment": "synthetic-corpus-smoke",
+ "extraction_cost": {
+  "calls": 213,
+  "completion_tokens": 831741,
+  "cost_usd": 2.203177,
+  "off_vocabulary": 2,
+  "prompt_tokens": 331440,
+  "reasoning_share": 0.609,
+  "reasoning_tokens": 506641
+ },
+ "extraction_failed_documents": [
+  {
+   "attribute": "Medication 7",
+   "cause": "abbott774_cathryn51_sandra485__medication_list.md: quote for 'Medication 7' occurs 7 times across 2 sections (['', 'Patient Cathryn51 Sandra485 Abbott774 > Medications']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '7'",
+   "doc": "abbott774_cathryn51_sandra485__medication_list.md",
+   "phase": "clean",
+   "quote": "7",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__clinic_note.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__clinic_note.md",
+   "phase": "clean",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__discharge_summary.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__discharge_summary.md",
+   "phase": "clean",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__referral_letter.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__referral_letter.md",
+   "phase": "clean",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "valle770_norma469_in\u00e9s791__discharge_summary.md: quote for 'Age Years' occurs 4 times across 2 sections (['Patient Norma469 In\u00e9s791 Valle770 > Medications', 'Patient Norma469 In\u00e9s791 Valle770 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '3'",
+   "doc": "valle770_norma469_in\u00e9s791__discharge_summary.md",
+   "phase": "clean",
+   "quote": "3",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "valle770_norma469_in\u00e9s791__referral_letter.md: quote for 'Age Years' occurs 4 times across 2 sections (['Patient Norma469 In\u00e9s791 Valle770 > Medications', 'Patient Norma469 In\u00e9s791 Valle770 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '3'",
+   "doc": "valle770_norma469_in\u00e9s791__referral_letter.md",
+   "phase": "clean",
+   "quote": "3",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Record Reference",
+   "cause": "abbott774_cathryn51_sandra485__referral_letter.md: quote for 'Record Reference' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "abbott774_cathryn51_sandra485__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Hemoglobin A1c",
+   "cause": "abbott774_cathryn51_sandra485__referral_letter.md: quote for 'Hemoglobin A1c' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "abbott774_cathryn51_sandra485__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Total Cholesterol",
+   "cause": "abbott774_cathryn51_sandra485__referral_letter.md: quote for 'Total Cholesterol' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "abbott774_cathryn51_sandra485__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Social Isolation Finding",
+   "cause": "abbott774_cathryn51_sandra485__referral_letter.md: quote for 'Condition Social Isolation Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "abbott774_cathryn51_sandra485__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Stress Finding",
+   "cause": "abbott774_cathryn51_sandra485__referral_letter.md: quote for 'Condition Stress Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "abbott774_cathryn51_sandra485__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Transport Problem Finding",
+   "cause": "abbott774_cathryn51_sandra485__referral_letter.md: quote for 'Condition Transport Problem Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "abbott774_cathryn51_sandra485__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Condition Unemployed Finding",
+   "cause": "abbott774_cathryn51_sandra485__referral_letter.md: quote for 'Condition Unemployed Finding' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "abbott774_cathryn51_sandra485__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Medication Nda020800",
+   "cause": "abbott774_cathryn51_sandra485__referral_letter.md: quote for 'Medication Nda020800' is not a verbatim substring of the document: ''. The value was invented or altered, so its scope cannot be located.",
+   "doc": "abbott774_cathryn51_sandra485__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__clinic_note.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__clinic_note.md",
+   "phase": "corrupted",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__discharge_summary.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "crooks415_taryn906__referral_letter.md: quote for 'Age Years' occurs 2 times across 2 sections (['', 'Patient Taryn906 Crooks415 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '15'",
+   "doc": "crooks415_taryn906__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "15",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "valle770_norma469_in\u00e9s791__discharge_summary.md: quote for 'Age Years' occurs 3 times across 2 sections (['Patient Norma469 In\u00e9s791 Valle770 > Medications', 'Patient Norma469 In\u00e9s791 Valle770 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '3'",
+   "doc": "valle770_norma469_in\u00e9s791__discharge_summary.md",
+   "phase": "corrupted",
+   "quote": "3",
+   "scope": "fact"
+  },
+  {
+   "attribute": "Age Years",
+   "cause": "valle770_norma469_in\u00e9s791__referral_letter.md: quote for 'Age Years' occurs 4 times across 2 sections (['Patient Norma469 In\u00e9s791 Valle770 > Medications', 'Patient Norma469 In\u00e9s791 Valle770 > Patient Details']); the extractor cannot tell which occurrence the value was read from, so its scope and bucket would be silently mis-keyed. Disambiguate the occurrence or fail \u2014 never guess. Quote: '3'",
+   "doc": "valle770_norma469_in\u00e9s791__referral_letter.md",
+   "phase": "corrupted",
+   "quote": "3",
+   "scope": "fact"
+  }
+ ],
+ "extractor": "llm",
+ "ledger": [
+  {
+   "latency_ms": 1529876.2754169875,
+   "stage": "clean_publish"
+  },
+  {
+   "latency_ms": 1684877.7421249833,
+   "stage": "corrupted_publish"
+  }
+ ],
+ "schema": "okg.synth.run-binding.v1",
+ "surviving_conflict_floor": 30,
+ "surviving_conflict_floor_passed": true,
+ "surviving_conflict_realized": 99
+}

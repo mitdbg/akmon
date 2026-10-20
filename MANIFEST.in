@@ -1,0 +1,70 @@
+# MANIFEST.in — sdist / wheel inclusion for non-Python data.
+#
+# Per `dead-simple-install` (2026-05-21): the academic-researcher profile
+# directory is named `academic-researcher` (with a hyphen) so it's not a
+# valid Python package, and setuptools's `packages.find` skips
+# it. But the profile ships compose.yaml, source-defaults/*.yaml,
+# initdb/*.sql, skills/*.md, etc. — all required at install
+# time. We use MANIFEST.in (with `include-package-data = true`)
+# to ship the whole tree.
+#
+# Also ships ops/pg/ (Dockerfile + initdb + compose.yaml) for
+# the first-time image build during `okg install`.
+
+# Academic-researcher profile tree (entire directory, recursive).
+recursive-include src/okg/substrate/library/profiles/academic-researcher *
+
+# Memex profile tree — same shape (hyphen) when present.
+recursive-include src/okg/substrate/library/profiles/memex *
+
+# All other shipped profile trees.
+recursive-include src/okg/substrate/library/profiles *.yaml
+recursive-include src/okg/substrate/library/profiles *.md
+recursive-include src/okg/substrate/library/profiles *.json
+
+# Substrate-shipped library ontologies + their schemas.
+recursive-include src/okg/substrate/library/ontologies *.yaml
+recursive-include src/okg/substrate/library/ontologies *.md
+
+# Substrate-shipped source-default YAMLs.
+recursive-include src/okg/substrate/library/sources *.yaml
+recursive-include src/okg/substrate/library/sources *.sql
+
+# Database migration resources loaded through importlib.resources.
+recursive-include src/okg/substrate/db/migrations *.sql
+recursive-include src/okg/substrate/db/migrations *.yaml
+
+# Canonical authored-file schemas, staged into okg/_schemas by setup.py.
+include setup.py
+include schemas/*.json
+
+# DBOS bootstrap SQL loaded through importlib.resources.
+recursive-include src/okg/substrate/runtime/sql *.sql
+
+# Tree-sitter query programs loaded beside the code extraction package.
+recursive-include src/okg/substrate/library/extraction/code/queries *.scm
+
+# Ops/pg image-build inputs (used by `_build_okg_pg17_image`).
+recursive-include ops/pg *
+
+# Top-level docs the install message references.
+include README.md
+include LICENSE
+include NOTICE*
+
+# Byte caches are never shipped. `recursive-include ... academic-researcher *` above
+# otherwise sweeps a gitignored `__pycache__` from a used checkout into the
+# sdist, and a wheel built from that sdist would be refused at install
+# (issue #1922). pyproject's `exclude-package-data` covers the wheel; this
+# covers the sdist.
+global-exclude *.pyc
+global-exclude *.pyo
+# A `prune **/__pycache__` here would be INERT: distutils does not glob `**`,
+# and `prune` takes a directory, not a pattern -- every build would print
+# "no previously-included directories found" and a later reader would think
+# the directory was covered. These two do cover it. distutils stops `*` at a
+# path separator but leaves the pattern unanchored, so the first line matches
+# a `__pycache__` entry at any depth below a parent directory and the second
+# catches one at the tree root.
+global-exclude */__pycache__/*
+global-exclude __pycache__/*

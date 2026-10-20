@@ -1,0 +1,65 @@
+# Cross-link rules: agent_sessions → methodology MethodCard.
+#
+# Per `cleanup-personal-okg-data-quality` item 4: wire the
+# Pattern B linkage that's currently absent for sessions. A
+# session that mentions `card:<slug>` in its prompts or tool
+# calls gets a `references` edge to the corresponding
+# `method_card`.
+#
+# Same shape as `sessions_to_openspec.yaml` (the
+# `tool_use_event_runs_openspec_command_for_change` +
+# `session_runs_openspec_command_for_change_via_tool_use`
+# pair):
+#
+#   - Direct: tool_use_event whose `command` mentions
+#     `card:<slug>` → method_card.
+#   - Inherited: agent_session / sub_agent_session whose
+#     contained tool_use_event mentions `card:<slug>` →
+#     method_card (so dashboard queries "which sessions
+#     touched card X?" answer at the session granularity).
+#
+# Resolves to nothing unless the methodology module is loaded.
+# Deployments without methodology compose silently emit zero
+# edges, not errors.
+
+rules:
+  - id: tool_use_event_mentions_method_card
+    src:
+      subtype: tool_use_event
+      field: command
+    dst:
+      subtype: method_card
+      field: slug
+      derive_from_path:
+        # `derive_from_path` uses re.match (anchored at start), so
+        # the leading `.*` accepts mentions anywhere in the command
+        # string. `\b` boundaries ensure we don't match `cardio:foo`
+        # or `card:`-less prefixes.
+        attr: command
+        regex: '.*\bcard:([a-z0-9][a-z0-9-]*)\b'
+        capture_field: slug
+    matcher: derive_from_path
+    edge: references
+    bidirectional: false
+
+  # Session-level inheritance: walks the
+  # `(agent_session | sub_agent_session) -contains-> tool_use_event`
+  # edge and re-emits the regex match at the parent session, so
+  # the dashboard query "which sessions touched card X?" answers
+  # without needing a tool_use_event-level traversal.
+  - id: session_references_method_card_via_tool_use
+    src:
+      subtype: [agent_session, sub_agent_session]
+      via_edge:
+        edge_type: contains
+        dst_subtype: tool_use_event
+    dst:
+      subtype: method_card
+      field: slug
+      derive_from_path:
+        attr: command
+        regex: '.*\bcard:([a-z0-9][a-z0-9-]*)\b'
+        capture_field: slug
+    matcher: derive_from_path
+    edge: references
+    bidirectional: false

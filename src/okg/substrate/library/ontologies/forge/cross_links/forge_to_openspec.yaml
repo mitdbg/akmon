@@ -1,0 +1,17 @@
+# Cross-link rules: forge → openspec.
+#
+# Per `declarative-cross-source-linker` (2026-04-26): match
+# issues + PRs whose title or body word-boundary-mentions a
+# known `change_id` slug. Replaces the hand-rolled
+# IssueChangeLinker.
+rules:
+  - id: forge_item_word_boundary_mentions_change_slug
+    src:
+      subtype: [issue, pull_request]
+      fields: [title, body]
+    dst:
+      subtype: open_spec_change
+      field: change_id
+    matcher: word_boundary
+    edge: references
+    bidirectional: true

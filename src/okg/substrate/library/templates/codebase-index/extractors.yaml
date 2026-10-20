@@ -1,0 +1,107 @@
+# okg-workspace deployment extractor chain.
+#
+# Per `add-doc-corpus-extraction-adapter` (2026-04-25),
+# extended for the okg-workspace template per
+# `generalize-okg-self-as-okg-workspace` (2026-04-26).
+# Loaded by `DocCorpusSource` via
+# `okg.substrate.library.extraction.registry.load_extractors`.
+# The adapter walks repo files (filtered by include/exclude
+# globs from the source_registry entry), dispatches each by
+# extension/sniff, chunks via the listed chunker chain, runs
+# the listed NER backends, and emits Document /
+# DocumentChunk / EntityMention nodes with derived_from /
+# member_of edges back to the source_file nodes from
+# git-files.
+
+parser:
+  - format: latex
+    class: okg.substrate.library.extraction.parse.latex.LatexParser
+  - format: markdown
+    class: okg.substrate.library.extraction.parse.markdown.MarkdownParser
+  - format: text
+    class: okg.substrate.library.extraction.parse.text.TextParser
+  - format: json
+    class: okg.substrate.library.extraction.parse.json_struct.JsonParser
+  - format: yaml
+    class: okg.substrate.library.extraction.parse.yaml_struct.YamlParser
+  - format: toml
+    class: okg.substrate.library.extraction.parse.toml_struct.TomlParser
+  - format: code
+    class: okg.substrate.library.extraction.parse.code_python.PythonAstParser
+  # Tree-sitter parsers for non-Python source. Per-language
+  # grammars install via `pip install tree_sitter_<lang>` (or
+  # `pip install -e .[code]` for the polyglot bundle). When a
+  # grammar is missing, the parser raises GrammarMissing with
+  # a `pip install` fix-hint at parse time; remaining files
+  # keep extracting.
+  - format: code_javascript
+    class: okg.substrate.library.extraction.parse.code_treesitter.TreeSitterParser
+    config: {language: javascript}
+  - format: code_typescript
+    class: okg.substrate.library.extraction.parse.code_treesitter.TreeSitterParser
+    config: {language: typescript}
+  - format: code_go
+    class: okg.substrate.library.extraction.parse.code_treesitter.TreeSitterParser
+    config: {language: go}
+  - format: code_rust
+    class: okg.substrate.library.extraction.parse.code_treesitter.TreeSitterParser
+    config: {language: rust}
+  - format: code_cpp
+    class: okg.substrate.library.extraction.parse.code_treesitter.TreeSitterParser
+    config: {language: cpp}
+
+chunker:
+  # Per-format dispatch (per `refine-doc-corpus-extraction`
+  # 2026-04-26).
+  #
+  # Markdown route: heading-aware section chunker with size
+  # normalization (per `add-heading-aware-chunker` 2026-04-26).
+  # Sets `prefers_raw_text = True`, so the parser-emitted
+  # paragraph-level chunks are bypassed and this chunker walks
+  # the AST itself; the result is section-shaped chunks in the
+  # 100-1500 token band rather than the long-tailed paragraph
+  # distribution.
+  - format: latex
+    class: okg.substrate.library.extraction.chunk.latex_structural.LatexStructuralChunker
+  - format: markdown
+    class: okg.substrate.library.extraction.chunk.markdown_heading.MarkdownHeadingChunker
+    config: {min_tokens: 100, max_tokens: 1500}
+  # Python route: one chunk per top-level function, per class (or per
+  # method of a class too large for one chunk) and per run of module-level
+  # code, holding the code itself. Without it the Python parser's chunks
+  # hold only docstrings, so an identifier used inside a function body is
+  # unsearchable. Sets `prefers_raw_text = True`, like the Markdown route.
+  # A file that does not parse (Python 2) falls back to text through the
+  # doc-corpus block's `text_fallback: true`.
+  - format: code
+    class: okg.substrate.library.extraction.chunk.python_symbols.PythonSymbolChunker
+    config: {max_chars: 4000, overlap: 400}
+  # Default fallthrough — used for every other format whose
+  # parser does not emit structural chunks. Window chunker is
+  # simple, deterministic, language-agnostic.
+  - format: default
+    class: okg.substrate.library.extraction.chunk.window.WindowChunker
+    config: {max_chars: 1500, overlap: 200}
+
+ner:
+  - class: okg.substrate.library.extraction.ner.regex_backend.RegexEntityExtractor
+    config:
+      rules:
+        - [arxiv_id, "arXiv:[0-9]{4}\\.[0-9]{4,5}"]
+        - [doi, "10\\.[0-9]{4,9}/[-._;()/:A-Z0-9a-z]+"]
+        # Match openspec change slugs (the prefixes used in
+        # this repo's proposal naming convention).
+        - [change_slug, "(?:add|fix|migrate|debug|defer|redesign|retire|extract|generalize|tighten|wire)-[a-z0-9-]+"]
+        # Code-annotation comments. Tightened post-bootstrap:
+        #   - word-boundary on the keyword;
+        #   - dropped NOTE (over-matches in prose like
+        #     "Note: this means …");
+        #   - trailing-text group is optional so a bare
+        #     maintenance-marker comment still surfaces.
+        - [code_annotation, "\\b(?:TO[D]O|FIX[M]E|HA[C]K|X[X]X)\\b(?:[:\\s][^\\n]{0,160})?"]
+        # GitHub issue / PR URLs. Bare `#1`-style references
+        # over-match list numbers, reviewer comments, and local
+        # proposal sequencing in this repo; keep only globally
+        # resolvable URLs until a contextual repo-aware resolver
+        # exists.
+        - [github_issue_ref, "https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:issues|pull)/[0-9]+"]

@@ -1,0 +1,80 @@
+{
+  "schema_version": "okg.external_distribution_conformance.request/v1",
+  "request_id": "fixture-contract-001",
+  "subject": {
+    "subject_kind": "hermetic_fixture",
+    "distribution_id": "okg-standard",
+    "distribution_version": "1.0",
+    "release_digest": "sha256:e140eb71fcf4262cf9c86eeced4880d05e946072eed2e8d29354fc1c6e90cda5",
+    "artifact": {
+      "package_schema": "okg.deployment_product.distribution_package/v1",
+      "media_type": "application/octet-stream",
+      "digest": "sha256:51a5619e2c5f0c63063f18db8b44edf8817e86a388a617568a839e994e96ca9a"
+    }
+  },
+  "selection": {
+    "distribution_release": {
+      "distribution_id": "okg-standard",
+      "version": "1.0",
+      "origin": "external",
+      "release_digest": "sha256:e140eb71fcf4262cf9c86eeced4880d05e946072eed2e8d29354fc1c6e90cda5",
+      "bundle_ids": [
+        "core"
+      ]
+    },
+    "bundles": [
+      {
+        "bundle_id": "core",
+        "version": "1",
+        "distribution_id": "okg-standard",
+        "distribution_version": "1.0",
+        "bundle_digest": "sha256:64f7005208ced69acb2db261f008ad6a6b3b999ef39c95f756017ab1349ccba5"
+      }
+    ],
+    "definition": {
+      "definition_id": "fixture-contract",
+      "definition_digest": "sha256:1038847e55825cf619115b3dffea1b7f06f5242000255a467fa750446b169df5"
+    }
+  },
+  "case": {
+    "case_id": "minimal-contract-v1",
+    "claim_profile": "contract",
+    "requested_arms": [
+      "contract"
+    ]
+  },
+  "expectations": {
+    "signals": [
+      {
+        "signal_id": "fixture-interface",
+        "kind": "interface",
+        "target": "deployment-product-contract"
+      }
+    ]
+  },
+  "inputs": {
+    "inputs": [
+      {
+        "input_id": "fixture-product",
+        "kind": "fixture",
+        "digest": "sha256:1ef4052fa8dc5d753eceb8a490ae48aac0d08d3dcccd69b42acf28706aad7ea5",
+        "media_type": "application/yaml"
+      }
+    ],
+    "secret_references": [
+      {
+        "reference": "secretref:123e4567-e89b-42d3-a456-426614174000"
+      }
+    ]
+  },
+  "admission": {
+    "extension_boundary_digest": "sha256:ea58f31099d307a65d3f0033c52568ec2b6238fe2217f82ca32f6970c40efca1",
+    "package_admission_digest": "sha256:dcd12913d4a9fdb53163e1530f27d9958e6d33a25801ef6552c95cfc999fbd3c",
+    "capability_digest": "sha256:fa98ece3d84ab74422eb2e470bdec948e121a5d8a424d3aea48336c05af9448f",
+    "resource_policy_digest": "sha256:5c0a76f055108b16f20a631d6fde94974c15bbdd9f440282582401b1c1012dfd"
+  },
+  "compatibility": {
+    "product_contract_api": "okg.deployment_product.api/v1",
+    "harness_protocol": "okg.external_distribution_conformance/v1"
+  }
+}
