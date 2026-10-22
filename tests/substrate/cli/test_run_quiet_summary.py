@@ -1256,3 +1256,71 @@ def test_inline_and_dbos_paths_give_one_verdict(
     assert inline_rc == dbos_rc == EXIT_CODES[outcome]
     assert inline["exit_code"] == dbos["exit_code"] == inline_rc
     assert inline["published"] is dbos["published"]
+
+
+# ---------------------------------------------------------------------------
+# post_publish_index_rebuild (issue #3929)
+# ---------------------------------------------------------------------------
+
+# The shape db/index_reclaim.py returns, trimmed to the keys that matter here.
+_REBUILD_BASE: dict[str, Any] = {
+    "deployment": "demo",
+    "rebuilt": [],
+    "analyzed": [],
+    "reclaimed_bytes": 0,
+    "max_publisher_lock_hold_seconds": 0.0,
+    "leftover_invalid_indexes": [],
+}
+
+
+def _stage_failure_texts(rebuild: dict[str, Any]) -> list[str]:
+    warnings = collect_run_warnings(
+        _cycle(post_publish_index_rebuild=rebuild), deployment="demo",
+    )
+    return [w["message"] for w in warnings if w["kind"] == "stage_failure"]
+
+
+@pytest.mark.parametrize("status", ["nothing_to_rebuild", "rebuilt"])
+def test_successful_index_rebuild_prints_no_stage_failure(status: str) -> None:
+    assert _stage_failure_texts({**_REBUILD_BASE, "status": status}) == []
+
+
+@pytest.mark.parametrize("status", ["nothing_to_rebuild", "rebuilt"])
+def test_successful_index_rebuild_warns_about_a_leftover_invalid_index(
+    status: str,
+) -> None:
+    leftover = {
+        "relation": "okg.graph_nodes",
+        "index": "okg.graph_nodes_idx_ccnew",
+        "valid": False,
+        "drop_command": "DROP INDEX CONCURRENTLY okg.graph_nodes_idx_ccnew;",
+    }
+    rebuild = {
+        **_REBUILD_BASE, "status": status, "leftover_invalid_indexes": [leftover],
+    }
+    warnings = collect_run_warnings(
+        _cycle(post_publish_index_rebuild=rebuild), deployment="demo",
+    )
+
+    left = [w for w in warnings if w["kind"] == "invalid_index_left"]
+    assert len(left) == 1
+    assert "okg.graph_nodes_idx_ccnew" in left[0]["message"]
+    assert "DROP INDEX CONCURRENTLY okg.graph_nodes_idx_ccnew;" in left[0]["fix_hint"]
+    # It is not a stage failure: the publish and the rebuild succeeded.
+    assert not [w for w in warnings if w["kind"] == "stage_failure"]
+
+
+def test_index_rebuild_error_still_prints_a_stage_failure() -> None:
+    texts = _stage_failure_texts({
+        "status": "error", "error": "lock timeout on okg.graph_nodes",
+    })
+    assert len(texts) == 1
+    assert "post_publish_index_rebuild" in texts[0]
+
+
+def test_index_rebuild_stopped_still_prints_a_stage_failure() -> None:
+    # ``stopped`` is not success: an unclassified status fails closed.
+    texts = _stage_failure_texts({
+        **_REBUILD_BASE, "status": "stopped", "reason": "reindex_failed",
+    })
+    assert len(texts) == 1

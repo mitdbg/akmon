@@ -65,12 +65,17 @@ from okg.substrate.sources.guided_catalog import (
 )
 from okg.substrate.sources.guided_defaults import EXTRACTORS_YAML
 from okg.substrate.sources.redaction import redact_dsn, redact_mapping, redact_text
+from okg.substrate.sources.registry import expand_code_repos_sources
 
 
 STRICT_ADMISSION_CONTRACT = "strict_v1"
 LEDGER_DIRNAME = ".okg/source-add"
 PREVIEW_RECORD_LIMIT = 5
 PREVIEW_SCAN_LIMIT = 2000
+#: The preview opens at most this many matched PDFs, and reads at most this
+#: many pages of each, to see whether the PDF has a text layer.
+PDF_TEXT_CHECK_FILES = 100
+PDF_TEXT_CHECK_PAGES = 5
 SUBPROCESS_TIMEOUT_SECONDS = 1800
 
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
@@ -116,6 +121,9 @@ class AddSourcePlan:
     # extractors.yaml (local-folder only; see `_plan_file_readers`).
     reader_formats: list[str] = field(default_factory=list)
     file_readers: Optional[dict[str, Any]] = None
+    # Things the operator should know before saying yes (not failures); each
+    # has a `kind` and a plain-language `message`. Shown by preview and apply.
+    warnings: list[dict[str, Any]] = field(default_factory=list)
     # Schema files shipped next to a packaged connector's `connector.json`
     # and the deployment paths the save step copies them to (#2478).
     connector_schemas: list[dict[str, str]] = field(default_factory=list)
@@ -154,6 +162,7 @@ class AddSourcePlan:
             "retry_of_saved_definition": self.existing_entry is not None,
             "steps": [step.as_dict() for step in self.steps],
             "decisions": list(self.decisions),
+            "warnings": list(self.warnings),
             "preview": self.preview,
             "behaviour": {
                 "update": (
@@ -194,6 +203,7 @@ class AddSourceOutcome:
             "generation_id": self.generation_id,
             "counts": self.counts,
             "sample": self.sample,
+            "warnings": list(self.plan.warnings),
             "steps": [step.as_dict() for step in self.steps],
             "failed_step": failed.as_dict() if failed else None,
             "retry": (
@@ -295,6 +305,8 @@ def plan_add_source(
         params=plan.params,
         credential_refs=tuple(credential_refs),
     )
+    if not _check_commit_repo(plan, raw_registry, registry_path, steps):
+        return plan
     steps.append(Step("settings", "ok", detail={
         "settings": redact_mapping(dict(plan.settings)),
     }))
@@ -315,6 +327,81 @@ def plan_add_source(
     return plan
 
 
+_GIT_HISTORY_MODULE = "okg.substrate.library.sources.git_graph_history"
+
+COMMIT_REPO_FIX_HINT = (
+    "add the git source for that repository to this deployment first, or "
+    "clear the commit_repo setting"
+)
+
+
+def _check_commit_repo(
+    plan: "AddSourcePlan", raw_registry: Mapping[str, Any],
+    registry_path: Path, steps: list[Step],
+) -> bool:
+    """Refuse a commit_repo that no enabled git source in this deployment reads.
+
+    The merge link points at a commit node the git source owns; naming a
+    repository nobody reads would fail at the import with an admission code.
+    The source list is the one the registry loader builds, so a git history
+    source that a ``code_repos`` block generates counts too. A source whose
+    ``enabled_by_default`` is explicitly false is off and does not count.
+    Profile-written sources hold the deployment name literally (it is filled
+    in when the deployment is scaffolded), so ``repo`` is compared as saved.
+    """
+    commit_repo = plan.params.get("commit_repo")
+    if not commit_repo:
+        return True
+    try:
+        sources = expand_code_repos_sources(
+            dict(raw_registry), registry_path, allow_unresolved_base=True,
+        )
+    except ValueError as exc:
+        # A malformed code_repos block: refuse this step with the loader's
+        # own message instead of letting a traceback reach the command.
+        steps.append(Step(
+            "settings", "failed",
+            cause=f"the source registry's code_repos block cannot be read: {exc}",
+            fix_hint="fix the code_repos block in the source registry, then re-run",
+        ))
+        return False
+    for entry in sources.values():
+        if not isinstance(entry, Mapping):
+            continue
+        params = entry.get("params")
+        if (
+            entry.get("module") == _GIT_HISTORY_MODULE
+            and entry.get("enabled_by_default") is not False
+            and isinstance(params, Mapping)
+            and params.get("repo") == commit_repo
+        ):
+            return True
+    steps.append(Step(
+        "settings", "failed",
+        cause=(
+            f"commit_repo {commit_repo!r} is not read by any git source in "
+            "this deployment"
+        ),
+        fix_hint=COMMIT_REPO_FIX_HINT,
+    ))
+    return False
+
+
+_MERGED_AS_EDGE: Mapping[str, Any] = {
+    "src_subtype": "pull_request",
+    "edge_type": "merged_as",
+    "dst_subtype": "git_commit",
+}
+
+#: Said once in the import step when a discussion import leaves merged pull
+#: requests unlinked, so the missing link is never silent.
+MERGE_LINK_NOTE = (
+    "Merged pull requests were imported without a link to their merge commit "
+    "because the commit repo setting is empty. Set commit_repo to the git "
+    "repository's name in your graph to add the link."
+)
+
+
 def build_registry_entry(
     source_type: SupportedSourceType,
     *,
@@ -331,6 +418,13 @@ def build_registry_entry(
     entry["admission_policy"]["producer_id"] = ownership_id
     entry["enabled_by_default"] = bool(enabled)
     signature = entry["admission_policy"].get("output_signature") or {}
+    if source_type.type_id == "github" and params.get("commit_repo"):
+        # The merge link points at a commit node another source owns, so the
+        # edge is declared only for a source whose owner named the commit
+        # repo; without it the reader emits no such edge.
+        edges = list(signature.get("edges") or ())
+        edges.append(dict(_MERGED_AS_EDGE))
+        signature["edges"] = edges
     if signature.get("nodes") or signature.get("edges"):
         # The human-readable scope summary must name the same set as the
         # declared signature (deployment lint checks the two agree).
@@ -472,10 +566,18 @@ def _params_for(
         })
         return params
     if source_type.type_id == "github":
+        include_discussion = bool(settings.get("include_discussion", False))
         params.update({
             "repo": str(settings["repository"]),
-            "include_discussion": bool(settings.get("include_discussion", False)),
+            "include_discussion": include_discussion,
         })
+        commit_repo = str(settings.get("commit_repo") or "").strip()
+        if commit_repo:
+            params["commit_repo"] = commit_repo
+        elif include_discussion:
+            # No commit repo: merged pull requests import unlinked (the
+            # import step says so) instead of failing the whole import.
+            params["link_merge_commits"] = False
         return params
     params.update(dict(settings))
     return params
@@ -823,22 +925,83 @@ def _preview(
             "files_previewed": min(len(matched), limit),
         }
         if not matched:
+            present = _file_types_present(
+                Path(params["repo_root"]), params.get("exclude_globs") or (),
+            )
+            cause = "no files under the folder match the include patterns"
+            fix_hint = "check the folder path or pass --setting include=..."
+            if present["by_type"]:
+                types = ", ".join(f"{k}: {v}" for k, v in present["by_type"].items())
+                more = "at least " if present["is_lower_bound"] else ""
+                cause += f" ({', '.join(params.get('include_globs') or ())}); " \
+                    f"the folder holds {more}{types}"
+                if present["readable_globs"]:
+                    fix_hint = (
+                        "to read those files, pass --setting 'include="
+                        + json.dumps(present["readable_globs"]) + "'"
+                    )
+                else:
+                    fix_hint = (
+                        "none of those types is read by add-source; convert "
+                        "them to Markdown or text first"
+                    )
+                scope["file_types_present"] = present["by_type"]
             steps.append(Step(
                 "preview", "failed",
                 detail={"scope": scope},
-                cause="no files under the folder match the include patterns",
-                fix_hint="check the folder path or pass --setting include=...",
+                cause=cause,
+                fix_hint=fix_hint,
             ))
             return
-        params["include_globs"] = list(matched[:limit])
-        # Plan the file readers this folder needs (#2974) and preview with
-        # the extractors.yaml the save step will leave in place.
-        # A scan that stopped at PREVIEW_SCAN_LIMIT has not seen every file,
-        # so plan every packaged reader rather than guess from the part seen.
-        plan.reader_formats = (
+        # The readers this folder needs (#2974). A scan that stopped at
+        # PREVIEW_SCAN_LIMIT has not seen every file, so plan every packaged
+        # reader rather than guess from the part seen. The unreadable-file
+        # check below judges against this same list.
+        reader_formats = (
             list(_packaged_readers()["parser"]) if truncated
-            else _folder_formats(matched)
+            else _folder_formats(Path(params["repo_root"]), matched)
         )
+        unreadable = _unreadable_files(
+            Path(params["repo_root"]), matched,
+            Path(params["extractors_dir"]) / "extractors.yaml",
+            reader_formats, lower_bound=truncated,
+        )
+        if unreadable["unreadable_count"]:
+            scope["files_without_reader"] = unreadable["unreadable_count"]
+        # Refuse only when the folder was seen whole and no unreadable file is
+        # one the operator could fix by hand-editing an extractors.yaml the
+        # save step leaves unchanged (that case has its own warning).
+        if (
+            unreadable["unreadable_count"] == unreadable["matched_count"]
+            and not truncated
+            and not unreadable["fixable_by_hand_count"]
+        ):
+            steps.append(Step(
+                "preview", "failed",
+                detail={"scope": scope, "unreadable_files": unreadable},
+                cause=_unreadable_message(unreadable, refusing=True),
+                fix_hint=_unreadable_fix_hint(unreadable),
+            ))
+            return
+        if unreadable["unreadable_count"]:
+            plan.warnings.append({
+                "kind": "unreadable_files",
+                "message": _unreadable_message(unreadable, refusing=False),
+                "fix_hint": _unreadable_fix_hint(unreadable),
+                **unreadable,
+            })
+        for pdf_warning in _pdf_warnings(
+            Path(params["repo_root"]), matched,
+            Path(params["extractors_dir"]) / "extractors.yaml", reader_formats,
+        ):
+            plan.warnings.append(pdf_warning)
+            if pdf_warning["kind"] == "pdf_without_text":
+                scope["pdfs_without_text"] = pdf_warning["no_text_layer_count"]
+            else:
+                scope["pdfs_over_size_cap"] = pdf_warning["oversize_count"]
+        params["include_globs"] = list(matched[:limit])
+        # Preview with the extractors.yaml the save step will leave in place.
+        plan.reader_formats = reader_formats
         readers = _plan_file_readers(
             Path(params["extractors_dir"]) / "extractors.yaml", plan.reader_formats,
         )
@@ -1362,6 +1525,11 @@ def apply_add_source(
         # The manifest reader withheld a deletion (bad rows, a failed read,
         # or the mass-deletion guard): say why, with the way to allow it.
         import_detail["note"] = reason
+    if (
+        plan.source_type is not None and plan.source_type.type_id == "github"
+        and plan.params.get("link_merge_commits") is False
+    ):
+        import_detail["note"] = MERGE_LINK_NOTE
     steps.append(Step("import", "ok", detail=import_detail))
     if any(counts.values()) and result.get("admission_id"):
         attempt_admission = str(result["admission_id"])
@@ -1869,14 +2037,299 @@ def _packaged_readers() -> dict[str, dict[str, dict[str, Any]]]:
     }
 
 
-def _folder_formats(paths: Sequence[str]) -> list[str]:
-    """The packaged parser formats the folder's files map to, by extension."""
+def _file_types_present(root: Path, exclude: Sequence[str]) -> dict[str, Any]:
+    """File extensions under `root` (bounded scan), and the include globs for
+    the ones `add-source` reads. Used to explain an include that matched nothing."""
     from okg.substrate.library.sources.doc_corpus import DEFAULT_EXTENSION_TO_FORMAT
 
-    found = {
-        DEFAULT_EXTENSION_TO_FORMAT.get(PurePath(path).suffix.lower()) for path in paths
+    paths, truncated = _scan_folder(
+        root, include=["**/*"], exclude=exclude, limit=PREVIEW_SCAN_LIMIT,
+    )
+    by_type: dict[str, int] = {}
+    found_suffixes: set[str] = set()
+    for path in paths:
+        raw = PurePath(path).suffix
+        suffix = raw.lower() or "(no extension)"
+        by_type[suffix] = by_type.get(suffix, 0) + 1
+        if raw:
+            found_suffixes.add(raw)
+    packaged = set(_packaged_readers()["parser"])
+    # include globs match case-sensitively, so name each suffix as found
+    # (`**/*.PDF` for a folder of `.PDF` files).
+    readable = [
+        f"**/*{ext}" for ext in sorted(found_suffixes)
+        if DEFAULT_EXTENSION_TO_FORMAT.get(ext.lower()) in packaged
+    ]
+    top = sorted(by_type.items(), key=lambda kv: (-kv[1], kv[0]))[:8]
+    return {
+        "by_type": dict(top), "readable_globs": readable,
+        "is_lower_bound": truncated,
     }
+
+
+def _folder_formats(root: Path, paths: Sequence[str]) -> list[str]:
+    """The packaged parser formats the folder's files have, by extension or,
+    for an unmapped extension, by first bytes (as the reader decides)."""
+    found = {_file_format(root, path) for path in paths}
     return [fmt for fmt in _packaged_readers()["parser"] if fmt in found]
+
+
+#: Names an operator knows the parser formats by.
+_FORMAT_LABELS = {
+    "markdown": "Markdown", "text": "plain text", "json": "JSON", "yaml": "YAML",
+    "pdf": "PDF text",
+}
+
+
+def _extractors_document(path: Path) -> Optional[Mapping[str, Any]]:
+    """The deployment's extractors.yaml as a mapping, or None if absent or odd.
+
+    A file that is not valid YAML or not a mapping is refused by the reader
+    with its own error at import, so it adds no readers here.
+    """
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    return document if isinstance(document, Mapping) else None
+
+
+def _declared_parsers(document: Optional[Mapping[str, Any]]) -> set[str]:
+    """Formats the deployment's own extractors.yaml declares a parser for."""
+    formats: set[str] = set()
+    if document is None:
+        return formats
+    for key in ("parser", "parsers"):
+        value = document.get(key)
+        for entry in value if isinstance(value, list) else ():
+            name = entry.get("format") if isinstance(entry, Mapping) else None
+            if isinstance(name, str) and name.strip():
+                formats.add(name.strip())
+    return formats
+
+
+def _reader_change(
+    extractors_yaml: Path, formats: Sequence[str],
+) -> tuple[set[str], Optional[str]]:
+    """What the save step does about `formats`: the parser formats it adds
+    and its action (`write`, `add`, `warn`, or None when nothing changes).
+
+    `warn` means the file has a shape the save step leaves untouched, so it
+    adds nothing; the save step already warns about it.
+    """
+    planned = _plan_file_readers(extractors_yaml, formats)
+    if planned is None:
+        return set(), None
+    added = (
+        set(planned["missing"]["parser"])
+        if planned["action"] in ("write", "add") else set()
+    )
+    return added, str(planned["action"])
+
+
+def _file_format(root: Path, path: str) -> Optional[str]:
+    """The format the reader gives a file: by extension, else by first bytes."""
+    from okg.substrate.library.extraction.parse.dispatch import sniff_format
+    from okg.substrate.library.sources.doc_corpus import DEFAULT_EXTENSION_TO_FORMAT
+
+    fmt = DEFAULT_EXTENSION_TO_FORMAT.get(PurePath(path).suffix.lower())
+    if fmt is not None:
+        return fmt
+    try:
+        with open(root / path, "rb") as handle:
+            return sniff_format(handle.read(32))
+    except OSError:
+        return None
+
+
+def _unreadable_files(
+    root: Path, matched: Sequence[str], extractors_yaml: Path,
+    reader_formats: Sequence[str], *, lower_bound: bool,
+) -> dict[str, Any]:
+    """Count the matched files the deployment has no way to read.
+
+    Such a file still becomes a record, but one holding only its name, so
+    nothing in it is searchable. A file is readable when its format has a
+    parser the deployment declares or the save step will add for
+    `reader_formats` (the same list the save step uses). Images are readable
+    only when the deployment turns captioning on. Files are grouped by
+    extension. `fixable_by_hand` counts the unreadable files whose parser
+    the operator can add to a file the save step leaves unchanged.
+    """
+    from okg.substrate.library.sources.doc_corpus import (
+        DEFAULT_EXTENSION_TO_FORMAT,
+        IMAGE_EXTENSIONS,
+    )
+
+    document = _extractors_document(extractors_yaml)
+    captioning = document.get("captioning") if document is not None else None
+    captions_images = isinstance(captioning, Mapping) and bool(
+        captioning.get("enabled", False)
+    )
+    declared = _declared_parsers(document)
+    added, action = _reader_change(extractors_yaml, reader_formats)
+    parsers = declared | added
+    packaged = list(_packaged_readers()["parser"])
+    by_type: dict[str, int] = {}
+    fixable_by_hand = 0
+    for path in matched:
+        suffix = PurePath(path).suffix.lower()
+        fmt = _file_format(root, path)
+        if captions_images and suffix in IMAGE_EXTENSIONS and fmt is None:
+            continue
+        if fmt in parsers:
+            continue
+        if action == "warn" and fmt in packaged:
+            fixable_by_hand += 1
+        label = suffix or "(no extension)"
+        by_type[label] = by_type.get(label, 0) + 1
+    # "Read today": what this deployment reads, plus every packaged parser
+    # when the save step would add them.
+    addable, _ = _reader_change(extractors_yaml, packaged)
+    listed = declared | addable
+    readable = []
+    for fmt in [*packaged, *sorted(listed - set(packaged))]:
+        if fmt not in listed:
+            continue
+        exts = [e for e, f in DEFAULT_EXTENSION_TO_FORMAT.items() if f == fmt]
+        name = _FORMAT_LABELS.get(fmt, fmt)
+        readable.append(f"{name} ({', '.join(exts)})" if exts else name)
+    if captions_images:
+        readable.append(f"images, captioned ({', '.join(sorted(IMAGE_EXTENSIONS))})")
+    return {
+        "matched_count": len(matched),
+        "unreadable_count": sum(by_type.values()),
+        "files_by_type": dict(sorted(by_type.items())),
+        "readable_formats": readable,
+        "count_is_lower_bound": lower_bound,
+        "extractors_file_left_unchanged": action == "warn",
+        "fixable_by_hand_count": fixable_by_hand,
+    }
+
+
+def _unreadable_message(info: Mapping[str, Any], *, refusing: bool) -> str:
+    types = ", ".join(f"{k}: {v}" for k, v in info["files_by_type"].items())
+    more = "at least " if info["count_is_lower_bound"] else ""
+    if refusing:
+        head = (
+            f"none of the {info['matched_count']} matched files can be read "
+            f"({types}); each would import as a record holding only its file name"
+        )
+    else:
+        head = (
+            f"{info['unreadable_count']} of {more}{info['matched_count']} "
+            f"matched files cannot be read ({types}); each will import as a "
+            "record holding only its file name, with no searchable text"
+        )
+    return f"{head}. Read today: {'; '.join(info['readable_formats'])}"
+
+
+def _unreadable_fix_hint(info: Mapping[str, Any]) -> str:
+    hint = (
+        "narrow --setting include=... to files of a format read today, or "
+        "convert the others to Markdown or text first"
+    )
+    if ".pdf" in info["files_by_type"]:
+        hint += (
+            "; to read PDF text, add a `pdf` parser to the deployment's "
+            "extractors.yaml (see docs/use/sources/local-folder.md)"
+        )
+    return hint
+
+
+def _pdf_warnings(
+    root: Path, matched: Sequence[str], extractors_yaml: Path,
+    reader_formats: Sequence[str],
+) -> list[dict[str, Any]]:
+    """Warnings for matched PDFs the import would not turn into searchable text.
+
+    Two cases. A scanned PDF parses without error but yields empty text; a PDF
+    that will not open (damaged, encrypted) yields nothing either. A PDF over
+    the source's size cap is recorded as `oversize` with no text, and the
+    preview never reads it. Only PDFs the deployment will read are checked
+    (others are counted as unreadable files). The check opens at most
+    PDF_TEXT_CHECK_FILES PDFs and reads the first PDF_TEXT_CHECK_PAGES pages
+    of each, so on a large folder the counts are lower bounds.
+    """
+    from okg.substrate.library.extraction.parse.pdf_text import PdfTextParser
+    from okg.substrate.library.sources.doc_corpus import DocCorpusSource
+
+    document = _extractors_document(extractors_yaml)
+    added, _ = _reader_change(extractors_yaml, reader_formats)
+    if "pdf" not in (_declared_parsers(document) | added):
+        return []
+    pdfs = [p for p in matched if _file_format(root, p) == "pdf"]
+    if not pdfs:
+        return []
+    cap = DocCorpusSource.max_bytes_per_file
+    checked = 0
+    empty: list[str] = []
+    unopenable: dict[str, str] = {}
+    oversize: list[str] = []
+    for path in pdfs[:PDF_TEXT_CHECK_FILES]:
+        checked += 1
+        try:
+            size = (root / path).stat().st_size
+        except OSError as exc:
+            unopenable[path] = type(exc).__name__
+            continue
+        if size > cap:
+            oversize.append(path)  # never read: the import will not parse it
+            continue
+        try:
+            parsed = PdfTextParser().parse(
+                (root / path).read_bytes(), max_pdf_pages=PDF_TEXT_CHECK_PAGES,
+            )
+        except Exception as exc:  # noqa: BLE001 - a broken PDF is reported, not fatal
+            unopenable[path] = type(exc).__name__
+            continue
+        if "pdf_no_text_layer" in parsed.metadata.get("parse_warnings", ()):
+            empty.append(path)
+    is_lower_bound = len(pdfs) > checked
+    more = "at least " if is_lower_bound else ""
+    warnings: list[dict[str, Any]] = []
+    no_text = len(empty) + len(unopenable)
+    if no_text:
+        warnings.append({
+            "kind": "pdf_without_text",
+            "message": (
+                f"{more}{no_text} of {checked} PDFs checked have no readable "
+                f"text in their first {PDF_TEXT_CHECK_PAGES} pages (scanned "
+                "pages, or files that will not open); each may import as a "
+                "record with no searchable text"
+            ),
+            "fix_hint": (
+                "run OCR on scanned PDFs first (for example `ocrmypdf in.pdf "
+                "out.pdf`), then add the folder; `add-source` reads the text "
+                "layer only"
+            ),
+            "no_text_layer_count": no_text,
+            "pdfs_checked": checked,
+            "pdfs_matched": len(pdfs),
+            "count_is_lower_bound": is_lower_bound,
+            "example_files": [*empty, *unopenable][:10],
+            "unopenable_files": dict(list(unopenable.items())[:10]),
+        })
+    if oversize:
+        mib = cap // (1024 * 1024)
+        warnings.append({
+            "kind": "pdf_too_large",
+            "message": (
+                f"{more}{len(oversize)} of {checked} PDFs checked are over "
+                f"{mib} MiB; each will import as a record with no text and "
+                "an `oversize` warning"
+            ),
+            "fix_hint": (
+                f"split or compress those PDFs (files over {mib} MiB are "
+                "not read)"
+            ),
+            "oversize_count": len(oversize),
+            "max_bytes_per_file": cap,
+            "pdfs_checked": checked,
+            "count_is_lower_bound": is_lower_bound,
+            "example_files": oversize[:10],
+        })
+    return warnings
 
 
 def _plan_file_readers(
@@ -2459,6 +2912,11 @@ def _admission_cause(cause: str, registry_path: Path) -> str:
         reason = cause[len(_ADMISSION_REJECTED_PREFIX):]
         if _BARE_CODE_RE.fullmatch(reason):
             return cause
+        # `<code> (<detail>)`: a health rejection names the connector's own
+        # reason (#3927). Keep the code, redact the detail.
+        code, opened, detail = reason.partition(" (")
+        if opened and detail.endswith(")") and _BARE_CODE_RE.fullmatch(code):
+            return f"{_ADMISSION_REJECTED_PREFIX}{code}{opened}{redact_text(detail)}"
         return _ADMISSION_REJECTED_PREFIX + redact_text(reason)
     match = _DIAGNOSTIC_CODE_RE.match(cause)
     if match is None:
@@ -2478,6 +2936,8 @@ def _import_fix_hint(cause: str, registry_path: Path) -> str:
     timeout, an unreachable database), and telling the operator to edit a
     field the message never named sends them to the wrong file.
     """
+    if "producer_edge_endpoint_missing" in cause and "commit:" in cause:
+        return COMMIT_REPO_FIX_HINT
     if _DIAGNOSTIC_CODE_RE.match(cause) and " at /sources/" in cause:
         return (
             f"fix the field the cause names in {registry_path}, then "

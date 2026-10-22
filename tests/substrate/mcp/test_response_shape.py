@@ -229,20 +229,20 @@ def test_compaction_is_idempotent() -> None:
 
 # ── trusted pages state one `source_revision` (mcp-search-compact-results) ──
 #
-# The fixture copies the shape of a real `search` row served from the cms-kb
+# The fixture copies the shape of a real `search` row served from the example-kb
 # graph on 2026-09-28 (one trusted source, TWiki chunks). Every row repeated
 # the same 235-byte `source_revision`.
 
-_CMS_REVISION = {
+_EXAMPLE_REVISION = {
     "run_id": "253337af-6e30-5c65-9198-c4d9348d9a1e",
-    "eos_root": "/ceph/submit/data/user/p/pmlugato/cms-kb/twiki",
+    "eos_root": "/data/example-kb/twiki",
     "n_records": 15762,
     "content_hash": "2ac065c20c4fe2d3f89442dd05221ec063013b79f14050547e5c6081fa79e864",
 }
-_CMS_SOURCE = "lane-a-cmskb.twiki-eos"
+_EXAMPLE_SOURCE = "lane-a-examplekb.twiki-eos"
 
 
-def _cms_row(idx: int, *, trust: str = "trusted") -> dict:
+def _example_row(idx: int, *, trust: str = "trusted") -> dict:
     return {
         "node_id": f"chunk:{idx:016x}",
         "canonical_node_id": f"chunk:{idx:016x}",
@@ -252,14 +252,14 @@ def _cms_row(idx: int, *, trust: str = "trusted") -> dict:
         "method": "lexical",
         "match_kind": "lexical",
         "source_record_id": {"path": f"Topic{idx}.txt", "chunk_index": idx % 4},
-        "source_revision": dict(_CMS_REVISION),
+        "source_revision": dict(_EXAMPLE_REVISION),
         "rollup_best_chunk_id": None,
         "evidence_kind": "unknown",
         "evidence_kind_provenance": {
             "basis": "unclassified", "subtype": "document_chunk",
-            "source": _CMS_SOURCE,
+            "source": _EXAMPLE_SOURCE,
         },
-        "provenance": {"source": _CMS_SOURCE, "trust": trust},
+        "provenance": {"source": _EXAMPLE_SOURCE, "trust": trust},
         "source_family": None,
     }
 
@@ -269,9 +269,9 @@ def _wire_bytes(payload: dict) -> int:
 
 
 def test_trusted_page_states_source_revision_once_and_rebuilds_exactly() -> None:
-    page = _page([_cms_row(i) for i in range(10)])
+    page = _page([_example_row(i) for i in range(10)])
     out = compact_for_wire(page, {})
-    assert out["row_defaults"]["source_revision"] == _CMS_REVISION
+    assert out["row_defaults"]["source_revision"] == _EXAMPLE_REVISION
     assert all("source_revision" not in row for row in out["results"])
     # Citation identity stays on every row.
     for row, full in zip(out["results"], page["results"]):
@@ -281,36 +281,36 @@ def test_trusted_page_states_source_revision_once_and_rebuilds_exactly() -> None
     assert out["pinned_generation_id"] == "g1"
     # Reversible by rule 1: a missing row field takes the `row_defaults` value.
     rebuilt = [{**out["row_defaults"], **row} for row in out["results"]]
-    assert [row["source_revision"] for row in rebuilt] == [_CMS_REVISION] * 10
+    assert [row["source_revision"] for row in rebuilt] == [_EXAMPLE_REVISION] * 10
     # Before this change the ten-row page compacted to 8,716 bytes (10,860
     # uncompacted); stating the revision once brings it to 6,583.
     assert _wire_bytes(out) <= 7_000
 
 
 def test_one_untrusted_row_keeps_source_revision_on_every_row() -> None:
-    rows = [_cms_row(i) for i in range(9)] + [_cms_row(9, trust="untrusted")]
+    rows = [_example_row(i) for i in range(9)] + [_example_row(9, trust="untrusted")]
     out = compact_for_wire(_page(rows), {})
     assert "source_revision" not in out["row_defaults"]
-    assert all(row["source_revision"] == _CMS_REVISION for row in out["results"])
+    assert all(row["source_revision"] == _EXAMPLE_REVISION for row in out["results"])
 
 
 def test_a_missing_trust_label_or_differing_revision_hoists_nothing() -> None:
-    unlabeled = [_cms_row(i) for i in range(3)]
-    unlabeled[1] = {**unlabeled[1], "provenance": {"source": _CMS_SOURCE}}
+    unlabeled = [_example_row(i) for i in range(3)]
+    unlabeled[1] = {**unlabeled[1], "provenance": {"source": _EXAMPLE_SOURCE}}
     out = compact_for_wire(_page(unlabeled), {})
     assert all("source_revision" in row for row in out["results"])
-    differing = [_cms_row(i) for i in range(3)]
-    differing[2] = {**differing[2], "source_revision": {**_CMS_REVISION, "n_records": 1}}
+    differing = [_example_row(i) for i in range(3)]
+    differing[2] = {**differing[2], "source_revision": {**_EXAMPLE_REVISION, "n_records": 1}}
     out = compact_for_wire(_page(differing), {})
     assert "source_revision" not in out["row_defaults"]
     assert all("source_revision" in row for row in out["results"])
 
 
 def test_a_selected_source_revision_stays_on_every_trusted_row() -> None:
-    page = _page([_cms_row(i) for i in range(3)])
+    page = _page([_example_row(i) for i in range(3)])
     out = compact_for_wire(page, {"select": ["node_id", "source_revision"]})
     assert "source_revision" not in out.get("row_defaults", {})
-    assert all(row["source_revision"] == _CMS_REVISION for row in out["results"])
+    assert all(row["source_revision"] == _EXAMPLE_REVISION for row in out["results"])
 
 
 def test_mcp_search_resolves_an_omitted_limit_to_eight_cards(monkeypatch) -> None:

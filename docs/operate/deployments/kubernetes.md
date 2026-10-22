@@ -51,8 +51,8 @@ database-role initializer.
 - A `ReadWriteOnce` StorageClass, named explicitly: the chart refuses an
   empty class name rather than fall back to the cluster default.
 - The AKMON runtime and Postgres images in a registry reachable by the cluster.
-- A Postgres 17 target with TimescaleDB, `pg_textsearch`, `pgvector`, and
-  `pg_cron`. The included image is suitable for a first installation; use an
+- A Postgres 17 target with TimescaleDB, `pg_textsearch` and `pgvector`
+  (`pg_cron` is optional; the chart does not preload it). The included image is suitable for a first installation; use an
   operated Postgres service for a larger production deployment.
 
 Build locally:

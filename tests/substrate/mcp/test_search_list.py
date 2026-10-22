@@ -256,7 +256,9 @@ def test_published_matrix_refuses_unsupported_views_before_the_database(served, 
     assert report["list"] == {
         "method": "lexical", "rank_by": "records", "default_limit": 100,
         "maximum_limit": 100, "select_fields": ["node_id", "subtype", "handle", "parent"],
-        "grep": {"row_fields": ["node_id", "subtype", "matches", "first_match"]},
+        # PACT read-names-list-3666: the handle, and grep's default view.
+        "grep": {"row_fields": ["node_id", "subtype", "handle", "matches", "first_match"],
+                 "default_limit": 20, "default_view": True},
     }
     assert report["cards"] == {"default_limit": 8}  # read-reply-size-3666: was 10
     # The reference page's matrix is checked against VIEW_MATRIX in

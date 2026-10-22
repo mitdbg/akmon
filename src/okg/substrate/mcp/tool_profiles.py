@@ -42,6 +42,7 @@ from typing import Any
 from okg.substrate.errors import SubstrateError
 from okg.substrate.mcp.operators import (
     ALL_ADMITTED_TOOLS,
+    COMPOSITION_TOOLS,
     OPERATOR_TOOLS,
 )
 
@@ -532,6 +533,11 @@ def assert_narrowing_is_servable(
     requested_set = {str(t) for t in requested}
     registered_set = {str(t) for t in registered}
     missing = requested_set - registered_set
+    # `run` (#3666) is in the read surface (the `reader` profile, and any
+    # list built from OPERATOR_TOOLS), and a deployment whose declared
+    # `served` does not name it serves that surface without it, as that
+    # declaration says.
+    missing -= set(COMPOSITION_TOOLS)
     if not missing:
         return
 

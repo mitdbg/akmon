@@ -1241,16 +1241,26 @@ def test_runtime_worker_dispatch_passes_operator_mode(
     }
 
 
-def test_runtime_cli_owns_only_attested_supervised_exit(
+def test_runtime_cli_hard_exits_only_supervised_codes_recovery_and_seven(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Supervised mode hard-exits for the attested handoff and for code 7.
+
+    Operator mode and every other code return normally (issue #3861 added
+    code 7 to the supervised hard exits).
+    """
     from okg.substrate.cli import runtime
     from okg.substrate.runtime.recovery_handoff import (
         CONTROLLED_RECOVERY_EXIT_CODE,
     )
+    from okg.substrate.runtime.worker import WORKER_RECOVERY_UNATTESTED_EXIT_CODE
 
     exits: list[int] = []
     monkeypatch.setattr(runtime.os, "_exit", lambda code: exits.append(code))
+    # The code 7 path closes logging before exiting; keep pytest's handlers.
+    import logging
+
+    monkeypatch.setattr(logging, "shutdown", lambda *a, **k: None)
 
     assert runtime._complete_runtime_worker_process(
         CONTROLLED_RECOVERY_EXIT_CODE,
@@ -1264,7 +1274,18 @@ def test_runtime_cli_owns_only_attested_supervised_exit(
         operator=True,
     ) == CONTROLLED_RECOVERY_EXIT_CODE
     assert runtime._complete_runtime_worker_process(6, operator=False) == 6
+    # Code 7 in operator mode returns normally; only supervised mode exits.
+    assert runtime._complete_runtime_worker_process(
+        WORKER_RECOVERY_UNATTESTED_EXIT_CODE,
+        operator=True,
+    ) == WORKER_RECOVERY_UNATTESTED_EXIT_CODE
     assert exits == []
+
+    assert runtime._complete_runtime_worker_process(
+        WORKER_RECOVERY_UNATTESTED_EXIT_CODE,
+        operator=False,
+    ) == WORKER_RECOVERY_UNATTESTED_EXIT_CODE
+    assert exits == [WORKER_RECOVERY_UNATTESTED_EXIT_CODE]
 
 def test_supervised_shutdown_budget_fits_legacy_systemd_timeout() -> None:
     from okg.substrate.runtime.worker import (

@@ -119,6 +119,9 @@ _DEFINITION_KEYS = frozenset(
         # What the definition declares it did not ingest (PACT dataset-card):
         # a statement about the data, so it travels with the definition.
         "not_ingested",
+        # The record attribute a reader cites (PACT read-names-list-3666): a
+        # statement about the data's records, like `not_ingested`.
+        "citation_attr",
     }
 )
 
@@ -254,6 +257,10 @@ class EndpointResource:
     host: str
     port: int
     enabled: bool = True
+    #: ``ui`` only (issue #3278): NAME of the environment variable holding the
+    #: read-API token. The supervised viz gets ``--auth-token-env <name>``, and
+    #: the readiness probe sends the same token as a Bearer credential.
+    auth_token_env: str | None = None
 
 
 @dataclass(frozen=True)
@@ -404,6 +411,11 @@ class DeploymentEnvironment:
                 "service": self.ui.service,
                 "host": self.ui.host,
                 "port": self.ui.port,
+                **(
+                    {"auth_token_env": self.ui.auth_token_env}
+                    if self.ui.auth_token_env
+                    else {}
+                ),
             },
             "webhook": {
                 "enabled": self.webhook.enabled,
@@ -603,6 +615,19 @@ def load_environment(
         descriptor_path=descriptor_path,
         field="webhook",
     )
+    # The token reaches the supervised UI only through the service env file,
+    # which carries exactly the declared credential references. Refuse a name
+    # nothing would supply, instead of starting a UI that cannot read it.
+    if (
+        ui.auth_token_env is not None
+        and f"env:{ui.auth_token_env}"
+        not in runtime.credential_refs.get(ui.service, ())
+    ):
+        raise DeploymentConfigError(
+            f"{descriptor_path} ui.auth_token_env {ui.auth_token_env!r} must "
+            f"also be declared as env:{ui.auth_token_env} under "
+            f"runtime.credential_refs for service {ui.service!r}"
+        )
     mcp = _parse_mcp(
         _mapping(raw, "mcp", path=descriptor_path),
         descriptor_path=descriptor_path,
@@ -1517,20 +1542,34 @@ def _parse_endpoint(
     descriptor_path: Path,
     field: str,
 ) -> EndpointResource:
+    keys = {"enabled", "service", "host", "port"}
+    if field == "ui":
+        keys.add("auth_token_env")
     _reject_unknown(
         raw,
-        frozenset({"enabled", "service", "host", "port"}),
+        frozenset(keys),
         path=descriptor_path,
         field=field,
     )
     enabled = raw.get("enabled", True)
     if not isinstance(enabled, bool):
         raise DeploymentConfigError(f"{descriptor_path} {field}.enabled must be boolean")
+    auth_token_env: str | None = None
+    if "auth_token_env" in raw:
+        auth_token_env = _required_string(
+            raw, "auth_token_env", path=descriptor_path,
+        )
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", auth_token_env) is None:
+            raise DeploymentConfigError(
+                f"{descriptor_path} {field}.auth_token_env must be an "
+                "environment variable NAME, never the token value"
+            )
     return EndpointResource(
         service=_required_string(raw, "service", path=descriptor_path),
         host=_required_string(raw, "host", path=descriptor_path),
         port=_port(raw, "port", path=descriptor_path),
         enabled=enabled,
+        auth_token_env=auth_token_env,
     )
 
 

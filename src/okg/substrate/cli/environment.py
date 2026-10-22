@@ -704,6 +704,7 @@ def _cmd_environment_service(
         install_environment_services,
         reconcile_environment_database_credentials,
         render_environment_services,
+        require_ui_token_for_sensitive_deployment,
         write_environment_service_supervision_evidence,
     )
 
@@ -726,6 +727,11 @@ def _cmd_environment_service(
         _emit_service(payload, as_json=as_json)
         return 1
 
+    if action in {"install", "start", "restart"}:
+        # Only the verbs that install or start the UI need its read token.
+        # render, stop, logs and status stay usable on a misconfigured
+        # environment so an operator can inspect and stop it.
+        require_ui_token_for_sensitive_deployment(target)
     plan = render_environment_services(
         target,
         adapter=str(args.adapter),

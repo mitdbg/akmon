@@ -29,10 +29,12 @@ from okg.substrate.mcp.effective_surface import (
     parse_agent_surface,
     registered_tools_for_launch,
 )
-from okg.substrate.mcp.operators import OPERATOR_TOOLS, WRITE_ADMIN_TOOLS
+from okg.substrate.mcp.operators import COMPOSITION_TOOLS, OPERATOR_TOOLS, WRITE_ADMIN_TOOLS
 
-READ_SEVEN = sorted(OPERATOR_TOOLS)
-ALL_EIGHTEEN = sorted(set(OPERATOR_TOOLS) | set(WRITE_ADMIN_TOOLS))
+# `run` (read-sets-run-3666) is served where a deployment names it; the
+# workspace manifest these tests read does not yet.
+READ_SEVEN = sorted(set(OPERATOR_TOOLS) - set(COMPOSITION_TOOLS))
+ALL_EIGHTEEN = sorted(set(READ_SEVEN) | set(WRITE_ADMIN_TOOLS))
 CHAT_SIX = ["inspect", "search", "expand", "filter", "map", "aggregate"]
 READ_SIX_NO_QUERY = [t for t in READ_SEVEN if t != "query"]
 
@@ -103,7 +105,7 @@ def test_the_expected_set_is_the_shared_function_registration_uses() -> None:
     answers drift — which is the whole subject of this change."""
     assert registered_tools_for_launch(
         ALL_EIGHTEEN, allow_writes=False,
-    ) == frozenset(OPERATOR_TOOLS)
+    ) == frozenset(READ_SEVEN)
     assert registered_tools_for_launch(
         ALL_EIGHTEEN, allow_writes=True,
     ) == frozenset(ALL_EIGHTEEN)

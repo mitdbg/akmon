@@ -15,13 +15,24 @@ from __future__ import annotations
 from okg.substrate import fastyaml
 from okg.substrate.cli._output import command_output_tail
 from okg.substrate.cli.child_argv import running_okg_argv
+from okg.substrate.cli.install_summary import (
+    actionable_warnings,
+    agent_failure_line,
+    deployments_env_prefix,
+    render_install_summary,
+    warning_fix,
+    warning_line,
+)
 from okg.substrate.support.user_hints import doc_reference
 
 import argparse
+import contextlib
 import json
+import logging
 import os
 import shlex
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -932,7 +943,13 @@ def _cmd_init_from_profile(
     # Compose catalog to surface skipped-extends as a YELLOW
     # diagnostic (init still succeeds). We do this even when
     # --no-publish is supplied; the diagnostic is cheap.
+    verbose = bool(getattr(args, "verbose", False))
     warnings: list[dict[str, str]] = []
+    # The warning for the stage that stopped the install. The fatal summary
+    # below states the same cause in order, so the short text leaves this
+    # one out: its message carries the failed command's stderr tail, which
+    # is a screen of log lines (#3928). `--verbose` and `--json` keep it.
+    stage_failure_warning: dict[str, str] | None = None
     skipped_extends: list[dict[str, str]] = []
     try:
         from okg.substrate.catalog.composition import resolve as _resolve
@@ -970,6 +987,7 @@ def _cmd_init_from_profile(
             # Issue #3414: a profile with no source defaults (the minimal
             # starter) renders an empty registry by design.
             empty_registry_expected=not plan.source_defaults,
+            quiet_notices=not verbose and not as_json,
         )
         payload["publish"] = publish_outcome
         # Decision 23a: a first publish whose lock hold passed the capacity
@@ -1001,10 +1019,11 @@ def _cmd_init_from_profile(
                 "publish": "first_publish_failed",
                 "publish_proof": "first_publish_empty",
             }
-            warnings.append({
+            stage_failure_warning = {
                 "code": stage_codes.get(stage, "first_publish_failed"),
                 "message": publish_outcome.get("message", ""),
-            })
+            }
+            warnings.append(stage_failure_warning)
             payload["failed_stage"] = stage
             # A stage that classified its own fix (e.g. the literal
             # createdb command for a missing database) wins over the
@@ -1024,16 +1043,16 @@ def _cmd_init_from_profile(
     if warnings:
         payload["warnings"] = warnings
         if not as_json:
-            for w in warnings:
-                msg = w.get("message") or (
-                    f"{w.get('source_module', '')} -> "
-                    f"{w.get('target_module', '')}: "
-                    f"{w.get('reason', '')}"
-                )
-                print(
-                    f"WARN [{w['code']}]: {msg}",
-                    file=sys.stderr,
-                )
+            # The short text lists only warnings the user must act on;
+            # `--verbose` lists them all. `--json` carries all of them.
+            shown = warnings if verbose else actionable_warnings(warnings)
+            for w in shown:
+                if w is stage_failure_warning and not verbose:
+                    continue
+                print(warning_line(w), file=sys.stderr)
+                fix = warning_fix(w, deployment_name)
+                if fix is not None:
+                    print(fix, file=sys.stderr)
 
     next_commands: list[str] = []
     if explicit_root:
@@ -1059,13 +1078,26 @@ def _cmd_init_from_profile(
         next_commands.insert(
             1 if explicit_root else 0, add_source_next_step(deployment_name),
         )
-        if not as_json:
+        if not as_json and verbose:
+            # The short summary says this itself, with the same command.
             print(
                 "No source is runnable yet, so the first ingest was skipped "
                 "and an empty graph was published. Add a source with: "
                 f"{add_source_next_step(deployment_name)}",
                 file=sys.stderr,
             )
+    stale_claim = (
+        ((payload.get("publish") or {}).get("details") or {})
+        .get("ingest_failure") or {}
+    ).get("code") in _OWNERSHIP_DRIFT_CODES
+    if stale_claim:
+        # The publish was refused for a stale claim (#3966): the run command
+        # below fails the same way until the operator claims the new files.
+        run_at = next(
+            i for i, command in enumerate(next_commands)
+            if command.startswith("okg run --once")
+        )
+        next_commands.insert(run_at, _claim_command(result.deployment_dir))
     payload["next"] = next_commands
     if not fatal_failure:
         # PACT agent-connect-3412: connect the agents present, read-only;
@@ -1094,7 +1126,14 @@ def _cmd_init_from_profile(
             if command not in payload["next"]:
                 payload["next"].append(command)
         if not as_json:
-            print(agents_step["message"], file=sys.stderr)
+            if verbose:
+                print(agents_step["message"], file=sys.stderr)
+            else:
+                # The summary names the connect command; a refusal needs
+                # its own line because it carries the fix.
+                failure = agent_failure_line(agents_step)
+                if failure is not None:
+                    print(failure, file=sys.stderr)
     if fatal_failure:
         # Emit the payload so the operator sees the diagnostic, then
         # propagate a non-zero exit so wrappers (notably `okg install`)
@@ -1104,6 +1143,15 @@ def _cmd_init_from_profile(
         else:
             _print_fatal_install_summary(payload)
         return 1
+    if not as_json and not verbose:
+        print(render_install_summary(
+            payload,
+            agents_step=payload.get("agents"),
+            env_prefix=deployments_env_prefix(
+                deployments_root, explicit=bool(explicit_root),
+            ),
+        ))
+        return 0
     if not as_json and "agents" in payload:
         # The agent step's message already went to stderr above; rendering
         # the same block again in the summary printed every "not connected"
@@ -1179,8 +1227,15 @@ def _run_init_migrate_and_publish(
     deployment_dir: Path,
     answers: dict[str, Any],
     empty_registry_expected: bool = False,
+    quiet_notices: bool = False,
 ) -> dict[str, Any]:
     """Best-effort: migrate, ingest, and publish the deployment.
+
+    ``quiet_notices`` drops the migrate step's one informational log line
+    about a multi-phase migration that this same migrate call then runs
+    (#3891). The line asks the reader for nothing; if the migration did not
+    finish, migrate fails here and `okg doctor` reports it as
+    ``multiphase_migration_pending``.
 
     ``empty_registry_expected`` is True only for a profile that declares no
     source defaults (issue #3414, the minimal starter): its empty registry
@@ -1254,7 +1309,8 @@ def _run_init_migrate_and_publish(
         # (dogfood F-4a). The deployment_name kwarg lets the
         # migrate routine pick up any deployment-side views.sql.
         os.environ["OKG_DEPLOYMENTS_DIR"] = str(deployments_root)
-        migrate(dsn, deployment_name=deployment_name)
+        with _migrate_notices(quiet=quiet_notices):
+            migrate(dsn, deployment_name=deployment_name)
         details["migrate"] = "ok"
         details["deployments_root"] = str(deployments_root)
     except Exception as e:  # noqa: BLE001
@@ -1429,19 +1485,48 @@ def _run_init_migrate_and_publish(
                         )
                         + f"\n{stderr_tail}"
                     )
-                else:
-                    # No per-source failure in a readable report (the
-                    # command refused before running sources, or printed no
-                    # report): both raw streams are all there is.
-                    message = (
-                        f"ingest failed: {command_output_tail(ingest_proc)}"
+                    others = ingest_other_sources_message(ingest_proc.stdout)
+                    if others:
+                        details["other_sources"] = others
+                    ingest_fix = _ingest_failure_fix(
+                        deployment_name,
+                        [item["source"] for item in failed_sources],
                     )
-                return {
+                else:
+                    # No failed source. Every source can have run and the
+                    # command still exit 1: its final publish failed or was
+                    # blocked, or it refused before running (an error
+                    # envelope). Name that cause before falling back to the
+                    # raw streams.
+                    ingest_fix = None
+                    cause = ingest_publish_failure(
+                        ingest_proc.stdout, ingest_proc.stderr,
+                    )
+                    if cause is not None:
+                        details["ingest_failure"] = cause
+                        code = f" [{cause['code']}]" if cause.get("code") else ""
+                        message = f"ingest failed: {cause['message']}{code}"
+                        ingest_fix = cause.get("fix_hint")
+                        if cause.get("code") in _OWNERSHIP_DRIFT_CODES:
+                            ingest_fix = _ownership_drift_fix(
+                                deployment_name, deployment_dir,
+                            )
+                    else:
+                        # Neither a report nor an envelope: both raw
+                        # streams are all there is.
+                        message = (
+                            "ingest failed: "
+                            f"{command_output_tail(ingest_proc)}"
+                        )
+                outcome: dict[str, Any] = {
                     "ok": False,
                     "stage": "ingest",
                     "message": message,
                     "details": details,
                 }
+                if ingest_fix:
+                    outcome["fix_hint"] = ingest_fix
+                return outcome
         else:
             details["ingest"] = {
                 "skipped": True,
@@ -1584,6 +1669,34 @@ def _run_init_migrate_and_publish(
     return {"ok": True, "message": "first publish complete", "details": details}
 
 
+@contextlib.contextmanager
+def _migrate_notices(*, quiet: bool) -> Iterator[None]:
+    """Hold back migrate's multi-phase notice while ``quiet`` is true.
+
+    Only that one message is dropped; every other log record from the
+    migrate module, warnings and errors included, still prints.
+    """
+    if not quiet:
+        yield
+        return
+
+    class _MultiphaseNotice(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return not (
+                record.levelno == logging.WARNING
+                and record.getMessage().startswith("migrate: ")
+                and "declared multi-phase migration(s) deferred" in record.getMessage()
+            )
+
+    notice_filter = _MultiphaseNotice()
+    migrate_log = logging.getLogger("okg.substrate.db.migrate")
+    migrate_log.addFilter(notice_filter)
+    try:
+        yield
+    finally:
+        migrate_log.removeFilter(notice_filter)
+
+
 def _run_once_outcome(proc: Any) -> dict[str, Any]:
     """The outcome and version `okg run --once --json` reported.
 
@@ -1636,13 +1749,8 @@ def _deployment_published_generation(
     return None if latest is None else latest.checkpoint_id
 
 
-def ingest_failed_sources(stdout: str | None) -> list[dict[str, str]]:
-    """Each failed source in an ``okg ingest --json`` report on ``stdout``.
-
-    A result whose status is not ``OK`` is a failure, the rule the ingest
-    service itself uses. Returns an empty list when ``stdout`` holds no
-    report with results (for example, the command refused before it ran a
-    source and wrote its error to stderr).
+def _ingest_reports(stdout: str | None) -> list[dict[str, Any]]:
+    """Each ingest report in the ``okg ingest --json`` output on ``stdout``.
 
     Two report shapes exist. The inline path prints the ingest report
     itself, with ``results`` at the top. With the runtime on, the queued
@@ -1670,12 +1778,22 @@ def ingest_failed_sources(stdout: str | None) -> list[dict[str, str]]:
         ]
     else:
         reports = [payload.get("report")]
+    return [
+        report for report in reports
+        if isinstance(report, dict) and isinstance(report.get("results"), list)
+    ]
+
+
+def ingest_failed_sources(stdout: str | None) -> list[dict[str, str]]:
+    """Each failed source in an ``okg ingest --json`` report on ``stdout``.
+
+    A result whose status is not ``OK`` is a failure, the rule the ingest
+    service itself uses. Returns an empty list when ``stdout`` holds no
+    report with results (for example, the command refused before it ran a
+    source and wrote its error to stderr).
+    """
     failed: list[dict[str, str]] = []
-    for report in reports:
-        if not isinstance(report, dict) or not isinstance(
-            report.get("results"), list,
-        ):
-            continue
+    for report in _ingest_reports(stdout):
         for item in report["results"]:
             if not isinstance(item, dict) or item.get("status") == "OK":
                 continue
@@ -1687,6 +1805,129 @@ def ingest_failed_sources(stdout: str | None) -> list[dict[str, str]]:
                 "error": str(item.get("error") or "no error was recorded"),
             })
     return failed
+
+
+def ingest_other_sources_message(stdout: str | None) -> str | None:
+    """What happened to the other sources, from an ``okg ingest --json`` report.
+
+    The ingest report carries it under ``other_sources`` when a source failed
+    (#3927). Returns None when no report has it.
+    """
+    from okg.substrate.ingest.failure_followup import REPORT_KEY
+
+    messages = [
+        str(report[REPORT_KEY]["message"])
+        for report in _ingest_reports(stdout)
+        if isinstance(report.get(REPORT_KEY), dict)
+        and report[REPORT_KEY].get("message")
+    ]
+    return messages[-1] if messages else None
+
+
+def ingest_publish_failure(
+    stdout: str | None, stderr: str | None,
+) -> dict[str, str] | None:
+    """Why `okg ingest --json` exited 1 when no source failed, or None.
+
+    First the report's own publishes: a failed or blocked publish carries the
+    error, its code and a fix. Then the error envelope the command prints on
+    stderr when it refuses before running a source. None when neither is
+    there (the caller then shows the raw streams).
+    """
+    from okg.substrate.cli.run_summary import _blocked_detail
+    from okg.substrate.publish_outcome import BLOCKED, FAILED, classify_publish
+
+    for report in reversed(_ingest_reports(stdout)):
+        for entry in reversed(report.get("publishes") or []):
+            if not isinstance(entry, dict):
+                continue
+            outcome = classify_publish(entry)
+            if outcome.kind == FAILED:
+                found = {
+                    "message": "the final publish failed: "
+                    + str(entry.get("error") or outcome.reason
+                          or "no error was recorded"),
+                }
+            elif outcome.kind == BLOCKED:
+                found = {
+                    "message": "the final publish was blocked: "
+                    + _blocked_detail(
+                        entry.get("blocked_reason") or entry.get("reason"),
+                    ),
+                }
+            else:
+                continue
+            if entry.get("code"):
+                found["code"] = str(entry["code"])
+            if outcome.fix_hint:
+                found["fix_hint"] = outcome.fix_hint
+            return found
+    for text in (stderr, stdout):
+        for line in reversed((text or "").strip().splitlines()[-200:]):
+            try:
+                payload = json.loads(line)
+            except ValueError:
+                continue
+            error = payload.get("error") if isinstance(payload, dict) else None
+            if isinstance(error, dict) and error.get("message"):
+                found = {"message": str(error["message"])}
+                if error.get("code"):
+                    found["code"] = str(error["code"])
+                if error.get("fix_hint"):
+                    found["fix_hint"] = str(error["fix_hint"])
+                return found
+    return None
+
+
+# Publish refusals that mean the database still holds the identity claimed
+# before `--force` rewrote the deployment files (#3966).
+_OWNERSHIP_DRIFT_CODES = frozenset({
+    "catalog_manifest_drifted",
+    "catalog_applied_version_absent",
+})
+
+
+def _claim_command(deployment_dir: Path) -> str:
+    return (
+        "okg catalog ownership claim --deployment "
+        f"{shlex.quote(str(deployment_dir))}"
+    )
+
+
+def _run_once_command(deployment_name: str) -> str:
+    return (
+        f"okg run --once --deployment {shlex.quote(deployment_name)} --apply"
+    )
+
+
+def _ownership_drift_fix(deployment_name: str, deployment_dir: Path) -> str:
+    """The recovery text for a publish refused because the claim is stale.
+
+    The install never claims ownership itself: a claim changes who may
+    publish to this database, so the operator runs it. The wording holds
+    whether or not an earlier publish in the same run succeeded.
+    """
+    return (
+        "the final publish was refused (the deployment files drifted from "
+        "the identity this database claimed; `--force` rewrites them); "
+        "`okg status` shows what was published. If the new files are the "
+        f"ones this database should publish, run `{_claim_command(deployment_dir)}`"
+        f", then `{_run_once_command(deployment_name)}`"
+    )
+
+
+def _ingest_failure_fix(deployment_name: str, sources: list[str]) -> str:
+    """The line that tells the reader how to go on after a failed ingest."""
+    ingest = f"okg ingest --deployment {deployment_name}"
+    return (
+        "the install stopped at ingest, so its remaining steps (the first "
+        "publish check and the agent connection) did not run. Fix the "
+        f"failed source above, then run `{ingest}` and "
+        f"`okg run --once --deployment {deployment_name} --apply`; or leave "
+        f"it out for one run with `{ingest} --exclude {','.join(sources)}`. "
+        "To redo the whole install afterwards, run `okg install` again "
+        "with `--force --yes`"
+    )
 
 
 def _failed_source_line(item: Mapping[str, str]) -> str:
@@ -1706,6 +1947,8 @@ def _print_fatal_install_summary(payload: Mapping[str, Any]) -> None:
     failed_sources = details.get("failed_sources") or []
     if failed_sources:
         lines.extend(f"  {_failed_source_line(item)}" for item in failed_sources)
+        if details.get("other_sources"):
+            lines.append(f"  {details['other_sources']}")
     elif publish.get("message"):
         lines.append(f"  {publish['message']}")
     if payload.get("fix_hint"):

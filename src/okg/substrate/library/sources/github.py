@@ -154,6 +154,13 @@ class GitHubSource:
     #: None a payload carrying merge shas RAISES rather than silently
     #: dropping the join (the whole point of the field).
     commit_repo: Optional[str] = None
+    #: Explicit opt-out of the merge link. True (default) keeps the strict
+    #: rule above. False means the caller KNOWS no commit_repo exists (the
+    #: guided add flow, where the user left the setting empty) and accepts
+    #: merged pull requests WITHOUT `merged_as`; the caller owns telling the
+    #: user. Setting it together with commit_repo is a contradiction and
+    #: raises.
+    link_merge_commits: bool = True
     #: Live mode only. Fetching every comment in a repository is a large
     #: crawl, so it is opt-in; an existing deployment keeps its current
     #: single-endpoint cost until it asks for the discussion. Fixture mode
@@ -824,6 +831,15 @@ class GitHubSource:
         """`pull_request -merged_as-> git_commit` from the payload's merge
         sha. SOURCE-CARRIED, so it is emitted here rather than derived —
         the umbrella's ordering rule."""
+        if not self.link_merge_commits:
+            if self.commit_repo:
+                raise ForgeDiscussionError(
+                    "link_merge_commits is off but commit_repo is set; "
+                    "pick one",
+                    data={"adapter": self.name, "repo": repo},
+                    fix_hint="unset commit_repo, or leave link_merge_commits on",
+                )
+            return
         rows = self._payload_block(payload, "pulls")
         merged_rows = [
             row for row in rows
@@ -897,6 +913,8 @@ class GitHubSource:
                     "attaches to nothing"
                 ),
             )
+        if not self.link_merge_commits:
+            return
         merged_in = sum(
             1 for row in self._payload_block(payload, "pulls")
             if row.get("merged_at") and row.get("merge_commit_sha")

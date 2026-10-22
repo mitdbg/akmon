@@ -14,7 +14,8 @@ is compiled from what the server can run:
   optional ``[[else]]...``; blocks nest. COND is one or more space-separated
   terms, all of which must hold: ``tool:a|b`` (any of these tools is served),
   ``kind:a|b`` (any of these `inspect` kinds is served), ``live`` (the
-  deployment declares a live relation).
+  deployment declares a live relation), ``run_live`` (``live``, and the
+  operator has not turned `run`'s live steps off).
 - ``[[tools a/b/c]]`` renders the served names among a, b, c, joined by ``/``.
 - ``[[subtype]]`` renders `aggregate`'s example subtype: one of the
   deployment's own catalog subtypes (`example_subtype_for`).
@@ -62,12 +63,15 @@ class ToolProseInvalid(SubstrateError):
 
 def _holds(
     cond: str, *, tools: frozenset[str], kinds: frozenset[str], live: bool,
+    run_live: bool = True,
 ) -> bool:
     terms = cond.split()
     if not terms:
         raise ToolProseInvalid("an [[if]] block names no condition")
     for term in terms:
-        if term == "live":
+        if term == "run_live":
+            ok = live and run_live
+        elif term == "live":
             ok = live
         elif term.startswith("tool:"):
             names = term[len("tool:"):].split("|")
@@ -85,7 +89,7 @@ def _holds(
             ok = any(n in kinds for n in names)
         else:
             raise ToolProseInvalid(
-                f"[[if {cond}]]: unknown term {term!r}; use tool:, kind: or live"
+                f"[[if {cond}]]: unknown term {term!r}; use tool:, kind:, live or run_live"
             )
         if not ok:
             return False
@@ -99,6 +103,7 @@ def render_tool_prose(
     kinds: Iterable[str],
     live: bool,
     example_subtype: str,
+    run_live: bool = True,
 ) -> str:
     """Render one description's surface markup for the served sets."""
     served_tools = frozenset(str(t) for t in tools)
@@ -119,7 +124,10 @@ def render_tool_prose(
         if body.startswith("if "):
             parent = keeping()
             stack.append([
-                _holds(body[3:], tools=served_tools, kinds=served_kinds, live=live),
+                _holds(
+                    body[3:], tools=served_tools, kinds=served_kinds,
+                    live=live, run_live=run_live,
+                ),
                 parent,
                 False,
             ])
@@ -164,6 +172,7 @@ def publish_surface_descriptions(
     kinds: Iterable[str],
     live: bool,
     example_subtype: str,
+    run_live: bool = True,
 ) -> None:
     """Render every registered tool's description for this surface.
 
@@ -192,7 +201,7 @@ def publish_surface_descriptions(
         try:
             tool.description = render_tool_prose(
                 description, tools=tools, kinds=kinds, live=live,
-                example_subtype=example_subtype,
+                example_subtype=example_subtype, run_live=run_live,
             )
         except ToolProseInvalid as exc:
             raise ToolProseInvalid(f"tool {name!r}: {exc}") from exc

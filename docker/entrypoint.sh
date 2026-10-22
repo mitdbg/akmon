@@ -68,8 +68,8 @@ fi
 
 # A published-generation DSN is required. Accept the generic OKG_DSN or the
 # deployment's own DSN env, whose name deployment.yaml conventionally derives
-# from the deployment name (cms -> CMS_DSN, atlas -> ATLAS_DSN, ...). Deriving
-# it keeps this gate deployment-agnostic instead of hardcoding CMS_DSN.
+# from the deployment name (example -> EXAMPLE_DSN, atlas -> ATLAS_DSN, ...). Deriving
+# it keeps this gate deployment-agnostic instead of hardcoding one deployment name.
 _dsn_var="${_dep_stem}_DSN"
 if [[ -z "${OKG_DSN:-}" && -z "${!_dsn_var:-}" ]]; then
   echo "[entrypoint] ERROR: no DSN set. Provide OKG_DSN or ${_dsn_var}" \

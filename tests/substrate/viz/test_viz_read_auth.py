@@ -330,3 +330,186 @@ def test_launcher_passes_the_resolved_token_to_the_app(
     # The banner names the variable, never the value.
     assert "$OKG_TEST_VIZ_READ_TOKEN" in out.err
     assert _TOKEN not in out.err + out.out
+
+
+# ---- follow-ups (issue #3278): sensitive deployments, mount_viz ----
+
+_SENSITIVE_MODES = ("audit", "enforce")
+
+
+def _deployments_root(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, name: str, nomos: str,
+) -> None:
+    """One deployment under a private OKG_DEPLOYMENTS_DIR with a nomos block."""
+    root = tmp_path / "deployments"
+    (root / name).mkdir(parents=True)
+    (root / name / "deployment.yaml").write_text(
+        f"name: {name}\n{nomos}", encoding="utf-8"
+    )
+    monkeypatch.setenv("OKG_DEPLOYMENTS_DIR", str(root))
+    monkeypatch.delenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", raising=False)
+
+
+@pytest.mark.parametrize("mode", _SENSITIVE_MODES)
+def test_sensitive_deployment_refuses_an_unauthenticated_start_on_loopback(
+    mode: str, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _deployments_root(
+        tmp_path, monkeypatch, "sens-dep", f"nomos:\n  runtime_enforcement: {mode}\n"
+    )
+    with pytest.raises(SubstrateError) as info:
+        viz_auth.require_read_auth_for_sensitive_deployment(
+            "sens-dep", None, surface="okg.viz"
+        )
+    assert "--auth-token-env" in str(info.value)
+    assert "sens-dep" in str(info.value)
+    # The refusal carries its registered code (docs/reference/error_codes.yaml).
+    assert info.value.code == "viz_read_auth_required"
+    assert info.value.data["reason"] == "sensitive_deployment"
+    # With a token the same deployment starts.
+    viz_auth.require_read_auth_for_sensitive_deployment(
+        "sens-dep", _TOKEN, surface="okg.viz"
+    )
+
+
+def test_deployment_without_nomos_enforcement_starts_unauthenticated(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _deployments_root(
+        tmp_path, monkeypatch, "plain-dep", "nomos:\n  runtime_enforcement: off\n"
+    )
+    viz_auth.require_read_auth_for_sensitive_deployment(
+        "plain-dep", None, surface="okg.viz"
+    )
+
+
+def test_kill_switch_override_does_not_remove_the_token_requirement(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The requirement follows the manifest's mode, not the env override
+    (Jason decision 29, pending); one warning names the variable."""
+    import logging
+
+    import okg.substrate.nomos.runtime_enforcement as enforcement
+
+    _deployments_root(
+        tmp_path, monkeypatch, "sens-dep", "nomos:\n  runtime_enforcement: enforce\n"
+    )
+    monkeypatch.setenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", "off")
+    monkeypatch.setattr(enforcement, "_READ_AUTH_OVERRIDE_WARNED", False)
+    with caplog.at_level(logging.WARNING, logger=enforcement.__name__):
+        for _ in range(2):
+            with pytest.raises(SubstrateError) as info:
+                viz_auth.require_read_auth_for_sensitive_deployment(
+                    "sens-dep", None, surface="okg.viz"
+                )
+            assert info.value.code == "viz_read_auth_required"
+    warnings = [
+        r for r in caplog.records if "OKG_NOMOS_RUNTIME_ENFORCEMENT" in r.getMessage()
+    ]
+    assert len(warnings) == 1
+    # A token still starts it.
+    viz_auth.require_read_auth_for_sensitive_deployment(
+        "sens-dep", _TOKEN, surface="okg.viz"
+    )
+
+
+def test_override_cannot_make_a_manifest_off_deployment_sensitive(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _deployments_root(
+        tmp_path, monkeypatch, "plain-dep", "nomos:\n  runtime_enforcement: off\n"
+    )
+    monkeypatch.setenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", "enforce")
+    viz_auth.require_read_auth_for_sensitive_deployment(
+        "plain-dep", None, surface="okg.viz"
+    )
+
+
+def test_unreadable_manifest_refuses_instead_of_assuming_not_sensitive(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _deployments_root(tmp_path, monkeypatch, "bad-dep", "nomos: [unclosed\n")
+    with pytest.raises(SubstrateError) as info:
+        viz_auth.require_read_auth_for_sensitive_deployment(
+            "bad-dep", None, surface="okg.viz"
+        )
+    assert "cannot tell" in str(info.value)
+    assert info.value.code == "viz_read_auth_required"
+    assert info.value.data["reason"] == "sensitivity_unknown"
+
+
+def test_launcher_refuses_a_sensitive_deployment_before_any_load(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from okg.viz import __main__ as viz_main
+
+    seen = _patch_launcher(monkeypatch)
+    _deployments_root(
+        tmp_path, monkeypatch, "sens-dep", "nomos:\n  runtime_enforcement: enforce\n"
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        ["okg.viz", "--dsn", "postgresql://fake/okg", "--deployment", "sens-dep"],
+    )
+    assert viz_main.main() == 1
+    assert "--auth-token-env" in capsys.readouterr().err
+    assert seen["preload"] == 0
+    assert seen["run"] == 0
+
+    # The same deployment starts once a token is configured.
+    monkeypatch.setenv("OKG_TEST_VIZ_READ_TOKEN", _TOKEN)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["okg.viz", "--dsn", "postgresql://fake/okg", "--deployment", "sens-dep",
+         "--auth-token-env", "OKG_TEST_VIZ_READ_TOKEN"],
+    )
+    assert viz_main.main() == 0
+    assert seen["run"] == 1
+
+
+def test_mount_viz_refuses_a_network_host_without_a_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import uvicorn
+
+    from okg.viz.app import mount_viz
+
+    started: list[Any] = []
+    monkeypatch.setattr(uvicorn, "Server", lambda *_a, **_k: started.append(1))
+    with pytest.raises(SubstrateError) as info:
+        mount_viz(lambda: None, port=18999, host="0.0.0.0")
+    assert "api_token" in str(info.value)
+    assert started == []
+
+
+def test_mount_viz_passes_the_token_to_the_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import uvicorn
+
+    from okg.viz import app as viz_app
+
+    seen: dict[str, Any] = {}
+
+    def fake_build_app(*_a: Any, **kwargs: Any) -> object:
+        seen.update(kwargs)
+        return object()
+
+    class _Server:
+        def __init__(self, *_a: Any, **_k: Any) -> None:
+            pass
+
+        async def serve(self) -> None:
+            return None
+
+    monkeypatch.setattr(viz_app, "build_app", fake_build_app)
+    monkeypatch.setattr(uvicorn, "Server", _Server)
+    thread = viz_app.mount_viz(
+        lambda: None, port=18999, host="0.0.0.0", api_token=_TOKEN
+    )
+    assert thread is not None
+    thread.join(timeout=5)
+    assert seen["api_token"] == _TOKEN

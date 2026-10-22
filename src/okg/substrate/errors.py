@@ -832,6 +832,14 @@ class OperatorUiBindRefused(SubstrateError):
 
 # ---------- registry self-check ----------
 
+class VizReadAuthRequired(SubstrateError):
+    """The read UI/API for a sensitive deployment was started without a token
+    (issue #3278). Sensitive means the manifest turns Nomos runtime
+    enforcement on, or the mode cannot be determined."""
+
+    code = "viz_read_auth_required"
+
+
 def all_error_codes() -> set[str]:
     """Every code defined by a SubstrateError SUBCLASS.
 

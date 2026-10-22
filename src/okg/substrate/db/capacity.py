@@ -918,10 +918,20 @@ def release_reservation(dsn: str, *, application_name: str) -> None:
 
     if mcp_mode:
         if holder_token is not None:
-            _release_through_function(
-                dsn, application_name=application_name,
-                holder_token=holder_token,
-            )
+            try:
+                _release_through_function(
+                    dsn, application_name=application_name,
+                    holder_token=holder_token,
+                )
+            except BaseException:
+                # SIGTERM's SystemExit (or Ctrl-C) landed inside the delete,
+                # after the pop above. The row is still in the ledger, and
+                # the token is the only way to delete it: keep it, so the
+                # stop guard's release and the caller's own can finish the
+                # job instead of finding nothing to release.
+                with _RESERVATION_OWNERS_LOCK:
+                    _HOLDER_TOKENS.setdefault(key, holder_token)
+                raise
         _release_stale_tokens(dsn, application_name=application_name)
         with _RESERVATION_OWNERS_LOCK:
             if (

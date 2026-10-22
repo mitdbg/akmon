@@ -373,6 +373,43 @@ def test_merge_shas_without_commit_repo_raise(tmp_path: Path) -> None:
         _run(GitHubSource(repo=REPO, fixture_path=_write(tmp_path, payload)))
 
 
+def test_opt_out_of_merge_link_imports_the_pull_without_merged_as(
+    tmp_path: Path,
+) -> None:
+    """The explicit opt-out keeps the pull request and its comments and emits
+    no merged_as edge; the strict default above still raises."""
+    payload = {
+        "items": [_issue(11, "2013-02-01T00:00:00Z", pr=True,
+                         merged_at="2013-02-05T00:00:00Z")],
+        "comments": [_comment(100, 11, "2013-02-02T00:00:00Z", kind="issue")],
+        "pulls": [{"number": 11, "merged_at": "2013-02-05T00:00:00Z",
+                   "merge_commit_sha": "c" * 40}],
+    }
+    facts = _run(GitHubSource(
+        repo=REPO, fixture_path=_write(tmp_path, payload),
+        link_merge_commits=False,
+    ))
+    assert any(isinstance(f, NodeFact) and f.subtype == "pull_request" for f in facts)
+    assert any(isinstance(f, NodeFact) and f.subtype == "forge_comment" for f in facts)
+    assert not any(isinstance(f, EdgeFact) and f.edge_type == "merged_as" for f in facts)
+
+
+def test_opt_out_together_with_commit_repo_is_a_contradiction(
+    tmp_path: Path,
+) -> None:
+    payload = {
+        "items": [_issue(11, "2013-02-01T00:00:00Z", pr=True,
+                         merged_at="2013-02-05T00:00:00Z")],
+        "pulls": [{"number": 11, "merged_at": "2013-02-05T00:00:00Z",
+                   "merge_commit_sha": "c" * 40}],
+    }
+    with pytest.raises(ForgeDiscussionError, match="pick one"):
+        _run(GitHubSource(
+            repo=REPO, fixture_path=_write(tmp_path, payload),
+            commit_repo="bench-repo", link_merge_commits=False,
+        ))
+
+
 def test_unmerged_pull_with_test_merge_sha_emits_nothing(
     tmp_path: Path,
 ) -> None:

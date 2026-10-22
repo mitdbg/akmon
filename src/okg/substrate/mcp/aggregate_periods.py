@@ -123,6 +123,10 @@ def parse_period_field(text: str, *, named_dates: bool = True) -> PeriodField | 
     raw = str(text)
     fallback = "date.created" if named_dates else _ATTR_DATE
     form = _FORM if named_dates else _FORM_NO_NAMED_DATES
+    if raw in ("norm(match)", "words(match)"):
+        # Matched text with its variants merged (`match_keys`, PACT
+        # read-aggregate-variants-3666), never a date period.
+        return None
     if is_each_shaped(raw):
         # A count per list element (aggregate_each), never a date period:
         # its own parser reads it, and refuses it with its own form.

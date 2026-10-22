@@ -41,6 +41,10 @@ from okg.substrate.nomos.reader_view import (
     classification_label,
     named_classifications,
 )
+from okg.substrate.operator_read import (
+    LOCAL_OPERATOR_READ_ACTION,
+    LOCAL_OPERATOR_READ_SURFACE,
+)
 
 import test_read_filter_decision_class as _decision_class
 from test_read_filter_decision_class import SOURCES, _Conn, _Engine, _rows, _session
@@ -61,6 +65,9 @@ def _offline(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     state: dict[str, Any] = {"catalog": {"node": {}, "edge": {}}, "overlay": False,
                              "columns": True, "catalog_present": True, "bundle_loads": 0}
     monkeypatch.setattr(read_filter, "_load_subtype_pii_classes", lambda conn, cv: _SUBTYPE_PII)
+    monkeypatch.setattr(
+        reader_view, "_subtype_pii_classes", lambda conn, cv: _SUBTYPE_PII, raising=False,
+    )
     monkeypatch.setattr(reader_view, "_catalog_present", lambda conn: state["catalog_present"])
     monkeypatch.setattr(reader_view, "_columns_present", lambda conn, kind: state["columns"])
     monkeypatch.setattr(reader_view, "_load_catalog", lambda conn: state["catalog"])
@@ -659,3 +666,397 @@ def test_finish_after_nomos_is_turned_on_fails_closed(
     assert _canon(got) == _canon(_per_row("node", _session(), rows))
     assert len(got) < len(rows)  # jira and restricted rows were removed
     assert view.sql_exact is False
+
+
+# --------------------------------------------------------------------------- #
+# The class-decision cache (PACT reader-view-decision-cache-3560)              #
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def decided(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """One entry per call of the policy evaluation step (``decide_classes``),
+    holding the row kind it decided. The cache stands in front of it, so a
+    cache hit adds nothing."""
+    calls: list[str] = []
+    real = reader_view.decide_classes
+
+    def counting(conn: Any, session: Any, catalog: Any, **kw: Any) -> Any:
+        calls.append(kw["kind"])
+        return real(conn, session, catalog, **kw)
+
+    monkeypatch.setattr(reader_view, "decide_classes", counting)
+    return calls
+
+
+_HIDES_NOTHING = [{"rule_id": "deny_nobody", "effect": "deny", "match": {"source_id": "nowhere"}}]
+
+
+def _catalog_for(_offline: dict, kind: str, rows: list[dict[str, Any]]) -> dict[str, uuid.UUID]:
+    """Set the catalog to the classes of ``rows``; returns source -> class id."""
+    catalog = _catalog_of(kind, rows)
+    _offline["catalog"][kind] = catalog
+    return {facts["source_ids"][0]: class_id for class_id, facts in catalog.items()}
+
+
+def test_the_second_open_serves_the_class_decisions_from_the_cache(
+    engine: _Engine, _offline: dict, decided: list[str],
+) -> None:
+    engine.bundle = _bundle(_RULES)
+    _catalog_for(_offline, "node", _plain_rows("node"))
+
+    first = _open("node")
+    second = _open("node")
+
+    assert decided == ["node"], "the policy was evaluated again for an unchanged key"
+    assert second._state.decisions == first._state.decisions
+    assert second.visible_classes == first.visible_classes
+    assert second.fingerprint == first.fingerprint
+    assert reader_view.decision_cache_info()["hits"] == 1
+
+
+def test_a_policy_change_is_a_new_key_even_under_the_same_policy_version(
+    engine: _Engine, _offline: dict, decided: list[str],
+) -> None:
+    """Must fail if the key ignores the policy: the three bundles share one
+    ``policy_version``; only their rules differ. (Neither names a
+    classification, so the probes, which the key also holds, are the same.)"""
+    jira = _catalog_for(_offline, "node", _plain_rows("node"))["jira"]
+
+    engine.bundle = _bundle([_RULES[0]])  # denies jira
+    denied = _open("node")
+    engine.bundle = _bundle(_HIDES_NOTHING)  # same version, rules differ
+    allowed = _open("node")
+    engine.bundle = _bundle([_RULES[0]])  # back to the first policy
+    denied_again = _open("node")
+
+    assert jira not in denied.visible_classes
+    assert jira in allowed.visible_classes, "a cached decision outlived the policy change"
+    assert denied_again.visible_classes == denied.visible_classes
+    # Two policies decided once each; returning to the first is a hit.
+    assert decided == ["node", "node"]
+
+
+def test_a_new_catalog_class_is_decided_not_read_from_the_old_set(
+    engine: _Engine, _offline: dict, decided: list[str],
+) -> None:
+    """Must fail if the key ignores the catalog: the new class would be missing
+    from the cached set, and the view would not have decided it."""
+    engine.bundle = _bundle(_RULES)  # denies jira
+    git_rows = [r for r in _plain_rows("node") if r["source"] == "git"]
+    jira_rows = [r for r in _plain_rows("node") if r["source"] == "jira"]
+    _catalog_for(_offline, "node", git_rows)
+    before = _open("node")
+    by_source = _catalog_for(_offline, "node", git_rows + jira_rows)
+    after = _open("node")
+    _catalog_for(_offline, "node", git_rows)
+    before_again = _open("node")
+
+    assert by_source["jira"] not in before.decided_classes
+    assert by_source["jira"] in after.decided_classes
+    assert by_source["jira"] not in after.visible_classes  # decided, and denied
+    assert before_again.decided_classes == before.decided_classes
+    assert decided == ["node", "node"]
+
+
+def test_the_pinned_catalog_version_is_part_of_the_key(
+    engine: _Engine, _offline: dict, decided: list[str],
+) -> None:
+    engine.bundle = _bundle(_RULES)
+    _catalog_for(_offline, "node", _plain_rows("node"))
+
+    _open("node", _session(catalog_version_id="catalog-v1"))
+    _open("node", _session(catalog_version_id="catalog-v1"))
+    _open("node", _session(catalog_version_id="catalog-v2"))
+
+    assert decided == ["node", "node"]
+
+
+def test_the_reader_is_part_of_the_key(
+    engine: _Engine, _offline: dict, decided: list[str],
+) -> None:
+    """Must fail if the key ignores the subject: reader b would be served the
+    decisions made for reader a, who may not read jira."""
+    engine.bundle = _bundle([
+        {"rule_id": "deny_jira_for_a", "effect": "deny", "match": {"source_id": "jira"},
+         "subjects": ["subject:a"]},
+    ])
+    jira = _catalog_for(_offline, "node", _plain_rows("node"))["jira"]
+
+    a = _open("node", _session(nomos_subject="subject:a"))
+    b = _open("node", _session(nomos_subject="subject:b"))
+    a_again = _open("node", _session(nomos_subject="subject:a"))
+
+    assert jira not in a.visible_classes
+    assert jira in b.visible_classes, "reader b was served reader a's decisions"
+    assert a_again.visible_classes == a.visible_classes
+    assert decided == ["node", "node"]
+
+
+def test_the_surface_is_part_of_the_key(
+    engine: _Engine, _offline: dict, decided: list[str],
+) -> None:
+    """Same action, another surface: decided again. (The surface names the
+    enforcement point the policy is evaluated at, so it is an input of the
+    evaluation even where today's policies decide the same.)"""
+    engine.bundle = _bundle(_RULES)
+    _catalog_for(_offline, "node", _plain_rows("node"))
+
+    _open("node", _session(nomos_read_action="graph.read.mcp", nomos_read_surface="mcp"))
+    _open("node", _session(nomos_read_action="graph.read.mcp", nomos_read_surface="mcp"))
+    _open("node", _session(
+        nomos_read_action="graph.read.mcp", nomos_read_surface=LOCAL_OPERATOR_READ_SURFACE,
+    ))
+
+    assert decided == ["node", "node"]
+
+
+def test_the_action_is_part_of_the_key(
+    engine: _Engine, _offline: dict, decided: list[str],
+) -> None:
+    """Same surface, another action: decided again (the action is an input of
+    the policy evaluation, whatever the mapping makes of it)."""
+    engine.bundle = _bundle(_RULES)
+    _catalog_for(_offline, "node", _plain_rows("node"))
+
+    _open("node", _session(nomos_read_action="graph.read.mcp", nomos_read_surface="mcp"))
+    _open("node", _session(nomos_read_action="graph.read.mcp", nomos_read_surface="mcp"))
+    _open("node", _session(nomos_read_action=LOCAL_OPERATOR_READ_ACTION,
+                           nomos_read_surface="mcp"))
+
+    assert decided == ["node", "node"]
+
+
+def test_the_enforcement_mode_is_part_of_the_key(
+    engine: _Engine, _offline: dict, decided: list[str],
+) -> None:
+    """Audit lets a denied class through; enforce does not. Same policy."""
+    engine.bundle = _bundle(_RULES)
+    jira = _catalog_for(_offline, "node", _plain_rows("node"))["jira"]
+
+    engine.mode = "enforce"
+    enforced = _open("node")
+    engine.mode = "audit"
+    audited = _open("node")
+    engine.mode = "enforce"
+    enforced_again = _open("node")
+
+    assert jira not in enforced.visible_classes
+    assert jira in audited.visible_classes
+    assert enforced_again.visible_classes == enforced.visible_classes
+    assert decided == ["node", "node"]
+
+
+@pytest.mark.parametrize(("keyed", "flipped_to"), [("enforce", "audit"), ("audit", "enforce")])
+def test_a_mode_switch_during_a_fill_never_changes_the_keyed_decision(
+    engine: _Engine, _offline: dict, monkeypatch: pytest.MonkeyPatch,
+    keyed: str, flipped_to: str,
+) -> None:
+    """Must fail if a cache miss re-reads the enforcement mode while it decides:
+    a manifest switched during the fill would store audit decisions under the
+    enforce key (or the reverse), and every later open with that key would be
+    served them."""
+    engine.mode = keyed
+    engine.bundle = _bundle([_RULES[0]])  # deny jira
+    jira = _catalog_for(_offline, "node", _plain_rows("node"))["jira"]
+    real = reader_view.decide_classes
+
+    def switching(conn: Any, session: Any, catalog: Any, **kw: Any) -> Any:
+        engine.mode = flipped_to  # the manifest is switched while the miss is filled
+        try:
+            return real(conn, session, catalog, **kw)
+        finally:
+            engine.mode = keyed
+
+    monkeypatch.setattr(reader_view, "decide_classes", switching)
+    _open("node")
+    monkeypatch.setattr(reader_view, "decide_classes", real)
+    later = _open("node")  # a genuine open under the keyed mode; nothing flips
+    assert reader_view.decision_cache_info()["hits"] == 1  # it was served from the fill
+
+    reader_view.clear_reader_view_cache()
+    fresh = _open("node")  # the same open, decided from scratch
+    assert later.visible_classes == fresh.visible_classes
+    assert later.admits_every_row == fresh.admits_every_row
+    assert (jira in later.visible_classes) == (keyed == "audit")
+    if keyed == "enforce":
+        assert not later.admits_every_row, "the reader clause was dropped under an enforce key"
+
+
+def test_a_reader_change_during_a_fill_never_changes_the_keyed_decision(
+    engine: _Engine, _offline: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Must fail if a cache miss re-reads the reader's subject from the
+    environment while it decides: reader a's key would hold what reader b may
+    see, and a would read a class denied to a."""
+    engine.mode = "enforce"
+    engine.bundle = _bundle([
+        {"rule_id": "deny_jira_for_a", "effect": "deny", "match": {"source_id": "jira"},
+         "subjects": ["subject:a"]},
+    ])
+    jira = _catalog_for(_offline, "node", _plain_rows("node"))["jira"]
+    who = {"subject": "subject:a"}
+    monkeypatch.setattr(read_filter, "nomos_subject_from_env", lambda **_: who["subject"])
+    real = reader_view.decide_classes
+
+    def switching(conn: Any, session: Any, catalog: Any, **kw: Any) -> Any:
+        who["subject"] = "subject:b"  # the environment changes while the miss is filled
+        try:
+            return real(conn, session, catalog, **kw)
+        finally:
+            who["subject"] = "subject:a"
+
+    session = _session(nomos_subject=None)  # the subject comes from the environment
+    monkeypatch.setattr(reader_view, "decide_classes", switching)
+    _open("node", session)
+    monkeypatch.setattr(reader_view, "decide_classes", real)
+    later = _open("node", session)
+    assert reader_view.decision_cache_info()["hits"] == 1
+    assert jira not in later.visible_classes, "reader a was served a class denied to a"
+
+    reader_view.clear_reader_view_cache()
+    assert _open("node", session).visible_classes == later.visible_classes
+
+
+def test_the_row_kind_is_part_of_the_key(
+    engine: _Engine, _offline: dict, decided: list[str],
+) -> None:
+    engine.bundle = _bundle(_RULES)
+    _catalog_for(_offline, "node", _plain_rows("node"))
+    _catalog_for(_offline, "edge", _plain_rows("edge"))
+
+    _open("node")
+    _open("edge")
+    _open("node")
+    _open("edge")
+
+    assert decided == ["node", "edge"]
+
+
+def test_what_a_caller_does_to_a_returned_decision_never_reaches_the_cache(
+    engine: _Engine, _offline: dict,
+) -> None:
+    engine.bundle = _bundle(_RULES)
+    jira = _catalog_for(_offline, "node", _plain_rows("node"))["jira"]
+    internal = reader_view._md5("internal")
+
+    first = _open("node")  # decided
+    first._state.decisions[jira][internal] = ClassOutcome(True, False)  # a caller edits it
+    second = _open("node")  # from the cache
+    second._state.decisions[jira][internal] = ClassOutcome(True, False)  # and edits this one
+    third = _open("node")
+
+    assert third._state.decisions[jira][internal] == ClassOutcome(False, False)
+    assert not any(o.visible for o in third._state.decisions[jira].values())
+
+
+def test_the_cache_is_bounded_and_drops_the_least_recently_used(
+    engine: _Engine, _offline: dict, decided: list[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(reader_view, "DECISION_CACHE_MAX", 3)
+    engine.bundle = _bundle(_RULES)
+    _catalog_for(_offline, "node", _plain_rows("node"))
+
+    for n in range(8):
+        _open("node", _session(nomos_subject=f"subject:r{n}"))
+    info = reader_view.decision_cache_info()
+    assert (info["entries"], info["max_entries"], info["evictions"]) == (3, 3, 5)
+    assert len(decided) == 8
+
+    _open("node", _session(nomos_subject="subject:r7"))  # most recent: still cached
+    assert len(decided) == 8
+    _open("node", _session(nomos_subject="subject:r0"))  # evicted long ago: decided again
+    assert len(decided) == 9
+    assert reader_view.decision_cache_info()["entries"] == 3
+
+
+# ---- admits_every_row: the clause may be left out -------------------------- #
+@pytest.mark.parametrize(
+    ("rules", "mode", "admits"),
+    [
+        (_HIDES_NOTHING, "enforce", True),
+        (_HIDES_NOTHING, "audit", True),
+        (_RULES, "enforce", False),  # jira and restricted rows are denied
+        ([_RULES[0]], "enforce", False),  # a deny alone
+        ([_RULES[0]], "audit", True),  # audit lets a deny through and masks nothing
+        (_RULES, "audit", False),  # the redaction still masks in audit
+        ([_RULES[2]], "enforce", False),  # a redaction alone
+    ],
+)
+def test_admits_every_row_follows_the_decisions(
+    engine: _Engine, _offline: dict, rules: list, mode: str, admits: bool,
+) -> None:
+    engine.mode = mode
+    engine.bundle = _bundle(rules)
+    _catalog_for(_offline, "node", _plain_rows("node"))
+
+    assert _open("node").admits_every_row is admits
+
+
+def test_admits_every_row_is_true_with_no_class_decided_and_in_the_non_class_modes(
+    engine: _Engine, _offline: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine.bundle = _bundle(_RULES)
+    _offline["catalog"]["node"] = {}
+    assert _open("node").admits_every_row is True  # no class: no row is known
+    _catalog_for(_offline, "node", _plain_rows("node"))
+    assert _open("node", force="per_row").admits_every_row is True
+    monkeypatch.setattr(read_filter, "deployment_requires_nomos_runtime", lambda name: False)
+    assert _open("node").admits_every_row is True
+
+
+def test_admits_every_row_with_no_bundle_follows_the_default_decision(
+    engine: _Engine, _offline: dict,
+) -> None:
+    engine.bundle = None
+    engine.mode = "audit"
+    served = _open("node")
+    engine.mode = "enforce"
+    refused = _open("node")
+    assert (served.mode, served.admits_every_row) == ("no_bundle", True)
+    assert (refused.mode, refused.admits_every_row) == ("no_bundle", False)
+
+
+# ---- keep_sql: the clause lists what is hidden, not what is visible --------- #
+def _many_classes(n: int) -> list[dict[str, Any]]:
+    return [
+        {"node_id": f"node:{i}", "source": f"src{i:03d}", "source_record_id": {"key": "a"},
+         "source_revision": {"v": 1}, "subtype": "doc",
+         "attrs": {"classification": "internal", "name": "n", "body": "b", "title": "t"}}
+        for i in range(n)
+    ]
+
+
+@pytest.mark.parametrize(("denied", "ratio"), [(19, 4), (0, 0)])
+def test_keep_sql_is_a_fraction_of_the_text_when_most_classes_are_visible(
+    engine: _Engine, _offline: dict, denied: int, ratio: int,
+) -> None:
+    """187 classes, 19 denied (about 10 percent, as in the large-copy cost run):
+    the clause that lists the hidden classes is under a quarter of the length
+    of the one that lists the visible ones. With none denied there is nothing
+    to list."""
+    engine.bundle = _bundle([
+        {"rule_id": f"deny_{i}", "effect": "deny", "match": {"source_id": f"src{i:03d}"}}
+        for i in range(denied)
+    ] or _HIDES_NOTHING)
+    _catalog_for(_offline, "node", _many_classes(187))
+    view = _open("node")
+
+    old = f"({view.predicate('n').as_string(None)}) AND (({view.readable('n', 'text').as_string(None)}) IS NOT FALSE)"
+    new = view.keep_sql("n", "text").as_string(None)
+
+    assert len(view.decided_classes) == 187
+    if denied:
+        assert len(new) * ratio < len(old), (len(new), len(old))
+        assert new.count("ANY(") <= 3, "the clause lists hidden classes once, not repeatedly"
+    else:
+        assert new == "TRUE"
+
+
+def test_keep_sql_outside_class_mode_is_the_old_composition(
+    engine: _Engine, _offline: dict,
+) -> None:
+    engine.bundle = _bundle(_RULES)
+    _catalog_for(_offline, "node", _plain_rows("node"))
+    view = _open("node", force="per_row")
+    assert view.keep_sql("n", "text").as_string(None) == (
+        f"({view.predicate('n').as_string(None)}) AND (({view.readable('n', 'text').as_string(None)}) IS NOT FALSE)"
+    )

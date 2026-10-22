@@ -106,6 +106,7 @@ def build_colleague_rollout_report(
         raw_body,
         repo_root=repo_root,
         deployment_dir=deployment_dir,
+        secret_forms=True,
     )
     leakage_check = bug_report._check_for_leaks(  # noqa: SLF001
         body,

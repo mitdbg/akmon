@@ -1055,7 +1055,10 @@ with no bundle the command refuses with `operator_ui_bundle_missing`. Only
 read API's routes are `GET`-only); anything else gets HTTP `405` with
 `operator_ui_read_only`. It binds loopback only (`localhost`, `127.0.0.0/8`,
 `::1`), token or not; any other `--host`, or a port outside 1-65535, refuses
-with `operator_ui_bind_refused`. Use an SSH tunnel for remote access.
+with `operator_ui_bind_refused`. Use an SSH tunnel for remote access. A
+manifest with `nomos.runtime_enforcement` `audit` or `enforce` makes
+`--auth-token-env` mandatory (`viz_read_auth_required`), whatever
+`OKG_NOMOS_RUNTIME_ENFORCEMENT` says.
 **Implementation:** `src/okg/viz/ui_server.py`; dispatch in
 `src/okg/substrate/cli/main.py` (`_cmd_ui`)
 
@@ -1764,6 +1767,17 @@ published generation. A flag one profile's installer contributes (such as
 `--orcid`) is refused when another profile runs, rather than ignored. Profile `init_questions` become
 `--<question-id>` flags. `--scaffold-only` skips a profile's own
 installer; `--template <name>` scaffolds a legacy library template.
+
+A successful install prints a short summary of about ten lines: the graph's
+name, the deployment folder, the database, how many records and links the
+graph now holds, one search to try, and how to connect an agent. It prints a
+warning only when you must act on it, with the fix. `--verbose` prints the
+full report instead: every file written, the module composition, the first
+publish proof, and every warning, including `skipped_extends` (an optional
+link to a module the profile does not load; it needs no action).
+`--json` prints the same detail as one JSON document, with the same keys
+with or without `--verbose`. A profile with its own installer
+(`academic-researcher`) and `--template` installs ignore `--verbose`.
 
 `--dry-run` prints what the install would do and exits without doing any of
 it — no file or directory created, no database connection, no container

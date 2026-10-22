@@ -39,6 +39,7 @@ from typing import Any
 from okg.substrate.mcp.continuation import (
     ContinuationTokenInvalid,
     consume_continuation,
+    full_token,
     issue_continuation,
 )
 from okg.substrate.mcp.operator_sql import CompiledPredicate
@@ -340,8 +341,9 @@ def finish_scan_batch(
 
 
 def scan_token_body_bytes(token: str) -> int:
-    """Decoded UTF-8 body size of a continuation token (no signature check)."""
-    encoded = token.split(".", 1)[0]
+    """Decoded UTF-8 body size of a continuation token (no signature check;
+    a handle is measured as the signed token it stands for)."""
+    encoded = full_token(token).split(".", 1)[0]
     raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
     inflater = zlib.decompressobj()
     body = inflater.decompress(raw, MAX_SCAN_BODY_BYTES + 1)
@@ -365,7 +367,7 @@ def issue_scan_continuation(
     if not isinstance(cursor, Mapping):
         raise ValueError("scanner cursor must be a mapping")
     token = issue_continuation(context.binding, cursor=cursor)
-    if len(token) > MAX_SCAN_TOKEN_CHARS:
+    if len(full_token(token)) > MAX_SCAN_TOKEN_CHARS:
         raise ScanContinuationUnavailable("scanner token exceeds the parser bound",
                                           reason="token_bound", max_token_chars=MAX_SCAN_TOKEN_CHARS)
     if scan_token_body_bytes(token) > MAX_SCAN_BODY_BYTES:

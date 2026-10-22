@@ -1,0 +1,710 @@
+{
+ "aggregate_driver_jsonl_refused": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "group_by": "subtype"
+    },
+    "json"
+   ]
+  ],
+  "stderr": "aggregate refused unknown_argument · retry: none given\nmessage: m\n",
+  "stdout": ""
+ },
+ "aggregate_json_ok": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "group_by": "subtype"
+    },
+    "json"
+   ]
+  ],
+  "stderr": "",
+  "stdout": "{\"status\": \"ok\", \"groups\": [{\"key\": \"doc\", \"count\": 3}]}\n"
+ },
+ "aggregate_json_server_fault": {
+  "exit": 1,
+  "sent": [
+   [
+    {
+     "group_by": "subtype"
+    },
+    "json"
+   ]
+  ],
+  "stderr": "{\"status\": \"refused\", \"error\": {\"code\": \"operator_execution_failed\", \"message\": \"boom\"}}\n",
+  "stdout": ""
+ },
+ "aggregate_text_ok": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "group_by": "subtype"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "",
+  "stdout": "aggregate ok · 2 groups\ndoc: 3\nfile: 2\n"
+ },
+ "aggregate_text_refused_schema_pointer": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "group_by": "subtype"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "aggregate refused invalid_argument\nfix_hint: run `okg aggregate --help` and send a valid value\n",
+  "stdout": ""
+ },
+ "driver_all_follows_pages": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     },
+     "limit": 2
+    },
+    "json"
+   ],
+   [
+    {
+     "generation_id": 7,
+     "input": {
+      "kind": "nodes"
+     },
+     "limit": 2,
+     "offset": 2
+    },
+    "json"
+   ],
+   [
+    {
+     "generation_id": 7,
+     "input": {
+      "kind": "nodes"
+     },
+     "limit": 2,
+     "offset": 4
+    },
+    "json"
+   ]
+  ],
+  "stderr": "filter ok · 1-2 of count unknown · bound reached (page) · next: offset=2\nokg filter --all: 5 rows in 3 pages\n",
+  "stdout": "{\"node_id\": \"doc:000\", \"subtype\": \"doc\"}\n{\"node_id\": \"doc:001\", \"subtype\": \"doc\"}\n{\"node_id\": \"doc:002\", \"subtype\": \"doc\"}\n{\"node_id\": \"doc:003\", \"subtype\": \"doc\"}\n{\"node_id\": \"doc:004\", \"subtype\": \"doc\"}\n"
+ },
+ "driver_all_json_joins_pages": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     },
+     "limit": 2
+    },
+    "json"
+   ],
+   [
+    {
+     "generation_id": 7,
+     "input": {
+      "kind": "nodes"
+     },
+     "limit": 2,
+     "offset": 2
+    },
+    "json"
+   ],
+   [
+    {
+     "generation_id": 7,
+     "input": {
+      "kind": "nodes"
+     },
+     "limit": 2,
+     "offset": 4
+    },
+    "json"
+   ]
+  ],
+  "stderr": "okg filter: 5 rows from 3 replies, printed as one JSON document\n",
+  "stdout": "{\"status\": \"ok\", \"items\": [{\"node_id\": \"doc:000\", \"subtype\": \"doc\"}, {\"node_id\": \"doc:001\", \"subtype\": \"doc\"}, {\"node_id\": \"doc:002\", \"subtype\": \"doc\"}, {\"node_id\": \"doc:003\", \"subtype\": \"doc\"}, {\"node_id\": \"doc:004\", \"subtype\": \"doc\"}], \"generation_id\": 7, \"offset\": 0, \"all_pages\": {\"pages\": 3, \"rows\": 5, \"complete\": true}}\n"
+ },
+ "driver_all_text_refused_with_retry": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     },
+     "where": {
+      "kind": "doc"
+     }
+    },
+    "text"
+   ]
+  ],
+  "stderr": "filter refused unknown_argument\nmessage: no such argument\nretry_call: {\"tool\": \"filter\", \"mode\": \"corrected\", \"arguments\": {\"limit\": 5}}\nretry: okg filter --deployment typed --limit 5\n",
+  "stdout": ""
+ },
+ "driver_ids_one_page": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "json"
+   ]
+  ],
+  "stderr": "filter ok · 1-2 of 2 · complete\n",
+  "stdout": "doc:000\ndoc:001\n"
+ },
+ "driver_jsonl_one_page": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "json"
+   ]
+  ],
+  "stderr": "filter ok · 1-2 of 2 · complete\n",
+  "stdout": "{\"node_id\": \"doc:000\", \"subtype\": \"doc\"}\n{\"node_id\": \"doc:001\", \"subtype\": \"doc\"}\n"
+ },
+ "driver_jsonl_refused": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "json"
+   ]
+  ],
+  "stderr": "filter refused unknown_argument · retry: none given\nmessage: m\n",
+  "stdout": ""
+ },
+ "driver_where_text": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     },
+     "where": {
+      "kind": "doc"
+     }
+    },
+    "text"
+   ]
+  ],
+  "stderr": "",
+  "stdout": "filter ok · 1-1 of 1\ndoc:1\n"
+ },
+ "expand_json_ok": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "target": {
+      "kind": "node",
+      "node_id": "doc:1"
+     }
+    },
+    "json"
+   ]
+  ],
+  "stderr": "",
+  "stdout": "{\"status\": \"ok\", \"neighbors\": [], \"generation_id\": 7}\n"
+ },
+ "expand_text_ok": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "target": {
+      "kind": "node",
+      "node_id": "doc:1"
+     }
+    },
+    "text"
+   ]
+  ],
+  "stderr": "",
+  "stdout": "expand ok · 1-2 of 2\nlink 1\nlink 2\n"
+ },
+ "expand_text_refused_with_retry": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "target": {
+      "kind": "node",
+      "node_id": "doc:1"
+     }
+    },
+    "text"
+   ]
+  ],
+  "stderr": "expand refused unknown_argument\nmessage: no such argument\nretry_call: {\"tool\": \"expand\", \"mode\": \"corrected\", \"arguments\": {\"limit\": 5}}\nretry: okg expand --deployment typed --limit 5\n",
+  "stdout": ""
+ },
+ "failure_at_build_json": {
+  "exit": 1,
+  "sent": [],
+  "stderr": "{\"error\": {\"code\": \"golden_failure\", \"message\": \"the database is behind this code\", \"fix_hint\": \"try the other thing\", \"data\": {\"where\": \"golden\"}}}\n",
+  "stdout": ""
+ },
+ "failure_at_build_text": {
+  "exit": 1,
+  "sent": [],
+  "stderr": "ERROR [golden_failure]: the database is behind this code\n  fix_hint: try the other thing\n  data: {'where': 'golden'}\n",
+  "stdout": ""
+ },
+ "failure_budget_json": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "json"
+   ]
+  ],
+  "stderr": "{\"error\": {\"code\": \"read_command_failed\", \"message\": \"okg query: error: BudgetError: no room for two connections\", \"data\": {\"surface\": \"okg query\", \"exception\": \"BudgetError\"}}}\n",
+  "stdout": ""
+ },
+ "failure_budget_text": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "okg query: error: BudgetError: no room for two connections\n",
+  "stdout": ""
+ },
+ "failure_group_of_two": {
+  "exit": 1,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "ERROR [read_command_failed]: okg query could not complete the call: first (and 1 more error)\n  data: {'surface': 'okg query', 'exception': 'RuntimeError'}\n",
+  "stdout": ""
+ },
+ "failure_runtime_json": {
+  "exit": 1,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "json"
+   ]
+  ],
+  "stderr": "{\"error\": {\"code\": \"read_command_failed\", \"message\": \"okg query could not complete the call: boom\", \"data\": {\"surface\": \"okg query\", \"exception\": \"RuntimeError\"}}}\n",
+  "stdout": ""
+ },
+ "failure_runtime_text": {
+  "exit": 1,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "ERROR [read_command_failed]: okg query could not complete the call: boom in <path> line 3\n  data: {'surface': 'okg query', 'exception': 'RuntimeError'}\n",
+  "stdout": ""
+ },
+ "failure_shape_mismatch": {
+  "exit": 1,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "ERROR [read_command_failed]: okg query could not complete the call: the reply of the query tool did not match the output shape the tool declares: rows is not a list\n",
+  "stdout": ""
+ },
+ "failure_substrate_error_json": {
+  "exit": 1,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "json"
+   ]
+  ],
+  "stderr": "{\"error\": {\"code\": \"golden_failure\", \"message\": \"the pool is closed\", \"fix_hint\": \"try the other thing\", \"data\": {\"where\": \"golden\"}}}\n",
+  "stdout": ""
+ },
+ "failure_substrate_error_text": {
+  "exit": 1,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "ERROR [golden_failure]: the pool is closed\n  fix_hint: try the other thing\n  data: {'where': 'golden'}\n",
+  "stdout": ""
+ },
+ "json_ok": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "json"
+   ]
+  ],
+  "stderr": "",
+  "stdout": "{\"status\": \"ok\", \"items\": [], \"generation_id\": 7}\n"
+ },
+ "json_ok_extra_block": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "json"
+   ]
+  ],
+  "stderr": "note: 1 more content block(s) of this reply (an image, or a further block) were not printed\n",
+  "stdout": "{\"status\": \"ok\", \"rows\": []}\n"
+ },
+ "json_refused_by_flag": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "json"
+   ]
+  ],
+  "stderr": "{\"status\": \"refused\", \"error\": {\"code\": \"unknown_argument\", \"message\": \"m\"}}\n",
+  "stdout": ""
+ },
+ "json_refused_is_error_with_pointer": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "json"
+   ]
+  ],
+  "stderr": "{\"error\": {\"code\": \"invalid\", \"message\": \"run `okg filter --help`\"}}\n",
+  "stdout": ""
+ },
+ "json_server_fault_exit_1": {
+  "exit": 1,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "json"
+   ]
+  ],
+  "stderr": "{\"status\": \"refused\", \"error\": {\"code\": \"operator_execution_failed\", \"message\": \"boom\"}}\n",
+  "stdout": ""
+ },
+ "map_driver_ids_one_page": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "json"
+   ]
+  ],
+  "stderr": "map ok · 1-2 of 2 · complete\n",
+  "stdout": "doc:000\ndoc:001\n"
+ },
+ "map_json_ok": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "json"
+   ]
+  ],
+  "stderr": "",
+  "stdout": "{\"status\": \"ok\", \"items\": [], \"generation_id\": 7}\n"
+ },
+ "map_text_ok": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "text"
+   ]
+  ],
+  "stderr": "",
+  "stdout": "map ok · 1-2 of 2\ndoc:1\ndoc:2\n"
+ },
+ "map_text_refused_with_retry": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "text"
+   ]
+  ],
+  "stderr": "map refused unknown_argument\nmessage: no such argument\nretry_call: {\"tool\": \"map\", \"mode\": \"corrected\", \"arguments\": {\"limit\": 5}}\nretry: okg map --deployment typed --limit 5\n",
+  "stdout": ""
+ },
+ "parse_refusal_args_not_object": {
+  "exit": 2,
+  "sent": [],
+  "stderr": "inspect refused read_args_invalid: --args expects one JSON object; the --args value holds list\n  fix_hint: for example --args '{\"limit\": 10}'\n  data: {'source': 'the --args value'}\n",
+  "stdout": ""
+ },
+ "parse_refusal_args_twice_json": {
+  "exit": 2,
+  "sent": [],
+  "stderr": "{\"status\": \"refused\", \"error\": {\"code\": \"read_argument_given_twice\", \"message\": \"okg filter received limit both inside --args and as its own flag or positional. It will not guess which one you meant.\", \"fix_hint\": \"give limit once\", \"data\": {\"arguments\": [\"limit\"]}}}\n",
+  "stdout": ""
+ },
+ "parse_refusal_args_twice_text": {
+  "exit": 2,
+  "sent": [],
+  "stderr": "filter refused read_argument_given_twice: okg filter received limit both inside --args and as its own flag or positional. It will not guess which one you meant.\n  fix_hint: give limit once\n  data: {'arguments': ['limit']}\n",
+  "stdout": ""
+ },
+ "parse_refusal_ids_and_jsonl": {
+  "exit": 2,
+  "sent": [],
+  "stderr": "filter refused read_output_flags_conflict: --jsonl and --ids ask for two outputs of one reply\n  fix_hint: keep one of them\n  data: {'flags': '--jsonl and --ids'}\n",
+  "stdout": ""
+ },
+ "parse_refusal_json_and_ids": {
+  "exit": 2,
+  "sent": [],
+  "stderr": "{\"status\": \"refused\", \"error\": {\"code\": \"read_output_flags_conflict\", \"message\": \"--json and --ids ask for two outputs of one reply\", \"fix_hint\": \"keep --ids for one row per line, or --json for the whole reply\", \"data\": {\"flags\": \"--json and --ids\"}}}\n",
+  "stdout": ""
+ },
+ "parse_refusal_search_query_twice": {
+  "exit": 2,
+  "sent": [],
+  "stderr": "search refused search_query_conflict: okg search received two different queries: the positional QUERY and --query. It will not guess which one you meant.\n  fix_hint: pass the query once, either as QUERY or as --query\n  data: {'positional': 'one', 'option': 'two'}\n",
+  "stdout": ""
+ },
+ "text_ok": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "",
+  "stdout": "query ok · rows=1\nrow 1: 1\n"
+ },
+ "text_ok_ends_with_newline": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "target": {
+      "kind": "nodes"
+     }
+    },
+    "text"
+   ]
+  ],
+  "stderr": "",
+  "stdout": "inspect ok\nbody\n"
+ },
+ "text_ok_extra_block": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "note: 2 more content block(s) of this reply (an image, or a further block) were not printed\n",
+  "stdout": "query ok · rows=1\n"
+ },
+ "text_ok_pipe_hint": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "text"
+   ]
+  ],
+  "stderr": "hint: 50 of 312 rows shown; to count, join or list them, pipe them instead of reading them: okg filter --deployment typed --input '{\"kind\":\"nodes\"}' --all --jsonl | python3 -c 'import json, sys; rows = [json.loads(line) for line in sys.stdin]; print(len(rows))'\n",
+  "stdout": "filter ok · 1-50 of 312 · generation_id=7\ndoc:0\ndoc:1\ndoc:2\ndoc:3\ndoc:4\ndoc:5\ndoc:6\ndoc:7\ndoc:8\ndoc:9\ndoc:10\ndoc:11\ndoc:12\ndoc:13\ndoc:14\ndoc:15\ndoc:16\ndoc:17\ndoc:18\ndoc:19\ndoc:20\ndoc:21\ndoc:22\ndoc:23\ndoc:24\ndoc:25\ndoc:26\ndoc:27\ndoc:28\ndoc:29\ndoc:30\ndoc:31\ndoc:32\ndoc:33\ndoc:34\ndoc:35\ndoc:36\ndoc:37\ndoc:38\ndoc:39\ndoc:40\ndoc:41\ndoc:42\ndoc:43\ndoc:44\ndoc:45\ndoc:46\ndoc:47\ndoc:48\ndoc:49\n"
+ },
+ "text_ok_search_unscoped_note": {
+  "exit": 0,
+  "sent": [
+   [
+    {
+     "query": "words",
+     "view": "list"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "",
+  "stdout": "search ok · 1-1 of 1\n! search profile: none (unscoped)\nresult 1\n--- other fields\nsearch_profile: null\n"
+ },
+ "text_refused_not_sql_hint": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "sql": "recent pacts"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "query refused query_not_select\nmessage: not a SELECT\nhint: `okg query` takes SQL; a text search is `okg search \"<words>\"`\n",
+  "stdout": ""
+ },
+ "text_refused_retry_without_typed_deployment": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "text"
+   ]
+  ],
+  "stderr": "filter refused unknown_argument\nmessage: no such argument\nretry_call: {\"tool\": \"filter\", \"mode\": \"corrected\", \"arguments\": {\"limit\": 5}}\nretry: okg filter --limit 5\n",
+  "stdout": ""
+ },
+ "text_refused_schema_pointer": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "text"
+   ]
+  ],
+  "stderr": "filter refused invalid_argument\nfix_hint: run `okg filter --help` and send a valid value\n",
+  "stdout": ""
+ },
+ "text_refused_search_with_hint_only_for_query": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "query": "words",
+     "view": "list"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "search refused bad_view\nmessage: no\n",
+  "stdout": ""
+ },
+ "text_refused_with_retry": {
+  "exit": 2,
+  "sent": [
+   [
+    {
+     "input": {
+      "kind": "nodes"
+     }
+    },
+    "text"
+   ]
+  ],
+  "stderr": "filter refused unknown_argument\nmessage: no such argument\nretry_call: {\"tool\": \"filter\", \"mode\": \"corrected\", \"arguments\": {\"limit\": 5}}\nretry: okg filter --deployment typed --limit 5\n",
+  "stdout": ""
+ },
+ "text_server_fault_exit_1": {
+  "exit": 1,
+  "sent": [
+   [
+    {
+     "sql": "select 1"
+    },
+    "text"
+   ]
+  ],
+  "stderr": "query error operator_execution_failed\nmessage: boom\n",
+  "stdout": ""
+ }
+}

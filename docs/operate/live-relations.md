@@ -70,6 +70,8 @@ okg_live_relations:
 - `principal_mode: service` means the call runs as the runtime, not as whoever
   asked. It is the only mode served today; `caller` is refused at deployment
   start rather than quietly downgraded.
+- `description` (optional, at most 400 characters) is the text `inspect`
+  shows beside the arguments: what the answer means and what it is not.
 - Every argument is `required` **or** carries a `default`. Neither is refused: a
   missing value would arrive as null, and a null time window is a full scan.
 - An argument is a `string`, an `integer`, a `number` or a `boolean`. A `string`
@@ -156,25 +158,25 @@ runner, so the other three are accepted as names and then fail
 
 An `mcp` binding names exactly one tool on exactly one MCP server, reached
 over streamable HTTP. This is the shape of the test-only deployment in
-`tests/substrate/e2e/fixtures/live-mcp-cms/`, abridged to one relation:
+`tests/substrate/e2e/fixtures/live-mcp-example/`, abridged to one relation:
 
 ```yaml
 live_bindings:
-  datasets:
+  items:
     kind: mcp
     upstream_credential: personal
     config:
       server_url: http://127.0.0.1:5952/mcp
       allowed_hosts: ["127.0.0.1:5952"]
       allow_non_global: true
-      tool: dbs_list_datasets
+      tool: catalog_list_items
       arguments:
-        primary_ds_name: {$arg: primary_ds_name}
+        name_pattern: {$arg: name_pattern}
         detail: {$arg: detail}
       rows_path: "."
       auth_header: Authorization
     secret_refs:
-      - env:OKG_MCP_CMS_GATE_AUTH
+      - env:OKG_MCP_EXAMPLE_GATE_AUTH
 ```
 
 | `config` field | required | what it does |
@@ -232,7 +234,9 @@ text blocks are the answer:
 
 What `rows_path` may land on:
 
-- **A list** is the rows.
+- **A list** is the rows. With `truncated: true` beside it (an MCP server at its
+  `limit`) the reply says where the tool stopped and how to ask for more,
+  never "all shown"; a `truncated` that is not true, false or null is refused.
 - **An object, under a named path** such as `data`, is one row. Many MCP tools
   answer with one object: a tool returning `{"status": "ok", "data": {...}}`
   is read as one row with `rows_path: data`. An empty object `{}` there is no
@@ -249,23 +253,17 @@ What `rows_path` may land on:
 - **Anything else** (a number, a string, `null`) is refused
   `result_unusable`.
 
-The second text case is common: an MCP server built with FastMCP whose tool
-returns an untyped list sends one text block per item, and a one-item list as
-a single bare object.
+FastMCP tools that return an untyped list send one text block per item, and a
+one-item list as one bare object.
 
-One consequence to watch: wherever `rows_path` lands on a wrapper object with
-more than one key, such as `{"status": "ok", "items": [...]}` at the root of
-one text block, or `{"items": [...], "next": "..."}` under a named path, it is
-read as ONE row holding the whole wrapper, not refused. The adapter cannot
-tell that wrapper from a genuine one-row answer, so point `rows_path` at the
-list when the tool has one, and set `row_fields` on any binding that can land
-on an object: a wrapper then lacks the named keys and is refused
-`result_unusable` instead of served.
+A `rows_path` that lands on a wrapper with more than one key, such as
+`{"status": "ok", "items": [...]}`, reads it as ONE row. Point `rows_path` at
+the list, and set `row_fields` on any binding that can land on an object, so
+such a wrapper is refused `result_unusable`.
 
 **Limits.** A 401, 403 or connection failure on the client's background `GET`
 stream, or a session close that reaches the deadline, reports
-`upstream_unavailable` or `timeout` even when the tool result arrived; this is
-deliberate.
+`upstream_unavailable` or `timeout` even when the tool result arrived.
 
 **Errors.** Every call-time failure is `live_adapter_error`; its `failure` field
 names the case:
@@ -275,6 +273,8 @@ names the case:
 | the server is unreachable, refuses the token, answers 4xx or 5xx, or does not know the tool | `upstream_unavailable` |
 | the tool returned `isError: true` (its text comes back as a short fenced excerpt) | `upstream_unavailable` |
 | an `isError` text saying "empty set" | `upstream_empty_result` |
+| an `isError` text whose first sentence says "not found" or "does not exist" | `upstream_not_found` |
+| an `isError` text whose first sentence says "considered invalid", "is invalid" or "are invalid", "does not match schema", "validation error for", or "invalid argument", "invalid parameter" or "invalid expression" | `upstream_rejected_arguments` |
 | a 3xx | `redirect_refused` |
 | the session received more than `max_response_bytes` | `response_over_cap` |
 | the reply is not an MCP reply, is compressed, or contains the token | `response_unusable` |
@@ -305,6 +305,18 @@ something it detects: a false `service` declaration is the operator's responsibi
 file beside the deployment manifest, `nomos_external_probe.json`, and nothing
 else. The `nomos.deployment_posture` block in the manifest does not reach it.
 
+A live call is refused while the deployment's access rules are on. When
+`nomos.runtime_enforcement` is `audit` or `enforce`, or the server cannot tell
+which it is, `expand(live=...)` fails with `live_refused_under_access_rules`
+before this gate is asked and before anything leaves the process. So does
+`expand(next=...)` on a live answer kept earlier. The gate decides as the
+deployment's service principal, not as the reader, so it cannot stand in for
+the reader's access rules. To serve live calls, run the deployment with
+`runtime_enforcement: off`. The process-wide operator override
+`OKG_NOMOS_RUNTIME_ENFORCEMENT=off` also turns access rules off for this
+check, so a server started with it serves live calls even when the manifest
+declares `audit` or `enforce`; no caller can set it.
+
 ```json
 {
   "policy_bundle_id": "live-http-ci.live-relations", "policy_version": "1",
@@ -331,11 +343,9 @@ a third relation reusing `external.host.read_telemetry` arrives denied.
 The **subject** is the identity the call acts as. Under `principal_mode:
 service` it is the binding's `service_principal` when the operator declared one,
 and `service:okg-runtime` otherwise. Both are non-empty, so under the only mode
-served today the subject always resolves. If one ever did not, the policy
-bundle would never be consulted: the call would come back denied with reason
-`live_principal_unresolved` and a record saying `adapter_ran: false`. That
-branch is defence in depth against a future caller mode, not a state an
-operator can reach or configure away.
+served today the subject always resolves; an unresolved one (a future caller
+mode) would be denied with `live_principal_unresolved` and `adapter_ran:
+false`, without consulting the bundle.
 
 The bundle compiles once, at server start, so **editing it on disk takes effect
 on the next restart** — a restart, not a stale allow: the gate is consulted on
@@ -344,7 +354,7 @@ every call and there is no result cache on this path.
 ## 4. What the agent sees
 
 `inspect` publishes the relation — on the subtype and on a node of that subtype
-— under `live_relations`, with each argument's type, default and bounds, so the
+— under `live_relations`, with its `description` and each argument's type, default and bounds, so the
 agent is told the limits rather than meeting them as refusals.
 `expand(live={relation, args})` asks it; rows come back under `external_live`,
 beside the pinned graph rows and never merged into them:
@@ -492,7 +502,7 @@ deployment from starting; the rest reach a caller at call time.
 | `live_adapter_personal_credential_refused` | start | an `mcp` binding declares a `personal` credential and `contract.lifecycle` is not `prototype` or `demo` |
 | `live_relations_unbound_deployment` | call | the call named a relation on a deployment that binds none |
 | `live_relation_undeclared` | call | the node's subtype does not declare that relation |
-| `live_arguments_invalid` | call | an unknown key, an explicit null, or a value outside its bounds |
+| `live_arguments_invalid` | call | an unknown key, an explicit null, or a value outside its bounds. A value that fails only because it lacks the leading `/` its pattern requires is refused with "name must start with '/'; did you mean '/<value>'?" (the one-line hint says to send '/' plus the value you gave) |
 | `live_adapter_error` | call | the upstream refused, redirected, overflowed a cap, or answered unusably |
 | `live_concurrency_exhausted` | call | too many live calls in flight; retry |
 | `live_sample_write_failed` | call | the call ran and its record could not be written |

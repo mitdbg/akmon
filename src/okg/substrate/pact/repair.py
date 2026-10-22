@@ -310,6 +310,69 @@ def artifact_for(manifest: Any, slot: ProofSlot) -> str:
     return PLACEHOLDER_ARTIFACT
 
 
+#: The evidence kinds a pact_version 5 `evidence attach --kind` accepts.
+V5_ATTACH_KINDS = (
+    "executed_test",
+    "formal_check",
+    "published_generation",
+    "design_review",
+    "manual",
+)
+
+#: v4 kinds with no same-named v5 kind, and the v5 kind that carries them.
+#: Aliases (`pytest`, `graph`, ...) are folded first through the registry.
+_V4_KIND_TO_V5 = {
+    "planned_test": "executed_test",
+    "graph_report": "published_generation",
+}
+
+
+def v5_attach_kind(kind: str) -> str:
+    """The v5 `--kind` that carries a v4 (or aliased) evidence kind.
+
+    A kind v5 has no name for falls to ``manual``, the same rule the read-only
+    v5 adapter applies to a stored row, so a hint never prints a kind the v5
+    parser would refuse. That mapping can WEAKEN a requirement: one whose
+    policy demands a specific v4 kind (``benchmark_report``, ``ui_visual``)
+    gets a ``manual`` row, which is a weaker kind than the policy named.
+    """
+    from okg.substrate.pact.evidence_kinds import load_registry
+
+    canonical = load_registry(None).canonicalize(kind)
+    canonical = _V4_KIND_TO_V5.get(canonical, canonical)
+    return canonical if canonical in V5_ATTACH_KINDS else "manual"
+
+
+def is_v5_manifest(manifest: Any) -> bool:
+    """True when this manifest view was adapted from a pact_version 5 file.
+
+    A v5 manifest reaches the v4 readers through `v5_adapter.to_v4`, which
+    records the source version under ``change.method_metadata``.
+    """
+    change = getattr(manifest, "change", None)
+    metadata = getattr(change, "method_metadata", None)
+    return isinstance(metadata, dict) and metadata.get("pact_version") == 5
+
+
+def v5_unbacked_guidance(manifest: Any, proof_commands: Iterable[str]) -> str | None:
+    """Refusal text for a v5 change whose proof slots got no attach command.
+
+    A v5 slot with no real test id gets no runnable command (see
+    `attach_command`), so the refusal must say why the list has none and what
+    the author does instead. ``None`` when the change is not v5 or a command
+    was printed.
+    """
+    if not is_v5_manifest(manifest) or list(proof_commands):
+        return None
+    return (
+        "this is a pact_version 5 change and no test plan names the check, so "
+        "no attach command is printed (a bare pass row would be unbacked "
+        "proof); run the check, then attach it with `pact evidence attach "
+        "<id> --kind <kind> --requirement <req> --command \"<what you ran>\"` "
+        "and/or `--artifact <generated file>`"
+    )
+
+
 def attach_command(
     prefix: str,
     change_id: str,
@@ -317,7 +380,29 @@ def attach_command(
     *,
     kind: str,
     ref: str,
+    v5_requirement: str | None = None,
 ) -> str:
+    """The attach invocation matching the change's pact_version.
+
+    ``v5_requirement`` set means a v5 change: v5 takes the requirement (it has
+    no per-criterion target and no ``--ref``). The v5 gate counts ANY passing
+    row at a reachable head as proof, so a bare ``--status pass`` command
+    would record proof with no check behind it. The command is therefore
+    printed only when ``ref`` is a real test id from the test plan, and then
+    carries ``--command "pytest <ref>"``. With no real ref it returns ``""``
+    (dropped by `executable_commands`): the author attaches the check they
+    actually ran with ``--command`` / ``--artifact``, and the refusal text
+    says so (`v5_unbacked_guidance`).
+    """
+    if v5_requirement is not None:
+        if ref == PLACEHOLDER_ARTIFACT:
+            return ""
+        return (
+            f"{prefix} pact evidence attach {shlex.quote(change_id)} "
+            f"--kind {shlex.quote(v5_attach_kind(kind))} "
+            f"--requirement {shlex.quote(v5_requirement)} --status pass "
+            f"--command {shlex.quote(f'pytest {ref}')} --json"
+        )
     return (
         f"{prefix} pact evidence attach {shlex.quote(change_id)} "
         f"{shlex.quote(target)} --kind {shlex.quote(kind)} "
@@ -379,6 +464,7 @@ def proof_slot_commands(
         return requirement_id is not None and requirement_id in scope
 
     commands: list[str] = []
+    v5 = is_v5_manifest(manifest)
     for token in slots or ():
         slot = parse_proof_slot(token)
         if slot.note in _UNFILLABLE_NOTES:
@@ -407,6 +493,7 @@ def proof_slot_commands(
                 target,
                 kind=kind,
                 ref=artifact_for(manifest, slot),
+                v5_requirement=owner if v5 else None,
             )
         )
     # Criteria no slot covered still need their proof link, and the command
@@ -430,6 +517,7 @@ def proof_slot_commands(
                     acceptance_id,
                     kind=_policy_kind(manifest, requirement.id),
                     ref=artifact_for(manifest, slot),
+                    v5_requirement=requirement.id if v5 else None,
                 )
             )
     return executable_commands(commands)

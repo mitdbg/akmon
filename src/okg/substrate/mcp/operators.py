@@ -36,6 +36,9 @@ AKMON_READ_TOOLS: tuple[str, ...] = (
     "aggregate",
 )
 QUERY_ESCAPE_TOOLS: tuple[str, ...] = ("query",)
+#: Several read calls in one, in order (issue #3666): its steps are the read
+#: tools above, each checked and served as if sent alone.
+COMPOSITION_TOOLS: tuple[str, ...] = ("run",)
 WRITE_EFFECT_TOOLS: tuple[str, ...] = (
     "record",
     "propose",
@@ -63,7 +66,7 @@ SOURCE_ADMIN_TOOLS: tuple[str, ...] = (
 CONDITIONAL_ADMIN_TOOLS: tuple[str, ...] = ("upload",)
 
 # Backwards-compatible name for the default AKMON read surface.
-OPERATOR_TOOLS: tuple[str, ...] = AKMON_READ_TOOLS + QUERY_ESCAPE_TOOLS
+OPERATOR_TOOLS: tuple[str, ...] = AKMON_READ_TOOLS + QUERY_ESCAPE_TOOLS + COMPOSITION_TOOLS
 
 #: The tool set a chat assistant gets when its deployment declares NONE.
 #:
@@ -217,6 +220,18 @@ OPERATOR_METADATA: dict[str, OperatorMetadata] = {
         admission_required=False,
         layer="query_escape",
         description="Bounded read-only SQL over okg.v_* views.",
+    ),
+    "run": OperatorMetadata(
+        name="run",
+        stability="experimental",
+        pin_behavior="generation-pinned: every step reads the first step's generation",
+        boundary="okg_graph_read",
+        admission_required=False,
+        layer="core_read",
+        description=(
+            "Several read calls in order; a later step uses an earlier "
+            "step's set as a condition or its values as a list."
+        ),
     ),
     "list_sources": OperatorMetadata(
         name="list_sources",

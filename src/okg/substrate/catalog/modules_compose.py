@@ -781,6 +781,10 @@ def compose_catalog(
     # subtype is missing or requires attributes the endpoint cannot fill.
     _validate_link_endpoint_routes(composed, deployment_root)
 
+    # Issue #3666: every live type, checked against its subtype's composed
+    # relations and against the other live types (prefixes, far-end types).
+    _validate_live_types(composed)
+
     # Pass 4: deployment aliases.json (optional).
     if aliases_path.is_file():
         try:
@@ -875,6 +879,27 @@ def compose_catalog(
     composed._validate_entity_merge_equivalence_conflicts()
 
     return composed
+
+
+def _validate_live_types(composed: ComposedCatalog) -> None:
+    """Check every composed live type whole (issue #3666).
+
+    `_extract_subtypes` checks a live type against its own file's relations.
+    A deployment file may add the annotation to a subtype whose relations
+    another file declares, so the relation check is repeated here over the
+    composed metadata, together with the checks that need every live type
+    at once: one prefix per type, far-end types that are live types, and a
+    `system` some declared-only type declares. Binding and stored-node checks
+    need the deployment and the database; they run at server start.
+    """
+    if not any(
+        isinstance(meta, Mapping) and meta.get("live_type") is not None
+        for meta in composed.subtype_metadata.values()
+    ):
+        return
+    from okg.substrate.external_backed.live_types import LiveTypeRegistry
+
+    LiveTypeRegistry.from_catalog(composed.subtype_metadata)
 
 
 def _check_no_contains_cycles(composed: ComposedCatalog) -> None:
@@ -1304,6 +1329,28 @@ def _extract_subtypes(
                 name: relation.to_metadata()
                 for name, relation in sorted(live_relations.items())
             }
+        # Issue #3666 (PACT live-graph-rucio-sites): a live type, declared
+        # once per type next to the relations it names. Checked here against
+        # THIS file's relations when the file declares any; a file that adds
+        # only the annotation to a subtype whose relations another file
+        # declares gets a shape check here, and the whole composed catalog
+        # is checked by `_validate_live_types` once every file is laid over.
+        from okg.substrate.external_backed.live_types import (
+            ANNOTATION_KEY as _LIVE_TYPE_ANNOTATION,
+            METADATA_KEY as _LIVE_TYPE_METADATA,
+            parse_live_type,
+        )
+
+        if annotations.get(_LIVE_TYPE_ANNOTATION) is not None:
+            live_type = parse_live_type(
+                subtype,
+                annotations[_LIVE_TYPE_ANNOTATION],
+                live_relations or None,
+                where=f" (schema: {schema_path})",
+            )
+            composed.subtype_metadata.setdefault(subtype, {})[
+                _LIVE_TYPE_METADATA
+            ] = live_type.to_metadata()
         # `add-text-attr-declaration` (2026-04-25): capture the
         # comma-separated `okg_searchable_text_fields` annotation
         # so the projector can auto-stamp `attrs.text` from
@@ -1500,8 +1547,15 @@ _OVERLAY_LIST_KEYS = frozenset({
 })
 # Every other key (`archetype`, `evidence_kind`, `passage_rollup`,
 # `created_at_from`, `last_modified_at_from`, `title_from`, `path_from`,
-# and any key added later) is
+# `live_type`, and any key added later) is
 # atomic: a differing value is refused even under the marker.
+#
+# `live_type` (issue #3666) is atomic ON PURPOSE. A deployment file may add a
+# live type where no earlier file set one, or restate it identically; it may
+# never merge into or replace one. A merged declaration would be a type no
+# single file states, and its relation and prefix checks would run against
+# something no operator wrote. The composed result is checked whole by
+# `_validate_live_types`.
 
 
 class DeploymentSubtypeOverlayRefused(CatalogModuleMissing):

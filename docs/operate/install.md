@@ -9,9 +9,11 @@ owner: documentation
 ---
 # Install OKG
 
-This page installs OKG from source and builds a graph of one Git repository:
-its files, code, history and tests. At the end you can search the graph from
-the command line and connect a coding agent to it.
+This page installs OKG from a source checkout, not a tagged release, and
+builds a graph of one Git repository: its files, code, history and tests. To
+install a released version, which most people want, follow the
+[Quickstart](../start/quickstart.md) instead. At the end of this page you can
+search the graph from the command line and connect a coding agent to it.
 
 The graph also reads two things outside the repository: your Codex session
 logs in `~/.codex`, and a description of this machine's software environment.
@@ -26,6 +28,10 @@ You need:
 - [`uv`](https://docs.astral.sh/uv/getting-started/installation/). It
   installs the right Python for you. OKG requires Python `>=3.12,<3.14`.
 - [Docker with Compose](https://docs.docker.com/engine/install/), running.
+  On podman, run `export AKMON_VERSION=0.3.0`, then start the database with
+  the `podman run` command in
+  [Quickstart step 1](../start/quickstart.md#1-get-akmon-and-start-the-database)
+  and skip step 2 below.
 - A Git repository to index. Below, `<repo>` is the absolute path to its top
   directory.
 - Later, to upgrade, restore or copy a deployment (`okg up`,
@@ -137,8 +143,11 @@ Each graph needs its own database. For a second graph, create one and name it
 in `--postgres-dsn`:
 
 ```bash
-docker exec okg-pg psql -U postgres -c 'CREATE DATABASE okg_<name>'
+docker exec "${OKG_PG_CONTAINER:-okg-pg}" psql -U postgres -c 'CREATE DATABASE okg_<name>'
 ```
+
+Use the container name you started the database with: `okg-pg` unless you
+set `OKG_PG_CONTAINER`.
 
 **If you use Codex**, a session that Codex is writing during the install is
 read up to that moment; the next import reads the rest. If Codex starts a new
@@ -156,6 +165,13 @@ Check with `okg status` in step 4.
 already written the configuration, so run the same command again with
 `--force --yes` to overwrite it.
 
+**After `--force` over an existing database**, the install can exit 1 at the
+`ingest` stage with `catalog_manifest_drifted`. The final publish was
+refused because the database still holds the old claimed files, and
+`okg status` shows what was published. Claim the new files yourself, then
+publish, as in
+[What to run after a change](configure.md#what-to-run-after-a-change).
+
 ## 4. Check it and search it
 
 ```bash
@@ -171,12 +187,20 @@ okg search --deployment <name> --query '<a function name>'
 
 Search matches a file's full path from the repository root, a file name
 without its extension, code names, docstrings and commit messages. It does not
-match a file name with its extension unless you give the full path, and it
-does not match the body text of Markdown files.
+match a file name with its extension unless you give the full path, and a
+graph made from the repository alone does not match the body text of its
+Markdown files. To search document text, add the folder as a `local-folder`
+source: [Quickstart step 3](../start/quickstart.md#3-add-a-folder-of-your-own-documents).
 
-`okg doctor --deployment <name>` reports `ok` with three warnings on a new
-install. `okg jobs status` exits 1 and reports `unavailable`: that only says
-no background worker is running, which this page does not set up.
+`okg doctor --deployment <name>` prints `ok: True` on a new install. In the
+runs checked, its `warnings:` list held only the disk check, which warns
+(`host_headroom_warn`) when less than 15% of the disk is free and prints
+`ok: False` (`host_headroom_blocker`) when less than 6% is free. Other
+warnings name their own cause. Free some
+space first; the "10 GB free" the Quickstart asks for is a minimum, not what
+this check measures. `okg jobs status --deployment <name>` reports
+`unavailable`: that only says no background worker is running, which this page
+does not set up.
 
 ## Keep it up to date
 

@@ -13,6 +13,9 @@ from dataclasses import fields
 
 import pytest
 
+from okg.substrate.runtime_queue_health import (
+    DEPLOYMENT_READINESS_DELEGATED_RUNTIME_WORKFLOW_NAMES,
+)
 from okg.substrate.qa.metrics import (
     QAGateMetrics,
     _dlq_count,
@@ -182,6 +185,35 @@ def test_queue_depth_ignores_disabled_embed_runtime_workflow() -> None:
     assert _dlq_count(cur, {"embed"}) == 0
 
 
+@pytest.mark.parametrize(
+    "workflow_name",
+    sorted(DEPLOYMENT_READINESS_DELEGATED_RUNTIME_WORKFLOW_NAMES),
+)
+def test_queue_depth_ignores_workflows_readiness_delegates(
+    workflow_name: str,
+) -> None:
+    """A running doctor/source-sync workflow is not ingest backlog (#3868)."""
+    ignored = set(DEPLOYMENT_READINESS_DELEGATED_RUNTIME_WORKFLOW_NAMES)
+    cur = _FakeQueueCursor(
+        active_count=1, dlq_count=1, workflow_name=workflow_name
+    )
+
+    assert _queue_depth(cur, None, ignored)["ingest"] == 0
+    assert _dlq_count(cur, None, ignored) == 0
+    # Without the ignore set the same row still counts: the default is kept.
+    assert _queue_depth(cur)["ingest"] == 1
+
+
+def test_queue_depth_still_counts_other_workflows_when_delegated_ignored() -> None:
+    ignored = set(DEPLOYMENT_READINESS_DELEGATED_RUNTIME_WORKFLOW_NAMES)
+    cur = _FakeQueueCursor(
+        active_count=2, dlq_count=1, workflow_name="okg_publish_generation"
+    )
+
+    assert _queue_depth(cur, None, ignored)["ingest"] == 2
+    assert _dlq_count(cur, None, ignored) == 1
+
+
 def test_queue_depth_projects_embed_runtime_workflow_when_enabled() -> None:
     cur = _FakeQueueCursor(active_count=4, workflow_name="okg_embed_batch")
 
@@ -324,3 +356,33 @@ class _FakeQueueCursor:
 
     def fetchall(self) -> list[tuple]:
         return list(self._result)
+
+
+def test_cli_qa_snapshot_passes_the_readiness_delegated_workflows(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`okg metrics --qa-snapshot` shares readiness's delegated partition."""
+    import argparse
+
+    import okg.substrate.qa.metrics as qa_metrics
+    from okg.substrate.cli.metrics import _cmd_metrics_qa_snapshot
+
+    seen: dict[str, object] = {}
+
+    def fake_snapshot(**kwargs: object) -> QAGateMetrics:
+        seen.update(kwargs)
+        return _sample()
+
+    monkeypatch.setattr(qa_metrics, "snapshot", fake_snapshot)
+    args = argparse.Namespace(
+        deployment="no-such-deployment",
+        dsn="postgresql://user@127.0.0.1:1/none",
+        generation=None,
+    )
+
+    assert _cmd_metrics_qa_snapshot(args, as_json=True) == 0
+    capsys.readouterr()
+    assert seen["ignored_workflow_names"] == set(
+        DEPLOYMENT_READINESS_DELEGATED_RUNTIME_WORKFLOW_NAMES
+    )

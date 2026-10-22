@@ -49,6 +49,7 @@ import traceback
 import warnings
 from typing import Any, Iterator
 
+from okg.substrate.cli import _read_render
 from okg.substrate.errors import SubstrateError
 
 #: Each operator's argument names, in the MCP tool's own order. Static so the
@@ -61,7 +62,7 @@ OPERATOR_ARGUMENTS: dict[str, tuple[str, ...]] = {
         "limit", "offset", "generation_id", "select", "authority",
         "allow_unverified_embedding_provenance", "max_bytes", "max_chars",
         "expand_concepts", "path_prefix", "continuation_token", "view",
-        "matching", "context_chars", "completeness", "retain", "summary",
+        "matching", "context_chars", "completeness", "retain", "summary", "within",
     ),
     "inspect": (
         "target", "generation_id", "select", "authority", "max_bytes", "next",
@@ -78,7 +79,7 @@ OPERATOR_ARGUMENTS: dict[str, tuple[str, ...]] = {
     ),
     "aggregate": (
         "input", "by", "metrics", "generation_id", "limit", "offset",
-        "authority", "max_bytes",
+        "authority", "max_bytes", "predicate",
     ),
     "map": (
         "input", "projection", "generation_id", "limit", "offset",
@@ -89,6 +90,11 @@ OPERATOR_ARGUMENTS: dict[str, tuple[str, ...]] = {
         "max_bytes",
     ),
 }
+
+#: Tool arguments with no flag of their own: each reaches the tool inside
+#: `--args`. `expand`'s `args` (the values of a live edge's arguments;
+#: PACT live-graph-rucio-sites) would be the command's own `--args` flag.
+ARGS_OBJECT_ONLY: dict[str, tuple[str, ...]] = {"expand": ("args",)}
 
 #: The commands this module registers itself. `search` is registered by
 #: `_read_side`, which adds the operator-only flags below to its parser.
@@ -163,7 +169,7 @@ SEARCH_ARGS_ONLY: frozenset[str] = frozenset({"scope"})
 SEARCH_OPERATOR_FLAGS: tuple[str, ...] = (
     "where", "subtype_filter", "attr_filters", "filter", "authority",
     "max_bytes", "expand_concepts", "path_prefix", "continuation_token",
-    "view", "matching", "context_chars", "retain", "summary",
+    "view", "matching", "context_chars", "retain", "summary", "within",
 )
 
 #: The variable okg commands read the deployment from when the flag is not
@@ -226,19 +232,28 @@ def require_deployment(
     (`deployment_not_specified`, which names all three) is printed and the
     exit code is returned: 2, the call as typed cannot run.
     """
-    from okg.substrate.cli._read_shell import TYPED_DEPLOYMENT_ATTR, emit_refusal
-    from okg.substrate.deployment_default import resolve_command_deployment
+    from okg.substrate.cli._read_shell import emit_refusal
 
-    # A `retry:` line names --deployment only when it was typed.
-    setattr(args, TYPED_DEPLOYMENT_ATTR, getattr(args, "deployment", None))
     try:
-        args.deployment = resolve_command_deployment(
-            getattr(args, "deployment", None), command=f"okg {operator}",
-        )
+        resolve_deployment(args, operator)
     except SubstrateError as exc:
         # A refusal of the call as typed: exit 2, in a refusal's shape.
         return emit_refusal(exc, operator, args, mode="json" if as_json else "text")
     return None
+
+
+def resolve_deployment(args: argparse.Namespace, operator: str) -> str:
+    """Name the deployment on `args` (the order `require_deployment` says),
+    or raise the `SubstrateError` that says why none is named."""
+    from okg.substrate.cli._read_shell import TYPED_DEPLOYMENT_ATTR
+    from okg.substrate.deployment_default import resolve_command_deployment
+
+    # A `retry:` line names --deployment only when it was typed.
+    setattr(args, TYPED_DEPLOYMENT_ATTR, getattr(args, "deployment", None))
+    args.deployment = resolve_command_deployment(
+        getattr(args, "deployment", None), command=f"okg {operator}",
+    )
+    return args.deployment
 
 
 def _usage_error(code: str, message: str, *, fix_hint: str, **data: Any) -> SubstrateError:
@@ -903,64 +918,31 @@ def output_schema_of(server: Any, operator: str) -> Any:
 
 
 #: The code the MCP server gives an operator's untyped exception.
-SERVER_FAULT_CODE = "operator_execution_failed"
+SERVER_FAULT_CODE = _read_render.SERVER_FAULT_CODE
 
 
 def reply_text(result: Any) -> tuple[str, int]:
     """The reply's text block, and how many other blocks it carries."""
-    content = list(getattr(result, "content", None) or [])
-    texts = [block.text for block in content if getattr(block, "type", None) == "text"]
-    return (texts[0] if texts else ""), len(content) - min(len(texts), 1)
+    reply = _read_render.reply_of(result)
+    return reply.text, reply.other_blocks
 
 
 def reply_refused(result: Any, text: str, *, as_json: bool) -> bool:
-    if bool(getattr(result, "isError", False)):
-        return True
-    if not as_json:
-        return False
-    try:
-        payload = json.loads(text)
-    except ValueError:
-        return False
-    return isinstance(payload, dict) and (
-        payload.get("status") == "refused" or isinstance(payload.get("error"), dict)
+    return _read_render.text_is_refused(
+        bool(getattr(result, "isError", False)), text, as_json=as_json,
     )
 
 
 def reply_error_code(text: str, *, as_json: bool) -> Any:
-    """The error code a refused reply states, or None.
-
-    The JSON reply's `error.code`; for a text reply, the code on its status
-    line (`<tool> refused <code>`), read with the renderer's own parser. The
-    code is looked for nowhere else in the reply.
-    """
-    if as_json:
-        try:
-            payload = json.loads(text)
-        except ValueError:
-            return None
-        error = payload.get("error") if isinstance(payload, dict) else None
-        return error.get("code") if isinstance(error, dict) else None
-    from okg.substrate.mcp.result_text import parse_status_line
-
-    status = parse_status_line(text)
-    if status is None or status.status not in ("refused", "error"):
-        return None
-    return status.code
-
-
-#: How a refusal's fix hint sends an MCP client to the tool's input schema
-#: (`response_bounds.py`: an undeclared argument, an invalid one). A shell
-#: has no tools/list to re-read; `okg <tool> --help` prints the same schema
-#: as one line per argument.
-_SCHEMA_POINTER = re.compile(r"re-read (\w+)'s inputSchema in tools/list")
+    """The error code a refused reply states, or None
+    (`_read_render.reply_error_code`)."""
+    return _read_render.reply_error_code(text, as_json=as_json)
 
 
 def shell_refusal_text(text: str) -> str:
     """A refused reply's text with each pointer to a tool's input schema
-    replaced by the command that prints it. Nothing else changes, in the
-    text or in the JSON form."""
-    return _SCHEMA_POINTER.sub(lambda match: f"run `okg {match.group(1)} --help`", text)
+    replaced by the command that prints it (`_read_render`)."""
+    return _read_render.shell_refusal_text(text)
 
 
 def print_reply(result: Any, *, as_json: bool) -> int:
@@ -969,23 +951,9 @@ def print_reply(result: Any, *, as_json: bool) -> int:
     A refusal is printed as the tool gave it, except that a pointer to the
     tool's input schema names `okg <tool> --help` (`shell_refusal_text`).
     """
-    text, others = reply_text(result)
-    refused = reply_refused(result, text, as_json=as_json)
-    if refused:
-        text = shell_refusal_text(text)
-    stream = sys.stderr if refused else sys.stdout
-    stream.write(text if text.endswith("\n") else text + "\n")
-    if others:
-        print(
-            f"note: {others} more content block(s) of this reply (an image, "
-            "or a further block) were not printed",
-            file=sys.stderr,
-        )
-    if refused and reply_error_code(text, as_json=as_json) == SERVER_FAULT_CODE:
-        # The tool raised something it does not name: a fault the caller
-        # cannot fix by changing the call, so not a refusal.
-        return 1
-    return 2 if refused else 0
+    return _read_render.render_printed(
+        _read_render.reply_of(result), as_json=as_json,
+    ).write()
 
 
 def single_cause(exc: BaseException) -> tuple[BaseException, int]:
@@ -1061,8 +1029,10 @@ def report_failure(
     An interrupt or an exit, and a database connect failure, are raised
     again for the caller (`guarded` reports the second).
     """
-    from okg.substrate.cli._read_side import _emit_error
     from okg.substrate.db.concurrency_budget import BudgetError
+
+    def emit(err: SubstrateError, *, as_json: bool) -> int:
+        return _read_render.render_failure(err, as_json=as_json).write()
 
     exc, count = single_cause(raised)
     if not isinstance(exc, Exception):
@@ -1078,16 +1048,12 @@ def report_failure(
         # The host-wide ledger has no room for this command's two
         # connections. Nothing was opened; the caller can try again.
         line = one_line(f"{surface}: error: BudgetError: {exc}")
-        if as_json:
-            refused = _unexpected(surface, step, exc)
-            refused.message = line
-            print(json.dumps(mask_value(refused.to_json())), file=sys.stderr)
-        else:
-            sys.stderr.write(line + "\n")
-        return 2
+        return _read_render.render_busy(
+            _unexpected(surface, step, exc), line, as_json=as_json,
+        ).write()
     if isinstance(exc, SubstrateError):
-        return _emit_error(exc, as_json=as_json)
-    return _emit_error(
+        return emit(exc, as_json=as_json)
+    return emit(
         _unexpected(surface, step, exc, others=count - 1), as_json=as_json,
     )
 
@@ -1149,28 +1115,11 @@ def run_operator(
             finally:
                 with timing.phase("close"):
                     close_server(server)
-        from okg.substrate.cli import _read_shell
-
         with timing.phase("print"):
-            code = print_reply(
-                result if as_json else _read_shell.noted_reply(operator, result),
-                as_json=as_json,
-            )
-        if code == 0 and not as_json:
-            hint = _read_shell.pipe_hint(operator, reply_text(result)[0], args)
-            if hint is not None:
-                # Not masked: the caller's own call, to be run as printed.
-                sys.stderr.write(hint + "\n")
-        if code == 2 and not as_json:
-            line = _read_shell.retry_line(
-                _read_shell.retry_call_in_text(reply_text(result)[0]), arguments, args,
-            )
-            if line is not None:
-                # Not masked: the caller's own call, to be run as printed.
-                sys.stderr.write(line + "\n")
-        if code == 2 and refusal_hint and not as_json:
-            say(refusal_hint)
-        return code
+            return _read_render.render_reply(
+                operator, _read_render.reply_of(result), as_json=as_json,
+                arguments=arguments, args=args, refusal_hint=refusal_hint,
+            ).write()
     finally:
         timing.report()
 
@@ -1198,6 +1147,11 @@ def _forget_unhandled_interrupt() -> None:
     exec("")
 
 
+def emit_failure(err: SubstrateError, *, as_json: bool) -> int:
+    """Print a failure (`_read_render.render_failure`); exit 1."""
+    return _read_render.render_failure(err, as_json=as_json).write()
+
+
 def guarded(handler: Any) -> Any:
     """A read command's handler, with nothing left to escape as a traceback.
 
@@ -1212,7 +1166,7 @@ def guarded(handler: Any) -> Any:
     """
 
     def run(args: argparse.Namespace, *, as_json: bool) -> int:
-        from okg.substrate.cli._read_side import _emit_error
+        _emit_error = emit_failure
 
         try:
             return handler(args, as_json=as_json)
@@ -1247,26 +1201,42 @@ def guarded(handler: Any) -> Any:
 
 def cmd_operator(args: argparse.Namespace, *, as_json: bool) -> int:
     """`okg inspect|expand|filter|aggregate|map|query`."""
-    from okg.substrate.cli._read_shell import emit_refusal
+    return run_parsed(str(args.command), args, as_json=as_json)
 
-    operator = str(args.command)
-    missing = require_deployment(args, operator, as_json=as_json)
-    if missing is not None:
-        return missing
+
+def run_parsed(operator: str, args: argparse.Namespace, *, as_json: bool) -> int:
+    """Parse the command line (`_read_call.parse_read_call`), make the call
+    (`run_call`) and print the reply (`_read_render`). A command line that
+    cannot be read as one call is refused, exit 2, before any start-up
+    cost."""
+    from okg.substrate.cli._read_call import ReadCallRefused, parse_read_call
+
     try:
-        arguments = operator_arguments(operator, args)
-    except SubstrateError as exc:
-        # `--args` unreadable or not an object, an argument given twice:
-        # the call as typed is refused, exit 2.
-        return emit_refusal(exc, operator, args, mode="json" if as_json else "text")
-    # Words that are not SQL were most likely meant as a search; the line
-    # follows the tool's own refusal of them and nothing else.
-    hint = (
-        TEXT_SEARCH_HINT
-        if operator == "query" and not looks_like_sql(arguments.get("sql"))
-        else None
+        call = parse_read_call(operator, args, as_json=as_json)
+    except ReadCallRefused as refused:
+        return _read_render.render_refusal(
+            refused.error, refused.operator, args, mode=refused.mode,
+        ).write()
+    return run_call(call, args)
+
+
+def run_call(call: Any, args: argparse.Namespace) -> int:
+    """Run a parsed `ReadCall` on a read-only server built in this process:
+    through the shell layer (`_read_shell`) when the command used one of its
+    flags or bare forms, otherwise as one call."""
+    from okg.substrate.cli import _read_shell
+
+    if not call.plan.shell:
+        return run_operator(
+            call.operator, call.arguments, args, as_json=call.choices.as_json,
+            embedder_spec=call.embedder_spec, refusal_hint=call.choices.refusal_hint,
+        )
+    plan = call.plan
+    return run_operator(
+        call.operator, call.arguments, args, as_json=call.choices.as_json,
+        embedder_spec=call.embedder_spec, refusal_hint=call.choices.refusal_hint,
+        driver=lambda sent, server: _read_shell.drive(plan, args, sent, server),
     )
-    return run_planned(operator, arguments, args, as_json=as_json, refusal_hint=hint)
 
 
 def run_planned(
@@ -1282,24 +1252,18 @@ def run_planned(
     command used one of its flags or bare forms; otherwise exactly as
     before. A shell form refused from the command line alone exits 2
     before any start-up cost."""
-    from okg.substrate.cli import _read_shell
+    from okg.substrate.cli._read_call import ReadCallRefused, plan_read_call
 
     try:
-        plan = _read_shell.build_plan(operator, args, arguments, as_json=as_json)
-    except _read_shell.ShellRefusal as exc:
-        return _read_shell.emit_refusal(
-            exc, operator, args, mode="json" if as_json else "text",
-        )
-    if not plan.shell:
-        return run_operator(
-            operator, plan.arguments, args, as_json=as_json,
+        call = plan_read_call(
+            operator, arguments, args, as_json=as_json,
             embedder_spec=embedder_spec, refusal_hint=refusal_hint,
         )
-    return run_operator(
-        operator, plan.arguments, args, as_json=plan.mode == "json",
-        embedder_spec=embedder_spec, refusal_hint=refusal_hint,
-        driver=lambda call, server: _read_shell.drive(plan, args, call, server),
-    )
+    except ReadCallRefused as refused:
+        return _read_render.render_refusal(
+            refused.error, refused.operator, args, mode=refused.mode,
+        ).write()
+    return run_call(call, args)
 
 
 #: The words a SQL statement opens with. The `query` tool serves SELECT,
@@ -1329,18 +1293,7 @@ def looks_like_sql(text: Any) -> bool:
 
 def cmd_search_operator(args: argparse.Namespace, *, as_json: bool) -> int:
     """`okg search` when it was given anything only the MCP tool takes."""
-    from okg.substrate.cli._read_shell import emit_refusal
-
-    try:
-        arguments = search_operator_arguments(args)
-    except SubstrateError as exc:
-        # A flag pair, a query or a condition the command cannot read as one
-        # call: refused, exit 2.
-        return emit_refusal(exc, "search", args, mode="json" if as_json else "text")
-    return run_planned(
-        "search", arguments, args, as_json=as_json,
-        embedder_spec=getattr(args, "embedder", None),
-    )
+    return run_parsed("search", args, as_json=as_json)
 
 
 def cmd_guide(args: argparse.Namespace, *, as_json: bool) -> int:

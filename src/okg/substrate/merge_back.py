@@ -77,7 +77,7 @@ def _merge_back_publisher_setup(
     dsn: str,
     deployment_name: str,
 ) -> tuple[Any, dict[str, Any]]:
-    from okg.substrate.consistency import TransformConsistencyGate
+    from okg.substrate.consistency import StoredLiveNodesGate, TransformConsistencyGate
     from okg.substrate.publisher.deployment_stack import (
         build_deployment_publisher_stack,
     )
@@ -88,7 +88,7 @@ def _merge_back_publisher_setup(
     )
     overrides: dict[str, Any] = {}
     if not stack.consistency_gates:
-        overrides["consistency_gates"] = [TransformConsistencyGate()]
+        overrides["consistency_gates"] = [TransformConsistencyGate(), StoredLiveNodesGate()]
     return stack, overrides
 
 

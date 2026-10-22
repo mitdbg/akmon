@@ -185,7 +185,10 @@ def _status_report(dsn: str, *, deployment: str | None) -> dict[str, Any]:
 
 
 def _cmd_status(args: argparse.Namespace, *, as_json: bool) -> int:
-    resolution = resolve_read_dsn(args, surface="jobs.status")
+    try:
+        resolution = resolve_read_dsn(args, surface="jobs.status")
+    except SubstrateError as exc:
+        return _emit_error(exc, as_json=as_json)
     payload = _status_report(
         resolution.dsn,
         deployment=resolution.deployment,
@@ -226,7 +229,10 @@ def _cmd_enqueue_source(args: argparse.Namespace, *, as_json: bool) -> int:
     from okg.substrate.source_sync import SourceSyncEvent, SourceSyncJob
     from okg.substrate.source_sync_enqueue import enqueue_source_sync_via_dbos
 
-    resolution = resolve_read_dsn(args, surface="jobs.enqueue-source")
+    try:
+        resolution = resolve_read_dsn(args, surface="jobs.enqueue-source")
+    except SubstrateError as exc:
+        return _emit_error(exc, as_json=as_json)
     try:
         runtime_deployment = _runtime_deployment(
             args, resolution, command="okg jobs enqueue-source"
@@ -302,7 +308,10 @@ def _cmd_find_source_run(args: argparse.Namespace, *, as_json: bool) -> int:
     from okg.substrate.runtime.dbos_enqueue import workflow_id_for_deduplication
     from okg.substrate.runtime.partition_queue import source_sync_queue_name
 
-    resolution = resolve_read_dsn(args, surface="jobs.find-source-run")
+    try:
+        resolution = resolve_read_dsn(args, surface="jobs.find-source-run")
+    except SubstrateError as exc:
+        return _emit_error(exc, as_json=as_json)
     try:
         runtime_deployment = _runtime_deployment(
             args, resolution, command="okg jobs find-source-run"

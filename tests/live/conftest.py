@@ -16,9 +16,6 @@ and one flag would opt a reader into all of them:
 * ``postgres_launch/`` needs ``OKG_PG_LAUNCH_LIVE=1`` -- a container engine
   and the ``ops/pg`` image; it starts the rendered okg-workspace Postgres on an
   empty data directory.
-* ``mcp_cms/`` needs ``OKG_MCP_CMS_LIVE=1`` -- the DBS and Rucio MCP servers
-  on loopback behind their bearer-token gates, the gate token in
-  ``OKG_MCP_CMS_GATE_TOKEN``, and a scratch Postgres in ``OKG_TEST_DSN``.
 * ``mcp_deployment/`` needs ``OKG_MCP_DEPLOYMENT_LIVE=1`` -- a running
   deployment's streamable-HTTP MCP endpoint, its bearer token, two principals
   and an expectations file (#3413; inputs in ``mcp_deployment/harness.py``).
@@ -54,7 +51,6 @@ SUBTREE_FLAGS = {
     "chat": "OKG_CHAT_LIVE_PROOF",
     "opensearch": "OKG_OPENSEARCH_LIVE",
     "postgres_launch": "OKG_PG_LAUNCH_LIVE",
-    "mcp_cms": "OKG_MCP_CMS_LIVE",
     "mcp_deployment": "OKG_MCP_DEPLOYMENT_LIVE",
 }
 

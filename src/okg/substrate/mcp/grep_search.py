@@ -134,6 +134,7 @@ from okg.substrate.mcp.continuation import (
 )
 from okg.substrate.mcp import search_where
 from okg.substrate.mcp.envelope import validate_select
+from okg.substrate.mcp.run_steps import run_time_left_ms
 from okg.substrate.mcp.grep_query import (
     SCOPE_NAMES,
     GrepQuery,
@@ -327,12 +328,20 @@ def deadline(at: float) -> Iterator[None]:
 def _statement_timeout_ms() -> int:
     """This statement's timeout; raises `_Cancelled` past the deadline."""
     at = _DEADLINE.get()
+    ceiling = STATEMENT_TIMEOUT_MS
+    # Inside a `run` step (#3666) no grep statement outlives the run's
+    # budget: what is left of it caps this one.
+    run_left = run_time_left_ms()
+    if run_left is not None:
+        if run_left <= 0:
+            raise _Cancelled()
+        ceiling = min(ceiling, run_left)
     if at is None:
-        return STATEMENT_TIMEOUT_MS
+        return ceiling
     left = int((at - time.monotonic()) * 1000)
     if left <= 0:
         raise _Cancelled()
-    return min(STATEMENT_TIMEOUT_MS, left)
+    return min(ceiling, left)
 #: Match windows per result, and characters of source text per window.
 MAX_WINDOWS = 3
 WINDOW_CHARS = 160
@@ -386,6 +395,11 @@ GREP_FIELDS: tuple[str, ...] = (
 )
 #: Characters of a match's line a grep list row shows (#3659).
 LIST_WINDOW_CHARS = 100
+#: The stored attribute grep reads as a record's path (`path_prefix`,
+#: `path:` terms, the path-prefix index). A grep list row's handle shows it
+#: as the path when the record's type declares no `path_from` (PACT
+#: read-names-list-3666).
+GREP_PATH_ATTR = "path"
 #: In-process row key of a list page: whether the record's own text matched.
 #: `search_views.grep_list_projection` reads and removes it; no card has it.
 OWN_MATCH_KEY = "own_match"
@@ -3998,9 +4012,12 @@ def search_grep(
         full_rows.append(full_row)
     results = _fence_search_rows(
         conn, session, full_rows,
-        # A list is projected from grep's default row plus the own-match fact.
-        select=[*GREP_DEFAULT, OWN_MATCH_KEY] if list_view else select,
+        # A list is projected from grep's default row plus the own-match
+        # fact and the record's handle (PACT read-names-list-3666), whose
+        # path falls back to the stored path grep's path terms read.
+        select=[*GREP_DEFAULT, OWN_MATCH_KEY, HANDLE_KEY] if list_view else select,
         default=GREP_DEFAULT, always=GREP_ALWAYS, scope=scope, max_chars=max_chars,
+        path_from_default=GREP_PATH_ATTR if list_view else None,
     )
 
     stopped = (scan.stop is not None and not scan.complete) or scan.tie_cut
@@ -4107,6 +4124,17 @@ def search_grep(
         "spellings_tried": [spelling_tried(term) for term in parsed.positive],
         "spellings_matched": list(spellings),
     }
+    # Lane ri (CompOps q020): a grep over `source_file` records only read
+    # their text, which is the file's path words; the file's contents are its
+    # `document`. The reply says "path words", never "text".
+    from okg.substrate.mcp.name_only_hint import NAME_ONLY_SUBTYPES
+
+    record_types = frozenset({str(subtype)}) if subtype is not None else where_types
+    if (
+        parsed.terms and record_types and record_types <= NAME_ONLY_SUBTYPES
+        and not any(parent in record_types for parent, _edge, _child in _declarations(conn, session))
+    ):
+        searched["name_only"] = True
     if surfaces_by_unit is None and live_units:
         # The every-match read ran past the timeout: each line is a term's
         # first match in its text only.

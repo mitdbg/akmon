@@ -339,7 +339,7 @@ def test_the_surface_readback_reports_the_expansion_contract(probe) -> None:
     assert surface["expansion"]["available"] is True
     assert surface["expansion"]["ceiling_profile"] == "reader"
     assert set(surface["expansion"]["expandable_tools"]) == {
-        "expand", "filter", "map", "query",
+        "expand", "filter", "map", "query", "run",
     }
 
 

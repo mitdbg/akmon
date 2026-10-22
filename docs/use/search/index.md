@@ -51,6 +51,12 @@ search profile or source family that the deployment declares (`--scope`,
 `--source-family`). `okg search --help` lists every option, and the
 [CLI reference](../../reference/cli.md#okg-search) describes them.
 
+In text form (not `--json`), `okg search` prints a note under its first line.
+`! search profile: none (unscoped)` means no search profile was applied. It is
+not a warning: `--subtype` and `--source-family` still narrow the results.
+When `--scope` names a profile, or the deployment's `search.default_profile`
+applies, the note names that profile instead.
+
 `--method semantic` ranks by meaning instead of words, over a filled
 [vector set](../../operate/configure.md#embeddings), never mixing in keyword
 ranking.
@@ -285,7 +291,9 @@ set of every match.
 
 Exact retrieval is `{"status": "exhaustive", "basis": "exact_scalar"}` only
 when no contributing read returned its full candidate limit, judged on the
-read before access rules, attribute filters and path exclusions drop rows.
+read before attribute filters and path exclusions drop rows. Under access
+rules the read already leaves out rows the reader may not read, where the
+rules can be placed in SQL.
 A read that returned exactly its limit counts as full. Otherwise it is
 `bounded` with `bounds: ["candidate_cap"]` and the count is a lower bound,
 however few rows the filters left. On a filtered records page, a full read

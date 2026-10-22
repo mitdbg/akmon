@@ -52,6 +52,7 @@ def register_core_read_tools(
     map_tool: ToolFn,
     aggregate_tool: ToolFn,
     query_tool: ToolFn,
+    run_tool: ToolFn | None = None,
     response_envelope: ResponseEnvelopeFactory | None = None,
     response_measurement: ResponseMeasurement | None = None,
     deployment_default_bytes: int | None = None,
@@ -117,6 +118,12 @@ def register_core_read_tools(
             fn=registered_fn,
             traced=traced,
         )
+    if run_tool is not None:
+        # `run` (issue #3666) is served by the server's own `call_tool`
+        # (`run_tool.serve_run`): each step is a call of its own, bounded,
+        # checked and served as one. The registered function publishes the
+        # arguments and is never called by the server.
+        _register_tool(mcp, tool_name="run", fn=run_tool, traced=traced)
 
 
 def register_write_effect_tools(

@@ -180,6 +180,10 @@ def test_operator_tool_schemas_accept_string_generation_ids(
         from okg.substrate.mcp.lean_surface import HIDDEN_ARGUMENTS
 
         for name in OPERATOR_TOOLS:
+            if name == "run":
+                # `run` pins every step to the first step's generation; a
+                # step names its own (read-sets-run-3666).
+                continue
             tool = mcp._tool_manager._tools[name]
             schema = tool.parameters
             assert "generation_id" not in schema.get("required", []), name

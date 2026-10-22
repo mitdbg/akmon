@@ -407,7 +407,7 @@ def _pinned_manifest(monkeypatch, root: Path, **block) -> None:
 
 def test_pinned_matching_clean_checkout_is_healthy(pinned, monkeypatch) -> None:
     _pinned_manifest(monkeypatch, pinned["sync_root"])
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert v.ok and v.status == "ok", v.problems
     assert v.problems == []
     assert v.mode == "pinned"
@@ -437,7 +437,7 @@ def test_pinned_non_submodule_editable_install_cannot_verify_the_pin(
         _git(root, "add", "-A")
         _git(root, "commit", "-m", "operator checks out another okg commit")
     _pinned_manifest(monkeypatch, root)
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "error"
     assert v.installed_revision == v.head, "the tautology this guards"
     assert v.pin_source == "none"
@@ -448,14 +448,14 @@ def test_pinned_separate_checkout_reports_its_pin_source(
     pinned, monkeypatch
 ) -> None:
     _pinned_manifest(monkeypatch, pinned["sync_root"])
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert v.ok and v.pin_source == "installed_package_checkout", v.problems
 
 
 def test_track_base_cannot_read_healthy_on_the_same_pin(pinned, monkeypatch) -> None:
     """The #2987 shape: without the mode, a pinned submodule is an error."""
     _point_manifest_at(monkeypatch, pinned["sync_root"])
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert v.status == "error"
     assert "'origin/dev' is not present" in " ".join(v.problems)
 
@@ -469,7 +469,7 @@ def test_pinned_different_head_is_an_error_naming_both_commits(
     _git(root, "commit", "-m", "submodule bumped, package not reinstalled")
     moved = _git(root, "rev-parse", "HEAD")
     _pinned_manifest(monkeypatch, root)
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "error"
     joined = " ".join(v.problems)
     assert moved in joined and pinned["revision"] in joined
@@ -485,7 +485,7 @@ def test_pinned_dirty_tree_is_a_warning_naming_the_paths(
     for i in range(extra_files):
         (root / f"stray{i:02d}.py").write_text("x = 1\n", encoding="utf-8")
     _pinned_manifest(monkeypatch, root)
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "warning"
     total = extra_files + 1
     assert v.dirty_path_count == total
@@ -508,7 +508,7 @@ def test_pinned_mismatch_and_dirty_is_an_error_with_both_problems(
     _git(root, "commit", "-m", "moved")
     (root / "README.md").write_text("dirty\n", encoding="utf-8")
     _pinned_manifest(monkeypatch, root)
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert v.status == "error" and len(v.problems) == 2
 
 
@@ -521,7 +521,7 @@ def test_pinned_without_a_build_revision_is_an_error_never_healthy(
     archive.mkdir(parents=True)
     monkeypatch.setattr(dd, "_installed_package_root", lambda: archive)
     _pinned_manifest(monkeypatch, pinned["sync_root"])
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "error"
     assert v.installed_revision is None
     assert "cannot report the commit it was built from" in " ".join(v.problems)
@@ -538,7 +538,7 @@ def test_pinned_wheel_inside_another_repository_is_not_given_its_head(
     (root / ".git" / "info" / "exclude").write_text(".venv/\n", encoding="utf-8")
     monkeypatch.setattr(dd, "_installed_package_root", lambda: wheel)
     _pinned_manifest(monkeypatch, root)
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "error"
     assert "not the src/okg tree" in " ".join(v.problems)
 
@@ -553,7 +553,7 @@ def test_pinned_git_failure_is_an_envelope(pinned, monkeypatch) -> None:
 
     monkeypatch.setattr(dd, "_git", fake_git)
     _pinned_manifest(monkeypatch, pinned["sync_root"])
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert v.status == "error" and v.mode == "pinned"
     assert "timed out" in " ".join(v.problems)
 
@@ -582,7 +582,7 @@ def test_bad_code_drift_config_is_refused(
 ) -> None:
     _point_manifest_at(monkeypatch, pinned["sync_root"],
                        extra={"code_drift": block})
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "misconfigured"
     assert needle in " ".join(v.problems)
 
@@ -609,7 +609,7 @@ def test_pinned_healthy_verdict_does_not_degrade_dogfood_trust(
         "mcp": {"ok": True},
     }
     _pinned_manifest(monkeypatch, pinned["sync_root"])
-    healthy = check_deployment_code_drift(deployment="cms-kb").to_dict()
+    healthy = check_deployment_code_drift(deployment="example-kb").to_dict()
     assert _trust_level(
         environment={"ok": True}, resolved_dsn=True,
         live={**live, "code_drift": healthy}, blockers=[],
@@ -617,7 +617,7 @@ def test_pinned_healthy_verdict_does_not_degrade_dogfood_trust(
 
     # The same checkout without the mode is what #2987 reported.
     _point_manifest_at(monkeypatch, pinned["sync_root"])
-    unpinned = check_deployment_code_drift(deployment="cms-kb").to_dict()
+    unpinned = check_deployment_code_drift(deployment="example-kb").to_dict()
     assert _trust_level(
         environment={"ok": True}, resolved_dsn=True,
         live={**live, "code_drift": unpinned}, blockers=[],
@@ -644,7 +644,7 @@ def test_pinned_verdict_through_dogfood_readiness(
         ),
     )
     payload = deployment_cli._deployment_ready_live_checks(
-        deployment="cms-kb",
+        deployment="example-kb",
         deployment_dir=tmp_path,
         dsn="postgres://redacted",
         max_active_queue_depth=0,
@@ -686,7 +686,7 @@ def test_the_manifest_loader_accepts_a_code_drift_block(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------
-# Pinned mode on a real submodule (the cms-kb shape): a superproject commits
+# Pinned mode on a real submodule (the example-kb shape): a superproject commits
 # the okg gitlink and okg is installed editable from the submodule checkout.
 # The build revision then moves with the submodule's HEAD, so the committed
 # gitlink is what catches a moved HEAD.
@@ -699,14 +699,14 @@ def _commit_all(root: Path, message: str) -> str:
 
 
 @pytest.fixture
-def cmskb(tmp_path: Path, monkeypatch) -> dict:
+def examplekb(tmp_path: Path, monkeypatch) -> dict:
     okg_src = tmp_path / "okg-upstream"
     first = _init_repo(okg_src, {"src/okg/__init__.py": "", "README.md": "okg\n"})
     (okg_src / "later.txt").write_text("later\n", encoding="utf-8")
     later = _commit_all(okg_src, "upstream moves on")
 
-    superproject = tmp_path / "cms-kb"
-    _init_repo(superproject, {"README.md": "cms-kb\n"})
+    superproject = tmp_path / "example-kb"
+    _init_repo(superproject, {"README.md": "example-kb\n"})
     subprocess.run(
         ["git", "-C", str(superproject), "-c", "protocol.file.allow=always",
          "submodule", "add", "--quiet", str(okg_src), "okg"],
@@ -725,69 +725,69 @@ def cmskb(tmp_path: Path, monkeypatch) -> dict:
     return {"super": superproject, "sub": sub, "pin": first, "later": later}
 
 
-def test_submodule_at_its_committed_pin_is_healthy(cmskb) -> None:
-    v = check_deployment_code_drift(deployment="cms-kb")
+def test_submodule_at_its_committed_pin_is_healthy(examplekb) -> None:
+    v = check_deployment_code_drift(deployment="example-kb")
     assert v.ok, v.problems
     assert v.pin_source == "superproject_gitlink"
-    assert v.pinned_revision == v.head == v.installed_revision == cmskb["pin"]
+    assert v.pinned_revision == v.head == v.installed_revision == examplekb["pin"]
     assert v.submodule_path == "okg" and v.staged_revision is None
-    assert v.to_dict()["pinned_revision"] == cmskb["pin"]
+    assert v.to_dict()["pinned_revision"] == examplekb["pin"]
 
 
 @pytest.mark.parametrize("how", ["new-local-commit", "checkout-upstream"])
-def test_submodule_head_moved_off_the_pin_is_an_error(cmskb, how) -> None:
+def test_submodule_head_moved_off_the_pin_is_an_error(examplekb, how) -> None:
     """Lane A's kb76 gap: the moved HEAD also moves the editable install's
     build revision, so only the committed gitlink can catch it."""
-    sub = cmskb["sub"]
+    sub = examplekb["sub"]
     if how == "new-local-commit":
         (sub / "local.txt").write_text("x\n", encoding="utf-8")
         moved = _commit_all(sub, "local okg change")
     else:
-        _git(sub, "checkout", "-q", "--detach", cmskb["later"])
-        moved = cmskb["later"]
-    v = check_deployment_code_drift(deployment="cms-kb")
+        _git(sub, "checkout", "-q", "--detach", examplekb["later"])
+        moved = examplekb["later"]
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "error"
     assert v.installed_revision == v.head == moved
     joined = " ".join(v.problems)
-    assert moved in joined and cmskb["pin"] in joined
+    assert moved in joined and examplekb["pin"] in joined
     assert "without updating the pin" in joined
     assert "staged" not in joined
 
 
-def test_submodule_moved_and_staged_but_not_committed_is_an_error(cmskb) -> None:
+def test_submodule_moved_and_staged_but_not_committed_is_an_error(examplekb) -> None:
     """Decision: the superproject's COMMITTED HEAD is the pin. A staged
     gitlink is not the pin until committed; the message says it is staged."""
-    _git(cmskb["sub"], "checkout", "-q", "--detach", cmskb["later"])
-    _git(cmskb["super"], "add", "okg")
-    v = check_deployment_code_drift(deployment="cms-kb")
+    _git(examplekb["sub"], "checkout", "-q", "--detach", examplekb["later"])
+    _git(examplekb["super"], "add", "okg")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "error"
-    assert v.staged_revision == cmskb["later"]
-    assert v.pinned_revision == cmskb["pin"]
+    assert v.staged_revision == examplekb["later"]
+    assert v.pinned_revision == examplekb["pin"]
     assert "a staged gitlink is not the pin until it is committed" in " ".join(
         v.problems
     )
 
 
-def test_submodule_at_pin_with_a_different_staged_pin_is_a_warning(cmskb) -> None:
+def test_submodule_at_pin_with_a_different_staged_pin_is_a_warning(examplekb) -> None:
     """The running code IS the committed pin; a pending staged bump to some
     other commit is named as a warning, not ignored."""
-    _git(cmskb["sub"], "checkout", "-q", "--detach", cmskb["later"])
-    _git(cmskb["super"], "add", "okg")
-    _git(cmskb["sub"], "checkout", "-q", "--detach", cmskb["pin"])
-    v = check_deployment_code_drift(deployment="cms-kb")
+    _git(examplekb["sub"], "checkout", "-q", "--detach", examplekb["later"])
+    _git(examplekb["super"], "add", "okg")
+    _git(examplekb["sub"], "checkout", "-q", "--detach", examplekb["pin"])
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "warning"
-    assert v.head == v.pinned_revision == cmskb["pin"]
-    assert v.staged_revision == cmskb["later"]
+    assert v.head == v.pinned_revision == examplekb["pin"]
+    assert v.staged_revision == examplekb["later"]
     assert "stages a pin change" in " ".join(v.problems)
 
 
-def test_submodule_bump_committed_in_the_superproject_is_healthy(cmskb) -> None:
-    _git(cmskb["sub"], "checkout", "-q", "--detach", cmskb["later"])
-    _git(cmskb["super"], "add", "okg")
-    _git(cmskb["super"], "commit", "-q", "-m", "bump okg")
-    v = check_deployment_code_drift(deployment="cms-kb")
+def test_submodule_bump_committed_in_the_superproject_is_healthy(examplekb) -> None:
+    _git(examplekb["sub"], "checkout", "-q", "--detach", examplekb["later"])
+    _git(examplekb["super"], "add", "okg")
+    _git(examplekb["super"], "commit", "-q", "-m", "bump okg")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert v.ok, v.problems
-    assert v.pinned_revision == v.head == cmskb["later"]
+    assert v.pinned_revision == v.head == examplekb["later"]
 
 
 def test_submodule_never_committed_in_the_superproject_is_an_error(
@@ -795,8 +795,8 @@ def test_submodule_never_committed_in_the_superproject_is_an_error(
 ) -> None:
     okg_src = tmp_path / "okg-upstream"
     _init_repo(okg_src, {"src/okg/__init__.py": ""})
-    superproject = tmp_path / "cms-kb"
-    _init_repo(superproject, {"README.md": "cms-kb\n"})
+    superproject = tmp_path / "example-kb"
+    _init_repo(superproject, {"README.md": "example-kb\n"})
     subprocess.run(
         ["git", "-C", str(superproject), "-c", "protocol.file.allow=always",
          "submodule", "add", "--quiet", str(okg_src), "okg"],
@@ -805,13 +805,13 @@ def test_submodule_never_committed_in_the_superproject_is_an_error(
     sub = superproject / "okg"
     monkeypatch.setattr(dd, "_installed_package_root", lambda: sub / "src" / "okg")
     _pinned_manifest(monkeypatch, sub)
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "error"
     assert "records no gitlink" in " ".join(v.problems)
 
 
 def test_dirty_submodule_is_a_warning_and_a_dogfood_blocker(
-    cmskb, tmp_path, monkeypatch
+    examplekb, tmp_path, monkeypatch
 ) -> None:
     """The probe says warning; dogfood readiness turns every non-ok verdict
     into a blocker (as it does on dev for track_base warnings)."""
@@ -819,8 +819,8 @@ def test_dirty_submodule_is_a_warning_and_a_dogfood_blocker(
 
     from okg.substrate.cli import deployment as deployment_cli
 
-    (cmskb["sub"] / "README.md").write_text("edited\n", encoding="utf-8")
-    v = check_deployment_code_drift(deployment="cms-kb")
+    (examplekb["sub"] / "README.md").write_text("edited\n", encoding="utf-8")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert v.status == "warning" and "README.md" in " ".join(v.problems)
     monkeypatch.setattr(
         psycopg, "connect",
@@ -830,7 +830,7 @@ def test_dirty_submodule_is_a_warning_and_a_dogfood_blocker(
     )
     for profile, bucket in (("dogfood", "blockers"), ("general", "warnings")):
         payload = deployment_cli._deployment_ready_live_checks(
-            deployment="cms-kb", deployment_dir=tmp_path,
+            deployment="example-kb", deployment_dir=tmp_path,
             dsn="postgres://redacted", max_active_queue_depth=0,
             max_source_age_seconds=3600, readiness_profile=profile,
             skip_doctor=True,
@@ -851,7 +851,7 @@ def test_dirty_separate_running_checkout_is_a_warning(pinned, monkeypatch) -> No
         "RUNNING = 'edited'\n", encoding="utf-8",
     )
     _pinned_manifest(monkeypatch, pinned["sync_root"])
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "warning"
     assert v.package_checkout == str(running)
     assert v.package_dirty_path_count == 1
@@ -872,12 +872,12 @@ def _fsmonitor_hook(tmp_path: Path, name: str) -> tuple[Path, Path]:
 
 
 def test_probe_never_runs_a_repository_fsmonitor_hook(
-    cmskb, tmp_path, monkeypatch
+    examplekb, tmp_path, monkeypatch
 ) -> None:
     """MED-2: `git status`, `ls-files` and the superproject read ran the
     program `core.fsmonitor` names in the checked-out repositories' config."""
     hooks = {}
-    for name, repo in (("sub", cmskb["sub"]), ("super", cmskb["super"])):
+    for name, repo in (("sub", examplekb["sub"]), ("super", examplekb["super"])):
         hook, marker = _fsmonitor_hook(tmp_path, name)
         _git(repo, "config", "core.fsmonitor", str(hook))
         hooks[name] = (repo, marker)
@@ -890,7 +890,7 @@ def test_probe_never_runs_a_repository_fsmonitor_hook(
         assert marker.exists(), f"{name} fsmonitor hook did not fire for plain git"
     for _, marker in hooks.values():
         marker.unlink()
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert v.ok, v.problems
     for name, (_, marker) in hooks.items():
         assert not marker.exists(), f"the probe ran the {name} fsmonitor hook"
@@ -907,7 +907,7 @@ def test_probe_does_not_rewrite_the_index(pinned, monkeypatch) -> None:
     index = root / ".git" / "index"
     before = index.stat().st_mtime_ns
     _pinned_manifest(monkeypatch, root)
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert v.ok, v.problems
     assert index.stat().st_mtime_ns == before, "the probe rewrote the index"
     # Plain `git status` does rewrite it here, so the check above is live.
@@ -931,7 +931,7 @@ def test_probe_budget_caps_every_git_call(pinned, monkeypatch) -> None:
     monkeypatch.setattr(dd.subprocess, "run", recording_run)
     monkeypatch.setattr(dd, "_PROBE_BUDGET_S", 3.0)
     _pinned_manifest(monkeypatch, pinned["sync_root"])
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert v.ok, v.problems
     assert seen and max(seen) <= 3.0, seen
     assert len(seen) <= 8, f"pinned mode made {len(seen)} git calls"
@@ -940,7 +940,7 @@ def test_probe_budget_caps_every_git_call(pinned, monkeypatch) -> None:
 def test_spent_probe_budget_is_an_error_not_a_pass(pinned, monkeypatch) -> None:
     monkeypatch.setattr(dd, "_PROBE_BUDGET_S", 0.0)
     _pinned_manifest(monkeypatch, pinned["sync_root"])
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "error"
     assert "spent its 0s budget" in " ".join(v.problems)
 
@@ -957,7 +957,7 @@ def test_code_drift_schema_is_closed_over_the_probe_keys() -> None:
 
 @pytest.mark.parametrize("fails", ["superproject-read", "ls-tree", "ls-files"])
 def test_unreadable_superproject_pin_is_an_error_with_gits_message(
-    cmskb, monkeypatch, fails
+    examplekb, monkeypatch, fails
 ) -> None:
     """LOW-4: a failed read reported "not a submodule" or "records no
     gitlink" instead of git's own error."""
@@ -974,7 +974,7 @@ def test_unreadable_superproject_pin_is_an_error_with_gits_message(
         return real(root, *args)
 
     monkeypatch.setattr(dd, "_git_run", failing)
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "error"
     assert v.pin_source == "unreadable"
     joined = " ".join(v.problems)
@@ -996,7 +996,7 @@ def test_failed_superproject_read_in_the_separate_checkout_shape_is_an_error(
 
     monkeypatch.setattr(dd, "_git_run", failing)
     _pinned_manifest(monkeypatch, pinned["sync_root"])
-    v = check_deployment_code_drift(deployment="cms-kb")
+    v = check_deployment_code_drift(deployment="example-kb")
     assert not v.ok and v.status == "error"
     assert "could not tell whether sync_root is a git submodule" in " ".join(
         v.problems

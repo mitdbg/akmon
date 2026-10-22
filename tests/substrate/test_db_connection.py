@@ -204,8 +204,60 @@ def test_connection_kwargs_bounds_idle_in_transaction_by_default(
         # The session search_path pin (issue #1968) leads every options
         # string; the idle bound follows it.
         "-c search_path=public "
+        "-c client_connection_check_interval=5000 "
         "-c idle_in_transaction_session_timeout="
         f"{DEFAULT_IDLE_IN_TRANSACTION_TIMEOUT_MS}"
+    )
+
+
+def test_connection_kwargs_checks_for_a_vanished_client_while_a_statement_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #3861: every session asks Postgres to notice a dead client.
+
+    Without `client_connection_check_interval` a backend whose worker was
+    hard-exited keeps running its statement, and keeps the publisher's
+    session advisory lock, until the statement ends.
+    """
+    from okg.substrate.db.connection import (
+        CLIENT_CONNECTION_CHECK_INTERVAL_ENV,
+        connection_kwargs,
+    )
+
+    monkeypatch.delenv(CLIENT_CONNECTION_CHECK_INTERVAL_ENV, raising=False)
+    assert (
+        "-c client_connection_check_interval=5000"
+        in connection_kwargs()["options"]
+    )
+
+    # The env knob changes the interval; 0 emits no setting, so a server-level
+    # value is left alone.
+    monkeypatch.setenv(CLIENT_CONNECTION_CHECK_INTERVAL_ENV, "2000")
+    assert (
+        "-c client_connection_check_interval=2000"
+        in connection_kwargs()["options"]
+    )
+    monkeypatch.setenv(CLIENT_CONNECTION_CHECK_INTERVAL_ENV, "0")
+    assert "client_connection_check_interval" not in connection_kwargs()["options"]
+
+    # A set-but-invalid value is refused, never replaced by the default.
+    monkeypatch.setenv(CLIENT_CONNECTION_CHECK_INTERVAL_ENV, "soon")
+    with pytest.raises(Exception, match=CLIENT_CONNECTION_CHECK_INTERVAL_ENV):
+        connection_kwargs()
+
+
+def test_a_dsn_setting_of_the_check_interval_wins_over_the_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from okg.substrate.db.connection import connection_kwargs
+
+    monkeypatch.delenv("OKG_CLIENT_CONNECTION_CHECK_INTERVAL_MS", raising=False)
+    options = connection_kwargs(
+        dsn="postgresql://u@h/db?options=-c%20client_connection_check_interval%3D700",
+    )["options"]
+    # libpq applies repeated `-c` settings left to right, so the DSN's wins.
+    assert options.rindex("client_connection_check_interval=700") > options.index(
+        "client_connection_check_interval=5000"
     )
 
 
@@ -221,7 +273,8 @@ def test_idle_in_transaction_env_override_wins_and_zero_disables(
     monkeypatch.setenv(IDLE_IN_TRANSACTION_TIMEOUT_ENV, "45000")
     assert idle_in_transaction_timeout_ms() == 45000
     assert connection_kwargs()["options"] == (
-        "-c search_path=public -c idle_in_transaction_session_timeout=45000"
+        "-c search_path=public -c client_connection_check_interval=5000 "
+        "-c idle_in_transaction_session_timeout=45000"
     )
 
     # 0 is the only way back to the previous unbounded behavior, and it must
@@ -233,7 +286,9 @@ def test_idle_in_transaction_env_override_wins_and_zero_disables(
     assert idle_in_transaction_timeout_ms() == 0
     options = connection_kwargs()["options"]
     assert "idle_in_transaction_session_timeout" not in options
-    assert options == "-c search_path=public"
+    assert options == (
+        "-c search_path=public -c client_connection_check_interval=5000"
+    )
 
 
 def test_idle_in_transaction_env_refuses_a_set_but_invalid_value(
@@ -463,7 +518,8 @@ def test_connect_omits_options_when_the_caller_asks_for_none(
     kwargs = seen["kwargs"]
     assert isinstance(kwargs, dict)
     assert kwargs["options"] == (
-        "-c search_path=public -c idle_in_transaction_session_timeout=60000"
+        "-c search_path=public -c client_connection_check_interval=5000 "
+        "-c idle_in_transaction_session_timeout=60000"
     )
 
 

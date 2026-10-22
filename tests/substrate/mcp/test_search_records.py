@@ -618,19 +618,53 @@ def test_a_policy_that_counts_what_it_will_not_read_fails_the_call(
     assert "because" not in str(raised.value)
 
 
-def test_an_all_hidden_saturated_passage_read_claims_no_exact_order(
-    clean_runtime, tmp_path, monkeypatch,
+@pytest.fixture(params=[True, False], ids=["sql-view", "no-sql-view"])
+def sql_view(request, monkeypatch) -> bool:
+    """Whether the search reads apply the reader's SQL access view (#3560).
+
+    True is the default. False stands in for a session the view cannot place
+    (an identity claim, an access context): the view's predicate is then TRUE,
+    which is what `_reader_predicate_sql` returning None gives the reads, so
+    the raw reads are taken before the per-row filter, as before #3560."""
+    if not request.param:
+        import importlib
+
+        monkeypatch.setattr(
+            importlib.import_module("okg.substrate.mcp.search"),
+            "_reader_predicate_sql", lambda conn, session: None,
+        )
+    return request.param
+
+
+def test_an_all_hidden_saturated_passage_read_exact_order(
+    clean_runtime, tmp_path, monkeypatch, sql_view,
 ):
+    """220 passages the reader may not read, 5 readable records that match.
+
+    With the SQL view the hidden passages never reach the 200-row passage
+    read, so the exact order is the one a graph without them gives: all 5
+    records, an exact count, the order proven through all 5 (#3560: a word
+    only hidden rows hold must page like a word nobody stored). Without the
+    SQL view the raw read is still filled by hidden rows, so exact's proof
+    fails, retrieval is unknown under enforce, the count and exact prefix say
+    no more than that and no record is served past the exact prefix (PACT
+    lexical-index-scan-cap-3162, review 3)."""
     groups, main = _bulk_facts(hidden_comments=True)
     deployment = _publish(tmp_path, clean_runtime, groups=groups, main=main)
     _activate(clean_runtime, deployment, [_allow(OPEN), _allow(MAIN)])
     monkeypatch.setenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", "1")
     page = _search(clean_runtime, deployment, completeness="exact", limit=10, subject=READER,
                    filter={"subtype": "ticket"})
-    # Exact's proof needs the raw read hidden rows filled, so retrieval is
-    # unknown under enforce and the count and exact prefix say no more than
-    # that (PACT lexical-index-scan-cap-3162, review 3). Paging keeps dev's
-    # rule: no record is served past the exact prefix.
+    if sql_view:
+        assert page["coverage"]["retrieval"] == {
+            "status": "exhaustive", "basis": "exact_scalar",
+        }
+        assert sorted(_ids(page)) == [f"ticket:own:{i}" for i in range(5)]
+        assert page["ordered_exactly_through"] == 5
+        assert page["total_count"] == 5 and page["total_count_basis"] == "exact"
+        assert page["truncated"] is False and page["next_offset"] is None
+        assert "next_offset_reason" not in page
+        return
     assert page["coverage"]["retrieval"] == {"status": "unknown"}
     assert page["ordered_exactly_through"] is None
     assert page["total_count"] is None and page["total_count_basis"] == "unknown"
@@ -643,19 +677,21 @@ def test_an_all_hidden_saturated_passage_read_claims_no_exact_order(
                 filter={"subtype": "ticket"})
 
 
-def test_an_all_hidden_saturated_passage_read_keeps_dev_s_floor_fields(
-    clean_runtime, tmp_path, monkeypatch,
+def test_an_all_hidden_saturated_passage_read_floor_fields(
+    clean_runtime, tmp_path, monkeypatch, sql_view,
 ):
-    """What the all-hidden records page says under enforce, in both modes.
+    """What the filtered records page says under enforce when 220 passages
+    the reader may not read match, in both modes.
 
-    The filtered records fold takes its lower bound from the raw passage
-    read, before access rules hide its rows, so `rank_capped` is true and
-    `ranked_cap` names the 200-row read although every passage is hidden.
-    Dev f0da24a6a3 returns the same two fields on this graph (with
-    `total_count` 5, basis `lower_bound`, "0 of 5+"); this change keeps
-    them and withholds the count (evidence records-enforce-compare). They
-    are not new leakage, and the docs say they do not come only from
-    readable rows (review 4, item 2)."""
+    With the SQL view the passage read counts only readable passages, so the
+    page carries no floor: `rank_capped` is false and there is no `ranked_cap`,
+    as on a graph without the hidden passages (#3560). Before #3560 the
+    filtered records fold took its lower bound from the raw passage read,
+    before access rules hid its rows, so `rank_capped` was true and
+    `ranked_cap` named the 200-row read although every passage was hidden:
+    dev f0da24a6a3 returns the same two fields (with `total_count` 5, basis
+    `lower_bound`, "0 of 5+"), and PACT lexical-index-scan-cap-3162 kept them
+    as a documented signal. Without the SQL view those answers stand."""
     groups, main = _bulk_facts(hidden_comments=True)
     deployment = _publish(tmp_path, clean_runtime, groups=groups, main=main)
     _activate(clean_runtime, deployment, [_allow(OPEN), _allow(MAIN)])
@@ -667,6 +703,26 @@ def test_an_all_hidden_saturated_passage_read_keeps_dev_s_floor_fields(
     ):
         page = _search(clean_runtime, deployment, completeness=mode, limit=10,
                        subject=READER, filter={"subtype": "ticket"})
+        assert "index_scan_cap_reads" not in page and "lexical_exact_reads" not in page
+        if sql_view:
+            assert sorted(_ids(page)) == [f"ticket:own:{i}" for i in range(5)], mode
+            assert page["rank_capped"] is False, mode
+            assert "ranked_cap" not in page, mode
+            assert page["truncated"] is False and page["next_offset"] is None, mode
+            assert "next_offset_reason" not in page, mode
+            if mode == "bounded":
+                assert page["total_count"] is None, mode
+                assert page["total_count_basis"] == "unknown", mode
+                assert page["ordered_exactly_through"] is None, mode
+                assert page["coverage"]["retrieval"] == retrieval, mode
+            else:
+                assert page["total_count"] == 5, mode
+                assert page["total_count_basis"] == "exact", mode
+                assert page["ordered_exactly_through"] == 5, mode
+                assert page["coverage"]["retrieval"] == {
+                    "status": "exhaustive", "basis": "exact_scalar",
+                }, mode
+            continue
         assert page["results"] == [], mode
         # Dev's fields, from the pre-access read: kept, as on dev.
         assert page["rank_capped"] is True, mode
@@ -677,7 +733,6 @@ def test_an_all_hidden_saturated_passage_read_keeps_dev_s_floor_fields(
         assert page["total_count"] is None, mode
         assert page["total_count_basis"] == "unknown", mode
         assert page["ordered_exactly_through"] is None, mode
-        assert "index_scan_cap_reads" not in page and "lexical_exact_reads" not in page
         assert page["coverage"]["retrieval"] == retrieval, mode
 
 

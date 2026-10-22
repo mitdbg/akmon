@@ -118,6 +118,7 @@ MANIFEST_FINGERPRINT_OUT: frozenset[str] = frozenset({
     "search",               # analyst search profiles: read-side ranking scope only; changes no published or synced row
     "coverage",             # deployment-declared known coverage gaps: a read-side disclosure echoed by inspect(coverage); ingests nothing and publishes nothing
     "not_ingested",         # deployment-declared out-of-scope sources: a read-side disclosure in the MCP dataset card, like `coverage`; ingests nothing and publishes nothing
+    "citation_attr",        # the record attribute a reader cites (PACT read-names-list-3666): read by okg.substrate.mcp.citation_id only, to name it on search and inspect rows; publishes, ingests and syncs nothing
     "mcp",                   # MCP tool profiles: bounds which tools a server REGISTERS at launch; read-side surface only, changes no published or synced row
     "agent_surface",        # THE declared agent surface: served operators, inspect kind policy, response budget, per-client projections. Read-side by the same reading as `mcp` and `chat` above -- it bounds what a caller may ASK, and publishes, ingests and syncs nothing
     "chat",                 # governed chat-site identity (name, theme, models, preset, tool surface): a read-side human surface; changes no published or synced row

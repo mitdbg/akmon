@@ -219,7 +219,7 @@ def test_the_field_lists_are_the_columns_the_code_reads():
     assert EDGE_FIELDS.names == frozenset(EFFECTIVE_VIEW_FIELD_COLUMNS["edges"])
     assert set(NODE_FIELDS.aliases.values()) <= NODE_FIELDS.names
     assert set(EDGE_FIELDS.instead.values()) <= EDGE_FIELDS.names
-    assert LIVE_FIELDS.names == frozenset()
+    assert LIVE_FIELDS.names == frozenset({"node_id", "subtype"})
     # Every name search's short form takes is a field search's `where` reads.
     for name in sorted(SEARCH_FIELDS.names):
         assert normalize_where({"op": "eq", "field": name, "value": "x"}) is not None, name
@@ -335,7 +335,7 @@ def test_a_key_that_is_not_a_field_is_refused_with_the_attribute_it_likely_meant
     (SEARCH_FIELDS, "Path", "this set's field is `path`"),
     # Nothing better is known: a guess, said as one.
     (LIVE_FIELDS, "type", "if `type` is a stored attribute, write `attrs.type`"),
-    (LIVE_FIELDS, "node_id", "if `node_id` is a stored attribute, write `attrs.node_id`"),
+    (LIVE_FIELDS, "status", "if `status` is a stored attribute, write `attrs.status`"),
     (SEARCH_FIELDS, "status", "if `status` is a stored attribute, write `attrs.status`"),
 ])
 def test_each_set_refuses_a_key_it_has_no_field_for(fields, key, hint):
@@ -2620,6 +2620,8 @@ def test_a_grep_list_row_has_only_keys_a_select_can_name_or_always_keeps():
         "excerpt": "x", "parent": {"node_id": "d:1", "state": "resolved"},
         "match_windows": [{"char_start": 0, "line": 1, "excerpt": "x"}],
         "provenance": {"trust": "trusted"}, "read_provenance": {"k": "v"},
+        # PACT read-names-list-3666: the record's handle and citation id.
+        "handle": {"title": "T"}, "citation_id": {"dsid": "d-1"},
     }]})
     (row,) = page["results"]
     assert set(row) == set(GREP_LIST_SELECTABLE) | set(GREP_LIST_ALWAYS)
@@ -3021,7 +3023,8 @@ def test_a_select_on_fixed_rows_is_taken_out_and_the_rows_are_cut():
     assert whole.arguments == {"query": "q", "method": "grep", "view": "list"}
     assert whole.adjusted == ()
     assert whole.row_keys == frozenset(
-        {"node_id", "matches", "subtype", "unit", "provenance", "read_provenance"}
+        {"node_id", "matches", "subtype", "unit", "provenance", "read_provenance",
+         "citation_id"}
     )
     mixed = _rewritten("search", {
         "query": "q", "method": "grep", "view": "list",
@@ -3051,12 +3054,12 @@ def test_a_select_no_fixed_row_can_answer_is_refused_naming_the_rows_fields(sele
         "query": "q", "method": "grep", "view": "list", "select": select,
     })
     assert words in refusal.message
-    assert "returns first_match, matches, node_id, parent, subtype" in refusal.message
+    assert "returns first_match, handle, matches, node_id, parent, subtype" in refusal.message
     assert refusal.retry_arguments is None and refusal.fields == ("select",)
     # The code and data every other `select` refusal has.
     assert refusal.code == "select_unknown_field"
     assert refusal.select_data["valid_fields"] == [
-        "first_match", "matches", "node_id", "parent", "subtype"]
+        "first_match", "handle", "matches", "node_id", "parent", "subtype"]
     assert set(refusal.select_data["unknown_fields"]) <= set(select)
 
 
@@ -3253,7 +3256,7 @@ def test_a_select_no_fixed_row_answers_is_refused_by_the_served_tool_as_a_select
     reply = payload(result)
     assert result.isError is True and reply["status"] == "refused"
     assert reply["error"]["code"] == "select_unknown_field", reply["error"]
-    assert "view list on method grep returns first_match, matches" in reply["error"]["message"]
+    assert "view list on method grep returns first_match, handle, matches" in reply["error"]["message"]
     assert "retry_call" not in reply["error"]
 
 

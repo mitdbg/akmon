@@ -2,7 +2,7 @@
 
 Before #2991 the searchable-text stamper rebuilt `attrs.text` from a
 subtype's other declared fields and silently threw away the body a producer
-had written into `text`: a record became its title, a cms-kb `Section` its
+had written into `text`: a record became its title, an example-kb `Section` its
 file stem, a markdown heading its slug. The body is now appended as the last
 part of the rollup and kept under `PRODUCER_TEXT_ATTR`, so a later restamp
 starts from that copy and not from the old rollup.
@@ -108,7 +108,7 @@ def test_title_alone_declared_still_keeps_the_producer_body() -> None:
 @pytest.mark.parametrize(
     ("fields", "attrs", "expected"),
     [
-        # cms-kb Section (`stem,text`): the body, not the file stem alone.
+        # example-kb Section (`stem,text`): the body, not the file stem alone.
         (["stem", "text"], {"stem": "03-Selection", "text": "Events pass HLT."},
          "03-Selection\n\nEvents pass HLT."),
         # library markdown_heading (`text,slug`): the heading, not the slug.

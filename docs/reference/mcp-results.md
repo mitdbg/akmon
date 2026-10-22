@@ -83,9 +83,12 @@ and the cap shows only in the coverage facts (`retrieval bounded`,
   `continuation_token` (see Grep search).
   The published schema accepts this next-only call. Omit `max_bytes`: a
   text, subtype or path continuation restores the budget its first page
-  signed and checks it against the current deployment ceiling. Explicit
-  numeric `max_bytes`, `select`, or a new target/input alongside `next` is
-  refused. `generation_id` and `authority` may still be supplied and must
+  signed and checks it against the current deployment ceiling. A `target`
+  or `input` that repeats, exactly, the read the token already holds is
+  served as `next` alone, and the reply carries the adjusted note
+  `next_repeats_read` naming what was dropped. Explicit numeric
+  `max_bytes`, `select`, or a target/input that names a different read
+  alongside `next` is refused (`next_with_read_arguments`). `generation_id` and `authority` may still be supplied and must
   match the binding. To read a page under a different budget, use the
   legacy spelling: a text or path token passed as `continuation_token`
   accepts any valid `max_bytes`, which overrides the signed one and is
@@ -105,8 +108,22 @@ refused by `continuation_token_invalid` says why in `data.reason`:
 `signing_key_changed` (signed before a restart or key change),
 `binding_mismatch` with `data.mismatched` naming the parts that differ,
 `wrong_tool` (the retry names the tool), `kind_unroutable`, `malformed`,
-`signature_invalid`, `payload_invalid`, `version_invalid` or
-`cursor_invalid`.
+`signature_invalid`, `payload_invalid`, `version_invalid`,
+`token_unknown` or `cursor_invalid`.
+
+A reply prints a continuation token as a 40-character handle,
+`c1.<epoch>.<nonce>.<mac>`, when this server keeps the signed token it
+stands for. The handle is kept by one server process: it ends at a restart,
+after 2 hours, or when the process evicts it to stay inside its count and
+byte limits. Every one of those reads `token_unknown` (a miscopied epoch
+reads the same). When a deployment sets a shared signing key, the reply
+prints the full signed token instead, which any process can open. A refusal
+whose token did not open carries `error.retry_call` with `mode` `restart`:
+the same read, sent again without the token. The `retry:` line reads "copy
+the token exactly as printed, or restart: <call>" when copying again could
+help (`malformed`, `signature_invalid`, `payload_invalid`,
+`version_invalid`), and "restart: <call>" otherwise. A restart is offered
+only when the server would serve it.
 
 | status | meaning |
 |---|---|
@@ -359,6 +376,22 @@ params. The one text block is then the compact JSON of the tool's dictionary,
 and it reads back equal to it (NaN and infinities are `null`). The Python SDK sends it with
 `ClientSession.call_tool(..., meta=...)`. Any other value is refused as
 `invalid_result_format`, never ignored.
+
+## Run replies
+
+`run` answers `run ok · S steps`, then each `[step n]`. A step reads its
+whole set or is refused; a set step begins `[step n] <tool>: N records`.
+Only the last step prints by default, at most 200 rows (else
+`run_step_too_many_rows`). A cut step ends with `next:`, the `run(...)`
+that reads on; JSON adds `count`, `groups`, `rows_shown`, `rows_left`,
+`next_call`. `{"expand":{"from":"$n",...}}` joins from every record,
+counting those with no link. `$r<n>` is refused `set_names_removed`.
+
+Live, `values`, `minus` and `intersect` steps hold rows;
+`"each": {"<arg>": "$n.<column>"}` calls per value; unanswered ones make
+the run `partial`. Limits: 8 steps, 2 with `each`, 1,000 `values`,
+1,500 calls, 100 s (`OKG_RUN_WALL_SECONDS`); graph steps 5 s, 15 s total.
+`OKG_MCP_RUN_LIVE_STEPS=0` disables live steps and stops teaching them.
 
 ## Byte budget
 
@@ -840,9 +873,15 @@ offset 0. Under `completeness: "exact"` it is `exhaustive` (basis
 limit, else `bounded` with `candidate_cap`, and `listing` (not complete,
 `scan_bound`) names the cap and a literal grep.
 Under enforced access rules it is `exhaustive` or `unknown`, never naming a
-cap; `unknown` nulls the count. There `rank_capped` comes only from readable
-rows, except on a filtered records page, whose lower bound (`rank_capped`,
-`ranked_cap`) still comes from reads taken before access rules. A filtered records page whose exact order a filled expanded
+cap; `unknown` nulls the count. The capped reads apply the reader's access
+rules in SQL before their limits, so rows the reader may not read never fill a
+limit. Where those rules cannot be placed in SQL (any session with an
+identity claim, as in every multi-user deployment, or an access context; a
+rule on an unsupported key; no read-class catalog), the reads still run
+before the per-row filter: there
+`rank_capped` comes only from readable rows, except on a filtered records
+page, whose lower bound (`rank_capped`, `ranked_cap`) comes from reads taken
+before access rules. A filtered records page whose exact order a filled expanded
 read ended, while no typed-word read filled, names `next_offset_remedy`
 `{"expand_concepts": false, "rerun_each": [...]}`: rerun once per listed
 word, one call each; the per-word rankings cannot rebuild the expanded
@@ -1034,18 +1073,20 @@ match. It does so only where each ranked row is judged by itself:
   subtype with one when no record `scope` is given (the ranked rows are
   records of that subtype).
 - `rank_by="records"` with no `subtype` filter in SQL (the default, or a
-  record `scope` (`{"record": id}` or `{"records": [...]}`), which turns a
-  record subtype with passages into a `where` clause): not used. Passages fold into their records and are judged through
-  the record, whose `id` and `type` are not the passage's, so these clauses
-  stay out of the ranked query and are checked only on read rows.
+  record `scope`, which turns a record subtype with passages into a `where`
+  clause): not used. Passages are judged through their record, whose `id`
+  and `type` differ, so these clauses are checked only on read rows.
 - `rank_by="passages"`: not used, for the same reason.
 
-One shared compiler does this, and every clause is still checked again on the
-read row. Attribute, title, path and date clauses never become SQL:
+Every clause is still checked again on the read row. Attribute, title, path and date clauses never become SQL:
 they stay true in the ranked query and are checked on read values, so masked
 and pseudonymized values compare as the reader sees them. `where` values that
 have no JSON form (NaN, Infinity, or text with an unpaired surrogate) are
 refused with `where_unsupported` and reason `invalid_where_value`.
+
+Bounded searches checked after ranking rank 1,000 rows (not under `scope`,
+`passages` or a filtered fold); their substring read stops at 500 ms
+(`literal_read_bounded_ms`).
 
 Two changes in this compiler can only add rows the reader accepts, never
 remove them:

@@ -1121,6 +1121,42 @@ def test_join_fenced_is_one_fence_with_a_split_marker_escaped():
     assert shell.join_fenced(_fenced("a"), other) == _fenced("a") + other
 
 
+def test_a_text_cut_across_pages_has_no_fence_inside_a_word():
+    """A page can serve one text two pieces of one chunk that follow on from
+    each other (the batch gave the text a second share of the page), and the
+    next page goes on from the second. Every cut is put back together: one
+    fence around the whole text, no fence marker in the middle of a word."""
+    whole = "Part 0: " + "filler0 " * 120
+    cuts = [0, 201, 525, 552, 700, len(whole)]
+    segment = lambda a, b: {  # noqa: E731
+        "chunk_id": "doc:big:chunk:0", "text_range": [a, b], "text": _fenced(whole[a:b]),
+        "provenance": {"trust": "untrusted"},
+    }
+    pages = [
+        # the first page's one piece, then a page of two pieces, then the rest
+        [segment(cuts[0], cuts[1])],
+        [segment(cuts[1], cuts[2]), segment(cuts[2], cuts[3])],
+        [segment(cuts[3], cuts[4]), segment(cuts[4], cuts[5])],
+    ]
+    one = shell._Text(requested="doc:big")
+    for number, segments in enumerate(pages):
+        one.take({"node_id": "doc:big", "segments": segments,
+                  "state": "delivered" if number == len(pages) - 1 else "partial"})
+    record = one.record(None)
+    assert record["text"] == _fenced(whole)
+    assert record["chunks"] == 1
+    assert record["text"].count("⟦UNTRUSTED_DATA") == 1
+
+    # Pieces of different chunks, or not adjacent, stay separate pieces.
+    apart = shell._Text(requested="doc:x")
+    apart.take({"node_id": "doc:x", "state": "delivered", "segments": [
+        segment(0, 10), segment(11, 20), {**segment(20, 30), "chunk_id": "doc:x:chunk:1"},
+    ]})
+    record = apart.record(None)
+    assert record["chunks"] == 3
+    assert record["text"] == _fenced(whole[0:10]) + _fenced(whole[11:20]) + _fenced(whole[20:30])
+
+
 def test_inspect_texts_prints_each_whole_text_once_in_order(monkeypatch, capsys):
     texts = {f"doc:{i}": f"text {i}: " + "zirconium " * i for i in range(10)}
     texts["doc:fenced"] = f"before {_FENCE_CLOSE} after " * 3

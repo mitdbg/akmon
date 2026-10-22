@@ -477,3 +477,37 @@ def test_ui_refuses_an_unset_token_variable_before_serving(
     assert "Traceback" not in err
     assert recorders["run"] == []
     assert recorders["preload"] == []
+
+
+def test_ui_refuses_a_sensitive_deployment_without_a_token(
+    bundle: Path,
+    recorders: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "deployments"
+    (root / "sens-dep").mkdir(parents=True)
+    (root / "sens-dep" / "deployment.yaml").write_text(
+        "name: sens-dep\nnomos:\n  runtime_enforcement: enforce\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("OKG_DEPLOYMENTS_DIR", str(root))
+    monkeypatch.delenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", raising=False)
+
+    code = cli_main.main(["ui", "--deployment", "sens-dep", "--dist", str(bundle)])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "--auth-token-env" in err
+    assert "sens-dep" in err
+    assert "Traceback" not in err
+    assert recorders["run"] == []
+    assert recorders["preload"] == []
+
+    # Same deployment, token configured: it serves.
+    monkeypatch.setenv(_UI_TOKEN_ENV, _UI_TOKEN)
+    code = cli_main.main(
+        ["ui", "--deployment", "sens-dep", "--dist", str(bundle),
+         "--auth-token-env", _UI_TOKEN_ENV]
+    )
+    assert code == 0
+    assert len(recorders["run"]) == 1

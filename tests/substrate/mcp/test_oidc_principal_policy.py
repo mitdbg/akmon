@@ -1,9 +1,9 @@
-"""OIDC principal policy for the public cms-kb server (PACT mcp-oidc-principal-policy, #1180).
+"""OIDC principal policy for the public example-kb server (PACT mcp-oidc-principal-policy, #1180).
 
 Decisions under test:
 
 - 1a: a signed-in user gets in only through a binding an operator wrote (for
-  cms-kb, a ROLE binding on a mapped CERN role). A valid token that matches
+  example-kb, a ROLE binding on a mapped CERN role). A valid token that matches
   none is refused ``nomos_principal_unidentified`` and audited; nothing ever
   creates a per-user row on the user's behalf.
 - 3b: a per-user BLOCK (``okg nomos binding block``) outranks every role
@@ -33,11 +33,11 @@ import pytest
 from okg.substrate.errors import SubstrateError
 
 ISSUER = "https://auth.example.org/realms/cern"
-AUDIENCE = "cms-kb"
+AUDIENCE = "example-kb"
 PROVIDER_ID = "cern-sso"
 DEPLOYMENT = "oidc-principal-policy"
 USER = "alice"
-READER_ROLE = "cms-kb-reader"
+READER_ROLE = "example-kb-reader"
 READER_SUBJECT = "subject:mcp_client"  # what the runbook binds CERN roles to
 OIDC_BLOCK = {
     "provider_id": PROVIDER_ID,
@@ -297,7 +297,7 @@ def _db(dsn: str) -> list[str]:
     return ["--dsn", dsn, "--deployment", DEPLOYMENT]
 
 
-def _setup_cms_kb(dsn: str, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+def _setup_example_kb(dsn: str, capsys: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """The documented CERN recipe: provider from the OIDC block, one role binding."""
     import okg.substrate.deployments as deployments
 
@@ -370,8 +370,8 @@ def _binding_count(dsn: str) -> int:
 def test_only_a_mapped_role_admits_and_no_user_rows_are_created(
     clean_runtime: str, capsys: Any, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    provider = _setup_cms_kb(clean_runtime, capsys, monkeypatch)
-    # Decision 6: the cms-kb provider demands no MFA and no fresh login, so a
+    provider = _setup_example_kb(clean_runtime, capsys, monkeypatch)
+    # Decision 6: the example-kb provider demands no MFA and no fresh login, so a
     # token with no acr/amr and no auth_time is admitted.
     assert provider["provider"]["mfa_required"] is False
     assert provider["provider"]["required_assurance"] == []
@@ -397,7 +397,7 @@ def test_only_a_mapped_role_admits_and_no_user_rows_are_created(
 def test_block_refuses_despite_role_binding_and_unblock_restores(
     clean_runtime: str, capsys: Any, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _setup_cms_kb(clean_runtime, capsys, monkeypatch)
+    _setup_example_kb(clean_runtime, capsys, monkeypatch)
     access = _verified_token([READER_ROLE])
     assert _gate(clean_runtime, access).resolved_subject == READER_SUBJECT
 
@@ -628,7 +628,7 @@ def test_binding_verbs_fall_back_to_okg_dsn(
 def test_block_warns_when_the_exact_subject_value_was_never_seen(
     clean_runtime: str, capsys: Any, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _setup_cms_kb(clean_runtime, capsys, monkeypatch)
+    _setup_example_kb(clean_runtime, capsys, monkeypatch)
     access = _verified_token([READER_ROLE])
     # Alice signs in once, so the deployment has seen her exact value.
     assert _gate(clean_runtime, access).resolved_subject == READER_SUBJECT
@@ -691,7 +691,7 @@ def test_a_failing_seen_check_leaves_the_block_committed(
 
     import okg.substrate.nomos.identity_store as store
 
-    _setup_cms_kb(clean_runtime, capsys, monkeypatch)
+    _setup_example_kb(clean_runtime, capsys, monkeypatch)
     access = _verified_token([READER_ROLE])
 
     def cancelled(*args: Any, **kwargs: Any) -> Any:
@@ -731,7 +731,7 @@ def test_the_seen_check_runs_read_only_after_the_block(
 
     import okg.substrate.nomos.identity_store as store
 
-    _setup_cms_kb(clean_runtime, capsys, monkeypatch)
+    _setup_example_kb(clean_runtime, capsys, monkeypatch)
     real = store.subject_value_evidence
     seen: dict[str, Any] = {}
 

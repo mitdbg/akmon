@@ -333,23 +333,8 @@ def _registered_interval_tables(cur: psycopg.Cursor[Any]) -> dict[str, str]:
     return rows
 
 
-def resolve_hot_floor(
-    cur: psycopg.Cursor[Any],
-    *,
-    headroom_generations: int = DEFAULT_HEADROOM_GENERATIONS,
-) -> dict[str, Any]:
-    """Resolve the hot floor and open value from live Chronos lineage state.
-
-    The candidate is the checkpoint ``headroom_generations`` behind the latest
-    published checkpoint on the default lineage.  Every non-trunk live branch
-    can lower it further.  Missing/ambiguous lineage state raises; there is no
-    sentinel or numeric fallback.
-    """
-    if headroom_generations < 1:
-        raise SubstrateError(
-            "cold-history headroom must be at least one generation",
-            data={"headroom_generations": headroom_generations},
-        )
+def _default_branch_segment(cur: psycopg.Cursor[Any]) -> Mapping[str, Any]:
+    """The default branch's current mutable segment (dict-row cursor)."""
     cur.execute(
         """
         SELECT b.current_segment_id,
@@ -378,6 +363,37 @@ def resolve_hot_floor(
                 "segment_kind": str(default["segment_kind"]),
             },
         )
+    return default
+
+
+def resolve_open_interval_value(cur: psycopg.Cursor[Any]) -> int:
+    """The ``live_hi`` value that marks a row as open on the default lineage.
+
+    This is the current mutable segment's ``live_hi``; rows below it are
+    closed.  Raises when the default branch does not resolve; there is no
+    numeric fallback.
+    """
+    return int(_default_branch_segment(cur)["live_hi"])
+
+
+def resolve_hot_floor(
+    cur: psycopg.Cursor[Any],
+    *,
+    headroom_generations: int = DEFAULT_HEADROOM_GENERATIONS,
+) -> dict[str, Any]:
+    """Resolve the hot floor and open value from live Chronos lineage state.
+
+    The candidate is the checkpoint ``headroom_generations`` behind the latest
+    published checkpoint on the default lineage.  Every non-trunk live branch
+    can lower it further.  Missing/ambiguous lineage state raises; there is no
+    sentinel or numeric fallback.
+    """
+    if headroom_generations < 1:
+        raise SubstrateError(
+            "cold-history headroom must be at least one generation",
+            data={"headroom_generations": headroom_generations},
+        )
+    default = _default_branch_segment(cur)
 
     # Each mutable continuation on the default lineage has a checkpoint sibling:
     # same parent, with the checkpoint's live_hi equal to the continuation's

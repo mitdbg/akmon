@@ -305,7 +305,7 @@ def test_every_known_tool_is_narrowable_on_a_write_launch() -> None:
 
 def test_tool_lists_read_in_canonical_surface_order() -> None:
     assert render_tool_list(OPERATOR_TOOLS) == (
-        "inspect, search, expand, filter, map, aggregate, and query"
+        "inspect, search, expand, filter, map, aggregate, query, and run"
     )
     assert render_tool_list(["search", "inspect"]) == "inspect and search"
     assert render_tool_list(["search"]) == "search"

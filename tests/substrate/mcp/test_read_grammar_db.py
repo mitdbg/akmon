@@ -1200,13 +1200,15 @@ def test_a_name_no_row_field_holds_is_refused_with_an_exact_retry_call(
 
 
 def test_a_where_name_on_a_row_without_its_field_is_refused_naming_the_fields(tools):
-    """Failure case: a grep list row has no `handle`, so `title` means
-    nothing there. Refused, in words that list the row's fields; a view
-    call is never offered (the offer check cannot prove one)."""
+    """Failure case: a grep list row has no `provenance` field to select
+    (PACT read-names-list-3666: it has a `handle` now, so `title` is served
+    as it), so `source` means nothing there. Refused, in words that list
+    the row's fields; a view call is never offered (the offer check cannot
+    prove one)."""
     sent = {"query": TERM, "method": "grep", "view": "list", "limit": 3,
-            "select": ["node_id", "title"]}
+            "select": ["node_id", "source"]}
     error = _refused_as(tools, "search", sent, "select_unknown_field")["error"]
-    assert "select from first_match, matches, node_id, parent, subtype" in error["fix_hint"]
+    assert "select from first_match, handle, matches, node_id, parent, subtype" in error["fix_hint"]
     assert "retry_call" not in error
 
 
@@ -1254,8 +1256,8 @@ def test_a_grep_list_takes_a_select_and_lists_the_same_records_in_the_same_order
     error = _refused_as(
         tools, "search", {**base, "select": ["excerpt", "score"]}, "select_unknown_field",
     )["error"]
-    assert "view list on method grep returns first_match, matches" in error["message"]
-    assert "select from first_match, matches, node_id, parent, subtype" in error["fix_hint"]
+    assert "view list on method grep returns first_match, handle, matches" in error["message"]
+    assert "select from first_match, handle, matches, node_id, parent, subtype" in error["fix_hint"]
 
 
 def test_a_windows_page_takes_a_select_and_lists_the_same_records_in_the_same_order(tools):

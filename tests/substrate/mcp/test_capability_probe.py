@@ -220,6 +220,52 @@ def test_a_failed_pin_read_refuses_start(monkeypatch) -> None:
     assert excinfo.value.data["read"] == "pin"
 
 
+class _MidCommandConn(_FakeConn):
+    """A connection a stop signal interrupted mid-query: any further command
+    fails the way libpq does while the first is still in flight."""
+
+    def __init__(self) -> None:
+        super().__init__({})
+        self.reset_attempted = False
+
+    def cursor(self):
+        cur = _Cursor(self)
+        real_execute = cur.execute
+
+        def execute(sql, params=None):
+            if sql == "RESET statement_timeout":
+                self.reset_attempted = True
+                raise psycopg.OperationalError(
+                    "another command is already in progress"
+                )
+            real_execute(sql, params)
+
+        cur.execute = execute  # type: ignore[method-assign]
+        return cur
+
+
+@pytest.mark.parametrize("interrupt", [SystemExit(143), KeyboardInterrupt()])
+def test_a_stop_signal_during_the_pin_read_propagates_unchanged(
+    monkeypatch, interrupt,
+) -> None:
+    """The stop signal's own exception reaches the caller (exit 143), not the
+    RESET failure the half-finished connection would otherwise raise."""
+    _pin(monkeypatch, interrupt)
+    conn = _MidCommandConn()
+    with pytest.raises(type(interrupt)) as excinfo:
+        _probe(conn)
+    assert excinfo.value is interrupt
+    assert not conn.reset_attempted
+
+
+def test_an_ordinary_pin_error_still_resets_the_timeout(monkeypatch) -> None:
+    _pin(monkeypatch, psycopg.OperationalError("server closed the connection"))
+    conn = _FakeConn({})
+    with pytest.raises(CapabilityProbeFailed):
+        _probe(conn)
+    assert "RESET statement_timeout" in conn.statements
+
+
 def test_a_timed_out_pin_makes_every_catalog_fact_unknown(monkeypatch) -> None:
     _pin(monkeypatch, psycopg.errors.QueryCanceled("timeout"))
     caps = _probe(_FakeConn({}))

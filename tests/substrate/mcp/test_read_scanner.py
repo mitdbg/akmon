@@ -311,7 +311,9 @@ def test_altered_tokens_are_refused() -> None:
     # another key is refused as signing_key_changed instead.
     context = _context(_binding(key_id=signing_key_id()))
     token = issue_scan_continuation(context, {"after": "a"}, measure=_measure)
-    encoded, signature = token.split(".")
+    from okg.substrate.mcp.continuation import full_token
+
+    encoded, signature = full_token(token).split(".")
     body = zlib.decompress(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
     forged_body = body.replace(b'"keyset:node_id"', b'"keyset:forged"')
     assert forged_body != body

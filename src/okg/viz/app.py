@@ -1051,22 +1051,40 @@ def mount_viz(
     port: int | None = None,
     host: str = "127.0.0.1",
     is_ready: Callable[[], bool] | None = None,
+    api_token: str | None = None,
 ) -> threading.Thread | None:
     """Start the viz HTTP server in a background thread.
 
     Returns the daemon thread running uvicorn, or `None` if no
     port is configured (`OKG_VIZ_PORT` unset and `port` not
     passed).
+
+    `api_token` gates every `/viz/api/` request as in `build_app` (issue
+    #3278). A non-loopback `host` without it is refused, because every read
+    would be open to the network; no other bind check protects this entry
+    point.
     """
     resolved_port = port if port is not None else _bound_port()
     if resolved_port is None:
         return None
 
+    from okg.substrate.cli.connector_security import _is_loopback
+
+    if not _is_loopback(host) and not api_token:
+        from okg.substrate.errors import SubstrateError
+
+        raise SubstrateError(
+            f"mount_viz refused: non-loopback host {host!r} needs api_token; "
+            "without it every /viz/api/* read is open to the network",
+            data={"host": host, "port": resolved_port},
+            fix_hint="pass api_token=<secret>, or bind 127.0.0.1",
+        )
+
     import asyncio
 
     import uvicorn
 
-    app = build_app(ctx_provider, is_ready=is_ready)
+    app = build_app(ctx_provider, is_ready=is_ready, api_token=api_token)
     config = uvicorn.Config(
         app,
         host=host,

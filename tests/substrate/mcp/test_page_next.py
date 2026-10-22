@@ -13,6 +13,8 @@ this change each test fails on its own assertion rather than at import.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from okg.substrate.mcp import continuation
@@ -276,7 +278,7 @@ def test_a_forged_token_is_refused_as_a_bad_signature() -> None:
     from okg.substrate.mcp.continuation import route_next
 
     token = issue_continuation(_binding("inspect_text"), cursor={"segment": 0, "char": 0})
-    body, signature = token.split(".")
+    body, signature = continuation.full_token(token).split(".")
     forged = body + "." + ("A" if signature[0] != "A" else "B") + signature[1:]
     with pytest.raises(ContinuationTokenInvalid) as refused:
         route_next(forged, tool="inspect")
@@ -492,6 +494,357 @@ def test_a_continue_retry_names_the_pinned_generation_and_authority(
     assert f"generation_id={json.dumps(generation)}" in error["remedy"]
     assert "same authority" in error["remedy"]
     assert error["retry_call"]["max_bytes"] == {"min": 4097, "max": MAX_RESPONSE_BYTES}
+
+
+# ── the token first: replays of the lab transcripts (lane ri, tokens) ─────
+#
+# Nine lab runs passed 96 continuation tokens back; 40 were refused. 22 of
+# those refusals said `next_with_read_arguments` while the token itself was
+# made up or miscopied, and 5 refused an exactly copied token beside the
+# target it already reads. Each case below is one recorded call, run through
+# the server's own argument path (`_rewrite_operator_call`).
+
+
+def _served(tool: str, arguments: dict):
+    from okg.substrate.mcp.response_bounds import _rewrite_operator_call
+
+    return _rewrite_operator_call(tool, arguments)
+
+
+def _token_refusal(tool: str, arguments: dict):
+    served, rewrite = _served(tool, arguments)
+    assert rewrite is not None and rewrite.refusal is not None, (tool, arguments, served)
+    refusal = rewrite.refusal
+    assert refusal.code == "continuation_token_invalid", refusal.code
+    return refusal
+
+
+def _altered(token: str, index: int, char: str = "Q") -> str:
+    """`token` with one character replaced, as a model's copy of it was in
+    the lab runs (1 to 5 characters changed): at `index` of a whole token's
+    body, or inside a handle's last part."""
+    if token.startswith(continuation.HANDLE_PREFIX):
+        index = len(token) - 1 - index % 16
+    else:
+        index = min(index, token.index(".") - 1)
+    replacement = char if token[index] != char else "R"
+    return token[:index] + replacement + token[index + 1:]
+
+
+#: DeepSeek okg3-q020: `next` values no reply printed.
+@pytest.mark.parametrize(("tool", "arguments", "restart"), [
+    # try 1, call 13
+    ("inspect", {"max_bytes": 16384, "next": "x"}, None),
+    # try 1, call 8
+    ("filter", {"where": {"type": "document",
+                          "attrs.path": {"op": "prefix", "value": "apps/production"}},
+                "select": ["node_id", "attrs.path"], "max_bytes": 8192, "next": "1"},
+     {"where": {"type": "document",
+                "attrs.path": {"op": "prefix", "value": "apps/production"}},
+      "select": ["node_id", "attrs.path"], "max_bytes": 8192}),
+    # try 2, call 23
+    ("filter", {"limit": 50, "select": ["node_id", "attrs.path"], "max_bytes": 8000,
+                "retain": False, "next": "e30="}, None),
+    # Mistral okg3-g017 try 1, call 13
+    ("expand", {"direction": "in",
+                "input": "file:rucioflux:apps/production/prod-rucio-daemons.yaml",
+                "limit": 100, "next": "offset=100"},
+     {"direction": "in", "input": "file:rucioflux:apps/production/prod-rucio-daemons.yaml",
+      "limit": 100}),
+    # Qwen okg3-c005 try 2, call 24
+    ("inspect", {"next": "jira:CMSPROD-99"}, None),
+    # Qwen okg3-g017 try 3, call 9: the call itself as a JSON string (it was
+    # refused operator_execution_failed). One dot, as a token has.
+    ("expand", {"direction": "in", "edge_type": "affects",
+                "input": "file:rucioflux:apps/production/prod-rucio-daemons.yaml",
+                "limit": 100, "order_by": "attrs.committed_at",
+                "select": ["node_id", "attrs.committed_at"],
+                "next": json.dumps({"edge_type": "affects", "direction": "in", "limit": 100,
+                                    "order_by": "attrs.committed_at"})},
+     {"direction": "in", "edge_type": "affects",
+      "input": "file:rucioflux:apps/production/prod-rucio-daemons.yaml",
+      "limit": 100, "order_by": "attrs.committed_at",
+      "select": ["node_id", "attrs.committed_at"]}),
+    # Not ASCII: once a TypeError inside the signature check.
+    ("inspect", {"next": "naïve.tôken"}, None),
+])
+def test_a_made_up_next_is_refused_as_malformed_not_for_its_neighbours(
+    tool: str, arguments: dict, restart: dict | None,
+) -> None:
+    refusal = _token_refusal(tool, arguments)
+    assert refusal.data["reason"] == "malformed"
+    assert "exactly as the reply printed it after `next:`" in refusal.fix_hint
+    assert "opaque" in refusal.fix_hint
+    retry = getattr(refusal, "retry_call", None)
+    if restart is None:
+        # Nothing the caller sent names a read: no call is offered.
+        assert retry is None
+        assert refusal.fix_hint.endswith("or restart the read without it")
+    else:
+        assert retry == {"tool": tool, "mode": "restart", "arguments": restart}
+        assert f"or restart the read: {tool}(" in refusal.fix_hint
+
+
+@pytest.mark.parametrize(("index", "extra"), [
+    # DeepSeek okg3-c011 try 1, call 23: one character replaced at 346.
+    (346, {}),
+    # crfix3 medium okg3-g057 try 2, call 10: at 135.
+    (135, {}),
+    # Sol okg3-c005 try 3, call 40 and Qwen okg3-c011 try 1, call 14: an
+    # altered copy beside max_bytes was refused for max_bytes.
+    (66, {"max_bytes": 12000}),
+    (180, {"max_bytes": 41984}),
+])
+def test_a_miscopied_next_is_refused_as_a_bad_signature(index: int, extra: dict) -> None:
+    token = issue_continuation(_binding("inspect_text"), cursor={"segment": 0, "char": 0})
+    refusal = _token_refusal("inspect", {"next": _altered(token, index), **extra})
+    assert refusal.data["reason"] == "signature_invalid"
+    assert "opaque" in refusal.fix_hint
+    # The same call with the token as issued is served.
+    served, rewrite = _served("inspect", {"next": token, **extra})
+    assert rewrite.refusal is None and served["next"] == token
+
+
+def test_a_miscopied_next_beside_its_target_offers_the_restart() -> None:
+    """DeepSeek okg3-c006 try 2 (calls 24 and 25): the target beside the
+    token, then the token miscopied; the restart reads the target again."""
+    token = issue_continuation(_binding("inspect_text"), cursor={"segment": 0, "char": 0})
+    target = {"kind": "text", "node_id": "doc:1"}
+    refusal = _token_refusal("inspect", {"target": target, "next": _altered(token, 136)})
+    assert refusal.data["reason"] == "signature_invalid"
+    assert refusal.retry_call == {
+        "tool": "inspect", "mode": "restart", "arguments": {"target": target},
+    }
+    assert refusal.fix_hint.endswith(
+        'or restart the read: inspect(target={"kind": "text", "node_id": "doc:1"})'
+    )
+
+
+@pytest.mark.parametrize(("tool", "kind", "projection", "repeated"), [
+    # DeepSeek okg3-c005 try 1, call 40 (and c006, c008, q004): the target
+    # the token reads, beside it.
+    ("inspect", "inspect_text", {"node_id": "doc:1"},
+     {"target": {"kind": "text", "node_id": "doc:1"}}),
+    ("inspect", "inspect_text", {"node_id": "doc:1", "lines": [[10, 20]]},
+     {"target": {"kind": "text", "node_id": "doc:1", "lines": [[10, 20]]}}),
+    # The issuing call repeated beside a path token.
+    ("expand", "expand_path",
+     {"start_node": "doc:1", "hops": [["contains", "out"]], "limit": 1},
+     {"input": {"node_id": "doc:1"}, "path": ["contains:out"], "limit": 1}),
+    ("filter", "filter_page",
+     {"input": {"kind": "nodes", "subtype": "note"},
+      "predicate": {"op": "eq", "field": "attrs.group", "value": "a"}, "select": None},
+     {"predicate": {"op": "eq", "field": "attrs.group", "value": "a"}}),
+])
+def test_arguments_that_repeat_the_tokens_read_are_read_as_next_alone(
+    tool: str, kind: str, projection: dict, repeated: dict,
+) -> None:
+    token = issue_continuation(_binding(kind, projection=projection), cursor={"after": "n:1"})
+    served, rewrite = _served(tool, {"next": token, **repeated})
+    assert rewrite.refusal is None
+    assert served == {"next": token}
+    notes = [r for r in rewrite.adjusted if r["rule"] == "next_repeats_read"]
+    assert len(notes) == 1, rewrite.adjusted
+    assert notes[0]["sent"].endswith(" beside `next`")
+    for name in repeated:
+        assert f"`{name}`" in notes[0]["sent"]
+
+
+@pytest.mark.parametrize(("tool", "kind", "projection", "other"), [
+    ("inspect", "inspect_text", {"node_id": "doc:1"},
+     {"target": {"kind": "text", "node_id": "doc:2"}}),
+    ("inspect", "inspect_text", {"node_id": "doc:1"},
+     {"target": {"kind": "text", "node_id": "doc:1", "lines": [[1, 5]]}}),
+    ("inspect", "inspect_text", {"node_id": "doc:1"}, {"select": ["node_id"]}),
+    ("expand", "expand_path",
+     {"start_node": "doc:1", "hops": [["contains", "out"]], "limit": 1}, {"limit": 2}),
+    ("filter", "filter_page",
+     {"input": {"kind": "nodes", "subtype": "note"},
+      "predicate": {"op": "eq", "field": "attrs.group", "value": "a"}, "select": None},
+     {"predicate": {"op": "eq", "field": "attrs.group", "value": "b"}}),
+])
+def test_an_argument_naming_another_read_stays_beside_next(
+    tool: str, kind: str, projection: dict, other: dict,
+) -> None:
+    """Left for the tool, which refuses it `next_with_read_arguments`."""
+    token = issue_continuation(_binding(kind, projection=projection), cursor={"after": "n:1"})
+    served, rewrite = _served(tool, {"next": token, **other})
+    assert rewrite.refusal is None
+    assert served == {"next": token, **other}
+    assert not [r for r in rewrite.adjusted if r["rule"] == "next_repeats_read"]
+
+
+def test_a_miscopied_grep_token_offers_the_search_again() -> None:
+    """ERAG round K qst_0204 call 46: one character deleted from a grep
+    page's token (here: replaced); the restart is the same search."""
+    sent = {
+        "query": '"product analytics" "consistent"', "method": "grep",
+        "where": {"type": "crm_account"}, "limit": 100,
+        "select": ["node_id", "handle"], "within": "record",
+    }
+    token = issue_continuation(
+        _binding("grep_page", sort="grep", projection="0" * 64), cursor={"sealed": "x"},
+    )
+    refusal = _token_refusal("search", {**sent, "continuation_token": _altered(token, 476)})
+    assert refusal.data["reason"] == "signature_invalid"
+    assert refusal.retry_call == {"tool": "search", "mode": "restart", "arguments": sent}
+    assert "or restart the read: search(" in refusal.fix_hint
+    served, rewrite = _served("search", {**sent, "continuation_token": token})
+    assert rewrite.refusal is None
+
+
+def test_a_token_for_another_tool_keeps_its_own_retry_at_intake() -> None:
+    token = issue_continuation(_binding("expand_path"), cursor={"after_node_id": "n:a"})
+    refusal = _token_refusal("inspect", {
+        "next": token, "target": {"kind": "text", "node_id": "doc:1"},
+    })
+    assert refusal.data["reason"] == "wrong_tool"
+    assert refusal.fix_hint == "call expand(next=<this token>)"
+    assert getattr(refusal, "retry_call", None) is None
+
+
+def test_a_token_from_before_a_restart_offers_the_restart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OKG_MCP_CONTINUATION_SIGNING_KEY", raising=False)
+    monkeypatch.setattr(continuation, "_PROCESS_SIGNING_KEY", b"\x01" * 32)
+    token = issue_continuation(_binding("inspect_text"), cursor={"segment": 0, "char": 0})
+    monkeypatch.setattr(continuation, "_PROCESS_SIGNING_KEY", b"\x02" * 32)
+    target = {"kind": "text", "node_id": "doc:1"}
+    refusal = _token_refusal("inspect", {"target": {**target, "continuation_token": token}})
+    assert refusal.data["reason"] == "signing_key_changed"
+    # Copying it again cannot help: the hint is the restart alone.
+    assert "opaque" not in refusal.fix_hint
+    assert refusal.retry_call == {
+        "tool": "inspect", "mode": "restart", "arguments": {"target": target},
+    }
+
+
+def test_a_restart_is_offered_only_when_it_would_be_served() -> None:
+    """DeepSeek okg3-q020 try 3, call 33: the call's own `order_by` is one
+    the tool refuses, so its restart would be refused too; it is not offered.
+    The retry proof decides for the tools it covers; an inspect call and a
+    path read, which it does not cover, are offered when the argument checks
+    take them."""
+    from okg.substrate.mcp.response_bounds import _rewrite_operator_call
+
+    proof = lambda tool, call: False  # noqa: E731 - the retry proof refuses every call
+    model = lambda tool, call: True  # noqa: E731 - the argument model takes every call
+    cases = [
+        ("expand", {"input": "file:rucioflux:apps/production/prod-rucio-daemons.yaml",
+                    "edge_type": "affects", "direction": "in", "limit": 10,
+                    "order_by": "date.created desc", "max_bytes": 32768, "next": "x"}, False),
+        ("expand", {"input": {"node_id": "doc:1"}, "path": ["contains:out"], "limit": 1,
+                    "next": "offset=100"}, True),
+        ("inspect", {"target": {"kind": "text", "node_id": "doc:1"}, "next": "x"}, True),
+        ("search", {"query": "w", "method": "grep", "continuation_token": "a.b"}, False),
+    ]
+    for tool, sent, offered in cases:
+        _, rewrite = _rewrite_operator_call(tool, sent, accepts=proof, restartable=model)
+        assert rewrite.refusal is not None, (tool, sent)
+        assert (getattr(rewrite.refusal, "retry_call", None) is not None) is offered, (tool, sent)
+
+
+def test_a_direct_call_with_a_made_up_next_and_max_bytes_names_the_token() -> None:
+    """The byte-bound wrapper checks the token before the size beside it."""
+    from okg.substrate.mcp.response_bounds import bound_read_tool
+
+    def inspect(target=None, max_bytes=None, next=None):
+        raise AssertionError("refused before the operator runs")
+
+    for tool in ("inspect", "expand"):
+        with pytest.raises(ContinuationTokenInvalid) as refused:
+            bound_read_tool(tool, inspect)(next="x", max_bytes=16384)
+        assert refused.value.data["reason"] == "malformed"
+
+
+# ── short handles (lane ri, tokens) ──────────────────────────────────────
+
+
+def test_a_reply_prints_a_short_handle_for_its_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A signed token was 500 to 950 characters and 16% of the copies
+    agents passed back were altered; a handle is 40 and reads the same."""
+    import re
+
+    monkeypatch.delenv("OKG_MCP_CONTINUATION_SIGNING_KEY", raising=False)
+    token = issue_continuation(_binding("inspect_text"), cursor={"segment": 2, "char": 5})
+    assert re.fullmatch(r"c1\.[A-Za-z0-9_-]{8}\.[A-Za-z0-9_-]{11}\.[A-Za-z0-9_-]{16}", token)
+    assert len(token) == 40
+    whole = continuation.full_token(token)
+    assert whole.count(".") == 1 and len(whole) > 200
+    assert continuation.open_continuation(token) == continuation.open_continuation(whole)
+    assert consume_continuation(token, expected_binding=_binding("inspect_text")) == {
+        "segment": 2, "char": 5,
+    }
+    # The same read prints the same handle, as it printed the same token;
+    # another cursor another handle of the same length.
+    again = issue_continuation(_binding("inspect_text"), cursor={"segment": 2, "char": 5})
+    other = issue_continuation(_binding("inspect_text"), cursor={"segment": 3, "char": 0})
+    assert again == token and other != token and len(other) == len(token)
+
+
+@pytest.mark.parametrize("part", [0, 1])
+def test_a_miscopied_handle_is_refused_as_a_bad_signature(
+    part: int, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The handle's own MAC covers its nonce: a changed character in either
+    part reads as miscopied, never as another token."""
+    monkeypatch.delenv("OKG_MCP_CONTINUATION_SIGNING_KEY", raising=False)
+    token = issue_continuation(_binding("inspect_text"), cursor={"segment": 0, "char": 0})
+    head, nonce, mac = token.rsplit(".", 2)
+    if part == 0:
+        nonce = ("A" if nonce[3] != "A" else "B").join((nonce[:3], nonce[4:]))
+    else:
+        mac = mac[:-1] + ("A" if mac[-1] != "A" else "B")
+    with pytest.raises(ContinuationTokenInvalid) as refused:
+        continuation.open_continuation(f"{head}.{nonce}.{mac}")
+    assert refused.value.data["reason"] == "signature_invalid"
+    assert "opaque" in refused.value.fix_hint
+
+
+def test_a_handle_this_process_did_not_issue_or_no_longer_holds_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OKG_MCP_CONTINUATION_SIGNING_KEY", raising=False)
+    token = issue_continuation(_binding("inspect_text"), cursor={"segment": 0, "char": 0})
+    # Another process (a restart): a new store, a new epoch.
+    monkeypatch.setattr(continuation, "_HANDLES", continuation._HandleStore())
+    with pytest.raises(ContinuationTokenInvalid) as other:
+        continuation.open_continuation(token)
+    assert other.value.data["reason"] == "token_unknown"
+    assert "another server process" in str(other.value)
+    # Evicted: the store holds one token, and a second came in.
+    monkeypatch.setattr(continuation, "HANDLE_MAX_ENTRIES", 1)
+    first = issue_continuation(_binding("inspect_text"), cursor={"segment": 1, "char": 0})
+    issue_continuation(_binding("inspect_text"), cursor={"segment": 2, "char": 0})
+    with pytest.raises(ContinuationTokenInvalid) as evicted:
+        continuation.open_continuation(first)
+    assert evicted.value.data["reason"] == "token_unknown"
+    assert "no longer holds" in str(evicted.value)
+    # Either way the refusal offers the restart, not a copy.
+    refusal = _token_refusal("inspect", {
+        "target": {"kind": "text", "node_id": "doc:1", "continuation_token": first},
+    })
+    assert refusal.data["reason"] == "token_unknown"
+    assert refusal.retry_call["mode"] == "restart"
+    assert "opaque" not in refusal.fix_hint
+
+
+def test_a_set_signing_key_keeps_whole_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tokens that must outlive one process are printed whole."""
+    monkeypatch.setenv("OKG_MCP_CONTINUATION_SIGNING_KEY", "shared-test-key")
+    token = issue_continuation(_binding("inspect_text"), cursor={"segment": 0, "char": 0})
+    assert not token.startswith(continuation.HANDLE_PREFIX) and token.count(".") == 1
+    assert continuation.full_token(token) == token
+
+
+def test_a_token_over_the_size_limit_is_returned_whole_for_its_caller_to_withhold() -> None:
+    import secrets as _secrets
+
+    big = {"node_id": "doc:1", "noise": _secrets.token_hex(20_000)}
+    token = issue_continuation(_binding("inspect_text", projection=big), cursor={})
+    assert len(token) > continuation.MAX_ENCODED_TOKEN_CHARS
+    assert not token.startswith(continuation.HANDLE_PREFIX)
 
 
 def test_a_subtype_retry_restarts_without_a_pin() -> None:

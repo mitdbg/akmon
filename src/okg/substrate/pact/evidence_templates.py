@@ -96,10 +96,18 @@ _NON_FILE_KIND_HINTS = {
     "planned_test": "declare a test_plan entry in pact.yaml",
     "waiver": "okg pact evidence waive <change> --scope <id> --reason ...",
 }
+# No change is named here, so the hint takes the default version (v5). `kind`
+# is already a v5 kind (see `_attach_hint`).
 _ATTACH_HINT = (
-    "okg pact evidence attach <change> <target> --kind {kind} "
-    "--ref <ref> --status pass --summary '...'"
+    "okg pact evidence attach <change> --kind {kind} --requirement <req> "
+    "[--status pass|fail] [--command ...] [--artifact <path>] [--note ...]"
 )
+
+
+def _attach_hint(kind: str) -> str:
+    from okg.substrate.pact.repair import v5_attach_kind
+
+    return _ATTACH_HINT.format(kind=v5_attach_kind(kind))
 
 
 def evidence_template(kind: str, *, repo_root: Path | None = None) -> dict:
@@ -132,7 +140,7 @@ def evidence_template(kind: str, *, repo_root: Path | None = None) -> dict:
         ingest_flag = "--formal-report"
     else:
         hint = _NON_FILE_KIND_HINTS.get(
-            canonical, _ATTACH_HINT.format(kind=canonical)
+            canonical, _attach_hint(canonical)
         )
         raise SubstrateError(
             f"evidence kind {canonical!r} does not take a YAML artifact "

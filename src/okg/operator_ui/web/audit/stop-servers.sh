@@ -13,6 +13,9 @@ for f in backend.pid frontend.pid; do
   fi
 done
 
+# The read token start-servers.sh saved for reusing a running backend.
+rm -f "$SRV/api.token"
+
 # Fallback: anything still holding the ports.
 for port in 8765 5173; do
   pids="$(lsof -ti :$port 2>/dev/null || true)"

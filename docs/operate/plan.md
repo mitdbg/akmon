@@ -20,11 +20,13 @@ builds a first graph; it does not answer these production questions.
   (0.7 or later), `pg_textsearch` (1.0 or later; `okg doctor` recommends
   1.5.1), `pg_trgm`, `fuzzystrmatch` and `btree_gist`, with `timescaledb` and
   `pg_textsearch` in `shared_preload_libraries`, and a database user that can
-  create roles and set their passwords. The bundled image in `ops/pg`, run
-  with Docker, has all of it.
+  create roles and set their passwords. `pg_cron` is optional: AKMON no longer
+  schedules work with it, and the install skips it when it is absent. The
+  published image `ghcr.io/mitdbg/akmon-postgres:v<version>` (or a build of
+  `ops/pg`), run with Docker or podman, has all of it.
 - For upgrades, restores and copies: `pg_dump` and `pg_restore` at the
   server's major version or newer.
-- Disk: about 10 GB to start (the database image is about 6.5 GB); a graph's
+- Disk: about 10 GB to start (the database image is about 6.5 GB on disk); a graph's
   own size grows with its sources and kept history, see
   [Storage and history](../runbooks/troubleshooting/storage.md).
 - For agents on other machines: one port for the HTTP MCP server (8100 by

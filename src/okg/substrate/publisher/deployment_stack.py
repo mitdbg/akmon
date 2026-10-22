@@ -346,6 +346,7 @@ def _build_deployment_publisher_stack_uncached(
 
     from okg.substrate.alias.loader import make_alias_resolver_factory
     from okg.substrate.consistency import (
+        StoredLiveNodesGate,
         TransformConsistencyGate,
         load_consistency_gates,
         load_ir_consistency_checks,
@@ -453,6 +454,10 @@ def _build_deployment_publisher_stack_uncached(
             # dangling references (git-history affects->deleted-file) set "prune".
             TransformConsistencyGate(dangling_policy=load_dangling_policy(dep_dir)),
             *load_consistency_gates(dep_dir),
+            # No stored node of a live type (#3666): its own check id, so the
+            # transform gate keeps its incremental basis. One catalog query
+            # when the catalog declares no live type.
+            StoredLiveNodesGate(),
         ],
         post_publish_consistency_checks=[
             # transform-IR checks (the standard); the SQL-blob checks below are

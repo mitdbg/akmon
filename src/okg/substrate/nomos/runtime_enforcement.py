@@ -548,14 +548,74 @@ def deployment_nomos_enforcement_mode(deployment_name: str) -> str:
     override = _enforcement_override()
     if override is not None:
         return override
+    return deployment_declared_nomos_enforcement_mode(deployment_name)
 
-    cache_key = _nomos_enforcement_cache_key(deployment_name)
 
-    # --- resolve phase: locate the deployment dir. Absence here is a positive
-    #     signal that no manifest is configured -> off.
-    manifest_path = _resolve_nomos_manifest_path(deployment_name, cache_key)
-    if manifest_path is None:
-        return "off"
+_READ_AUTH_OVERRIDE_WARNED = False
+
+
+def deployment_requires_read_auth(
+    deployment_name: str,
+    *,
+    deployment_dir: Any | None = None,
+) -> bool:
+    """Whether a deployment's graph is sensitive and every read needs a token.
+
+    Follows the mode the deployment MANIFEST declares (``audit`` or
+    ``enforce``) and deliberately ignores an ``OKG_NOMOS_RUNTIME_ENFORCEMENT``
+    override: the kill-switch relaxes policy evaluation, but must not remove
+    the authentication a sensitive graph requires. When the override is set
+    the process logs one warning naming the variable and still requires the
+    token (Jason decision 29, pending).
+
+    ``deployment_dir`` reads the manifest from that directory instead of
+    searching for the deployment by name. A sealed environment's UI resolves
+    its manifest through the directory its launcher pins, so the install-time
+    check passes that same directory and cannot disagree with the running UI.
+    """
+    global _READ_AUTH_OVERRIDE_WARNED
+    declared = deployment_declared_nomos_enforcement_mode(
+        deployment_name, deployment_dir=deployment_dir
+    )
+    if (
+        os.getenv("OKG_NOMOS_RUNTIME_ENFORCEMENT") is not None
+        and not _READ_AUTH_OVERRIDE_WARNED
+    ):
+        _READ_AUTH_OVERRIDE_WARNED = True
+        logging.getLogger(__name__).warning(
+            "OKG_NOMOS_RUNTIME_ENFORCEMENT is set; it does not relax the "
+            "read-token requirement, which follows the mode deployment %r "
+            "declares in its manifest (%s)",
+            deployment_name,
+            declared,
+        )
+    return declared != "off"
+
+
+def deployment_declared_nomos_enforcement_mode(
+    deployment_name: str,
+    *,
+    deployment_dir: Any | None = None,
+) -> str:
+    """The mode the deployment manifest declares, ignoring the env override.
+
+    Same fail-closed resolution as :func:`deployment_nomos_enforcement_mode`.
+    With ``deployment_dir`` the manifest is ``<deployment_dir>/deployment.yaml``
+    and no search by name happens.
+    """
+    if deployment_dir is not None:
+        from pathlib import Path
+
+        directory = Path(deployment_dir)
+        cache_key = (f"dir:{directory}", deployment_name)
+        manifest_path = directory / "deployment.yaml"
+    else:
+        cache_key = _nomos_enforcement_cache_key(deployment_name)
+        # --- resolve phase: locate the deployment dir. Absence here is a
+        #     positive signal that no manifest is configured -> off.
+        manifest_path = _resolve_nomos_manifest_path(deployment_name, cache_key)
+        if manifest_path is None:
+            return "off"
 
     # --- read phase: a resolved dir means a manifest should be present. Only a
     #     genuinely-missing file (ENOENT) is treated as absence -> off; every
@@ -594,7 +654,7 @@ def deployment_nomos_enforcement_mode(deployment_name: str) -> str:
         # A present manifest whose YAML we cannot parse: fail closed.
         _raise_nomos_resolution_error(deployment_name, manifest_path, exc)
 
-    mode = manifest_nomos_enforcement_mode(raw)
+    mode = _declared_manifest_mode(raw)
     _NOMOS_MODE_CACHE[cache_key] = (manifest_fingerprint, mode)
     return mode
 
@@ -610,6 +670,10 @@ def manifest_nomos_enforcement_mode(manifest: Any) -> str:
     override = _enforcement_override()
     if override is not None:
         return override
+    return _declared_manifest_mode(manifest)
+
+
+def _declared_manifest_mode(manifest: Any) -> str:
     if not isinstance(manifest, Mapping):
         return "off"
     nomos = manifest.get("nomos")

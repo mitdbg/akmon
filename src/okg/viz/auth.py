@@ -215,3 +215,53 @@ def resolve_api_token(env_var_name: str | None) -> str | None:
     from okg.substrate.mcp.http_auth import resolve_auth_token
 
     return resolve_auth_token(env_var_name, surface="viz read API")
+
+
+def require_read_auth_for_sensitive_deployment(
+    deployment: str,
+    api_token: str | None,
+    *,
+    surface: str,
+) -> None:
+    """Refuse an unauthenticated start for a deployment that declares policy.
+
+    A deployment whose manifest turns Nomos runtime enforcement on
+    (``nomos.runtime_enforcement`` is ``audit`` or ``enforce`` in the manifest;
+    an ``OKG_NOMOS_RUNTIME_ENFORCEMENT`` override is ignored here, see
+    ``deployment_requires_read_auth``) has declared its graph sensitive.
+    Serving it with no read token would bypass that policy for every local
+    account, so the start is refused even on loopback. A manifest that cannot
+    be read or parsed also refuses: the mode is unknown, never assumed off.
+    No-op when a token is configured.
+    """
+    if api_token:
+        return
+    from okg.substrate.errors import VizReadAuthRequired
+    from okg.substrate.nomos.runtime_enforcement import (
+        NomosEnforcementConfigError,
+        NomosEnforcementResolutionError,
+        deployment_requires_read_auth,
+    )
+
+    flag_hint = (
+        "set a token in an environment variable and pass its NAME: "
+        "--auth-token-env VARIABLE_NAME"
+    )
+    try:
+        sensitive = deployment_requires_read_auth(deployment)
+    except (NomosEnforcementConfigError, NomosEnforcementResolutionError) as exc:
+        raise VizReadAuthRequired(
+            f"{surface} refused: cannot tell whether deployment {deployment!r} "
+            f"is sensitive ({exc}); without --auth-token-env it will not start",
+            data={"deployment": deployment, "reason": "sensitivity_unknown"},
+            fix_hint=flag_hint,
+        ) from exc
+    if sensitive:
+        raise VizReadAuthRequired(
+            f"{surface} refused: deployment {deployment!r} has Nomos runtime "
+            "enforcement on (nomos.runtime_enforcement is audit or enforce), so "
+            "its graph is sensitive and every read must be authenticated; "
+            "start it with --auth-token-env VARIABLE_NAME",
+            data={"deployment": deployment, "reason": "sensitive_deployment"},
+            fix_hint=flag_hint,
+        )

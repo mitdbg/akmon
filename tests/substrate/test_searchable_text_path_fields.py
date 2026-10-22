@@ -754,7 +754,7 @@ def test_old_form_node_publishes_in_the_new_form(clean_runtime: str) -> None:
 @pytest.mark.postgres
 def test_body_only_word_found_after_publish(clean_runtime: str) -> None:
     """Issue #2991 end to end: a node whose subtype declares `stem,text`
-    (cms-kb `Section`) is found by a word that appears only in its body,
+    (example-kb `Section`) is found by a word that appears only in its body,
     and the published `text` holds the stem and the body."""
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
         _seed_cv_with_subtype_metadata(

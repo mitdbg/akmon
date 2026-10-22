@@ -28,6 +28,7 @@ authority for registered MCP names.
 | `map` | AKMON operator | `map(input, projection)` selects or reshapes fields without changing graph data. |
 | `aggregate` | AKMON operator | `aggregate(input, by, metrics)` counts and summarizes a set expression. |
 | `query` | Escape hatch | `query(sql)` runs bounded read-only SQL over `okg.v_*`; not an algebra primitive. |
+| `run` | Composition | `run(steps)`: up to eight steps in one call; `"$n"` is step n's records or rows ([replies](mcp-results.md#run-replies)). |
 
 `record` and `propose` are writes, present only when the server is launched
 with explicit write authority. `run_sql` and other retired names are not callable tools

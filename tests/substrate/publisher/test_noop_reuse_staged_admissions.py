@@ -186,3 +186,66 @@ def test_staged_refused_repaired_cycle_recovers_rows(
             generation_id=recovered["generation_id"],
         )
     assert _envelope_status(clean_runtime, staged_id) == "published"
+
+
+def test_zero_net_graph_writes_checkpoint_instead_of_reusing(
+    clean_runtime: str,
+) -> None:
+    """#3625: rows written and retracted since the last generation net to
+    zero, but they still sit in the branch head. Reusing the previous
+    generation would leave its feedback refused with
+    ``intervening_graph_write``, so the cycle must cut a real checkpoint,
+    feedback must apply to it, and reuse resumes afterwards."""
+    from okg.substrate.errors import SubstrateError
+    from okg.substrate.graph_store import ChronosGraphStore
+    from okg.substrate.library.sources.base import NodeFact
+
+    with psycopg.connect(clean_runtime, autocommit=True) as conn, \
+            conn.cursor() as cur:
+        _seed_concept_catalog(cur)
+        _insert_concept_fact(cur, "n:first")
+
+    pub = Publisher(clean_runtime, "test-pub", catalog_identity=bind_test_catalog_writer(clean_runtime, "test-pub"))
+    first = pub.cycle()
+    assert first["status"] == "published"
+
+    # A row added then retracted: two writes, zero net change.
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
+        store.apply_facts(
+            [NodeFact("n:undone", "concept", {}, {}, {})],
+            source="test-pub.zero-net",
+        )
+        store.apply_facts(
+            [NodeFact("n:undone", "concept", {}, {}, {}, op="R")],
+            source="test-pub.zero-net",
+        )
+
+    second = pub.cycle()
+    assert second["status"] == "published"
+    assert second.get("reused_generation") is not True
+    assert second["generation_id"] != first["generation_id"]
+    assert second["node_count"] == first["node_count"]
+    assert second["noop_reuse_invalidation_reason"] == "zero_net_graph_writes"
+
+    # The check that refused this publish before the fix.
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        try:
+            apply_generation_feedback(
+                conn,
+                deployment_name="test-pub",
+                generation_id=second["generation_id"],
+            )
+        except SubstrateError as refused:  # pragma: no cover - failure path
+            raise AssertionError(refused.data) from refused
+
+    # The checkpoint sealed the rows: the next idle cycle reuses it.
+    third = pub.cycle()
+    assert third.get("reused_generation") is True
+    assert third["generation_id"] == second["generation_id"]
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        apply_generation_feedback(
+            conn,
+            deployment_name="test-pub",
+            generation_id=third["generation_id"],
+        )

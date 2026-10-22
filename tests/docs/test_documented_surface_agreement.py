@@ -148,9 +148,13 @@ def _live_error_codes() -> set[str]:
 
 
 def test_mcp_reference_matches_registered_read_and_escape_tools() -> None:
-    from okg.substrate.mcp.operators import AKMON_READ_TOOLS, QUERY_ESCAPE_TOOLS
+    from okg.substrate.mcp.operators import (
+        AKMON_READ_TOOLS,
+        COMPOSITION_TOOLS,
+        QUERY_ESCAPE_TOOLS,
+    )
 
-    expected = set(AKMON_READ_TOOLS) | set(QUERY_ESCAPE_TOOLS)
+    expected = set(AKMON_READ_TOOLS) | set(QUERY_ESCAPE_TOOLS) | set(COMPOSITION_TOOLS)
     documented = _mcp_documented(_text("docs/reference/mcp.md"))
     assert documented == expected
 

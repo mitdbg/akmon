@@ -7,7 +7,7 @@ and the rollout baseline (``okg deployment nomos-rollout-audit
 --apply-baseline``) allows ``mcp.tool.call`` and ``graph.read.mcp`` only for
 ``subject:mcp_client`` (``deployment_baseline_policy_graph`` in
 ``nomos/store.py``). kb76 showed it live: the recipe as first written bound
-CERN roles to ``subject:cms-kb:reader``, and under ``enforce`` every MCP tool
+CERN roles to ``subject:example-kb:reader``, and under ``enforce`` every MCP tool
 call from a signed-in user was refused ``nomos_identity_denied ...
 nomos.default_deny``.
 
@@ -59,7 +59,7 @@ SCOPE = f"deployment:{DEPLOYMENT}"
 USER = "alice"
 OTHER_USER = "bob"
 UNMAPPED_ROLE = "cms-other"
-SOURCE_ID = "cms-kb-docs"
+SOURCE_ID = "example-kb-docs"
 PUBLIC_SOURCE_POLICY = {
     "sensitivity": "public",
     "data_classification": "public",
@@ -95,7 +95,7 @@ def _config() -> Any:
 
 
 def _write_deployment(root: Path) -> Path:
-    """A cms-kb-shaped deployment carrying the runbook's nomos block."""
+    """A example-kb-shaped deployment carrying the runbook's nomos block."""
     target = root / DEPLOYMENT
     shutil.copytree(FIXTURE, target)
     manifest_path = target / "deployment.yaml"
@@ -349,12 +349,12 @@ def _recorded_sign_ins(dsn: str) -> list[tuple[str, list[str]]]:
 
 @pytest.mark.postgres
 @pytest.mark.usefixtures("okg_mcp_can_log_in")
-def test_documented_cms_kb_recipe_admits_a_mapped_role_under_rollout_baseline(
+def test_documented_example_kb_recipe_admits_a_mapped_role_under_rollout_baseline(
     clean_runtime: str, tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The runbook recipe, unchanged: a mapped role is served; others are not.
 
-    Fails on 66f2a47c97, whose recipe binds to ``subject:cms-kb:reader``:
+    Fails on 66f2a47c97, whose recipe binds to ``subject:example-kb:reader``:
     ``nomos_identity_denied`` / ``nomos.default_deny`` on ``mcp.tool.call``.
     """
     _setup(clean_runtime, tmp_path, capsys, monkeypatch)
@@ -422,13 +422,13 @@ def test_documented_recipe_block_refuses_one_user_and_spares_the_rest(
 def test_a_grant_alone_does_not_admit_a_subject_the_baseline_does_not_allow(
     clean_runtime: str, tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The recipe as first written (``subject:cms-kb:reader``) stays refused.
+    """The recipe as first written (``subject:example-kb:reader``) stays refused.
 
     Pins the reason the runbook binds CERN roles to ``subject:mcp_client``:
     the grant matches, the rollout baseline names no rule for the subject, and
     enforcement refuses with ``nomos.default_deny``.
     """
-    subject = "subject:cms-kb:reader"
+    subject = "subject:example-kb:reader"
     _setup(clean_runtime, tmp_path, capsys, monkeypatch, subject=subject)
 
     reader = _verified_token([_recipe()["role"]])

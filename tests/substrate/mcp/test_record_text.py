@@ -643,7 +643,7 @@ def test_a_budget_with_no_room_for_one_character_is_refused(
 
 
 # --------------------------------------------------------------------------- #
-# a chunk id or a chunkless node as the target (lane A cms-kb rehearsal)
+# a chunk id or a chunkless node as the target (lane A example-kb rehearsal)
 # --------------------------------------------------------------------------- #
 
 

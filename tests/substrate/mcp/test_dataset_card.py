@@ -116,6 +116,84 @@ def _live_facts(**overrides: Any) -> DatasetFacts:
 ALL_READ = ("inspect", "search", "expand", "filter", "map", "aggregate", "query")
 
 
+# ── pure: the `run` example (#3666) ──────────────────────────────────────
+
+
+def test_the_run_example_is_built_from_the_catalog_and_served_only_with_its_tools() -> None:
+    """The example names the card's own type and key, no row value; it is
+    served only where run, filter and aggregate are, and not without a key
+    or under access rules (where run is refused)."""
+    import json as _json
+
+    from okg.substrate.mcp.dataset_card import run_example_steps
+
+    facts = _live_facts(run_example=("jira_issue", "status"))
+    card = render_dataset_card(facts, served_tools=(*ALL_READ, "run"))
+    (line,) = [line for line in card.splitlines() if "run(steps=" in line]
+    steps = _json.JSONDecoder().raw_decode(line[line.index("run(steps=") + 10:])[0]
+    assert steps == run_example_steps(facts)
+    assert steps[0] == {"filter": {"where": {
+        "type": "jira_issue", "attrs.status": {"op": "exists"}}}, "show": False}
+    assert steps[1]["aggregate"]["where"] == "$1"
+    assert steps[1]["aggregate"]["by"] == ["attrs.status"]
+    # A key may hold thousands of values over a whole type: the example
+    # prints its most common ten, never past the 200 groups run prints.
+    assert steps[1]["aggregate"]["limit"] == 10
+    for served in (ALL_READ, ("run", "filter", "inspect")):
+        assert "run(steps=" not in render_dataset_card(facts, served_tools=served)
+    assert run_example_steps(_live_facts()) is None
+    assert run_example_steps(_live_facts(run_example=("jira_issue", "status"), withheld=True)) is None
+
+
+def _pick(totals, attr_keys, metadata=None, nesting=()):
+    from okg.substrate.mcp.dataset_card import _run_example
+
+    missing: list = []
+    return _run_example(totals, nesting, metadata or {}, attr_keys, missing), missing
+
+
+def test_the_run_example_skips_an_all_null_key_and_a_huge_type() -> None:
+    """The served example once grouped 219,737 records by a key null on
+    every row (one group) and timed out. A key needs two or more non-null
+    values in the sample; a type of at most 10,000 records comes first."""
+    totals = {"code_reference": 219_737, "commit": 8_000, "ticket": 400}
+    attr_keys = (
+        # (type, rows sampled, ((key, rows with it, distinct non-null values), ...))
+        ("code_reference", 50, (("candidate_count", 50, 0), ("kind", 50, 3))),
+        ("commit", 50, (("is_merge", 50, 2), ("note", 50, 1), ("sha", 50, 50))),
+        ("ticket", 50, (("status", 50, 4),)),
+    )
+    assert _pick(totals, attr_keys) == (("commit", "is_merge"), [])
+    # The all-null key is never chosen: on a small type alone, its key
+    # with values is.
+    assert _pick({"code_reference": 900}, attr_keys[:1]) == (("code_reference", "kind"), [])
+    # A declared filterable key with values beats a sampled one.
+    declared = {"commit": {"filterable_attrs": {"sha": "text", "note": "text"}}}
+    assert _pick(totals, attr_keys, declared)[0] == ("commit", "sha")
+    # Failure case (review L5): no type of at most 10,000 records has a
+    # good key, so no example is served (never the smallest huge type),
+    # and the card says why.
+    big = {"code_reference": 219_737, "commit": 80_000, "ticket": 40_000}
+    assert _pick(big, attr_keys) == (None, [(
+        "run_example",
+        "every sampled type with such a key holds more than 10,000 records",
+    )])
+    assert _pick({"code_reference": 219_737}, attr_keys[:1])[0] is None
+    # Passage children are never the example's type.
+    nested = (("ticket", "commit", "contains"),)
+    assert _pick(totals, attr_keys, nesting=nested)[0] == ("ticket", "status")
+
+
+def test_the_run_example_is_absent_with_a_reason_when_no_key_has_values() -> None:
+    attr_keys = (("code_reference", 50, (("candidate_count", 50, 0), ("flag", 50, 1))),)
+    picked, missing = _pick({"code_reference": 219_737}, attr_keys)
+    assert picked is None
+    assert missing == [("run_example", "no sampled type holds a key with 2 or more values")]
+    picked, missing = _pick({"code_reference": 219_737}, None)
+    assert picked is None
+    assert missing == [("run_example", "the attribute sample was not read")]
+
+
 # ── pure: id patterns (adversarial review M5, M6) ─────────────────────
 
 
@@ -1200,3 +1278,23 @@ def test_only_an_exact_trusted_profile_allows_literals(
     }
     # The source-less key is never sent to the profile lookup as a producer.
     assert "" not in seen[0]
+
+
+def test_run_switch_off_drops_only_the_run_live_sentence() -> None:
+    """#3666: with run's live steps off the card is the switch-on card minus
+    the one live-step sentence, however full the card is (no line moves in)."""
+    from okg.substrate.mcp.dataset_card import RUN_LIVE_SENTENCE
+
+    facts = _live_facts(live_relations=(("jira_issue", ("status_now", "watchers")),))
+    served = {*ALL_READ, "run", "expand"}
+    # Roomy, so the sentence is served; then at the real budget, where it may
+    # be cut for size: off is always on minus that one line.
+    for budget in (10_000, CARD_BUDGET_BYTES):
+        on = render_dataset_card(facts, served_tools=served, budget=budget)
+        off = render_dataset_card(
+            facts, served_tools=served, budget=budget, run_live=False,
+        )
+        assert RUN_LIVE_SENTENCE not in off
+        assert off.split("\n") == [ln for ln in on.split("\n") if ln != RUN_LIVE_SENTENCE]
+        if budget == 10_000:
+            assert RUN_LIVE_SENTENCE in on.split("\n")

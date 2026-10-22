@@ -204,6 +204,7 @@ def _render_text(payload: dict[str, Any]) -> str:
         for key in ("update", "removal", "refresh"):
             if behaviour.get(key):
                 lines.append(f"{key.title()}: {behaviour[key]}")
+        lines.extend(_render_warnings(payload))
         for step in payload.get("steps") or ():
             if step["status"] == "failed":
                 lines.append(f"Problem at {step['step']}: {step.get('cause')}")
@@ -221,6 +222,7 @@ def _render_text(payload: dict[str, Any]) -> str:
                 lines.append(f"    cause: {step['cause']}")
             if step.get("fix_hint"):
                 lines.append(f"    fix: {step['fix_hint']}")
+        lines.extend(_render_warnings(payload))
         if payload.get("status") == "no_change":
             lines.append(
                 "No change: this source's records are already in graph "
@@ -254,6 +256,15 @@ def _render_text(payload: dict[str, Any]) -> str:
             lines.append(payload["retry"])
         return "\n".join(lines)
     return json.dumps(payload, indent=2, default=str)
+
+
+def _render_warnings(payload: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for warning in payload.get("warnings") or ():
+        lines.append(f"WARNING: {warning['message']}")
+        if warning.get("fix_hint"):
+            lines.append(f"  What to do: {warning['fix_hint']}")
+    return lines
 
 
 def _render_manifest_preview(section: Any) -> list[str]:

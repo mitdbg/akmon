@@ -539,21 +539,39 @@ def _wait_for_clean_qa_metrics(
     deadline = time.monotonic() + timeout
     last_payload: dict[str, Any] | None = None
     last_returncode: int | None = None
+    last_error: str | None = None
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        proc = _run(
-            argv,
-            timeout=min(remaining, 120),
-            env=env,
-            check=False,
-        )
+        try:
+            proc = _run(
+                argv,
+                timeout=min(remaining, 120),
+                env=env,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # One slow snapshot is one not-clean try, not an abort: the
+            # snapshot runs a doctor subprocess and can outlast one call.
+            last_error = f"snapshot call timed out after {exc.timeout}s"
+            last_returncode = None
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(interval, remaining))
+            continue
         last_returncode = proc.returncode
+        last_error = None
         try:
             payload = json.loads(proc.stdout)
         except json.JSONDecodeError:
             payload = None
+            last_error = (
+                f"non-JSON output (returncode {proc.returncode}): "
+                f"stdout={proc.stdout.strip()[-500:]!r} "
+                f"stderr={proc.stderr.strip()[-500:]!r}"
+            )
         if isinstance(payload, dict):
             last_payload = payload
             if (
@@ -582,19 +600,11 @@ def _wait_for_clean_qa_metrics(
         if remaining <= 0:
             break
         time.sleep(min(interval, remaining))
-    detail = {
-        "returncode": last_returncode,
-        "generation_id": (last_payload or {}).get("generation_id"),
-        "queue_depth": (last_payload or {}).get("queue_depth"),
-        "dlq_count": (last_payload or {}).get("dlq_count"),
-        "generation_blocked_count": (
-            last_payload or {}
-        ).get("generation_blocked_count"),
-        "doctor_exit_code": (last_payload or {}).get("doctor_exit_code"),
-    }
     raise VerificationError(
         "timed out waiting for clean, generation-aligned QA metrics: "
-        f"{detail!r}"
+        f"last_returncode={last_returncode!r} "
+        f"last_error={last_error!r} "
+        f"last_payload={json.dumps(last_payload, sort_keys=True, default=str)}"
     )
 
 

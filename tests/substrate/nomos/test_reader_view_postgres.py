@@ -26,7 +26,9 @@ from typing import Any
 
 import psycopg
 import pytest
+from psycopg.types.json import Jsonb
 
+from okg.substrate.errors import SubstrateError
 from okg.substrate.graph_store import ChronosGraphStore
 from okg.substrate.graph_store_internal.common import EDGE_TABLE, NODE_TABLE
 from okg.substrate.library.sources.base import EdgeFact, NodeFact
@@ -48,6 +50,7 @@ from okg.substrate.nomos.read_filter import (
 from okg.substrate.nomos.read_masking import MASK_TOKEN, ReadRedactedAttrs
 from okg.substrate.nomos.reader_view import ReaderViewShadowMismatch
 from okg.substrate.nomos.source_lineage import LINEAGE_ATTR, normalize_source_lineage
+from tests.substrate._db_helpers import seed_catalog_version
 from tests.substrate.test_chronos_graph_store import _reset_chronos_graph
 
 import test_read_filter_decision_class as _decision_class
@@ -1044,3 +1047,379 @@ def test_mutation_a_readable_that_says_true_where_the_per_row_filter_masks_is_ca
     stats = _sql_sweep(pg, engine, monkeypatch, kind="node", mode="enforce", seeds=60,
                        overlay=False)
     assert stats["readable_mismatch"] > 0, stats
+
+
+# --------------------------------------------------------------------------- #
+# admits_every_row: leaving the clause out reads the same rows                 #
+# (PACT reader-view-decision-cache-3560)                                       #
+# --------------------------------------------------------------------------- #
+_HIDES_NOTHING_RULES = [
+    {"rule_id": "deny_nobody", "effect": "deny", "match": {"source_id": "nowhere"}},
+]
+_MASKS_EVERYTHING_RULES = [
+    {"rule_id": "redact_all", "effect": "redact", "match": {"resource_kind": "source_record"},
+     "obligations": [{"type": "redaction"}]},
+]
+
+
+def _admits_sweep(
+    pg: psycopg.Connection, engine: _Engine, monkeypatch: pytest.MonkeyPatch, *,
+    kind: str, mode: str, overlay: bool, seeds: int = 60,
+) -> dict[str, int]:
+    """For each random policy and stored rows: whether the view admits every
+    row, and, when it does, how many stored rows the SQL clause drops and how
+    many ``readable`` answers are FALSE (both must be zero)."""
+    engine.mode = mode
+    session = _session()
+    stats = {"claimed": 0, "refused": 0, "rows_dropped": 0, "readable_false": 0}
+    for seed in range(seeds):
+        rng = random.Random(f"admits:{kind}:{mode}:{overlay}:{seed}")
+        rows = [_with_payload(rng, r) for r in _rows(rng, kind, rng.randint(1, 30))]
+        stored, catalog, _states = _stored_rows(rng, kind, rows)
+        # A policy that hides nothing every third time, one that masks every
+        # source record the time after, a random one (most hide or mask
+        # something) otherwise, so both answers are exercised.
+        if seed % 3 == 0:
+            engine.bundle = _bundle(_HIDES_NOTHING_RULES)
+        elif seed % 3 == 1:
+            engine.bundle = _bundle(_MASKS_EVERYTHING_RULES)
+        else:
+            engine.bundle = _redacting_bundle(rng, kind, rows)
+        catalogs = {"node": {}, "edge": {}}
+        catalogs[kind] = catalog
+        with _offline_view(monkeypatch, catalogs, overlay=overlay):
+            view = reader_view.open(_Conn(), session, row_kind=kind, action=None, surface=None)
+        if not view.admits_every_row:
+            stats["refused"] += 1
+            continue
+        stats["claimed"] += 1
+        stats["rows_dropped"] += len(stored) - len(_sql_positions(pg, view, kind, stored))
+        keys = sorted({str(k) for r in stored for k in r["attrs"]} | {"text"})
+        for answers in _sql_readable(pg, view, keys).values():
+            stats["readable_false"] += sum(value is False for value in answers.values())
+    return stats
+
+
+@pytest.mark.parametrize("kind", ["node", "edge"])
+@pytest.mark.parametrize("mode", ["enforce", "audit"])
+@pytest.mark.parametrize("overlay", [False, True])
+def test_a_view_that_admits_every_row_keeps_every_row_in_sql(
+    pg: psycopg.Connection, engine: _Engine, monkeypatch: pytest.MonkeyPatch,
+    kind: str, mode: str, overlay: bool,
+) -> None:
+    """Whenever the view says the clause may be left out, PostgreSQL keeps
+    every stored row (NULL, other-version, uncatalogued and unusual-
+    classification rows included) and ``readable`` is never FALSE for any
+    key."""
+    stats = _admits_sweep(pg, engine, monkeypatch, kind=kind, mode=mode, overlay=overlay)
+    assert stats["rows_dropped"] == 0 and stats["readable_false"] == 0, stats
+    # Audit lets denials through, so fewer random policies still hide or mask.
+    assert stats["claimed"] >= 15 and stats["refused"] >= 5, stats
+
+
+#: One class denied outright (jira), one denied for a classification only
+#: (so its pairs are listed one by one), one masked for a classification only.
+_PARTIAL_RULES = [
+    {"rule_id": "deny_jira", "effect": "deny", "match": {"source_id": "jira"}},
+    {"rule_id": "deny_restricted", "effect": "deny", "match": {"classification": "restricted"}},
+    {"rule_id": "redact_docs_internal", "effect": "redact",
+     "match": {"source_ids": "docs", "classification": "internal"},
+     "obligations": [{"type": "redaction"}]},
+]
+
+#: Keys the keep_sql sweep asks about: `text` (masked for every declared
+#: subtype here) and keys some declared subtypes reveal.
+_KEEP_KEYS = ("text", "title", "name", "body")
+
+
+def _keep_sweep(
+    pg: psycopg.Connection, engine: _Engine, monkeypatch: pytest.MonkeyPatch, *,
+    kind: str, mode: str, overlay: bool, seeds: int = 40,
+) -> dict[str, int]:
+    """``keep_sql`` against ``predicate AND readable IS NOT FALSE``, both
+    evaluated by PostgreSQL over the same stored rows, for every key."""
+    engine.mode = mode
+    session = _session()
+    stats = {"views": 0, "class_views": 0, "compared": 0, "mismatch": 0, "dropped": 0, "kept": 0}
+    for seed in range(seeds):
+        rng = random.Random(f"keep:{kind}:{mode}:{overlay}:{seed}")
+        rows = [_with_payload(rng, r) for r in _rows(rng, kind, rng.randint(1, 30))]
+        stored, catalog, _states = _stored_rows(rng, kind, rows)
+        if seed % 5 == 0:
+            engine.bundle = _bundle(_HIDES_NOTHING_RULES)
+        elif seed % 5 == 1:
+            engine.bundle = _bundle(_MASKS_EVERYTHING_RULES)
+        elif seed % 5 == 2:
+            engine.bundle = _bundle(_PARTIAL_RULES)
+        else:
+            engine.bundle = _redacting_bundle(rng, kind, rows)
+        catalogs = {"node": {}, "edge": {}}
+        catalogs[kind] = catalog
+        with _offline_view(monkeypatch, catalogs, overlay=overlay):
+            view = reader_view.open(_Conn(), session, row_kind=kind, action=None, surface=None)
+        stats["views"] += 1
+        stats["class_views"] += view.mode == "class"
+        _sql_positions(pg, view, kind, stored)  # loads the rows into rv_rows
+        for key in _KEEP_KEYS:
+            old = (
+                f"({view.predicate('r').as_string(pg)}) AND"
+                f" (({view.readable('r', key).as_string(pg)}) IS NOT FALSE)"
+            )
+            want = [r[0] for r in pg.execute(f"SELECT pos FROM rv_rows r WHERE {old} ORDER BY pos")]
+            text = view.keep_sql("r", key).as_string(pg)
+            got = [r[0] for r in pg.execute(f"SELECT pos FROM rv_rows r WHERE {text} ORDER BY pos")]
+            stats["compared"] += 1
+            stats["mismatch"] += got != want
+            stats["dropped"] += len(stored) - len(want)
+            stats["kept"] += len(want)
+    return stats
+
+
+@pytest.mark.parametrize("kind", ["node", "edge"])
+@pytest.mark.parametrize("mode", ["enforce", "audit"])
+@pytest.mark.parametrize("overlay", [False, True])
+def test_keep_sql_keeps_the_rows_predicate_and_readable_keep(
+    pg: psycopg.Connection, engine: _Engine, monkeypatch: pytest.MonkeyPatch,
+    kind: str, mode: str, overlay: bool,
+) -> None:
+    stats = _keep_sweep(pg, engine, monkeypatch, kind=kind, mode=mode, overlay=overlay)
+    assert stats["mismatch"] == 0, stats
+    assert stats["class_views"] >= 20 and stats["kept"] > 100, stats
+    if mode == "enforce" or not overlay:
+        assert stats["dropped"] > 20, stats  # the sweep does drop rows
+
+
+def _synthetic_view(classes: list[uuid.UUID], hidden: set[uuid.UUID]) -> reader_view.ReaderView:
+    internal = reader_view._md5("internal")
+    decisions = {
+        c: {
+            internal: reader_view.ClassOutcome(c not in hidden, False),
+            reader_view.OTHER_LABEL: reader_view.ClassOutcome(c not in hidden, False),
+            reader_view.BLANK_LABEL: reader_view.ClassOutcome(False, False),
+        }
+        for c in classes
+    }
+    state = reader_view._KindState("node", "class", "read_class_catalog", decisions, overlay=False)
+    return reader_view.ReaderView(
+        conn=None, session=SimpleNamespace(), state=state, action="graph.read.mcp", surface="mcp",
+        force=None, bundle_fingerprint="x", named=frozenset({"internal"}), subtype_pii={},
+        fingerprint_inputs={},
+    )
+
+
+def test_the_planner_expects_most_rows_to_pass_when_few_classes_are_hidden(
+    pg: psycopg.Connection,
+) -> None:
+    """PR 3863's clause made the planner expect a quarter of the rows (it
+    guesses 0.5 for each COALESCE/CASE it cannot estimate), which priced the
+    BM25 ordered scan out of the filtered passage read on the large copy. The
+    negated form is built from class tests the planner can estimate from
+    column statistics: about 10 percent of the rows are hidden here, and the
+    estimate follows."""
+    rng = random.Random(11)
+    classes = [uuid.UUID(int=rng.getrandbits(128)) for _ in range(60)]
+    freq_order = list(classes)
+    hidden = set(freq_order[10:16])  # six mid-sized classes
+    rows = 30_000
+    array = "ARRAY[" + ",".join(f"'{c}'::uuid" for c in classes) + "]"
+    pg.execute("DROP TABLE IF EXISTS pg_temp.plan_rows")
+    pg.execute(
+        "CREATE TEMP TABLE plan_rows (node_id text, subtype text, attrs jsonb,"
+        " nomos_read_class uuid, nomos_read_class_version smallint)"
+    )
+    pg.execute(
+        "INSERT INTO plan_rows SELECT 'n' || g, 'doc', jsonb_build_object('text', 'x'),"
+        f" ({array})[1 + floor(power(random(), 2) * 60)::int], 1 FROM generate_series(1, {rows}) g"
+    )
+    pg.execute("ANALYZE plan_rows")
+    view = _synthetic_view(classes, hidden)
+    old = (
+        f"({view.predicate('n').as_string(pg)}) AND"
+        f" (({view.readable('n', 'text').as_string(pg)}) IS NOT FALSE)"
+    )
+    new = view.keep_sql("n", "text").as_string(pg)
+
+    def estimate(where: str) -> tuple[int, int]:
+        plan = pg.execute(
+            f"EXPLAIN (FORMAT JSON) SELECT * FROM plan_rows n WHERE {where}"
+        ).fetchone()[0][0]["Plan"]
+        real = pg.execute(f"SELECT count(*) FROM plan_rows n WHERE {where}").fetchone()[0]
+        return plan["Plan Rows"], real
+
+    est_old, real_old = estimate(old)
+    est_new, real_new = estimate(new)
+    assert real_old == real_new and 0.5 * rows < real_new < rows  # the same rows pass
+    assert est_old < 0.4 * rows, "the old clause was expected to be badly underestimated"
+    assert est_new > 0.7 * real_new, (est_new, real_new)
+    assert len(new) * 3 < len(old)
+
+
+@pytest.mark.parametrize("omit", ["masked", "masked_pairs", "hidden_pairs"])
+def test_mutation_a_keep_sql_that_forgets_a_drop_set_is_caught(
+    pg: psycopg.Connection, engine: _Engine, monkeypatch: pytest.MonkeyPatch, omit: str,
+) -> None:
+    real = reader_view.ReaderView._drop_sets
+
+    def forgetful(self: Any) -> dict[str, Any]:
+        sets = real(self)
+        sets[omit] = []
+        return sets
+
+    monkeypatch.setattr(reader_view.ReaderView, "_drop_sets", forgetful)
+    # Audit hides no class, so only an enforce sweep can notice a forgotten hidden pair.
+    mode = "enforce" if omit == "hidden_pairs" else "audit"
+    stats = _keep_sweep(pg, engine, monkeypatch, kind="node", mode=mode, overlay=False)
+    assert stats["mismatch"] > 0, stats
+
+
+def test_mutation_a_view_that_always_admits_every_row_is_caught(
+    pg: psycopg.Connection, engine: _Engine, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If every view said "leave the clause out", hidden rows would spend the
+    caller's cap: the sweep finds stored rows the clause would drop."""
+    monkeypatch.setattr(
+        reader_view.ReaderView, "admits_every_row", property(lambda self: True), raising=False,
+    )
+    stats = _admits_sweep(pg, engine, monkeypatch, kind="node", mode="enforce", overlay=False)
+    assert stats["rows_dropped"] > 0, stats
+
+
+# --------------------------------------------------------------------------- #
+# The content-addressed memo of the catalog and the subtype map                #
+# (PACT reader-view-decision-cache-3560)                                       #
+# --------------------------------------------------------------------------- #
+def _statement_counter(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    count = {"n": 0}
+    real = psycopg.Cursor.execute
+
+    def counting(self: Any, *args: Any, **kwargs: Any) -> Any:
+        count["n"] += 1
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(psycopg.Cursor, "execute", counting)
+    return count
+
+
+def _node_class(source: str) -> dict[uuid.UUID, dict[str, Any]]:
+    facts = class_facts({"node_id": f"n:{source}", "attrs": {}, "source": source,
+                         "source_record_id": {}, "source_revision": {}}, "node")
+    return {rc.class_id_of_facts(facts): facts}
+
+
+def test_the_catalog_read_is_memoized_by_content_and_follows_every_change(
+    clean_runtime: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    git, docs = _node_class("git"), _node_class("docs")
+    with psycopg.connect(clean_runtime) as conn:
+        record_read_classes(conn, git)
+        conn.commit()
+        statements = _statement_counter(monkeypatch)
+
+        first = reader_view._load_catalog(conn)
+        after_first = statements["n"]
+        again = reader_view._load_catalog(conn)
+        assert again == first and set(first["node"]) == set(git)
+        assert statements["n"] - after_first == 1, "a repeat read more than the digest"
+        # The caller owns what it gets: editing it never reaches the memo.
+        again["node"].clear()
+        assert set(reader_view._load_catalog(conn)["node"]) == set(git)
+
+        # A new class is a new digest: it is read, and the memo does not answer.
+        record_read_classes(conn, docs)
+        conn.commit()
+        assert set(reader_view._load_catalog(conn)["node"]) == set(git) | set(docs)
+
+        # A rewritten row (its id is no longer the digest of its facts) is
+        # refused even though the catalog was memoized a moment ago.
+        conn.execute(
+            f"UPDATE {READ_CLASS_CATALOG_TABLE} SET class_facts = class_facts || '{{\"x\": 1}}'"
+            " WHERE read_class = %s",
+            (next(iter(docs)),),
+        )
+        conn.commit()
+        with pytest.raises(SubstrateError, match="does not match its facts"):
+            reader_view._load_catalog(conn)
+        with pytest.raises(SubstrateError, match="does not match its facts"):
+            reader_view._load_catalog(conn)  # a refusal is never memoized
+
+
+def test_the_subtype_pii_map_is_memoized_by_content_and_follows_every_change(
+    clean_runtime: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        cv = seed_catalog_version(conn)
+        conn.execute(
+            "INSERT INTO okg.subtypes (name, metadata, catalog_version_id) VALUES (%s, %s, %s)",
+            ("doc", Jsonb({"pii_classes": {"name": "direct_identifier"}}), cv),
+        )
+        statements = _statement_counter(monkeypatch)
+
+        first = reader_view._subtype_pii_classes(conn, cv)
+        after_first = statements["n"]
+        again = reader_view._subtype_pii_classes(conn, cv)
+        assert first == again == {"doc": {"name": "direct_identifier"}}
+        assert statements["n"] - after_first == 1, "a repeat read more than the digest"
+        again["doc"]["name"] = "edited by the caller"
+        assert reader_view._subtype_pii_classes(conn, cv) == first
+
+        # Changed metadata under the same catalog version is read again.
+        conn.execute(
+            "UPDATE okg.subtypes SET metadata = %s WHERE name = 'doc' AND catalog_version_id = %s",
+            (Jsonb({"pii_classes": {"name": "non_pii"}}), cv),
+        )
+        assert reader_view._subtype_pii_classes(conn, cv) == {"doc": {"name": "non_pii"}}
+
+        # Malformed metadata is refused, never memoized.
+        conn.execute(
+            "INSERT INTO okg.subtypes (name, metadata, catalog_version_id) VALUES (%s, %s, %s)",
+            ("broken", Jsonb({"pii_classes": ["email"]}), cv),
+        )
+        for _ in range(2):
+            with pytest.raises(SubstrateError, match="pii_classes must be a mapping"):
+                reader_view._subtype_pii_classes(conn, cv)
+
+
+def test_a_caller_editing_a_nested_class_fact_never_reaches_the_memo(
+    clean_runtime: str,
+) -> None:
+    """Must fail if the memo hands out the stored per-class fact dicts: a caller
+    that edits one (a nested list included) would change what every later read
+    is told about the class."""
+    git = _node_class("git")
+    (class_id,) = git
+    with psycopg.connect(clean_runtime) as conn:
+        record_read_classes(conn, git)
+        conn.commit()
+        first = reader_view._load_catalog(conn)
+        pristine = json.dumps(first["node"][class_id], sort_keys=True, default=str)
+        first["node"][class_id]["source_ids"].append("injected")
+        first["node"][class_id]["extra"] = "injected"
+        again = reader_view._load_catalog(conn)  # from the memo
+        assert json.dumps(again["node"][class_id], sort_keys=True, default=str) == pristine
+        again["node"][class_id]["source_ids"].append("injected")
+        third = reader_view._load_catalog(conn)
+        assert json.dumps(third["node"][class_id], sort_keys=True, default=str) == pristine
+
+
+def test_the_subtype_digest_tells_apart_names_that_look_like_its_separators(
+    clean_runtime: str,
+) -> None:
+    """Must fail if the digest joins the fields with plain separators: the
+    subtypes ``p`` and ``q`` and the single subtype named ``p:object:-,q`` would
+    produce the same text."""
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        two = seed_catalog_version(conn)
+        one = seed_catalog_version(conn)
+        for name in ("p", "q"):
+            conn.execute(
+                "INSERT INTO okg.subtypes (name, metadata, catalog_version_id)"
+                " VALUES (%s, %s, %s)", (name, Jsonb({}), two),
+            )
+        conn.execute(
+            "INSERT INTO okg.subtypes (name, metadata, catalog_version_id) VALUES (%s, %s, %s)",
+            ("p:object:-,q", Jsonb({}), one),
+        )
+        assert two != one
+        assert reader_view._subtype_pii_digest(conn, two) != reader_view._subtype_pii_digest(
+            conn, one,
+        )

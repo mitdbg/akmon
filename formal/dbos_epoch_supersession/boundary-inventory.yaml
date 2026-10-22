@@ -449,6 +449,16 @@ entries:
   reason: must validate the full epoch envelope and hold the declared shared or exclusive
     fence before this mutation class can ship
 - path: src/okg/substrate/publisher/publisher.py
+  entrypoint: zero_net_graph_writes_pending
+  categories:
+  - chronos_graph_write
+  boundaries:
+  - mutation
+  disposition: implementation_required
+  owner_change: fence-local-okg-workflow-versions
+  reason: must validate the full epoch envelope and hold the declared shared or exclusive
+    fence before this mutation class can ship
+- path: src/okg/substrate/publisher/publisher.py
   entrypoint: _acquire_dbos_publish_lock
   categories:
   - authority_transition

@@ -16,7 +16,7 @@ lives at the call site, which owns the DB connection.
 
 from __future__ import annotations
 
-from .expr import and_, col, eq, is_null, or_
+from .expr import and_, col, eq, is_null, or_, starts_with
 from .ir import Binding, Block, Op, Terminator, TransformProgram
 from .registry import Effect, OpKind, TerminatorKind
 
@@ -240,6 +240,73 @@ def node_subtype_conformance_program(catalog_version_id: int) -> TransformProgra
     )
 
 
+def no_stored_live_nodes_program(catalog_version_id: int) -> TransformProgram:
+    """Live nodes stored under a LIVE type -- by subtype or by id prefix.
+
+    Issue #3666 (PACT live-graph-rucio-sites, spec R9). A live type
+    (`okg_live_type`) is never stored: its nodes are read from an upstream
+    system at read time. A stored node whose subtype is a live type, or whose
+    id starts with a live type's `<prefix>:`, would make `site:X` name two
+    different things, so a generation that holds one is blocked.
+
+    Lowers to (over the `nodes_live` surface and the `catalog_live_types`
+    surface, bound to the live types of the active catalog version by
+    `catalog_live_types_binding`):
+               SELECT n.node_id FROM <nodes_live> n
+               JOIN <catalog_live_types for cv> lt
+                 ON lt.subtype_name = n.subtype
+                 OR starts_with(n.node_id, lt.id_prefix)
+    A catalog with no live type binds an empty set and the join is empty.
+    """
+    return TransformProgram(
+        program_id="consistency.no_stored_live_nodes",
+        effect=Effect.READ_ONLY,
+        params=("catalog_version_id",),
+        outputs=("offending",),
+        entry_block="entry",
+        attrs={"contract": "no_stored_live_nodes", "offending_field": "node_id",
+               "catalog_version_id": catalog_version_id},
+        blocks=(
+            _entry(
+                Binding(Op(OpKind.FROM, {"surface": "nodes_live", "alias": "n"}), output="n"),
+                Binding(
+                    Op(OpKind.FROM, {"surface": "catalog_live_types", "alias": "lt"}),
+                    output="lt",
+                ),
+                Binding(
+                    Op(OpKind.JOIN, {"how": "inner", "on": or_(
+                        eq(col("lt.subtype_name"), col("n.subtype")),
+                        starts_with(col("n.node_id"), col("lt.id_prefix")),
+                    )}),
+                    output="stored_live", inputs=("n", "lt"),
+                ),
+                Binding(
+                    Op(OpKind.SELECT, {"project": {"node_id": col("n.node_id")}}),
+                    output="offending", inputs=("stored_live",),
+                ),
+                Binding(Op(OpKind.EMIT, {"target": "assertion_input"}), inputs=("offending",)),
+                returns=("offending",),
+            ),
+        ),
+    )
+
+
+# The subquery bound to the `catalog_live_types` surface (issue #3666): one row
+# per live type of the active catalog version, with its id prefix INCLUDING the
+# `:` separator, so `starts_with(node_id, id_prefix)` matches `site:X` and never
+# `sitefoo:X`. The `?` jsonb operator is avoided on purpose: the Chronos query
+# layer reads `?` as a placeholder.
+def catalog_live_types_binding(catalog_version_id: int) -> str:
+    return (
+        "(SELECT name AS subtype_name, "
+        "(metadata->'live_type'->'id'->>'prefix') || ':' AS id_prefix "
+        "FROM okg.subtypes "
+        f"WHERE catalog_version_id = {int(catalog_version_id)} "
+        "AND metadata->'live_type' IS NOT NULL "
+        "AND metadata->'live_type'->'id'->>'prefix' IS NOT NULL)"
+    )
+
+
 # The subquery bound to the `catalog_subtypes` surface: the set of subtype names in
 # the active catalog version. A node whose subtype is absent here is non-conformant.
 def catalog_subtypes_binding(catalog_version_id: int) -> str:
@@ -314,4 +381,6 @@ __all__ = [
     "catalog_subtypes_binding",
     "cardinality_constrained_binding",
     "live_rows_witnessed_program",
+    "no_stored_live_nodes_program",
+    "catalog_live_types_binding",
 ]

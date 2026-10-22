@@ -441,10 +441,9 @@ async def test_the_published_enums_match_what_the_runtime_accepts(
     ]
     assert schemas["expand"]["properties"]["direction"]["enum"] == ["out", "in"]
     metrics = schemas["aggregate"]["properties"]["metrics"]
-    assert metrics["items"]["const"] == "count", (
-        "aggregate v1 computes count and refuses anything else; the schema "
-        "must say so instead of listing an unconstrained array"
-    )
+    # count, and sum/min/max of a column of a kept live answer (the
+    # read fixes): the schema says so instead of an unconstrained array.
+    assert metrics["items"]["pattern"] == r"^(count|(sum|min|max)\(attrs\.[^().]+\))$"
 
 
 async def test_every_bounded_parameter_publishes_its_maximum(server) -> None:

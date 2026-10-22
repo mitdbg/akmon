@@ -2210,6 +2210,17 @@ def inspect_node(
         "generation_id": session.generation_id,
         "pinned_generation_id": session.generation_id,
     }
+    # PACT read-names-list-3666: the id a reader cites, whatever `select`
+    # names, read from the attrs the reader may see and fenced by trust.
+    from okg.substrate.mcp.citation_id import (
+        CITATION_KEY,
+        citation_field,
+        fenced_citation,
+    )
+
+    citation = fenced_citation(citation_field(effective_attrs), fenced.get("provenance"))
+    if citation:
+        result[CITATION_KEY] = citation
     from okg.substrate.catalog.linker_config import (
         LOAD_STATE_ATTR,
         NOT_LOADED,

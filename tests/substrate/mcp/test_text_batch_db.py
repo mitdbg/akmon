@@ -122,11 +122,21 @@ def test_published_batch_schema_wire_replay_and_lossless_pages(clean_runtime, sh
             assert assembled[key] == expected
         if json_format:
             first_token = pages[0]["continuation_token"]
+            other = {"kind": "text", "node_id": "doc:big"}
             for mixed in [{"next": first_token, "max_bytes": 100},
-                          {"next": first_token, "target": initial["target"]},
+                          {"next": first_token, "target": other},
                           {"next": first_token, "select": ["node_id"]}]:
                 refused = await client.call_tool("inspect", mixed, meta=JSON_META)
                 assert refused.isError
+            # Lane ri, tokens: the batch's own target beside its token is
+            # read as `next` alone, with a note.
+            repeated = payload(await client.call_tool(
+                "inspect", {"next": first_token, "target": initial["target"]}, meta=JSON_META,
+            ))
+            assert repeated.get("status") != "refused", repeated.get("error")
+            assert any(
+                r.get("rule") == "next_repeats_read" for r in repeated.get("adjusted") or []
+            )
             # #3605 (`nextbytes A`): the signed size beside `next` is served.
             same = await client.call_tool(
                 "inspect", {"next": first_token, "max_bytes": budget}, meta=JSON_META,

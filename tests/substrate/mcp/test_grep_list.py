@@ -33,8 +33,10 @@ def _resolve(**overrides):
     return resolve_search_view("list", **arguments)
 
 
-def test_a_grep_list_defaults_to_one_hundred_rows_and_keeps_grep_rows():
-    assert _resolve() == (100, None)
+def test_a_grep_list_defaults_to_twenty_rows_and_keeps_grep_rows():
+    # 20 (was 100; PACT read-names-list-3666): the list is grep's default
+    # delivery now, so its omitted limit is a short page.
+    assert _resolve() == (20, None)
     assert _resolve(limit=25) == (25, None)
 
 
@@ -205,7 +207,7 @@ from tests.substrate.mcp.test_search_list import (  # noqa: E402
 
 ROW_KEYS = {"node_id", "subtype", "matches", "first_match", "provenance"}
 #: A row may also name its resolved parent and its read-time trust.
-OPTIONAL_ROW_KEYS = {"read_provenance", "parent"}
+OPTIONAL_ROW_KEYS = {"read_provenance", "parent", "handle"}
 EXACT = {"completeness": "exact"}
 
 
@@ -233,10 +235,11 @@ def _all_rows(served, **arguments) -> tuple[list[dict], list[dict]]:
 
 @pytest.mark.postgres
 def test_the_list_holds_the_records_of_the_cards_in_their_order_with_the_exact_count(served):
-    cards = served.json(query=TERM, method="grep", limit=200, max_bytes=262_144, **EXACT)
+    cards = served.json(query=TERM, method="grep", view="cards", limit=200, max_bytes=262_144,
+                        **EXACT)
     assert cards["total_count"] == VISIBLE_RECORDS and cards["total_count_basis"] == "exact"
-    rows, pages = _all_rows(served, max_bytes=262_144, **EXACT)
-    # 100 rows a page by default, then the rest.
+    rows, pages = _all_rows(served, max_bytes=262_144, limit=100, **EXACT)
+    # 100 rows a page (read-names-list-3666: 20 when limit is omitted), then the rest.
     assert [len(page["results"]) for page in pages] == [100, VISIBLE_RECORDS - 100]
     assert pages[0]["limit"] == 100 and pages[0]["next_offset"] == 100
     assert [row["node_id"] for row in rows] == _ids(cards)
@@ -247,7 +250,8 @@ def test_the_list_holds_the_records_of_the_cards_in_their_order_with_the_exact_c
         # Each row's count is what the same cards page says of that record
         # (its own text if it matches, plus its matching passages), and the
         # page says so when those counts are of the passages scanned so far.
-        same_cards = served.json(query=TERM, method="grep", limit=100, offset=index * 100,
+        same_cards = served.json(query=TERM, method="grep", view="cards", limit=100,
+                                 offset=index * 100,
                                  max_bytes=262_144, **EXACT)
         assert _ids(same_cards) == [row["node_id"] for row in page["results"]]
         assert page.get("matches_basis") == same_cards.get("matching_passages_basis")
@@ -281,7 +285,9 @@ def test_a_page_that_read_every_match_counts_each_records_matching_text_units(se
     assert [(row["node_id"], row["matches"], row["first_match"]["chunk"])
             for row in page["results"]] == [("doc:003", 4, "doc:003")]
     text = served.text(query="re:/body 3\\.|of document 3\\./", method="grep", view="list")
-    assert re.search(r"\[1\] doc:003 \(doc\) · 4 matches · first line 1 · text", text)
+    assert re.search(
+        r'\[1\] doc:003 \(doc\) · "Document 003" · "docs/003.md" · .* · 4 matches · '
+        r"first own-text line 1 · text", text)
     # Matched only through its passages.
     page = served.json(query="folded passage", method="grep", view="list", **EXACT)
     (row,) = page["results"]
@@ -294,7 +300,7 @@ def test_a_list_page_carries_many_more_records_than_cards_in_the_same_bytes(serv
     budget = 8192
     (listed,) = served.calls(({"query": TERM, "method": "grep", "view": "list",
                                "max_bytes": budget}, "json"))
-    (cards,) = served.calls(({"query": TERM, "method": "grep", "limit": 100,
+    (cards,) = served.calls(({"query": TERM, "method": "grep", "view": "cards", "limit": 100,
                               "max_bytes": budget}, "json"))
     assert _wire_bytes(listed) <= budget and _wire_bytes(cards) <= budget
     list_rows = len(json.loads(listed.content[0].text)["results"])
@@ -312,7 +318,8 @@ def test_a_list_page_carries_many_more_records_than_cards_in_the_same_bytes(serv
 
 @pytest.mark.postgres
 def test_text_rows_are_single_safe_lines_that_page_by_the_status_line(served):
-    text = served.text(query=TERM, method="grep", view="list", max_bytes=262_144, **EXACT)
+    text = served.text(query=TERM, method="grep", view="list", limit=100, max_bytes=262_144,
+                       **EXACT)
     status = text.split("\n", 1)[0]
     assert status.startswith("search ok") and " · list" in status
     assert f"{VISIBLE_RECORDS}" in status and "offset=100" in status
@@ -321,13 +328,14 @@ def test_text_rows_are_single_safe_lines_that_page_by_the_status_line(served):
     # This page stopped once it was full, so its counts are of what was
     # scanned and say so with a plus sign.
     for line in rows:
-        assert re.search(r"\) · \d+\+ matches · first (\S+ )?line 1 · text", line), line
+        assert re.search(r" · \d+\+ matches · first (\S+ )?line 1 · text", line), line
     # Hostile source text never starts a row or closes a fence early.
     cards = result_text.result_cards(text)
     assert len(cards) == 100 and all(not card.ident.startswith("forged") for card in cards)
     assert "match_windows" not in text and "excerpt" not in text
     passages_only = served.text(query="folded passage", method="grep", view="list")
-    assert re.search(r"doc:passages-only \(doc\) · 3 matches · first doc_chunk:po-\d line 1 · ",
+    assert re.search(r'doc:passages-only \(doc\) · "Passages only" · 3 matches · '
+                     r"first doc_chunk:po-\d line 1 · ",
                      passages_only)
 
 
@@ -349,12 +357,12 @@ def test_a_path_only_query_lists_and_counts_without_a_line(served):
     page = served.json(query="path:docs/003.md", method="grep", view="list", **EXACT)
     (row,) = page["results"]
     assert row["node_id"] == "doc:003" and "first_match" not in row and "own_match" not in row
-    cards = served.json(query="path:docs/003.md", method="grep", **EXACT)
+    cards = served.json(query="path:docs/003.md", method="grep", view="cards", **EXACT)
     # The document's own unit plus the passages the cards page counts.
     assert row["matches"] == 1 + (cards["results"][0].get("matching_passages") or 0)
     assert "own_match" not in cards["results"][0]
     text = served.text(query="path:docs/003.md", method="grep", view="list")
-    assert re.search(r"\[1\] doc:003 \(doc\) · \d+ match", text) and " · first " not in text
+    assert re.search(r"\[1\] doc:003 \(doc\) · .* · \d+ match", text) and " · first " not in text
 
 
 @pytest.mark.postgres
@@ -367,7 +375,7 @@ def test_wrong_calls_are_refused_with_the_call_that_works(served):
     assert all("matches" not in row and row["node_id"] for row in page["results"])
     page = served.json(query=TERM, method="grep", view="list", select=["excerpt"])
     assert _refusal_code(page) == "select_unknown_field"
-    assert "first_match, matches, node_id, parent, subtype" in page["error"]["fix_hint"]
+    assert "first_match, handle, matches, node_id, parent, subtype" in page["error"]["fix_hint"]
     page = served.json(query=TERM, method="grep", view="list", limit=101)
     assert _refusal_code(page) == "search_view_unsupported"
     assert "limit <= 100" in page["error"]["fix_hint"]
@@ -397,7 +405,7 @@ def test_a_hidden_record_is_never_listed_or_counted(
     server = Served(clean_runtime, deployment)
     try:
         rows, pages = _all_rows(server, max_bytes=262_144)
-        cards = server.json(query=TERM, method="grep", limit=200, max_bytes=262_144)
+        cards = server.json(query=TERM, method="grep", view="cards", limit=200, max_bytes=262_144)
         texts = [server.text(query=TERM, method="grep", view="list", offset=offset,
                              max_bytes=262_144) for offset in (0, 100)]
         only = server.json(query="external", method="grep", view="list")
@@ -455,7 +463,7 @@ def test_a_listed_passage_never_names_its_hidden_parent(
     server = Served(clean_runtime, deployment)
     try:
         listed = server.json(query="pulsar", method="grep", view="list")
-        cards = server.json(query="pulsar", method="grep")
+        cards = server.json(query="pulsar", method="grep", view="cards")
         text = server.text(query="pulsar", method="grep", view="list")
     finally:
         server.close()
@@ -493,7 +501,8 @@ def test_the_first_match_names_its_line_and_cuts_a_long_line(
         text = server.text(query="quasar", method="grep", view="list")
         four = server.json(query="deltaterm charlieterm bravoterm alphaterm", method="grep",
                            view="list", **EXACT)
-        four_cards = server.json(query="deltaterm charlieterm bravoterm alphaterm", method="grep")
+        four_cards = server.json(query="deltaterm charlieterm bravoterm alphaterm", method="grep",
+                                 view="cards")
         span = server.json(query="re:/spanfoo.spanbar/", method="grep", view="list", **EXACT)
     finally:
         server.close()
@@ -529,5 +538,7 @@ def test_the_first_match_names_its_line_and_cuts_a_long_line(
     assert re.search(r"doc:parent \(doc\) · 1 match · first doc_chunk:p-0 line 5 · ", text)
     assert re.search(r"doc:parent \(doc\) · .* · line counted in the passage", text)
     assert rows["doc:lines"]["first_match"]["line_basis"] == "own_text"
-    assert re.search(r"doc:lines \(doc\) · .* · line counted in its own text", text)
-    assert re.search(r"doc:lines \(doc\) · 1 match · first line 3 · ", text)
+    # read-names-list-3666: "own-text" beside the line (was "line counted in
+    # its own text" after it).
+    assert re.search(r"doc:lines \(doc\) · 1 match · first own-text line 3 · ", text)
+    assert "line counted in its own text" not in text

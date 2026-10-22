@@ -343,7 +343,10 @@ def test_the_actionable_bounds_read_the_same_in_the_text_format(clean_runtime: s
     paging = result_text.fact_value(result_text.status_facts(texts["truncated"]), "next:")
     # PACT read-model-s6-page-next (design read-model 5): `next: <token>`,
     # the bare token, passed back as `next`.
-    assert isinstance(paging, str) and paging.count(".") == 1, paging
+    # Lane ri, tokens: the token or the short handle a reply prints for it.
+    assert isinstance(paging, str) and (
+        paging.startswith("c1.") or paging.count(".") == 1
+    ), paging
     assert not paging.startswith(("continuation_token=", "offset=")), paging
     one_hop = result_text.fact_value(result_text.status_facts(texts["one_hop"]), "next:")
     assert isinstance(one_hop, str) and int(one_hop[len("offset="):]) > 0
@@ -351,7 +354,9 @@ def test_the_actionable_bounds_read_the_same_in_the_text_format(clean_runtime: s
     served = len(results["summary"].model_dump_json(by_alias=True, exclude_none=True).encode())
     assert served <= 4_096
     summary_next = result_text.fact_value(result_text.status_facts(texts["summary"]), "next:")
-    assert isinstance(summary_next, str) and summary_next.count(".") == 1, summary_next
+    assert isinstance(summary_next, str) and (
+        summary_next.startswith("c1.") or summary_next.count(".") == 1
+    ), summary_next
     assert not summary_next.startswith("continuation_token="), summary_next
 
 

@@ -35,6 +35,12 @@ const apiProxy = apiTarget
       [apiPrefix]: {
         target: apiTarget,
         changeOrigin: true,
+        // Dev and preview only: when the read API requires a token (issue
+        // #3278), the proxy adds it so the browser never holds it. The value
+        // comes from this process's environment and is never logged.
+        ...(process.env.OKG_OPERATOR_API_TOKEN
+          ? { headers: { Authorization: `Bearer ${process.env.OKG_OPERATOR_API_TOKEN}` } }
+          : {}),
         // The backend serves /viz/api; the mount is a front-door concern, so
         // strip it before forwarding.
         ...(isPrefixed

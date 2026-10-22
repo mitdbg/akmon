@@ -47,6 +47,7 @@ own enforcement; this condition does not reuse it.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from re import _constants as _C  # type: ignore[attr-defined]
 from re import _parser as _P  # type: ignore[attr-defined]
@@ -66,14 +67,17 @@ from okg.substrate.mcp.grep_query import (
 )
 from okg.substrate.mcp.grep_search import (
     STATEMENT_TIMEOUT_MS,
+    _DEADLINE,
     GrepTimeout,
     _bounded,
+    deadline,
     _Cancelled,
     _check_regexes_compile,
     _declarations,
     _line_of,
     _record_lines_in_time,
     resolve_trgm_segment,
+    window_text,
 )
 from okg.substrate.mcp.passage_rollup import resolve_edge_segment
 from okg.substrate.mcp.provenance import _fence_value, classify_sources
@@ -88,15 +92,22 @@ from okg.substrate.transcript_trust import (
 __all__ = [
     "MATCHES_CAP",
     "MATCH_FIELDS",
+    "NARROWING_TERMS",
+    "NARROWING_TERM_MS",
+    "REPEATED_PASSAGE_MIN_CHARS",
     "SCAN_LIMIT",
     "TEXT_FIELD",
     "TextCondition",
     "TextConditionInvalid",
     "TextMatchScanLimit",
+    "capture_terms",
+    "capturing_groups",
     "count_matches",
     "holds_text_clause",
+    "id_scope",
     "matching_record_ids",
     "line_term_sql",
+    "narrowing_queries",
     "narrowing_query",
     "required_literal",
     "neighbour_ids",
@@ -288,6 +299,29 @@ def type_scope(predicate: Any) -> Optional[list[str]]:
     found: Optional[set[str]] = None
     for clause in _conjuncts(predicate):
         if not isinstance(clause, Mapping) or clause.get("field") != "subtype":
+            continue
+        if clause.get("op") == "eq" and isinstance(clause.get("value"), str):
+            values = {clause["value"]}
+        elif clause.get("op") == "in" and isinstance(clause.get("values"), list) and all(
+            isinstance(v, str) for v in clause["values"]
+        ):
+            values = set(clause["values"])
+        else:
+            continue
+        found = values if found is None else found & values
+    return None if found is None else sorted(found)
+
+
+def id_scope(predicate: Any) -> Optional[list[str]]:
+    """The record ids a condition's top level requires, or None.
+
+    An `eq` or `in` on `node_id` that the top level ANDs holds for every
+    record the condition admits, so the set the text is checked within is
+    at most those ids (PACT read-search-caps-3666: a text condition scoped
+    to 2 ids read the whole graph's index matches first and timed out)."""
+    found: Optional[set[str]] = None
+    for clause in _conjuncts(predicate):
+        if not isinstance(clause, Mapping) or clause.get("field") != "node_id":
             continue
         if clause.get("op") == "eq" and isinstance(clause.get("value"), str):
             values = {clause["value"]}
@@ -562,7 +596,7 @@ def _any_positioned(
     return bool(_bounded(conn, sql, params)[0]["found"])
 
 
-def _taken_back_sql(key: str) -> str:
+def _taken_back_sql(key: str, *, group: bool = False) -> str:
     """A query of `(start, txt)`: the non-empty matches of the pattern
     `%(<key>)s` in a unit `u` (1-based start) that its previous passage
     holds too, at the same place in the record and with the same text.
@@ -576,12 +610,20 @@ def _taken_back_sql(key: str) -> str:
     its last ones, as many as that bound. A head match that the previous
     passage does not read the same way (a line-start anchor that is
     mid-line there, a match the previous passage's scan split otherwise)
-    is not taken back: it is this passage's own."""
+    is not taken back: it is this passage's own.
+
+    With `group` (a pattern with one capture group, PACT
+    read-aggregate-variants-3666), `txt` is the group's text of the match
+    taken back; the match is still compared whole."""
     pattern = f"%({key})s"
     end = f"regexp_instr(u.t, {pattern}, 1, g, 1, 'in')"
     start = f"regexp_instr(u.t, {pattern}, 1, g, 0, 'in')"
+    shown = (
+        f"regexp_substr(u.t, {pattern}, 1, g, 'in', 1) AS gtxt"
+        if group else "NULL::text AS gtxt"
+    )
     return (
-        "SELECT hm.start, hm.txt FROM (SELECT "
+        f"SELECT hm.start, {'hm.gtxt' if group else 'hm.txt'} AS txt FROM (SELECT "
         f"CASE WHEN u.head > 0 THEN regexp_count(left(u.t, u.head), {pattern}, 1, 'in') + 1 "
         "ELSE 0 END AS k, "
         f"CASE WHEN u.head > 0 THEN regexp_count(u.prev_t, {pattern}, 1, 'in') ELSE 0 END AS cp"
@@ -590,7 +632,7 @@ def _taken_back_sql(key: str) -> str:
         f"regexp_substr(u.prev_t, {pattern}, 1, j, 'in') "
         "FROM generate_series(greatest(1, b.cp - b.k + 1), b.cp) AS j) AS tails) tl "
         f"CROSS JOIN LATERAL (SELECT {start} AS start, "
-        f"regexp_substr(u.t, {pattern}, 1, g, 'in') AS txt "
+        f"regexp_substr(u.t, {pattern}, 1, g, 'in') AS txt, {shown} "
         f"FROM generate_series(1, b.k) AS g WHERE {end} - 1 <= u.head "
         f"AND {end} > {start}) hm "
         "WHERE (hm.start + u.prev_shift)::text || ':' || hm.txt = ANY(tl.tails)"
@@ -682,6 +724,30 @@ def narrowing_query(parsed: GrepQuery) -> Optional[GrepQuery]:
     return GrepQuery((max(choices, key=lambda t: t.run),))
 
 
+#: Literals one index read tries, longest first (PACT read-aggregate-variants-3666).
+NARROWING_TERMS = 3
+#: The most one literal's index read may take when another literal, or the
+#: rest of the condition, can be read instead; the same slice grep's
+#: whole-record read gives a term (`grep_record.INDEX_TERM_MS`).
+NARROWING_TERM_MS = 900
+
+
+def narrowing_queries(parsed: GrepQuery) -> list[GrepQuery]:
+    """Every distinct literal `narrowing_query` may choose from, longest
+    first (the first is its choice), at most `NARROWING_TERMS`."""
+    choices: dict[str, GrepTerm] = {}
+    for term in parsed.positive:
+        words = (required_literal(term.pg_regex),) if term.kind == "regex" else term.words
+        for word in words:
+            if not word:
+                continue
+            literal = _literal_term(word, kind="word", negated=False, query=word)
+            if literal.indexable:
+                choices.setdefault(literal.pg_regex.lower(), literal)
+    ordered = sorted(choices.values(), key=lambda t: -t.run)
+    return [GrepQuery((t,)) for t in ordered[:NARROWING_TERMS]]
+
+
 def matching_record_ids(
     conn: psycopg.Connection,
     session: Session,
@@ -690,6 +756,8 @@ def matching_record_ids(
     tool: str,
     subtypes: Optional[Sequence[str]] = None,
     record_ids: Optional[Sequence[str]] = None,
+    rest_given: bool = False,
+    whole: bool = False,
 ) -> list[str]:
     """The records whose text matches, in id order, at most `SCAN_LIMIT + 1`.
 
@@ -702,24 +770,64 @@ def matching_record_ids(
     value's best indexed term, found through the trigram index and
     restricted to `subtypes`. More than `SCAN_LIMIT` candidates are
     returned as they are (longer than `SCAN_LIMIT`): the caller refuses or
-    narrows; nothing is tested on part of them."""
+    narrows; nothing is tested on part of them.
+
+    The index read (PACT read-aggregate-variants-3666) first tries up to
+    `NARROWING_TERMS` literals, longest first, each stopped at
+    `NARROWING_TERM_MS`: a literal whose read stops there, or finds more
+    than `SCAN_LIMIT` records, gives way to the next, so a common word
+    cannot spend the call before a rarer one is read. When none finishes,
+    the longest is read once more with the whole statement timeout (as
+    before this change), unless `rest_given`: then the timeout is raised
+    and the caller reads the rest of the condition instead, coming back
+    with `whole` (the longest literal alone, the whole timeout) when that
+    rest is over the limit. A value with one literal and no rest is read
+    with the whole timeout at once."""
     _check_regexes_compile(conn, condition.parsed, condition.value)
     if record_ids is None:
-        params: dict[str, Any] = {"tm_cap": SCAN_LIMIT + 1}
-        narrowing = narrowing_query(condition.parsed)
-        if narrowing is None:
+        narrowings = narrowing_queries(condition.parsed)
+        if not narrowings:
             raise ValueError("matching_record_ids: no narrowing term; pass record_ids")
-        narrow = " AND ".join(line_term_sql(narrowing, params, column=_TEXT))
-        units = _units_sql(
-            conn, session, params, subtypes=subtypes, record_ids=None,
-            columns="n.node_id AS record_id", child_columns="p.node_id AS record_id",
-            unit_terms=narrow,
-        )
-        sql = f"SELECT DISTINCT u.record_id FROM ({units}) u ORDER BY 1 LIMIT %(tm_cap)s"
-        try:
-            candidates = [str(row["record_id"]) for row in _bounded(conn, sql, params)]
-        except _Cancelled as exc:
-            raise timed_out(tool) from exc
+        if whole or (len(narrowings) == 1 and not rest_given):
+            plan = [(narrowings[0], False)]
+        else:
+            plan = [(n, True) for n in narrowings]
+            if not rest_given:
+                plan.append((narrowings[0], False))
+        found: Optional[list[str]] = None
+        for narrowing, sliced in plan:
+            if not sliced and found is not None:
+                # A sliced read already finished, over the limit: the
+                # whole read would return the same.
+                break
+            params: dict[str, Any] = {"tm_cap": SCAN_LIMIT + 1}
+            narrow = " AND ".join(line_term_sql(narrowing, params, column=_TEXT))
+            units = _units_sql(
+                conn, session, params, subtypes=subtypes, record_ids=None,
+                columns="n.node_id AS record_id", child_columns="p.node_id AS record_id",
+                unit_terms=narrow,
+            )
+            sql = f"SELECT DISTINCT u.record_id FROM ({units}) u ORDER BY 1 LIMIT %(tm_cap)s"
+            try:
+                if sliced:
+                    outer = _DEADLINE.get()
+                    until = time.monotonic() + NARROWING_TERM_MS / 1000
+                    with deadline(until if outer is None else min(outer, until)):
+                        rows = _bounded(conn, sql, params)
+                else:
+                    rows = _bounded(conn, sql, params)
+            except _Cancelled:
+                continue
+            read = [str(row["record_id"]) for row in rows]
+            if len(read) <= SCAN_LIMIT:
+                found = read
+                break
+            found = found if found is not None else read
+            if not sliced:
+                break
+        if found is None:
+            raise timed_out(tool)
+        candidates = found
         if len(candidates) > SCAN_LIMIT:
             return candidates
     else:
@@ -795,7 +903,20 @@ def whole_match_regex(pattern: str) -> str:
     any, and the whole match only when it has none. grep's subset refuses
     back-references (`grep_query._walk`), so no group is referred to and the
     rewrite matches exactly what `pattern` matches."""
+    return _scan_groups(pattern)[0]
+
+
+def capturing_groups(pattern: str) -> int:
+    """How many capturing groups `pattern` has (`(?:...)` and other `(?`
+    forms are not; a `(` escaped or inside brackets is a literal)."""
+    return _scan_groups(pattern)[1]
+
+
+def _scan_groups(pattern: str) -> tuple[str, int]:
+    """`pattern` with every capturing group made non-capturing, and how
+    many there were."""
     out: list[str] = []
+    groups = 0
     i, n = 0, len(pattern)
     in_class = False
     while i < n:
@@ -833,11 +954,12 @@ def whole_match_regex(pattern: str) -> str:
             continue
         if c == "(" and not pattern.startswith("(?", i):
             out.append("(?:")
+            groups += 1
             i += 1
             continue
         out.append(c)
         i += 1
-    return "".join(out)
+    return "".join(out), groups
 
 
 def _span_columns(parsed: GrepQuery, params: dict[str, Any], *, column: str) -> list[str]:
@@ -905,8 +1027,14 @@ def record_matches(
     *,
     tool: str,
     with_lines: bool,
+    with_units: bool = False,
 ) -> dict[str, RecordMatches]:
     """Per record: every match counted, `match` and the first `MATCHES_CAP`.
+
+    `with_units` (grep's `within="record"`, PACT read-search-caps-3666):
+    a passage match also names its passage's type (`unit_subtype`) and its
+    stated place among the record's passages (`unit_ordinal`), so a row can
+    label each line with the unit it is in.
 
     Each of the record's texts is read once; PostgreSQL (the engine that
     decided the match) finds each positive term's matches and where each
@@ -990,9 +1118,20 @@ def record_matches(
             if len(result.entries) >= MATCHES_CAP:
                 break
             entry: dict[str, Any] = {"line": _line_of(text, at), "text": served}
+            if with_units:
+                # The matched line itself, around the match, as grep's
+                # windows cut it.
+                entry["line_text"] = _fence(
+                    window_text(text, at, at + len(matched)), untrusted=untrusted, source=source,
+                )
             if not row["own"]:
                 entry["passage_id"] = str(row["unit_id"])
                 entry["line_basis"] = MATCH_LINE_IN_PASSAGE
+                if with_units:
+                    entry["unit_subtype"] = row["unit_subtype"]
+                    place = _ordinal(row["unit_attrs"])
+                    if place != float("inf"):
+                        entry["unit_ordinal"] = int(place)
                 if with_lines and row["unit_subtype"] == "document_chunk":
                     places.append((entry, MatchPlace(
                         record_id, str(row["unit_id"]), row["unit_subtype"], text, at,
@@ -1018,6 +1157,48 @@ class MatchGroup:
     text: str
     records: int
     occurrences: int
+    #: The texts as matched that a merged group holds, most occurrences
+    #: first, each with its occurrences (`match_keys.variants_text`, fenced
+    #: as one text when the group's source is not trusted); empty when
+    #: grouped as written.
+    variants: str = ""
+    #: The key unfenced, for comparing groups; never printed.
+    raw: str = ""
+    #: Whether `text` is fenced (its source is not trusted).
+    fenced: bool = False
+
+
+#: A declared passage this long or longer whose whole text is inside its
+#: record's own text repeats that text: aggregate counts its matches once,
+#: in the own text (PACT read-aggregate-variants-3666).
+REPEATED_PASSAGE_MIN_CHARS = 200
+
+
+def capture_terms(parsed: GrepQuery, *, tool: str = "aggregate") -> Optional[tuple[int, ...]]:
+    """The positive terms whose capture group is counted, by index; None
+    when no regex term has a capture group (every term counts its whole
+    matches, as before).
+
+    A regex with one capture group counts the group's text. A regex with
+    more is refused: which group is the value cannot be told."""
+    counted = []
+    for index, term in enumerate(parsed.positive):
+        if term.kind != "regex":
+            continue
+        groups = capturing_groups(term.pg_regex)
+        if groups > 1:
+            raise _refuse(
+                f"the regex {term.text!r} has {groups} capture groups; "
+                "one capture group picks the text to count",
+                fix_hint=(
+                    "keep one (...) around the part to count and write the "
+                    "others (?:...), e.g. re:/(?:Status|State): ([A-Za-z ]+)/"
+                ),
+                tool=tool, reason="several_capture_groups", groups=groups,
+            )
+        if groups == 1:
+            counted.append(index)
+    return tuple(counted) if counted else None
 
 
 def count_matches(
@@ -1027,26 +1208,42 @@ def count_matches(
     record_ids: Sequence[str],
     *,
     tool: str,
-) -> tuple[list[MatchGroup], int]:
+    key: str = "match",
+) -> tuple[list[MatchGroup], int, dict[str, Any]]:
     """Every distinct matched text over the records, exactly, largest first,
-    and how many of the records hold at least one matched text.
+    how many of the records hold at least one matched text, and facts for
+    the reply.
 
     `records` is how many of the records hold that text (the `count` of an
-    aggregate group); `occurrences` how many times it occurs in them. The
-    text is grouped as written (letter case kept), like `grep -o | sort |
-    uniq -c`; each term counts its own matches, so a spot two terms match
-    counts once for each. A record admitted by a phrase that runs across
-    two of its passages holds no matched text. A match inside the head a
-    window chunker repeated from the passage before counts once, there
-    (issue #3802). Text from a source that is not trusted is fenced."""
+    aggregate group); `occurrences` how many times it occurs in them. With
+    `key` "match" the text is grouped as written (letter case kept), like
+    `grep -o | sort | uniq -c`; "norm(match)" and "words(match)" merge the
+    variants of one value (`match_keys.key_sql`) and list them per group.
+    Each term counts its own matches, so a spot two terms match counts once
+    for each; when a regex term has a capture group (`capture_terms`), only
+    the capture groups are counted, and the other terms only choose the
+    records. A record admitted by a phrase that runs across two of its
+    passages holds no matched text. A match inside the head a window
+    chunker repeated from the passage before counts once, there (issue
+    #3802). A passage of at least `REPEATED_PASSAGE_MIN_CHARS` whose whole
+    text is inside its record's own text is not read again (facts
+    `repeated_passages`). Text from a source that is not trusted is fenced."""
+    from okg.substrate.mcp.match_keys import MATCH_KEY, key_sql, variants_text
+
+    captured = capture_terms(condition.parsed, tool=tool)
+    facts: dict[str, Any] = {"capture_group": True} if captured is not None else {}
     if not record_ids:
-        return [], 0
-    params: dict[str, Any] = {}
+        return [], 0, facts
+    params: dict[str, Any] = {"tm_rep_min": REPEATED_PASSAGE_MIN_CHARS}
     branches = []
     for index, term in enumerate(condition.parsed.positive):
-        key, whole = f"tmr{index}", f"tmw{index}"
-        params[key] = term.pg_regex
-        params[whole] = whole_match_regex(term.pg_regex)
+        if captured is not None and index not in captured:
+            continue
+        group = captured is not None
+        key_name, whole = f"tmr{index}", f"tmw{index}"
+        params[key_name] = term.pg_regex
+        # With one capture group, `regexp_matches` returns the group's text.
+        params[whole] = term.pg_regex if group else whole_match_regex(term.pg_regex)
         branches.append(
             f"SELECT x[1] AS txt, 1 AS n FROM regexp_matches(u.t, %({whole})s, 'gin') AS x"
         )
@@ -1054,8 +1251,10 @@ def count_matches(
         # held at the same place by the passage before, is that passage's
         # match: taken back here.
         branches.append(
-            f"SELECT z.txt, -1 AS n FROM ({_taken_back_sql(key)}) z"
+            f"SELECT z.txt, -1 AS n FROM ({_taken_back_sql(key_name, group=group)}) z"
         )
+    grouped = key_sql(key, "m.txt")
+    merged = key != MATCH_KEY
     try:
         units = _units_with_heads(
             conn, session, params, record_ids=record_ids,
@@ -1077,27 +1276,59 @@ def count_matches(
         # is left counted for a record with none of it. Every other record
         # holds each text a match was found for, in one pass as before.
         # `holding` counts the records holding any text; one statement
-        # serves both.
+        # serves both. `x.txt` is the group key, `x.raw` the text as
+        # matched (one and the same for "match"). A passage repeating its
+        # record's own text (`rep`) is left out before any match is read.
+        variants = (
+            ", v AS (SELECT x.txt, x.raw, sum(x.n) AS occ FROM x "
+            "GROUP BY x.txt, x.raw HAVING sum(x.n) > 0), "
+            "vv AS (SELECT v.txt, array_agg(v.raw ORDER BY v.occ DESC, v.raw) AS raws, "
+            "array_agg(v.occ ORDER BY v.occ DESC, v.raw) AS occs FROM v GROUP BY v.txt) "
+            if merged else " "
+        )
         sql = (
-            "WITH x AS MATERIALIZED (SELECT m.txt, m.n, u.record_id, u.unit_source, "
-            "u.record_source, u.marked, u.record_head > 0 AS headed "
-            f"FROM ({units}) u CROSS JOIN LATERAL ({' UNION ALL '.join(branches)}) m "
-            "WHERE m.txt <> ''), "
+            f"WITH uu AS MATERIALIZED ({units}), "
+            "rep AS (SELECT p.record_id, p.unit_id FROM uu p JOIN uu o "
+            "ON o.record_id = p.record_id AND o.unit_id = o.record_id "
+            "WHERE p.unit_id <> p.record_id AND char_length(p.t) >= %(tm_rep_min)s "
+            "AND strpos(o.t, p.t) > 0), "
+            "u AS (SELECT uu.* FROM uu WHERE NOT EXISTS (SELECT 1 FROM rep "
+            "WHERE rep.record_id = uu.record_id AND rep.unit_id = uu.unit_id)), "
+            f"x AS MATERIALIZED (SELECT {grouped} AS txt, m.txt AS raw, m.n, u.record_id, "
+            "u.unit_source, u.record_source, u.marked, u.record_head > 0 AS headed "
+            f"FROM u CROSS JOIN LATERAL ({' UNION ALL '.join(branches)}) m "
+            f"WHERE m.txt <> '' AND {grouped} <> ''), "
             "net AS (SELECT x.txt, x.record_id FROM x WHERE x.headed "
             "GROUP BY x.txt, x.record_id HAVING sum(x.n) > 0), "
             "held AS (SELECT x.txt, x.record_id FROM x WHERE NOT x.headed "
-            "UNION SELECT net.txt, net.record_id FROM net) "
+            f"UNION SELECT net.txt, net.record_id FROM net){variants}"
             "SELECT g.txt, r.records, g.occurrences, g.sources, g.marked, "
-            "(SELECT count(DISTINCT held.record_id) FROM held) AS holding "
+            f"{'vv.raws, vv.occs' if merged else 'NULL::text[] AS raws, NULL::bigint[] AS occs'}, "
+            "(SELECT count(DISTINCT held.record_id) FROM held) AS holding, "
+            "(SELECT count(*) FROM rep) AS repeated "
             "FROM (SELECT x.txt, sum(x.n) AS occurrences, "
             "array_agg(DISTINCT x.unit_source) || array_agg(DISTINCT x.record_source) "
             "AS sources, bool_or(x.marked) AS marked FROM x GROUP BY x.txt) g "
             "JOIN (SELECT held.txt, count(*) AS records FROM held GROUP BY held.txt) r "
             "ON r.txt = g.txt"
+            + (" LEFT JOIN vv ON vv.txt = g.txt" if merged else "")
         )
         rows = _bounded(conn, sql, params)
+        if not rows:
+            # No group: the passages left out are still said.
+            rows_rep = _bounded(conn, (
+                f"WITH uu AS MATERIALIZED ({units}) SELECT count(*) AS repeated "
+                "FROM uu p JOIN uu o ON o.record_id = p.record_id "
+                "AND o.unit_id = o.record_id WHERE p.unit_id <> p.record_id "
+                "AND char_length(p.t) >= %(tm_rep_min)s AND strpos(o.t, p.t) > 0"
+            ), params)
+            repeated = int(rows_rep[0]["repeated"] or 0) if rows_rep else 0
+        else:
+            repeated = int(rows[0]["repeated"] or 0)
     except _Cancelled as exc:
         raise timed_out(tool) from exc
+    if repeated:
+        facts["repeated_passages"] = repeated
     holding = rows[0]["holding"] if rows else 0
     trust = classify_sources(
         conn, deployment_name=session.deployment_name,
@@ -1115,6 +1346,11 @@ def count_matches(
             text=_fence(str(row["txt"]), untrusted=untrusted, source=source),
             records=int(row["records"]),
             occurrences=int(row["occurrences"]),
+            variants=_fence(variants_text([
+                (str(raw), int(occ))
+                for raw, occ in zip(row["raws"] or [], row["occs"] or [])
+            ]), untrusted=untrusted, source=source) if merged else "",
+            raw=str(row["txt"]), fenced=untrusted,
         ))
     groups.sort(key=lambda g: (-g.records, -g.occurrences, g.text))
-    return groups, int(holding or 0)
+    return groups, int(holding or 0), facts

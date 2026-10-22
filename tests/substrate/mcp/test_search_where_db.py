@@ -19,6 +19,7 @@ Hiding and masking run under Nomos `enforce` (`audit` never hides a row).
 from __future__ import annotations
 
 import itertools
+import sys
 
 import psycopg
 import pytest
@@ -1727,6 +1728,7 @@ CAP_ACCEPTED = {f"ticket:cold:{i}" for i in range(5)} | {f"comment:cold:{i}" for
 
 def test_mixed_or_narrows_the_ranked_query_and_only_adds_accepted_rows(
         clean_runtime, tmp_path, monkeypatch) -> None:
+    _filtered_cap_200(monkeypatch)
     deployment = _cap_corpus(tmp_path, clean_runtime)
     compiled = sw.compile_where(MIXED_OR, columns={"id": "node_id", "type": "subtype",
                                                    "source": "source"})
@@ -1930,11 +1932,20 @@ def _status_line(page: dict) -> str:
     return render({**page, "operator_name": "search"}, tool="search").splitlines()[0]
 
 
-def test_a_capped_lexical_where_says_it_checked_only_the_ranked_rows(clean_runtime, tmp_path):
+def _filtered_cap_200(monkeypatch) -> None:
+    """Rank a filtered read 200 deep, as before the deeper filtered cap, so
+    the 230-note corpus fills it (the module global the SQL builder reads)."""
+    monkeypatch.setattr(sys.modules["okg.substrate.mcp.search"], "_FILTERED_RANK_CAP", 200)
+
+
+def test_a_capped_lexical_where_says_it_checked_only_the_ranked_rows(
+    clean_runtime, tmp_path, monkeypatch,
+):
     """Lexical checks a residual `where` on its ranked candidates only. When
     that read filled the cap, the page says so beside its count, in text
     and JSON, with the call that checks every record. Failure case: a page
     whose ranked read did not fill says nothing."""
+    _filtered_cap_200(monkeypatch)
     deployment = _capped_corpus(tmp_path, clean_runtime)
     flagged = {"op": "in", "field": "attrs.flag", "values": ["x"]}
     page = _search(clean_runtime, deployment, "hafnium", limit=10, where=flagged)
@@ -1963,11 +1974,12 @@ def test_a_capped_lexical_where_says_it_checked_only_the_ranked_rows(clean_runti
     {"filter": {"attr_filters": {"flag": "x"}}},
 ], ids=["attrs-equality", "legacy-attr-filters"])
 def test_a_capped_attribute_equality_says_it_checked_only_the_ranked_rows(
-    clean_runtime, tmp_path, kwargs,
+    clean_runtime, tmp_path, kwargs, monkeypatch,
 ):
     """Issue #3666 review: an `attrs.<key> = v` moves out of `where` into
     `attr_filters`, which are still checked after ranking, as the legacy
     argument is. A capped read says so for both spellings."""
+    _filtered_cap_200(monkeypatch)
     deployment = _capped_corpus(tmp_path, clean_runtime)
     page = _search(clean_runtime, deployment, "hafnium", limit=10, **kwargs)
     assert page["rank_capped"] is True
@@ -1989,6 +2001,144 @@ def test_a_capped_where_the_ranked_sql_decides_is_not_said_partial(clean_runtime
     assert page["rank_capped"] is True
     assert "where_checked_on" not in page
     assert "where checked" not in _status_line(page)
+
+
+# ---------- okg-timeouts: a filtered ranked search ranks deeper, its literal read is bounded ----------
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"where": {"op": "eq", "field": "attrs.flag", "value": "x"}},
+    {"where": {"op": "in", "field": "attrs.flag", "values": ["x"]}},
+], ids=["attrs-equality", "attrs-in"])
+def test_a_filtered_ranked_search_ranks_past_200_rows(clean_runtime, tmp_path, kwargs):
+    """A bounded search whose rows are filtered after ranking ranks 1,000
+    rows deep, so the flagged note ranked 230th is a ranked match and the
+    page says no cap. Failure case (dev): the 200-row ranked read filled,
+    so the page said the filter was checked on the top 200 rows only."""
+    deployment = _capped_corpus(tmp_path, clean_runtime)
+    page = _search(clean_runtime, deployment, "hafnium", limit=10, **kwargs)
+    assert _ids(page) == [f"note:cap:{_CAPPED_NOTES - 1:03d}"]
+    assert page["rank_capped"] is False
+    assert "where_checked_on" not in page
+    assert "where checked" not in _status_line(page)
+    assert "literal_read_bounded_ms" not in page
+
+
+def test_an_unfiltered_ranked_search_keeps_the_200_row_cap(clean_runtime, tmp_path):
+    """Failure case for the deeper cap: with nothing filtered after ranking
+    the ranked read stays 200 rows deep and says it filled."""
+    deployment = _capped_corpus(tmp_path, clean_runtime)
+    page = _search(clean_runtime, deployment, "hafnium", limit=10, rank_by="self")
+    assert page["rank_capped"] is True
+    assert page["ranked_cap"] == {"rows": 200}
+
+
+def test_a_literal_read_past_its_budget_serves_the_ranked_rows_and_says_so(
+    clean_runtime, tmp_path, monkeypatch,
+):
+    """The unindexed literal read runs under a statement timeout. When the
+    timeout stops it, the page serves the ranked rows only, says the filter
+    was checked on them, and names the budget. Simulated at the budget
+    helper, with the filtered cap at 200 so only the literal read could
+    find the flagged note. Failure case: without the stop the literal read
+    finds it and the page says nothing about a budget."""
+    search_mod = sys.modules["okg.substrate.mcp.search"]
+    _filtered_cap_200(monkeypatch)
+    deployment = _capped_corpus(tmp_path, clean_runtime)
+    flagged = {"op": "eq", "field": "attrs.flag", "value": "x"}
+
+    found = _search(clean_runtime, deployment, "hafnium", limit=10, where=flagged)
+    assert _ids(found) == [f"note:cap:{_CAPPED_NOTES - 1:03d}"]
+    assert "literal_read_bounded_ms" not in found
+
+    monkeypatch.setattr(search_mod, "_fetch_within_budget", lambda *a, **k: None)
+    stopped = _search(clean_runtime, deployment, "hafnium", limit=10, where=flagged)
+    assert _ids(stopped) == []
+    assert stopped["literal_read_bounded_ms"] == search_mod._LITERAL_READ_BUDGET_MS
+    assert stopped["rank_capped"] is True
+    assert stopped["where_checked_on"]["ranked_cap"] == {"rows": 200}
+    assert "where checked on the top 200 rows" in _status_line(stopped)
+
+
+def test_a_stopped_literal_read_under_an_unfilled_ranking_still_says_capped(
+    clean_runtime, tmp_path, monkeypatch,
+):
+    """The ERAG case: the 1,000-row ranked read did not fill, the literal
+    read stopped at its budget. The page serves the ranked match and says
+    the filter was checked on the ranked rows only, naming 1,000 rows."""
+    search_mod = sys.modules["okg.substrate.mcp.search"]
+    deployment = _capped_corpus(tmp_path, clean_runtime)
+    monkeypatch.setattr(search_mod, "_fetch_within_budget", lambda *a, **k: None)
+    page = _search(clean_runtime, deployment, "hafnium", limit=10,
+                   where={"op": "eq", "field": "attrs.flag", "value": "x"})
+    assert _ids(page) == [f"note:cap:{_CAPPED_NOTES - 1:03d}"]
+    assert page["literal_read_bounded_ms"] == search_mod._LITERAL_READ_BUDGET_MS
+    assert page["rank_capped"] is True
+    assert page["where_checked_on"]["ranked_cap"] == {"rows": 1000}
+    assert "where checked on the top 1000 rows" in _status_line(page)
+
+
+def test_a_stopped_literal_read_under_the_filtered_fold_says_capped(
+    clean_runtime, tmp_path, monkeypatch,
+):
+    """Review finding 1: under `records` with a record subtype that has
+    passages (the filtered fold), a stopped literal read makes the fold's
+    count a floor, so the page is rank_capped and says where the filter was
+    checked. Failure case: the fold's own flag alone said not capped."""
+    from tests.substrate.mcp.test_search_records import _basic
+
+    search_mod = sys.modules["okg.substrate.mcp.search"]
+    deployment = _basic(tmp_path, clean_runtime)
+    filt = {"subtype": "ticket", "attr_filters": {"status": "open"}}
+    monkeypatch.setattr(search_mod, "_fetch_within_budget", lambda *a, **k: None)
+    page = _search(clean_runtime, deployment, limit=10, filter=filt)
+    assert page["literal_read_bounded_ms"] == search_mod._LITERAL_READ_BUDGET_MS
+    assert page["rank_capped"] is True
+    assert "where_checked_on" in page
+
+
+def test_an_exact_search_runs_the_literal_read_without_a_budget(
+    clean_runtime, tmp_path, monkeypatch,
+):
+    """Under completeness="exact" the literal read keeps its old form: no
+    budget, so the stop above cannot happen there."""
+    search_mod = sys.modules["okg.substrate.mcp.search"]
+    deployment = _capped_corpus(tmp_path, clean_runtime)
+
+    def never(*_args, **_kwargs):
+        raise AssertionError("exact mode must not bound the literal read")
+
+    monkeypatch.setattr(search_mod, "_fetch_within_budget", never)
+    page = _search(clean_runtime, deployment, "hafnium", limit=10,
+                   where={"op": "eq", "field": "attrs.flag", "value": "x"},
+                   completeness="exact")
+    assert _ids(page) == [f"note:cap:{_CAPPED_NOTES - 1:03d}"]
+    assert "literal_read_bounded_ms" not in page
+
+
+def test_the_budget_helper_stops_a_slow_statement_and_restores_the_timeout(clean_runtime):
+    """`_fetch_within_budget` returns None when its statement timeout stops
+    the statement, leaves the connection usable, and on a finished read puts
+    the previous timeout back for the rest of the open transaction. Failure
+    case: a transaction-local timeout set inside a released savepoint would
+    otherwise stay in force (50ms) for later statements."""
+    search_mod = sys.modules["okg.substrate.mcp.search"]
+    with psycopg.connect(clean_runtime) as conn:
+        before = conn.execute("SHOW statement_timeout").fetchone()[0]
+        assert search_mod._fetch_within_budget(
+            conn, "SELECT pg_sleep(1)", {}, budget_ms=50,
+        ) is None
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+        rows = search_mod._fetch_within_budget(conn, "SELECT 7 AS v", {}, budget_ms=50)
+        assert rows == [{"v": 7}]
+        assert conn.execute("SHOW statement_timeout").fetchone()[0] == before
+    # A stricter timeout the caller holds wins over the budget (review finding 4).
+    with psycopg.connect(clean_runtime) as conn:
+        conn.execute("SET statement_timeout = '30ms'")
+        assert search_mod._fetch_within_budget(
+            conn, "SELECT pg_sleep(0.3)", {}, budget_ms=5000,
+        ) is None
+        assert conn.execute("SHOW statement_timeout").fetchone()[0] == "30ms"
 
 
 def test_an_exact_lexical_page_cut_at_the_rank_cap_never_says_complete(clean_runtime, tmp_path):

@@ -580,7 +580,7 @@ LEGACY_TOP_LEVEL_KEYS: Mapping[str, str] = {
 #: would set it and believe it did something.
 _BLOCK_KEYS = frozenset({
     "served", "response_bytes", "instructions",
-    "projections", "live_bindings", "images",
+    "projections", "live_bindings", "images", "live_types",
 })
 _PROJECTION_KEYS = frozenset({
     "tools", "system_prompt_ref", "description_overrides",
@@ -612,6 +612,11 @@ class AgentSurface:
     #: Cross-checked against what the enrolled subtypes DECLARE at server
     #: build, not here: this parser sees the manifest, not the catalog.
     live_bindings: Mapping[str, Any] = field(default_factory=dict)
+    #: The live types this surface serves (issue #3666, PACT
+    #: live-graph-rucio-sites): subtype names declared with `okg_live_type`.
+    #: Empty serves none. Like `live_bindings`, a name is checked against the
+    #: catalog at server build (`build_live_type_registry`), not here.
+    live_types: tuple[str, ...] = ()
     #: The parsed `images:` block (#3046), or None when the block does not
     #: declare one. None is not "images off": ingest still renders file
     #: images at `ImagesConfig.default()`, and no URL is fetched. Use
@@ -625,6 +630,15 @@ class AgentSurface:
     @property
     def served_set(self) -> frozenset[str]:
         return frozenset(self.served)
+
+    def serves_live_type(self, subtype: str) -> bool:
+        """True when `agent_surface.live_types` names `subtype`.
+
+        The surface half of "is this live type served". A live read also
+        needs `expand` served and the caller's own permission; the resolver
+        checks those.
+        """
+        return subtype in self.live_types
 
     def projection(self, name: str) -> ClientProjection | None:
         return self.projections.get(name)
@@ -871,6 +885,7 @@ def parse_agent_surface(
     )
 
     live_bindings = parse_live_bindings(block.get("live_bindings"), where=where)
+    live_types = _live_types(block.get("live_types"), served=served, where=where)
 
     raw_projections = block.get("projections") or {}
     if not isinstance(raw_projections, dict):
@@ -907,8 +922,63 @@ def parse_agent_surface(
         instructions=str(instructions) if instructions is not None else None,
         projections=projections,
         live_bindings=live_bindings,
+        live_types=live_types,
         images=images,
     )
+
+
+_LIVE_TYPE_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+
+def _live_types(
+    value: Any, *, served: tuple[str, ...], where: str,
+) -> tuple[str, ...]:
+    """Parse `agent_surface.live_types` (issue #3666).
+
+    A non-empty list of subtype names. Absent serves no live type. Whether
+    each name IS a declared live type is checked at server build, where the
+    catalog is known. A list on a surface that does not serve `expand` is
+    refused here: a live read needs the permission `expand` needs, so the
+    types could never be read.
+    """
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not value:
+        raise AgentSurfaceInvalid(
+            f"deployment.yaml `agent_surface.live_types` must be a non-empty "
+            f"list of subtype names; got {value!r}. Leave the key out to "
+            f"serve no live type.{where}",
+            data={"field": "live_types"},
+            fix_hint="list the live types to serve, e.g. `live_types: [site, system]`",
+        )
+    names = []
+    for item in value:
+        if not isinstance(item, str) or not _LIVE_TYPE_NAME.fullmatch(item):
+            raise AgentSurfaceInvalid(
+                f"deployment.yaml `agent_surface.live_types` entry {item!r} "
+                f"is not a subtype name (lower snake case).{where}",
+                data={"field": "live_types", "entry": item},
+                fix_hint="write each live type as its subtype name, e.g. `site`",
+            )
+        names.append(item)
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise AgentSurfaceInvalid(
+            f"deployment.yaml `agent_surface.live_types` repeats "
+            f"{duplicates}.{where}",
+            data={"field": "live_types", "duplicates": duplicates},
+            fix_hint="list each live type once",
+        )
+    if "expand" not in served:
+        raise AgentSurfaceInvalid(
+            f"deployment.yaml `agent_surface.live_types` names {names}, but "
+            f"`agent_surface.served` does not serve `expand`. A live read "
+            f"needs the permission `expand` needs, so these types could "
+            f"never be read.{where}",
+            data={"field": "live_types", "live_types": names},
+            fix_hint="add `expand` to `agent_surface.served`, or drop `live_types`",
+        )
+    return tuple(names)
 
 
 def query_withheld_by_access_rules(deployment_name: str) -> str | None:

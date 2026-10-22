@@ -943,7 +943,7 @@ def test_on_postgres_read_class_rows_and_trail_match_the_per_row_filter(
 
 
 # --------------------------------------------------------------------------- #
-# Record text end to end: member_of + contains, contains-only (cms-kb), and    #
+# Record text end to end: member_of + contains, contains-only (example-kb), and    #
 # member_of-only graphs, every page and a chunk's parent list                  #
 # --------------------------------------------------------------------------- #
 class _RecordGraph:
@@ -1084,7 +1084,7 @@ def _record_text_bundle(role: str, rng: random.Random, nodes: list[dict[str, Any
 def test_record_text_pages_equal_through_both_paths(
     engine: _Engine, monkeypatch: pytest.MonkeyPatch, shape: str, mode: str,
 ) -> None:
-    """cms-kb links chunks by contains only; okg-workspace and lane B's corpus
+    """example-kb links chunks by contains only; okg-workspace and lane B's corpus
     by both. Every page of every record, and a few chunks' parent lists, are
     identical through the read-class path and the per-row filter."""
     from okg.substrate.mcp import record_text

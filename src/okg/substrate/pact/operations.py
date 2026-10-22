@@ -2207,6 +2207,22 @@ def evidence_status(repo_root: Path, change_id: str) -> dict:
         for row in missing_requirements
         for kind in (row["missing"] or ["executed_test"])
     ]
+    evidence_next = (
+        [
+            f"{repair_mod.repo_command(repo_root)} pact decide "
+            f"{shlex.quote(change_id)} --verdict reopen --json"
+        ]
+        if resolved.archived and missing_requirements
+        else repair_mod.proof_slot_commands(
+            manifest,
+            change_id,
+            missing_slots,
+            prefix=repair_mod.repo_command(repo_root),
+            # The subject of THIS refusal is the unsatisfied requirements it
+            # just named — never every criterion in the manifest.
+            subject_requirements=[row["id"] for row in missing_requirements],
+        )
+    )
     return envelope.from_ok(
         not missing_requirements,
         text=(
@@ -2216,24 +2232,15 @@ def evidence_status(repo_root: Path, change_id: str) -> dict:
         blocked_by=[
             f"unsatisfied_requirement:{row['id']}" for row in missing_requirements
         ],
-        next_commands=(
-            [
-                f"{repair_mod.repo_command(repo_root)} pact decide "
-                f"{shlex.quote(change_id)} --verdict reopen --json"
-            ]
-            if resolved.archived and missing_requirements
-            else repair_mod.proof_slot_commands(
-                manifest,
-                change_id,
-                missing_slots,
-                prefix=repair_mod.repo_command(repo_root),
-                # The subject of THIS refusal is the unsatisfied requirements it
-                # just named — never every criterion in the manifest.
-                subject_requirements=[row["id"] for row in missing_requirements],
-            )
-        ),
+        next_commands=evidence_next,
         change=change_id,
         archived=resolved.archived,
+        **(
+            {"why": guidance}
+            if missing_requirements
+            and (guidance := repair_mod.v5_unbacked_guidance(manifest, evidence_next))
+            else {}
+        ),
         # The offending value, in the ONE place a reader looks for it: which
         # slot of which requirement is unproven. Without it the refusal named
         # a count and left the subject to a second call.
@@ -2878,9 +2885,12 @@ def _task_done_why(
     edits: list[dict],
     operator_action: dict | None,
     refutations: list[str] | None = None,
+    v5_guidance: str | None = None,
 ) -> str:
     """Where the repair lives — command, canonical file, or another human."""
     parts: list[str] = []
+    if v5_guidance:
+        parts.append(v5_guidance)
     if refutations:
         # Named first: it is the only refusal cause that no `next_commands`
         # entry can clear, so a reader who scans the commands and stops would
@@ -2963,6 +2973,9 @@ def _post_edit_repair(
         prefix=prefix,
         subject_requirements=dict.fromkeys(subject_requirements),
     )
+    v5_guidance = (
+        repair_mod.v5_unbacked_guidance(manifest, commands) if slots else None
+    )
     if commands:
         commands = repair_mod.executable_commands(
             [
@@ -2977,6 +2990,8 @@ def _post_edit_repair(
             "a done task is missing the evidence its requirement policy "
             "demands; the attach command in next_commands fills the slot"
         )
+    if v5_guidance:
+        why_parts.append(v5_guidance)
     if edits:
         codes = ", ".join(sorted({str(edit["code"]) for edit in edits}))
         why_parts.append(
@@ -3579,6 +3594,11 @@ def task_completion_gate(
             edits=edits,
             operator_action=operator_action,
             refutations=_refutation_tokens(missing),
+            v5_guidance=(
+                repair_mod.v5_unbacked_guidance(manifest, proof_commands)
+                if missing
+                else None
+            ),
         )
     )
     # `blocked_by` is the SINGLE cause location. Before this, a refusal's

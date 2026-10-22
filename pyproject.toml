@@ -1,6 +1,6 @@
 [project]
 name = "okg"
-version = "0.2.0"
+version = "0.3.0"
 description = "AKMON (okg): Operational Knowledge Graph — build, query, and traverse typed knowledge graphs from diverse data sources"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -227,11 +227,6 @@ mcp = [
     # `mcp` is now a hard dep (see [project].dependencies) per
     # dogfood F-9. This extra is kept as a no-op for back-compat
     # with `pip install .[mcp]` / `uv sync --extra mcp` callers.
-]
-cern = [
-    "cern-sso-python>=0.4",
-    "jira>=3.10.5",
-    "requests-kerberos>=0.15",
 ]
 af_pubs = [
     # `curl_cffi` impersonates Chrome's TLS fingerprint so the

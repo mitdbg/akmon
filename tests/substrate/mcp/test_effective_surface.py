@@ -43,6 +43,7 @@ from tests.private_deployments import names
 from okg.substrate.mcp.operator_models import INSPECT_TARGET_KINDS
 from okg.substrate.mcp.operators import (
     AKMON_READ_TOOLS,
+    COMPOSITION_TOOLS,
     OPERATOR_TOOLS,
     WRITE_ADMIN_TOOLS,
 )
@@ -588,12 +589,19 @@ def test_the_workspace_block_declares_every_tool_it_serves() -> None:
     `--allow-writes` registered before the block existed.
     """
     from okg.substrate.deployments import DeploymentManifest
-    from okg.substrate.mcp.operators import OPERATOR_TOOLS, WRITE_ADMIN_TOOLS
+    from okg.substrate.mcp.operators import (
+        COMPOSITION_TOOLS,
+        OPERATOR_TOOLS,
+        WRITE_ADMIN_TOOLS,
+    )
 
     surface = DeploymentManifest.from_yaml(
         REPO_ROOT / "deployments/okg-workspace/deployment.yaml",
     ).agent_surface
-    assert set(surface.served) == set(OPERATOR_TOOLS) | set(WRITE_ADMIN_TOOLS)
+    # `run` (read-sets-run-3666) is not declared here yet.
+    assert set(surface.served) == (
+        set(OPERATOR_TOOLS) - set(COMPOSITION_TOOLS)
+    ) | set(WRITE_ADMIN_TOOLS)
     assert len(surface.served) == 18
 
 
@@ -1245,7 +1253,9 @@ MIGRATED_DEPLOYMENTS = (
 #: launch, and those plus every write and source-admin tool with
 #: `--allow-writes`. No migrated deployment registers the conditional upload
 #: tool. `served` must equal the write set, so no launch loses a tool.
-_LEGACY_READ_LAUNCH = frozenset(OPERATOR_TOOLS)
+# `run` (read-sets-run-3666) is new: a deployment that declares `served`
+# offers it only when it names it, so no migrated launch gained it.
+_LEGACY_READ_LAUNCH = frozenset(OPERATOR_TOOLS) - frozenset(COMPOSITION_TOOLS)
 _LEGACY_WRITE_LAUNCH = _LEGACY_READ_LAUNCH | frozenset(WRITE_ADMIN_TOOLS)
 
 

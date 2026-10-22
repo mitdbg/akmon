@@ -191,10 +191,75 @@ def _without_condition_values(text: str, schema: Any) -> str:
         i = j
 
 
+#: Steps of `run` that are not a tool, and the keys beside them (#3666,
+#: lane ri): their grammar is run's own, written in its description.
+_RUN_OWN_STEPS = {"values": set(), "minus": {"on"}, "intersect": {"on"}}
+_STEP_START = re.compile(r"""\{\s*"([a-z_]+)"\s*:""")
+
+
+def _run_step_offences(description: str, tools: dict[str, Any]) -> tuple[str, list[str]]:
+    """`run`'s description with each step example (`{"<tool>": {...}}`) taken
+    out, and what those examples name that the step's tool does not publish.
+    A step is a call of its own tool, so its keys are checked against that
+    tool's schema, at any depth, as a call to it in prose is; a step of
+    run's own grammar (`values`, `minus`, `intersect`) takes only `on`."""
+    import json
+
+    offences: list[str] = []
+    out: list[str] = []
+    i = 0
+    # Placeholders filled to their own length, so offsets match `description`.
+    filled = re.sub(r"<[a-z_]+>", lambda m: "-" * len(m.group(0)), description)
+    while True:
+        match = _STEP_START.search(filled, i)
+        if match is None:
+            out.append(description[i:])
+            return "".join(out), offences
+        step = match.group(1)
+        try:
+            obj, end = json.JSONDecoder().raw_decode(filled, match.start())
+        except ValueError:
+            out.append(description[i:match.end()])
+            i = match.end()
+            continue
+        if step not in tools and step not in _RUN_OWN_STEPS:
+            out.append(description[i:match.end()])
+            i = match.end()
+            continue
+        out.append(description[i:match.start()])
+        if step in tools:
+            schema = _properties(tools[step].inputSchema)
+            keys: set[str] = set()
+
+            def walk(node: Any) -> None:
+                if isinstance(node, dict):
+                    keys.update(k for k in node if re.fullmatch(_NAME, k))
+                    for value in node.values():
+                        walk(value)
+                elif isinstance(node, list):
+                    for value in node:
+                        walk(value)
+
+            walk(obj[step])
+            extra = set(obj) - {step, "show"}
+            offences += [f"run: step {step} writes `{k}=`, which {step} does not publish"
+                         for k in sorted((keys - schema) | extra)]
+        else:
+            extra = set(obj) - {step} - _RUN_OWN_STEPS[step]
+            offences += [f"run: step {step} writes `{k}=`, which run's steps do not take"
+                         for k in sorted(extra)]
+        i = end
+    return "".join(out), offences
+
+
 def _argument_offences(tools: dict[str, Any], python_params: dict[str, set[str]]) -> list[str]:
     offences: list[str] = []
     for name, tool in sorted(tools.items()):
-        for owner, text in _spans(tool.description or "", set(tools)):
+        description = tool.description or ""
+        if name == "run":
+            description, step_offences = _run_step_offences(description, tools)
+            offences += step_offences
+        for owner, text in _spans(description, set(tools)):
             checked = owner or name
             schema = tools[checked].inputSchema
             text = _without_condition_values(text, schema)
@@ -270,6 +335,26 @@ def test_the_check_catches_each_reported_kind_of_false_sentence() -> None:
     ]
     assert _kind_offences(tools, {"graph", "node", "subtype", "text", "surface"}) == [
         "inspect: names inspect target kind 'surface', not in the enum",
+    ]
+
+
+def test_a_run_step_example_is_checked_against_its_own_tool() -> None:
+    """A `run` step example is a call of its tool (#3666, lane ri): its keys
+    are that tool's; a set step takes only `on`."""
+    tools = {
+        "run": _Tool(
+            "run",
+            'steps=[{"<tool>":{<arguments>}}]; {"expand":{"input":"<id>",'
+            '"live":{"relation":"<r>","each":{"<arg>":"$1.<c>"}},"bogus":1}}; '
+            '{"minus":["$1","$2"],"on":"<c>","zz":2}',
+            {"properties": {"steps": {}}},
+        ),
+        "expand": _Tool("expand", "", {"properties": {
+            "input": {}, "live": {"properties": {"relation": {}, "each": {}}}}}),
+    }
+    assert _argument_offences(tools, {}) == [
+        "run: step expand writes `bogus=`, which expand does not publish",
+        "run: step minus writes `zz=`, which run's steps do not take",
     ]
 
 

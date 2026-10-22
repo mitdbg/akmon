@@ -951,6 +951,13 @@ class TestReadback:
         assert "chat.ui.theme.base" in excluded
         for entry in excluded.values():
             assert entry["reason"], f"{entry['knob']} was excluded with no reason"
+        # #3965: the preset exclusion states what sync really does. Sync
+        # updates the preset through /models/model/update; the census text
+        # must not claim an existing preset cannot be updated.
+        preset_reason = excluded["chat.preset"]["reason"]
+        assert "cannot update an existing preset" not in preset_reason.lower()
+        assert "BROKEN" not in preset_reason
+        assert "/api/v1/models/model/update" in preset_reason
         # And nothing excluded was driven.
         assert not (set(excluded) & set(payload["driven_knobs"]))
 
@@ -1700,6 +1707,11 @@ def test_cli_exits_zero_on_a_verified_run(tmp_path: Path, monkeypatch, capsys) -
     # Every census exclusion is named with its reason, so a shrinking driven
     # set is legible instead of silently satisfying a self-scoped quantifier.
     assert "census-excluded knob chat.ui.theme.accent" in out
+    # #3965: the printed census lines are labelled as notes, and none says an
+    # existing preset cannot be updated (sync updates it via model/update).
+    assert "census-excluded knob chat.preset" in out
+    assert "census note, not a write failure" in out
+    assert "cannot update an existing preset" not in out.lower()
     # All six surfaces are named in the human rendering: the five written
     # lines plus the mcp probe line.
     for surface in (*WRITTEN_SURFACES, SURFACE_MCP):

@@ -19,7 +19,7 @@ It does not read the repository's files or commits; the `workspace-graph`
 
 Reads the issues and pull requests of one repository through your GitHub CLI login.
 
-Record types it adds: `issue`, `pull_request`, `repo`.
+Record types it adds: `forge_comment`, `issue`, `pull_request`, `repo`.
 
 ## Settings
 
@@ -27,6 +27,7 @@ Record types it adds: `issue`, `pull_request`, `repo`.
 | --- | --- | --- | --- |
 | `repository` | yes |  | Repository as owner/name. |
 | `include_discussion` | no | `false` | Also read issue and review comments. |
+| `commit_repo` | no |  | Optional. Name of the git repository in your graph; with discussion on, links merged pull requests to their merge commits. Empty: no merge link. |
 
 ## Access
 
@@ -51,6 +52,25 @@ okg deployment add-source <name> issues --type github \
 
 Run it again with `--apply --yes` to add the source.
 
+## Add the discussion
+
+Add `--setting include_discussion=true` to also read issue and review
+comments. Merged pull requests link to their merge commit only when you also
+pass `--setting commit_repo=<name>`, the name of the git repository in the
+same graph. Without it the pull requests import with no merge link, and the
+import step says so.
+
+`commit_repo` needs a git source for that repository in the same deployment,
+and you must add that git source first. The command refuses a `commit_repo`
+that no git source in the deployment reads.
+
+One merged pull request whose merge commit the git source does not hold (a
+shallow clone, or a commit on a branch it does not read) makes the graph
+refuse the whole GitHub source's batch on every sync. No issue, pull request
+or comment from that source is added until it is fixed. Sync the git source
+first so it holds the commit, or clear `commit_repo` to import without the
+merge links.
+
 ## Check it
 
 ```bash
@@ -67,8 +87,9 @@ data, not as instructions.
 - `no authorized GitHub CLI session`: run `gh auth login`, then retry.
 - `gh: Not Found (HTTP 404)`: the repository name is wrong, or your GitHub
   login cannot see it.
-- `producer_node_subtype_not_allowed` at the import step: in this version,
-  `include_discussion=true` fails this way. Leave it off: remove the failed
-  source and add it again without that setting.
+- `commit_repo ... is not read by any git source`, or
+  `producer_edge_endpoint_missing` naming a `commit:` id at the import step:
+  the git source for that repository is missing, or has not read that merge
+  commit yet. Add the git source first and sync it, or clear `commit_repo`.
 - Any other failed step: see
   [If a step fails](index.md#connect-the-source).

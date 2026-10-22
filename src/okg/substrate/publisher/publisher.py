@@ -1766,7 +1766,8 @@ def _chronos_dirty_edges_since_previous_sql(
             ctes
             + """, dirty AS (
               SELECT DISTINCT ON (e.edge_id)
-                     e.edge_id, e.edge_type, e.attrs,
+                     e.edge_id, e.edge_type, e.attrs, e.source,
+                     e.source_record_id->>'linker' AS linker,
                      COALESCE(e.deleted, FALSE) AS deleted
                 FROM {edge_table} e
                 """
@@ -1787,7 +1788,8 @@ def _chronos_dirty_edges_since_previous_sql(
               -- FROM p.deleted`, so a resurrected edge is
               -- reported as changed.
               LEFT JOIN LATERAL (
-                SELECT p.edge_id, p.edge_type, p.attrs,
+                SELECT p.edge_id, p.edge_type, p.attrs, p.source,
+                       p.source_record_id->>'linker' AS linker,
                        COALESCE(p.deleted, FALSE) AS deleted
                   FROM {edge_table} p
                  WHERE p.edge_id = d.edge_id
@@ -1803,6 +1805,12 @@ def _chronos_dirty_edges_since_previous_sql(
                  AND (
                       d.edge_type IS DISTINCT FROM p.edge_type
                    OR d.attrs IS DISTINCT FROM p.attrs
+                   -- A new producer leaves the payload alone but
+                   -- moves the edge between ontology-rollup
+                   -- buckets, so the rollup must see it. It is
+                   -- not counted as an update, as for nodes.
+                   OR d.source IS DISTINCT FROM p.source
+                   OR d.linker IS DISTINCT FROM p.linker
                  )
                 )
             """
@@ -2546,8 +2554,12 @@ class Publisher:
         concurrency is not a complete publisher mutual-exclusion boundary.
         This session advisory lock restores the single-writer invariant across
         publisher workflows, source-sync inter-layer publishes, and manual
-        inline publishes. A killed worker drops the DB session and releases the
-        lock, which preserves DBOS recovery behavior.
+        inline publishes. A killed worker closes its sockets, but Postgres
+        frees the lock only when the session ends: at once if the session is
+        idle, otherwise after the running statement is cancelled, which
+        Postgres does within `client_connection_check_interval` (5 s by
+        default, set on every okg session; issue #3861) rather than at the
+        end of the statement. That preserves DBOS recovery behavior.
         """
         classid, objid = _advisory_keys(self.deployment_name)
         wait_seconds = (
@@ -12440,6 +12452,32 @@ class Publisher:
                     embedding_writes_cache += vector_sets_advanced
                 return embedding_writes_cache > 0
 
+            def zero_net_graph_writes_pending() -> bool:
+                """Graph rows written since ``previous`` that net to nothing.
+
+                Reuse serves the previous checkpoint as the head. Delayed
+                admission feedback refuses a checkpoint once any row sits in
+                the head's lineage, whatever its net effect, so a cycle with
+                such rows must cut a real checkpoint (#3625).
+                """
+                if previous is None:
+                    return False
+                pending = (
+                    self._chronos_current_segment_has_graph_writes(
+                        conn, branch_name=self.branch_name,
+                    )
+                    is True
+                )
+                if pending:
+                    record_noop_reuse_invalidation(
+                        "zero_net_graph_writes",
+                        owner="chronos_delta",
+                        # The early probe saw a dirty scope and recorded
+                        # graph_delta_present; the delta then netted to zero.
+                        replace=True,
+                    )
+                return pending
+
             def fork_first_change_receipt(
                 full_nodes: int, full_edges: int,
             ) -> tuple[int, int, int, int, int, int]:
@@ -12726,7 +12764,19 @@ class Publisher:
                             self._noop_reuse_enricher_requires_run_name()
                         )
                         pending_enricher_backlog = False
-                        if enricher_requires_run is not None:
+                        if current_segment_has_writes is True:
+                            # Rows were written since the previous generation
+                            # and cancelled out (an undo, or an add then a
+                            # retract). Reusing that generation would leave
+                            # them in its head, and delayed admission feedback
+                            # refuses any generation whose head moved
+                            # (intervening_graph_write, #3625). A real
+                            # checkpoint seals them.
+                            record_noop_reuse_invalidation(
+                                "zero_net_graph_writes",
+                                owner="chronos_delta",
+                            )
+                        elif enricher_requires_run is not None:
                             record_noop_reuse_invalidation(
                                 "enricher_requires_run",
                                 owner=enricher_requires_run,
@@ -12777,6 +12827,7 @@ class Publisher:
                         elif (
                             enricher_requires_run is None
                             and not pending_enricher_backlog
+                            and current_segment_has_writes is not True
                         ):
                             with _publisher_timed_stage(
                                 timings_ms,
@@ -13211,6 +13262,9 @@ class Publisher:
                 # readable only in a new checkpoint (PACT
                 # openrouter-embeddings-hnsw).
                 and not embedding_writes_pending()
+                # Rows that cancelled out still sit in the head; only a real
+                # checkpoint seals them (#3625).
+                and not zero_net_graph_writes_pending()
             ):
                 reuse_result = self._chronos_noop_reuse_result(
                     conn,
@@ -16784,6 +16838,24 @@ class Publisher:
                 if attempt >= attempts_allowed:
                     if isinstance(exc.data, dict):
                         exc.data["write_race_refusals"] = write_race_refusals
+                    raise
+                from okg.substrate.runtime.stop_request import stop_requested
+
+                if stop_requested():
+                    # The refused attempt is rolled back and every lock is
+                    # released: the one safe point to honor a stop. Starting
+                    # another attempt here is what kept a stopped worker
+                    # alive for a full statement timeout (issue #3861).
+                    logging.getLogger(__name__).warning(
+                        "publish attempt %d of %d refused (%s); a stop was "
+                        "requested, so no further attempt starts",
+                        attempt,
+                        attempts_allowed,
+                        write_race_refusals[-1]["stage"],
+                    )
+                    if isinstance(exc.data, dict):
+                        exc.data["write_race_refusals"] = write_race_refusals
+                        exc.data["stopped_before_retry"] = True
                     raise
                 logging.getLogger(__name__).warning(
                     "publish attempt %d of %d refused: the branch head was "

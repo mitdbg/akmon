@@ -389,11 +389,19 @@ def test_next_carries_the_batch_and_takes_only_a_new_size(clean_runtime, tickets
         first = payload(await client.call_tool("inspect", start, meta=JSON_META))
         token = first["continuation_token"]
         rest = IDS[len(first["records"]):]
-        for mixed in ({"next": token, "target": start["target"]},
+        other = {"kind": "nodes", "node_ids": IDS[:2]}
+        for mixed in ({"next": token, "target": other},
                       {"next": token, "select": ["node_id"]},
                       {"next": token, "max_bytes": 100}):
             refused = await client.call_tool("inspect", mixed, meta=JSON_META)
             assert refused.isError, mixed
+        # Lane ri, tokens: the batch's own target beside its token is read
+        # as `next` alone, with a note.
+        repeated = payload(await client.call_tool(
+            "inspect", {"next": token, "target": start["target"]}, meta=JSON_META,
+        ))
+        assert repeated["records"][0]["node_id"] == rest[0], repeated.get("error")
+        assert any(r.get("rule") == "next_repeats_read" for r in repeated.get("adjusted") or [])
         same = payload(await client.call_tool("inspect", {"next": token}, meta=JSON_META))
         assert same["records"][0]["node_id"] == rest[0] and same["offset"] == len(first["records"])
         # A larger size goes on from the same record and serves the rest whole.

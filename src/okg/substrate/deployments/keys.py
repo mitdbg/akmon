@@ -322,6 +322,14 @@ DEPLOYMENT_KEYS: tuple[DeploymentKey, ...] = (
         value_schema=_CHRONOS_SCHEMA,
     ),
     _key(
+        "citation_attr",
+        "The record attribute a reader cites (for example a benchmark "
+        "document id); search rows and inspect node and text reads name it.",
+        _S_NULL,
+        reader="okg.substrate.mcp.citation_id",
+        value_schema={"pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$"},
+    ),
+    _key(
         "code_drift",
         "Code-drift check policy: mode (track_base or pinned), and for "
         "track_base an optional base_ref and max_commits_behind.",

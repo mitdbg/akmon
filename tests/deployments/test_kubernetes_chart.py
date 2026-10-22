@@ -1181,6 +1181,115 @@ def test_wait_for_clean_qa_metrics_rejects_terminal_failure(
         )
 
 
+class _FakeClock:
+    """A monotonic clock that only moves when the wait sleeps."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def test_wait_for_clean_qa_metrics_timeout_reports_last_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generation_id = "okg:kubernetes-smoke:branch:default:gen:proof"
+    busy = {
+        "generation_id": generation_id,
+        "queue_depth": {
+            "ingest": 1,
+            "link": 0,
+            "enrich": 0,
+            "publish": 0,
+            "embed": 0,
+        },
+        "dlq_count": 0,
+        "generation_blocked_count": 0,
+        "doctor_exit_code": 0,
+    }
+    clock = _FakeClock()
+    monkeypatch.setattr(kubernetes_verifier.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(kubernetes_verifier.time, "sleep", clock.sleep)
+    monkeypatch.setattr(
+        kubernetes_verifier,
+        "_run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=["okg", "metrics"],
+            returncode=0,
+            stdout=json.dumps(busy),
+            stderr="",
+        ),
+    )
+
+    with pytest.raises(VerificationError) as caught:
+        _wait_for_clean_qa_metrics(
+            ["okg", "metrics"],
+            generation_id=generation_id,
+            timeout=12,
+            interval=5,
+        )
+
+    message = str(caught.value)
+    assert "timed out waiting for clean" in message
+    assert json.dumps(busy, sort_keys=True) in message
+
+
+def test_wait_for_clean_qa_metrics_treats_call_timeout_as_one_try(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generation_id = "okg:kubernetes-smoke:branch:default:gen:proof"
+    clean = {
+        "generation_id": generation_id,
+        "queue_depth": {"ingest": 0, "link": 0, "enrich": 0, "publish": 0, "embed": 0},
+        "dlq_count": 0,
+        "generation_blocked_count": 0,
+        "doctor_exit_code": 0,
+    }
+    calls: list[int] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+        return subprocess.CompletedProcess(
+            args=argv, returncode=0, stdout=json.dumps(clean), stderr=""
+        )
+
+    clock = _FakeClock()
+    monkeypatch.setattr(kubernetes_verifier.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(kubernetes_verifier.time, "sleep", clock.sleep)
+    monkeypatch.setattr(kubernetes_verifier, "_run", fake_run)
+
+    assert _wait_for_clean_qa_metrics(
+        ["okg", "metrics"], generation_id=generation_id, timeout=60
+    ) == clean
+    assert len(calls) == 2
+
+
+def test_wait_for_clean_qa_metrics_timeout_reports_last_call_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    clock = _FakeClock()
+    monkeypatch.setattr(kubernetes_verifier.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(kubernetes_verifier.time, "sleep", clock.sleep)
+    monkeypatch.setattr(kubernetes_verifier, "_run", fake_run)
+
+    with pytest.raises(VerificationError, match="snapshot call timed out"):
+        _wait_for_clean_qa_metrics(
+            ["okg", "metrics"],
+            generation_id="g",
+            timeout=12,
+            interval=5,
+        )
+
+
 def test_live_evidence_requires_generation_mcp_and_queue_alignment() -> None:
     generation_id = "okg:kubernetes-smoke:branch:default:gen:proof"
     described = {

@@ -27,7 +27,8 @@ def test_every_builtin_tool_has_metadata() -> None:
 
 
 def test_default_operator_tools_are_read_surface_only() -> None:
-    assert OPERATOR_TOOLS == AKMON_READ_TOOLS + QUERY_ESCAPE_TOOLS
+    assert OPERATOR_TOOLS == AKMON_READ_TOOLS + QUERY_ESCAPE_TOOLS + ("run",)
+    assert OPERATOR_METADATA["run"].layer == "core_read"
     assert {OPERATOR_METADATA[name].layer for name in AKMON_READ_TOOLS} == {
         "core_read",
     }
@@ -196,3 +197,110 @@ def test_every_replacement_call_passes_the_servers_argument_checks(monkeypatch) 
         if mcp._okg_write_pool:
             mcp._okg_write_pool.close()
     assert "graph_stats" in checked and "aggregate_edge_routes" in checked
+
+
+# ── `run`: when to use it, and its example (#3666) ──────────────────────
+
+RUN_SENTENCE = (
+    "Use `run` to build a list or a count over many records; in one run call "
+    '"$1" names step 1\'s records.'
+)
+RUN_QUERY_SENTENCE = "`query` is for what run cannot express."
+
+
+def _probe_surface(monkeypatch, allowlist: str | None) -> tuple[str, dict[str, str]]:
+    """A probe server's served instructions and tool descriptions."""
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from okg.substrate.mcp.server import build_server
+    from okg.substrate.mcp.surface_budget import PROBE_DSN
+
+    monkeypatch.setenv("OKG_MCP_SURFACE_PROBE", "1")
+    monkeypatch.setenv("OKG_MCP_TRACE_ENABLED", "0")
+    monkeypatch.delenv("OKG_MCP_ALLOW_WRITES", raising=False)
+    if allowlist is None:
+        monkeypatch.delenv("OKG_MCP_TOOL_ALLOWLIST", raising=False)
+    else:
+        monkeypatch.setenv("OKG_MCP_TOOL_ALLOWLIST", allowlist)
+    mcp = build_server(dsn=PROBE_DSN, deployment_name="default")
+    try:
+        tools = {t.name: t.description or "" for t in asyncio.run(mcp.list_tools())}
+        return mcp.instructions or "", tools
+    finally:
+        mcp._okg_pool.close()
+        if mcp._okg_write_pool:
+            mcp._okg_write_pool.close()
+
+
+def test_the_run_sentence_is_rendered_only_for_a_surface_serving_run() -> None:
+    from okg.substrate.mcp.server import operator_instructions_for
+
+    assert RUN_SENTENCE in operator_instructions_for(OPERATOR_TOOLS)
+    without = [name for name in OPERATOR_TOOLS if name != "run"]
+    assert RUN_SENTENCE not in operator_instructions_for(without)
+    assert "`run`" not in operator_instructions_for(without)
+
+
+@pytest.mark.parametrize("allowlist,serves_run", [
+    (None, True),
+    ("inspect,search,filter,aggregate", False),
+    ("inspect,filter,aggregate,run", True),
+])
+def test_a_served_launch_says_when_to_use_run_only_when_it_serves_run(
+    monkeypatch, allowlist, serves_run,
+) -> None:
+    instructions, tools = _probe_surface(monkeypatch, allowlist)
+    assert ("run" in tools) is serves_run
+    assert (RUN_SENTENCE in instructions) is serves_run
+
+
+@pytest.mark.parametrize("allowlist,points_at_query", [
+    (None, True),
+    ("inspect,filter,aggregate,run", False),
+])
+def test_the_run_sentence_names_query_only_where_query_is_served(
+    monkeypatch, allowlist, points_at_query,
+) -> None:
+    instructions, tools = _probe_surface(monkeypatch, allowlist)
+    assert ("query" in tools) is points_at_query
+    assert (RUN_QUERY_SENTENCE in instructions) is points_at_query
+
+
+def _published(monkeypatch) -> dict:
+    import asyncio
+
+    from okg.substrate.mcp.server import build_server
+    from okg.substrate.mcp.surface_budget import PROBE_DSN
+
+    monkeypatch.setenv("OKG_MCP_SURFACE_PROBE", "1")
+    monkeypatch.setenv("OKG_MCP_TRACE_ENABLED", "0")
+    monkeypatch.delenv("OKG_MCP_ALLOW_WRITES", raising=False)
+    monkeypatch.delenv("OKG_MCP_TOOL_ALLOWLIST", raising=False)
+    mcp = build_server(dsn=PROBE_DSN, deployment_name="default")
+    try:
+        return {t.name: t for t in asyncio.run(mcp.list_tools())}
+    finally:
+        mcp._okg_pool.close()
+        if mcp._okg_write_pool:
+            mcp._okg_write_pool.close()
+
+
+def test_the_run_description_is_one_line_naming_only_its_schema(monkeypatch) -> None:
+    """FAILS BEFORE: the description carried a fixed example naming types
+    and fields no graph need hold (ticket, attrs.component,
+    attrs.ticket_key) and described retain, which run does not take. It is
+    one line, names no type or field, and every `name=` it writes is an
+    argument of its published schema."""
+    import re
+
+    run = _published(monkeypatch)["run"]
+    description = run.description or ""
+    assert "\n" not in description.strip(), description
+    properties = set(run.inputSchema.get("properties", {}))
+    assert {"steps", "generation_id", "max_bytes"} <= properties
+    for name in re.findall(r"\b([a-z_]+)=", description):
+        assert name in properties, (name, description)
+    for absent in ("ticket", "component", "author", "retain", "$r"):
+        assert absent not in description, (absent, description)
+    assert '"$n"' in description

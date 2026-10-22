@@ -23,6 +23,14 @@ SQL; SQL only receives the answer. These class decisions are NOT recorded
 (Jason, 2026-10-02): the boundary is called through its storage-adapter seam
 with a no-op persist.
 
+Class decisions are cached in the process (PACT ``reader-view-decision-cache-3560``;
+``decision_cache_key``): the bundle, catalog and overlay are still read on every
+``open``, and the cache key holds the policy fingerprint, enforcement mode,
+reader, action, surface, row kind, class catalog and pinned catalog version,
+so a change to any is a new key and a fresh decision. Bounded to
+``DECISION_CACHE_MAX`` entries (least recently used goes first). Evaluating the
+policy over every catalogued class cost about 95 ms per search.
+
 ``predicate(alias)`` keeps a row when its class and classification are
 visible, and keeps every row the view cannot place (no class, another
 vocabulary version, a class missing from the catalog, an unusual
@@ -68,7 +76,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 import uuid
+from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -295,10 +305,12 @@ def _evaluate_unrecorded(
     enforcement_point: str,
     performed_obligations: Sequence[str],
     payload: Any,
+    enforcement_mode: str,
 ) -> PolicyDecision:
     """``store.evaluate_with_active_policy`` without persisting the decision:
     the same surface resolution, trusted facts, enforcement mode and
-    audit-mode caller effect."""
+    audit-mode caller effect. ``enforcement_mode`` is the caller's (the one the
+    cache key holds); it is never re-read from the manifest here."""
     from okg.substrate.nomos.runtime_enforcement import NomosRuntimeRequest
 
     surface = rf.surface_for_action(decision_input.action, fallback_surface=enforcement_point)
@@ -316,6 +328,7 @@ def _evaluate_unrecorded(
         target={"kind": "reader_view_class_decision", "scope": scope},
         performed_obligations=performed_obligations,
         payload=payload,
+        enforcement_mode=enforcement_mode,
         storage_adapter=_NoRecordStorage(),
     )
     return nomos_store._effective_decision_for_callers(outcome)
@@ -331,16 +344,19 @@ def decide_classes(
     surface: str,
     probes: Sequence[_Probe],
     expected_fingerprint: Any,
+    subject: str,
+    enforcement_mode: str,
 ) -> dict[uuid.UUID, dict[str, ClassOutcome]]:
     """Decide every class under every probe classification. Nothing is
     recorded (Jason, 2026-10-02: no scan-site decisions); every row given to
     ``finish`` keeps today's per-row read decisions. Call inside the read pass
-    scope that loaded the bundle."""
+    scope that loaded the bundle.
+
+    ``subject`` and ``enforcement_mode`` are the caller's own readings (the
+    ones the cache key holds). They are never re-read from the session, the
+    environment or the manifest here, so a change to them while a miss is being
+    decided cannot store a decision under a key it does not belong to."""
     scope = f"deployment:{session.deployment_name}"
-    subject = (
-        getattr(session, "nomos_subject", None)
-        or rf.nomos_subject_from_env(default_kind="mcp_client")
-    )
     payload = safe_decision_payload({})
     seen: set[Any] = set()
 
@@ -362,6 +378,7 @@ def decide_classes(
             enforcement_point=f"{surface}.{point}",
             performed_obligations=("audit", "redaction"),
             payload=payload,
+            enforcement_mode=enforcement_mode,
         )
         seen.add(decision.policy_fingerprint)
         return decision
@@ -409,6 +426,121 @@ def decide_classes(
 
 
 # --------------------------------------------------------------------------- #
+# Class-decision cache (PACT reader-view-decision-cache-3560)                  #
+# --------------------------------------------------------------------------- #
+#: Most decision sets kept. One set is one (policy, catalog, reader, action,
+#: surface, row kind); a set is a few hundred small immutable outcomes.
+DECISION_CACHE_MAX = 64
+
+_DECISION_CACHE: OrderedDict[tuple[Any, ...], dict[uuid.UUID, dict[str, ClassOutcome]]] = (
+    OrderedDict()
+)
+_DECISION_CACHE_LOCK = threading.Lock()
+_DECISION_CACHE_STATS = {"hits": 0, "misses": 0, "evictions": 0}
+
+
+def decision_cache_key(
+    session: Any,
+    catalog: Mapping[uuid.UUID, Mapping[str, Any]],
+    *,
+    scope: str,
+    kind: str,
+    action: str,
+    surface: str,
+    subject: str,
+    enforcement: Any,
+    bundle_fingerprint: Any,
+    probes: Sequence[_Probe],
+) -> tuple[Any, ...]:
+    """Everything ``decide_classes`` reads, as one hashable key.
+
+    A decision is a pure function of: the policy bundle (its fingerprint is
+    the sha256 of its rules, default effect and validity window, so any policy
+    change is a new key); the enforcement mode (it turns a deny into an allow
+    in audit); the reader (the subject), the action and surface; the row kind;
+    the class catalog (each class id is the digest of its facts, and
+    ``_load_catalog`` refuses a row whose id is not, so the sorted ids stand
+    for the facts: a new class is a new key); the probes (derived from the
+    bundle); the class vocabulary version; and the deployment's pinned catalog
+    version. A change to any of them produces a different key, so nothing here
+    depends on a timeout.
+    """
+    catalog_version = getattr(session, "catalog_version_id", None)
+    return (
+        session.deployment_name,
+        scope,
+        None if bundle_fingerprint is None else str(bundle_fingerprint),
+        None if enforcement is None else str(enforcement),
+        str(subject),
+        str(action),
+        str(surface),
+        str(kind),
+        rc.CLASS_VOCABULARY_VERSION,
+        None if catalog_version is None else str(catalog_version),
+        tuple((probe.label, probe.classification) for probe in probes),
+        tuple(sorted(str(class_id) for class_id in catalog)),
+    )
+
+
+def _copy_decisions(
+    decisions: Mapping[uuid.UUID, Mapping[str, ClassOutcome]],
+) -> dict[uuid.UUID, dict[str, ClassOutcome]]:
+    """A caller-owned copy: callers (and tests) may edit what they get, and
+    the cache must never see it."""
+    return {class_id: dict(outcomes) for class_id, outcomes in decisions.items()}
+
+
+def _decide_classes_cached(
+    conn: Any,
+    session: Any,
+    catalog: Mapping[uuid.UUID, Mapping[str, Any]],
+    *,
+    key: tuple[Any, ...],
+    kind: str,
+    action: str,
+    surface: str,
+    probes: Sequence[_Probe],
+    expected_fingerprint: Any,
+    subject: str,
+    enforcement_mode: str,
+) -> dict[uuid.UUID, dict[str, ClassOutcome]]:
+    """``decide_classes``, served from the process-local cache when ``key`` has
+    been decided before. A miss decides, then stores a copy. The cache is a
+    bounded LRU (``DECISION_CACHE_MAX``); its fill and eviction never decide
+    anything, so a hit equals a fresh decision."""
+    with _DECISION_CACHE_LOCK:
+        cached = _DECISION_CACHE.get(key)
+        if cached is not None:
+            _DECISION_CACHE.move_to_end(key)
+            _DECISION_CACHE_STATS["hits"] += 1
+            return _copy_decisions(cached)
+        _DECISION_CACHE_STATS["misses"] += 1
+    decided = decide_classes(
+        conn, session, catalog, kind=kind, action=action, surface=surface, probes=probes,
+        expected_fingerprint=expected_fingerprint, subject=subject,
+        enforcement_mode=enforcement_mode,
+    )
+    snapshot = _copy_decisions(decided)
+    with _DECISION_CACHE_LOCK:
+        _DECISION_CACHE[key] = snapshot
+        _DECISION_CACHE.move_to_end(key)
+        while len(_DECISION_CACHE) > DECISION_CACHE_MAX:
+            _DECISION_CACHE.popitem(last=False)
+            _DECISION_CACHE_STATS["evictions"] += 1
+    return decided
+
+
+def decision_cache_info() -> dict[str, int]:
+    """Entries, bound, hits, misses and evictions of the decision cache."""
+    with _DECISION_CACHE_LOCK:
+        return {
+            "entries": len(_DECISION_CACHE),
+            "max_entries": DECISION_CACHE_MAX,
+            **_DECISION_CACHE_STATS,
+        }
+
+
+# --------------------------------------------------------------------------- #
 # Database lookups (each one statement; patched in the in-memory tests)        #
 # --------------------------------------------------------------------------- #
 def _regclass(conn: Any, name: str) -> bool:
@@ -440,7 +572,121 @@ def _catalog_present(conn: Any) -> bool:
     return _regclass(conn, rc.READ_CLASS_CATALOG_TABLE)
 
 
+# --------------------------------------------------------------------------- #
+# Content-addressed memo of the two large reads (PACT                          #
+# reader-view-decision-cache-3560)                                             #
+# --------------------------------------------------------------------------- #
+#: Most memoized reads kept (verified class catalogs and parsed subtype maps).
+CONTENT_MEMO_MAX = 8
+
+_CONTENT_MEMO: OrderedDict[tuple[Any, ...], Any] = OrderedDict()
+_CONTENT_MEMO_LOCK = threading.Lock()
+_CONTENT_MEMO_STATS = {"hits": 0, "misses": 0}
+
+
+def _memo_get(key: tuple[Any, ...]) -> tuple[bool, Any]:
+    with _CONTENT_MEMO_LOCK:
+        if key in _CONTENT_MEMO:
+            _CONTENT_MEMO.move_to_end(key)
+            _CONTENT_MEMO_STATS["hits"] += 1
+            return True, _CONTENT_MEMO[key]
+        _CONTENT_MEMO_STATS["misses"] += 1
+        return False, None
+
+
+def _memo_put(key: tuple[Any, ...], value: Any) -> None:
+    with _CONTENT_MEMO_LOCK:
+        _CONTENT_MEMO[key] = value
+        _CONTENT_MEMO.move_to_end(key)
+        while len(_CONTENT_MEMO) > CONTENT_MEMO_MAX:
+            _CONTENT_MEMO.popitem(last=False)
+
+
+def _clone(value: Any) -> Any:
+    """A copy of a JSON-shaped value that shares no mutable part with it: every
+    dict and list on the way down is new; scalars are immutable. (Several
+    times faster than ``copy.deepcopy`` on the catalog's few hundred small
+    dicts, which the wall-time rule counts.)"""
+    if isinstance(value, dict):
+        return {key: _clone(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_clone(item) for item in value]
+    return value
+
+
+def _scalar(row: Any) -> Any:
+    return row[0] if not isinstance(row, Mapping) else next(iter(row.values()))
+
+
+def _catalog_digest(conn: Any) -> str:
+    """One statement: md5 over every (class id, md5 of its stored facts) of the
+    running vocabulary. A new, removed or rewritten row changes it."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT md5(coalesce(string_agg(CAST(read_class AS text) || ':'"
+            " || md5(CAST(class_facts AS text)), ',' ORDER BY CAST(read_class AS text)), ''))"
+            f" FROM {rc.READ_CLASS_CATALOG_TABLE} WHERE vocabulary_version = %s",
+            (rc.CLASS_VOCABULARY_VERSION,),
+        )
+        return str(_scalar(cur.fetchone()))
+
+
 def _load_catalog(conn: Any) -> dict[str, dict[uuid.UUID, dict[str, Any]]]:
+    """Every catalogued class of the running vocabulary, by kind, each row
+    checked against the digest of its facts (a row that does not match
+    refuses the read; see ``_read_catalog``).
+
+    The verified result is memoized by the CONTENT of the catalog: one cheap
+    statement computes its digest, and only a digest not seen before reads and
+    verifies the rows. A changed catalog has a new digest, so the memo can
+    never answer for it, and a read that raises is never memoized. The digest
+    is taken again after a read; a catalog that changed meanwhile is not
+    memoized."""
+    digest = _catalog_digest(conn)
+    key = ("read_class_catalog", rc.CLASS_VOCABULARY_VERSION, digest)
+    found, value = _memo_get(key)
+    if found:
+        return _clone(value)
+    loaded = _read_catalog(conn)
+    if _catalog_digest(conn) == digest:
+        _memo_put(key, _clone(loaded))
+    return loaded
+
+
+def _subtype_pii_digest(conn: Any, catalog_version_id: Any) -> str:
+    """One statement: md5 over what ``read_filter._load_subtype_pii_classes``
+    reads of a catalog version: each subtype's name, the JSON type of its
+    metadata and its ``pii_classes`` value."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT md5(coalesce(string_agg(CAST(jsonb_build_array(CAST(name AS text),"
+            " coalesce(jsonb_typeof(metadata), '-'),"
+            " coalesce(CAST(metadata -> 'pii_classes' AS text), '-')) AS text),"
+            " ',' ORDER BY CAST(name AS text)), ''))"
+            " FROM okg.subtypes WHERE catalog_version_id = %s",
+            (catalog_version_id,),
+        )
+        return str(_scalar(cur.fetchone()))
+
+
+def _subtype_pii_classes(conn: Any, catalog_version_id: Any) -> dict[str, dict[str, Any]]:
+    """``read_filter._load_subtype_pii_classes``, memoized by the content of the
+    catalog version's subtype metadata (the same scheme as ``_load_catalog``).
+    No catalog version, nothing to read, nothing memoized."""
+    if catalog_version_id is None:
+        return rf._load_subtype_pii_classes(conn, catalog_version_id)
+    digest = _subtype_pii_digest(conn, catalog_version_id)
+    key = ("subtype_pii", str(catalog_version_id), digest)
+    found, value = _memo_get(key)
+    if found:
+        return _clone(value)
+    loaded = rf._load_subtype_pii_classes(conn, catalog_version_id)
+    if _subtype_pii_digest(conn, catalog_version_id) == digest:
+        _memo_put(key, _clone(loaded))
+    return loaded
+
+
+def _read_catalog(conn: Any) -> dict[str, dict[uuid.UUID, dict[str, Any]]]:
     """Every catalogued class of the running vocabulary, by kind. Each row's
     id is checked against the digest of its facts: a row that does not match
     refuses the read."""
@@ -471,10 +717,20 @@ def _load_catalog(conn: Any) -> dict[str, dict[uuid.UUID, dict[str, Any]]]:
 
 
 def clear_reader_view_cache() -> None:
-    """Nothing is cached across calls: ``_overlay_present`` reads the
-    database on every ``open`` (a cached answer went stale when a
-    classification overlay was materialized at an already-read generation).
-    Kept so existing callers need no change."""
+    """Empty the class-decision cache and zero its counters. Production never
+    needs this (a changed input is a new key); tests call it so one test's
+    decisions are not served to the next. Only the class decisions are cached:
+    ``_overlay_present`` still reads the database on every ``open`` (a cached
+    answer went stale when a classification overlay was materialized at an
+    already-read generation)."""
+    with _DECISION_CACHE_LOCK:
+        _DECISION_CACHE.clear()
+        for name in _DECISION_CACHE_STATS:
+            _DECISION_CACHE_STATS[name] = 0
+    with _CONTENT_MEMO_LOCK:
+        _CONTENT_MEMO.clear()
+        for name in _CONTENT_MEMO_STATS:
+            _CONTENT_MEMO_STATS[name] = 0
 
 
 def _published(session: Any) -> bool:
@@ -781,6 +1037,165 @@ class ReaderView:
         ).format(
             known=self._known_class(alias), label=label, c=cls,
             redacted=_array(self._redacted_pairs, "text[]"),
+        )
+
+    def _drop_sets(self) -> dict[str, Any]:
+        """The classes and (class, label) pairs a row is dropped for, as the
+        complement of what ``predicate`` and ``readable`` list.
+
+        ``hidden_all``: hidden under every non-blank probe (a row with a label
+        is dropped); ``hidden_any``: visible under no probe, blank included
+        (a row with no SQL label is dropped); ``masked``: not hidden, and for
+        every non-blank probe hidden or redacted, with some redaction (dropped
+        where the subtype does not reveal the key); ``hidden_pairs`` and
+        ``masked_pairs``: what is left over, pair by pair, for classes those
+        sets do not cover. With a classification overlay a row is placed by
+        its class alone: ``hidden_any`` and ``always_redacted`` only."""
+        decisions = self._state.decisions
+        if self._state.overlay:
+            return {
+                "hidden_any": sorted(str(c) for c in decisions if c not in self.visible_classes),
+                "masked": sorted(str(c) for c in self._always_redacted),
+            }
+        hidden_all: list[str] = []
+        hidden_any: list[str] = []
+        masked: list[str] = []
+        hidden_pairs: list[str] = []
+        masked_pairs: list[str] = []
+        for class_id in sorted(decisions, key=str):
+            outcomes = decisions[class_id]
+            nonblank = {label: o for label, o in outcomes.items() if label != BLANK_LABEL}
+            if class_id not in self.visible_classes:
+                hidden_any.append(str(class_id))
+            if all(not o.visible for o in nonblank.values()):
+                hidden_all.append(str(class_id))
+                continue
+            if any(o.visible and o.redacted for o in nonblank.values()) and all(
+                (not o.visible) or o.redacted for o in nonblank.values()
+            ):
+                masked.append(str(class_id))
+                hidden_pairs += [f"{class_id}|{label}" for label, o in nonblank.items()
+                                 if not o.visible]
+                continue
+            for label, o in nonblank.items():
+                if not o.visible:
+                    hidden_pairs.append(f"{class_id}|{label}")
+                elif o.redacted:
+                    masked_pairs.append(f"{class_id}|{label}")
+        return {
+            "hidden_all": hidden_all, "hidden_any": hidden_any, "masked": masked,
+            "hidden_pairs": sorted(hidden_pairs), "masked_pairs": sorted(masked_pairs),
+        }
+
+    def keep_sql(self, alias: str | sql.Composable, attr_key: str) -> sql.Composable:
+        """A boolean SQL expression equal to
+        ``predicate(a) AND readable(a, attr_key) IS NOT FALSE``, written as
+        the negation of what is dropped, so it lists the classes that are
+        hidden or masked, not those that are visible.
+
+        The same rows are kept (the PostgreSQL sweep in
+        ``test_reader_view_postgres.py`` compares the two over random policies
+        and stored rows, with and without an overlay), but the text is a
+        fraction of the length when a reader sees most classes, and the
+        planner sees ``NOT (class = ANY(<few classes>))`` where it saw a
+        COALESCE it could not estimate (PR 3863 cost review). Outside class
+        mode it is the same composition as before."""
+        if self.mode != "class":
+            return sql.SQL("({}) AND (({}) IS NOT FALSE)").format(
+                self.predicate(alias), self.readable(alias, attr_key),
+            )
+        sets = self._drop_sets()
+        cls = _col(alias, rc.READ_CLASS_COLUMN)
+        revealed = self._revealed(alias, attr_key)
+        drops: list[sql.Composable] = []
+
+        def in_classes(ids: list[str]) -> sql.Composable:
+            return sql.SQL("{} = ANY({})").format(cls, _array(ids, "uuid[]"))
+
+        if self._state.overlay:
+            if sets["hidden_any"]:
+                drops.append(in_classes(sets["hidden_any"]))
+            if sets["masked"]:
+                drops.append(sql.SQL("(NOT {} AND {})").format(revealed, in_classes(sets["masked"])))
+        else:
+            label = _label_sql(alias, self._named_labels)
+            labelled = sql.SQL("{} IS NOT NULL").format(label)
+            pair = sql.SQL("(CAST({} AS text) || '|' || {})").format(cls, label)
+            if sets["hidden_all"] == sets["hidden_any"]:
+                if sets["hidden_all"]:
+                    drops.append(in_classes(sets["hidden_all"]))
+            else:
+                drops.append(sql.SQL("(CASE WHEN {} IS NULL THEN {} ELSE {} END)").format(
+                    label,
+                    in_classes(sets["hidden_any"]) if sets["hidden_any"] else sql.SQL("FALSE"),
+                    in_classes(sets["hidden_all"]) if sets["hidden_all"] else sql.SQL("FALSE"),
+                ))
+            if sets["hidden_pairs"]:
+                drops.append(sql.SQL("({} AND {} = ANY({}))").format(
+                    labelled, pair, _array(sets["hidden_pairs"], "text[]"),
+                ))
+            if sets["masked"]:
+                drops.append(sql.SQL("(NOT {} AND {} AND {})").format(
+                    revealed, labelled, in_classes(sets["masked"]),
+                ))
+            if sets["masked_pairs"]:
+                drops.append(sql.SQL("(NOT {} AND {} AND {} = ANY({}))").format(
+                    revealed, labelled, pair, _array(sets["masked_pairs"], "text[]"),
+                ))
+        if not drops:
+            return sql.SQL("TRUE")
+        # A row with no class, another vocabulary version or a class outside the
+        # catalog is never in these lists, so it is kept. The conjunction is
+        # never NULL: when the class is NULL or of another version it is FALSE,
+        # and otherwise every drop term is TRUE or FALSE. There is deliberately
+        # no COALESCE: the planner has no estimate for one and guesses 0.5,
+        # which is what priced the BM25 scan out of the filtered passage read.
+        return sql.SQL(
+            "NOT ({c} IS NOT NULL AND {v} IS NOT DISTINCT FROM {ver} AND ({drops}))"
+        ).format(
+            c=cls, v=_col(alias, rc.READ_CLASS_VERSION_COLUMN),
+            ver=sql.Literal(rc.CLASS_VOCABULARY_VERSION),
+            drops=sql.SQL(" OR ").join(drops),
+        )
+
+    @property
+    def admits_every_row(self) -> bool:
+        """True only when ``predicate(a) AND readable(a, key) IS NOT FALSE``
+        is TRUE for EVERY possible row ``a`` and every attribute key, so a
+        caller may leave the clause out and read the same rows.
+
+        Proof by mode, from the SQL above:
+
+        * ``off`` / ``per_row``: ``predicate`` is TRUE and ``readable`` is
+          TRUE or NULL, never FALSE.
+        * ``no_bundle``: both are TRUE when the default decision serves; when
+          it does not, ``predicate`` is FALSE.
+        * ``class``: ``predicate`` is ``COALESCE(NOT known OR visible, TRUE)``.
+          A row is dropped only when its class is known, its label is a
+          non-blank probe, and that (class, label) pair is not visible (with
+          an overlay: its class is visible under no probe). It is therefore
+          TRUE for every row when every non-blank probe of every class is
+          visible; the blank probe is left out because a blank classification
+          has no SQL label and is judged by "visible under some probe", which
+          the other probes already give. ``readable`` is FALSE only for a
+          (class, label) pair in ``_redacted_pairs`` (with an overlay: a class
+          in ``_always_redacted``), so no outcome may be redacted. With no
+          class decided, no row is known and nothing is dropped.
+
+        The check reads only the decided classes, never a row."""
+        if self.mode in ("off", "per_row"):
+            return True
+        if self.mode == "no_bundle":
+            return bool(self._state.serves)
+        if self.mode != "class":
+            return False
+        outcomes = [
+            (label, outcome)
+            for per_probe in self._state.decisions.values()
+            for label, outcome in per_probe.items()
+        ]
+        return all(o.visible for label, o in outcomes if label != BLANK_LABEL) and not any(
+            o.redacted for _, o in outcomes
         )
 
     def label_sql(self, alias: str | sql.Composable) -> sql.Composable:
@@ -1170,6 +1585,7 @@ class ReaderViews(Mapping[str, ReaderView]):
 
 def _no_bundle_serves(
     conn: Any, session: Any, *, subject: str, action: str, surface: str, scope: str,
+    enforcement_mode: str,
 ) -> bool | None:
     """The no-bundle default decision, unrecorded, as
     ``read_filter._decide_no_active_bundle`` evaluates it (same subject,
@@ -1195,6 +1611,7 @@ def _no_bundle_serves(
         enforcement_point=f"{surface}.source_lineage_filter",
         performed_obligations=("audit", "redaction"),
         payload=safe_decision_payload({}),
+        enforcement_mode=enforcement_mode,
     )
     if decision.effect in rf._HIDE_EFFECTS:
         return False
@@ -1275,7 +1692,7 @@ def open_many(
         all_kinds("off", "nomos_off")
     else:
         enforcement = nomos_store.deployment_nomos_enforcement_mode(session.deployment_name)
-        subtype_pii = rf._load_subtype_pii_classes(
+        subtype_pii = _subtype_pii_classes(
             conn, getattr(session, "catalog_version_id", None)
         )
         refusal = rf._read_class_session_refusal(session, subject=None, identity_claim=None)
@@ -1290,7 +1707,7 @@ def open_many(
                 if bundle is None:
                     serves = _no_bundle_serves(
                         conn, session, subject=subject, action=action, surface=surface,
-                        scope=scope,
+                        scope=scope, enforcement_mode=enforcement,
                     )
                     if serves is None:
                         all_kinds("per_row", "no_active_bundle")
@@ -1322,10 +1739,17 @@ def open_many(
                                     kind, "per_row", "read_class_columns_absent", {}, False,
                                 )
                                 continue
-                            decided = decide_classes(
-                                conn, session, catalog[kind], kind=kind, action=action,
-                                surface=surface, probes=probes,
+                            decided = _decide_classes_cached(
+                                conn, session, catalog[kind],
+                                key=decision_cache_key(
+                                    session, catalog[kind], scope=scope, kind=kind,
+                                    action=action, surface=surface, subject=subject,
+                                    enforcement=enforcement,
+                                    bundle_fingerprint=bundle_fingerprint, probes=probes,
+                                ),
+                                kind=kind, action=action, surface=surface, probes=probes,
                                 expected_fingerprint=bundle_fingerprint,
+                                subject=subject, enforcement_mode=enforcement,
                             )
                             states[kind] = _KindState(
                                 kind, "class", "read_class_catalog", decided,
@@ -1384,6 +1808,7 @@ def open_many(
 __all__ = [
     "AttrMask",
     "ClassOutcome",
+    "DECISION_CACHE_MAX",
     "FORCES",
     "MODES",
     "ReaderView",
@@ -1394,6 +1819,8 @@ __all__ = [
     "classification_label",
     "clear_reader_view_cache",
     "decide_classes",
+    "decision_cache_info",
+    "decision_cache_key",
     "exactness_cause",
     "fingerprint_of",
     "named_classifications",

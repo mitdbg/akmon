@@ -38,6 +38,7 @@ Two rules keep row content out of the server instructions:
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 import time
@@ -63,6 +64,7 @@ __all__ = [
     "gather_dataset_facts",
     "id_pattern",
     "render_dataset_card",
+    "run_example_steps",
     "split_dataset_card",
 ]
 
@@ -94,11 +96,23 @@ PART_TRUST = "trust"
 PART_IDS = "ids"
 PART_DATES = "dates"
 PART_PATH_CHECK = "path_check"
+PART_RUN_EXAMPLE = "run_example"
 PART_ATTRS = "attrs"
 #: The `query` description's fields line (issue #3666): how many of the
 #: largest types, and how many rows of each, the start-up sample reads.
 ATTR_SAMPLE_TYPES = 5
 ATTR_SAMPLE_ROWS = 50
+#: The `run` example's key holds at least this many distinct non-null
+#: values in the attribute sample, so its groups are more than one.
+RUN_EXAMPLE_MIN_VALUES = 2
+#: The `run` example prefers a type with at most this many records, so
+#: both of its steps finish well inside a step's time budget.
+RUN_EXAMPLE_MAX_ROWS = 10_000
+#: How many of the largest types under that bound the start-up sample also
+#: reads for the example, beside the largest types.
+RUN_EXAMPLE_SAMPLE_TYPES = 5
+#: Groups the `run` example prints: the most common values of its key.
+RUN_EXAMPLE_GROUPS = 10
 
 _MAX_SUBTYPES_PER_SOURCE = 3
 #: A segment of an id, or a source name, that the card may state literally.
@@ -166,6 +180,10 @@ class DatasetFacts:
     #: when the counts were not read (`tool_prose.example_subtype_for`).
     catalog_subtypes: tuple[str, ...] = ()
     path_probe: Optional[PathProbe] = None
+    #: (type, attribute key) the `run` example names (issue #3666): a type
+    #: of this catalog with rows, and a key its records hold. Names only,
+    #: never a row value; None when none was read.
+    run_example: Optional[tuple[str, str]] = None
     #: (subtype, rows sampled, ((attr key, rows with it, distinct values),
     #: ...)) for the largest types, from a bounded sample read only when the
     #: Nomos mode is `off`; None when not read. Feeds the `query`
@@ -452,6 +470,10 @@ _ID_ENDS_SQL = (
     "SELECT subtype, min(node_id) AS first_id, max(node_id) AS last_id "
     "FROM okg.graph_nodes WHERE subtype = ANY(%(subtypes)s) GROUP BY subtype"
 )
+#: An attribute key the example may print inside its JSON.
+_SAFE_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,40}$")
+#: A type name the example may print inside its JSON.
+_SAFE_TYPE = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,63}$")
 #: Up to `ID_SAMPLES_PER_SUBTYPE - 2` more ids per subtype, in scan order: a
 #: scan that stops at the limit (9 ms on that graph). With the two ends above,
 #: a segment kept literally is shared by both ends of the id order too.
@@ -551,6 +573,61 @@ def _rollup_counts(
         if unattributed:
             rows.append((None, subtype, unattributed))
     return rows, None
+
+
+def _run_example(
+    totals: Mapping[str, int],
+    nesting: Sequence[tuple[str, str, str]],
+    metadata: Mapping[str, Mapping[str, Any]],
+    attr_keys: Optional[tuple[tuple[str, int, tuple[tuple[str, int, int], ...]], ...]],
+    missing: list[tuple[str, str]],
+) -> Optional[tuple[str, str]]:
+    """(type, key) for the `run` example (issue #3666), from what the card
+    already read. No read of its own.
+
+    A key qualifies only when the attribute sample saw at least
+    `RUN_EXAMPLE_MIN_VALUES` distinct non-null values of it: grouping by an
+    all-null key prints one group and teaches nothing. Of a type's
+    qualifying keys, a declared filterable one comes first, then the one
+    most sampled rows hold, then the fewest distinct values, then the name.
+    Of the sampled types (not passage children) with such a key, the
+    largest with at most `RUN_EXAMPLE_MAX_ROWS` records is chosen: the
+    example must finish well inside a step's budget. With no such type
+    there is no example, and the card records why under `missing`."""
+    children = {child for _parent, child, _edge in nesting}
+    if attr_keys is None:
+        missing.append((PART_RUN_EXAMPLE, "the attribute sample was not read"))
+        return None
+    candidates: list[tuple[str, str]] = []
+    for subtype, _rows, keys in attr_keys:
+        if subtype in children or not _SAFE_TYPE.match(subtype) or totals.get(subtype, 0) <= 0:
+            continue
+        filterable = metadata.get(subtype, {}).get("filterable_attrs")
+        declared = {str(k) for k in filterable} if isinstance(filterable, dict) else set()
+        ranked = sorted(
+            (
+                key for key in keys
+                if _SAFE_KEY.match(key[0]) and key[2] >= RUN_EXAMPLE_MIN_VALUES
+            ),
+            key=lambda key: (key[0] not in declared, -key[1], key[2], key[0]),
+        )
+        if ranked:
+            candidates.append((subtype, ranked[0][0]))
+    if not candidates:
+        missing.append((
+            PART_RUN_EXAMPLE,
+            f"no sampled type holds a key with {RUN_EXAMPLE_MIN_VALUES} or more values",
+        ))
+        return None
+    bounded = [c for c in candidates if totals[c[0]] <= RUN_EXAMPLE_MAX_ROWS]
+    if not bounded:
+        missing.append((
+            PART_RUN_EXAMPLE,
+            f"every sampled type with such a key holds more than "
+            f"{RUN_EXAMPLE_MAX_ROWS:,} records",
+        ))
+        return None
+    return min(bounded, key=lambda c: (-totals[c[0]], c[0]))
 
 
 def gather_dataset_facts(
@@ -815,24 +892,38 @@ def gather_dataset_facts(
     # ── attribute keys of the largest types: the `query` description ──
     # Read last, so the card's own parts keep the shared deadline first.
     attr_keys: Optional[tuple[tuple[str, int, tuple[tuple[str, int, int], ...]], ...]] = None
+    example_keys: Optional[tuple[tuple[str, int, tuple[tuple[str, int, int], ...]], ...]] = None
     if counts is not None and totals:
-        largest = sorted(totals, key=lambda s: (-totals[s], s))[:ATTR_SAMPLE_TYPES]
+        ranked = sorted(totals, key=lambda s: (-totals[s], s))
+        largest = ranked[:ATTR_SAMPLE_TYPES]
+        # The `run` example's candidates are also read, in the same
+        # statement: the largest types (not passage children) of at most
+        # RUN_EXAMPLE_MAX_ROWS records, which the largest types may not hold.
+        children = {child for _parent, child, _edge in nesting}
+        bounded = [
+            s for s in ranked
+            if s not in largest and s not in children and 0 < totals[s] <= RUN_EXAMPLE_MAX_ROWS
+        ][:RUN_EXAMPLE_SAMPLE_TYPES]
+        sample = largest + bounded
         try:
             sampled: dict[str, tuple[int, list[tuple[str, int, int]]]] = {}
             for row in g.read("attrs", lambda: read(
-                _ATTR_SAMPLE_SQL, {"subtypes": largest, "limit": ATTR_SAMPLE_ROWS},
+                _ATTR_SAMPLE_SQL, {"subtypes": sample, "limit": ATTR_SAMPLE_ROWS},
             )):
                 subtype = str(row["subtype"])
                 _rows, keys = sampled.setdefault(subtype, (int(row["sampled"]), []))
                 keys.append((
                     str(row["key"]), int(row["rows_with"]), int(row["distinct_values"]),
                 ))
-            attr_keys = tuple(
+            example_keys = tuple(
                 (subtype, sampled[subtype][0], tuple(sorted(sampled[subtype][1])))
-                for subtype in largest if subtype in sampled
+                for subtype in sample if subtype in sampled
             )
+            attr_keys = tuple(item for item in example_keys if item[0] in largest)
         except _PartFailed as exc:
             missing.append((PART_ATTRS, exc.reason))
+
+    run_example = _run_example(totals, nesting, metadata, example_keys, missing)
 
     return _finish(
         replace(
@@ -843,6 +934,7 @@ def gather_dataset_facts(
             id_patterns=patterns,
             date_ranges=date_ranges,
             path_probe=probe,
+            run_example=run_example,
             attr_keys=attr_keys,
         ),
         missing, g.part_ms, started, withheld=False,
@@ -1083,11 +1175,32 @@ def _grouped_sources(
     return sorted(lines, key=lambda line: (-line[1], line[0]))
 
 
+def run_example_steps(facts: DatasetFacts) -> Optional[list[dict[str, Any]]]:
+    """The steps of the `run` example, or None when the card has no type
+    and key for it (no live catalog, rows withheld under access rules,
+    under which `run` is refused, or no key read)."""
+    if facts.mode != "live" or facts.withheld or facts.run_example is None:
+        return None
+    subtype, key = facts.run_example
+    field = f"attrs.{key}"
+    # The limit bounds the groups printed: the sample cannot tell how many
+    # values a key holds over the whole type, and a printed step past 200
+    # groups is refused (on one graph the chosen key held 3,486).
+    return [
+        {"filter": {"where": {"type": subtype, field: {"op": "exists"}}}, "show": False},
+        {"aggregate": {
+            "where": "$1", "by": [field], "metrics": ["count"],
+            "limit": RUN_EXAMPLE_GROUPS,
+        }},
+    ]
+
+
 def render_dataset_card(
     facts: DatasetFacts,
     *,
     served_tools: Iterable[str],
     text_kind_served: bool = False,
+    run_live: bool = True,
     budget: int = CARD_BUDGET_BYTES,
 ) -> str:
     """The card text, at most `budget` bytes, with no blank line in it.
@@ -1167,6 +1280,21 @@ def render_dataset_card(
             graph_hint,
         ))
 
+    # 1b. the `run` example, built from this catalog (issue #3666): only
+    # where run and both tools its steps call are served.
+    example = run_example_steps(facts) if {"run", "filter", "aggregate"} <= served else None
+    if example is not None:
+        subtype, key = facts.run_example  # type: ignore[misc]
+        sections.append(_Section(
+            "Run example (types and fields of this graph):",
+            [
+                f"- {subtype} records per attrs.{key}: run(steps="
+                + json.dumps(example, separators=(",", ":"))
+                + '); "$1" is step 1\'s records, and only the last step prints rows.'
+            ],
+            None,
+        ))
+
     # 2. declared absences
     if facts.not_ingested:
         sections.append(_Section(
@@ -1176,7 +1304,9 @@ def render_dataset_card(
         ))
 
     # 2b. live relations: short, and above the sections cut first for size
-    live = _live_section(facts, inspect_ok, graph_hint)
+    live = _live_section(
+        facts, inspect_ok, graph_hint, run_ok={"run", "expand"} <= served,
+    )
     if live is not None:
         sections.append(live)
 
@@ -1248,7 +1378,16 @@ def render_dataset_card(
             None,
         ))
 
-    return _fit(head, sections, budget, graph_hint)
+    card = _fit(head, sections, budget, graph_hint)
+    if not run_live:
+        # The operator turned run's live steps off: the card is the one the
+        # switch-on server serves, minus the live-step sentence. Cutting for
+        # size with the sentence in place keeps every other line where it
+        # was (leaving it out first lets lower lines in, a second difference).
+        card = "\n".join(
+            line for line in card.split("\n") if line != RUN_LIVE_SENTENCE
+        )
+    return card
 
 
 #: Relation names listed per type before the line says how many more there
@@ -1257,7 +1396,8 @@ _LIVE_NAMES_SHOWN = 8
 
 
 def _live_section(
-    facts: "DatasetFacts", inspect_ok: bool, graph_hint: Optional[str],
+    facts: "DatasetFacts", inspect_ok: bool, graph_hint: Optional[str], *,
+    run_ok: bool = False,
 ) -> Optional[_Section]:
     """The live relations, one short line per type.
 
@@ -1284,12 +1424,24 @@ def _live_section(
                 + ' id>}) lists all with their arguments'
             )
         items.append(line + ".")
+    if run_ok:
+        # #3666, lane ri: agents asked one relation once per value, call
+        # after call; one run step makes those calls.
+        items.append(RUN_LIVE_SENTENCE)
     return _Section(
         "Live relations (they read the source now; every other row is as "
         "published):",
         items,
         graph_hint,
     )
+
+
+#: The card's one sentence on `run` live steps, served with `run` and
+#: `expand` where the catalog declares live relations (#3666, lane ri).
+RUN_LIVE_SENTENCE = (
+    '- In run, an expand live step with "each": {"<arg>": "$1.<column>"} '
+    "calls the relation once per value of step 1's column."
+)
 
 
 def _fit(

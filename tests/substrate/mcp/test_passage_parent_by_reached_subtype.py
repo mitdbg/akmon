@@ -1,6 +1,6 @@
 """Several parent subtypes declare the same passage child (issue #2753).
 
-cms-kb chunks hang off `documentation_page`, not okg's own `document`. Once a
+example-kb chunks hang off `documentation_page`, not okg's own `document`. Once a
 second parent subtype declares `okg_passage_rollup` naming the same child
 subtype and edge type, every chunk used to come back `ambiguous_declaration`
 (both declared) or `declared_but_unlinked` (only `document` declared), although
@@ -49,7 +49,7 @@ PAGE = SubtypeSpec(
     "page", metadata={"searchable_text_fields": ["text"], "passage_rollup": _ROLLUP},
 )
 #: `page` WITHOUT the declaration: the single-declaration catalog of today's
-#: cms-kb, where only okg's own `doc` declares the relation.
+#: example-kb, where only okg's own `doc` declares the relation.
 PAGE_UNDECLARED = SubtypeSpec("page", metadata={"searchable_text_fields": ["text"]})
 #: Never declares a relation; a `wiki --contains--> chunk` edge is not a
 #: passage relation and must never become a parent.
@@ -216,7 +216,7 @@ def test_the_envelope_lists_every_declaration_for_a_shared_child(
 def test_with_one_declaration_an_undeclared_parent_subtype_stays_unlinked(
     clean_runtime: str, tmp_path,
 ) -> None:
-    """Today's cms-kb catalog: only `doc` declares. Fail closed, unchanged."""
+    """Today's example-kb catalog: only `doc` declares. Fail closed, unchanged."""
     deployment = _publish(tmp_path, clean_runtime, page=PAGE_UNDECLARED)
     parents = _parents(_search(clean_runtime, deployment))
 

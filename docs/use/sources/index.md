@@ -19,10 +19,11 @@ each command with `uv run`.
 
 | Your data | Use | Code needed |
 | --- | --- | --- |
-| A folder of Markdown, text, JSON or YAML files | The built-in [`local-folder`](local-folder.md) type | None |
+| A folder of Markdown, text, JSON or YAML files, or of PDFs (text layer only; scanned PDFs warn) | The built-in [`local-folder`](local-folder.md) type | None |
 | One GitHub repository's issues and pull requests | The built-in [`github`](github.md) type | None |
 | Records you can export as JSON, JSON Lines, CSV or YAML, or get from a JSON API with GET requests, with their own record types and links | A [source manifest](manifest.md) | None; one YAML file |
 | A Git repository's files, code and history | The `workspace-graph` [profile](../profiles/index.md), chosen at install | None |
+| CERN systems such as TWiki, Indico, JIRA, CDS, CMSSW, DBS, CRIC, WMStats, DQM or HyperNews | The companion repository [archi-okg](https://github.com/archi-physics/archi-okg) (see its [quickstart](https://github.com/archi-physics/archi-okg/blob/main/docs/cern-team-quickstart.md)); domain connectors live in companion repositories like it | Per-source setup; some need a CERN account; four need JSON files you produce |
 | A service that needs POST requests, OAuth sign-in, or HTML or XML parsing | A reader written in Python: [Add a source adapter](../../develop/index.md#add-a-source-adapter) | Python |
 
 `okg deployment source-types` lists the built-in types and their settings. The [capabilities reference](../../reference/capabilities.md)

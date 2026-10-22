@@ -172,6 +172,54 @@ _CLOSE_MARGIN_MAX_SECONDS = 1.0
 #: for an outage. Matched only inside an `isError` result, case-folded.
 _EMPTY_MATCH_MARKERS = ("empty set",)
 
+#: How a tool says "what you named does not exist" AS AN ERROR. Rucio raises
+#: `DataIdentifierNotFound` ("Data identifier not found."), `RuleNotFound`
+#: ("No replication rule found."), `RSENotFound` and `ScopeNotFound` ("... does
+#: not exist."); rucio-mcp sends each as `isError` text. The server is up and
+#: answered, so `upstream_unavailable` -- "refused the connection" -- is the
+#: wrong label (CompOps runs: 193 of 224 such replies were these). Matched
+#: only against the error's FIRST sentence, the exception's own summary, so a
+#: credential or configuration error that mentions a missing file further on
+#: keeps `upstream_unavailable`.
+_NOT_FOUND_SUMMARY = re.compile(
+    r"\bnot found\b|\bdoes not exist\b|\bcannot be found\b|^no\b[^.]{0,60}\bfound\b",
+)
+
+#: How a tool says "I cannot use these arguments" AS AN ERROR. Rucio answers an
+#: RSE expression it cannot parse with "Provided RSE expression is considered
+#: invalid.\nDetails: Expression does not comply to RSE Expression syntax"
+#: (g002 `"T1_*_Tape"`, `"*Tape*"`), and a call whose arguments break the
+#: tool's schema with a validation or "does not match schema" error. The
+#: server is up and answered that the ARGUMENT is wrong, so neither
+#: `upstream_unavailable` ("refused the connection") nor
+#: `upstream_empty_result` ("matched nothing") is true. Matched against the
+#: error's FIRST sentence only, and checked AFTER the empty-set marker: the
+#: same Rucio sentence also prefixes "Details: RSE Expression resulted in an
+#: empty set", a well-formed expression that selects no RSE, which stays
+#: `upstream_empty_result`.
+_REJECTED_ARGUMENTS_SUMMARY = re.compile(
+    r"\bconsidered invalid\b|\b(?:is|are) invalid\b|\bdoes not match schema\b"
+    r"|\bvalidation errors? for\b|\binvalid (?:argument|parameter|expression)s?\b",
+)
+
+#: The key a tool sets BESIDE its rows to say it stopped early. rucio-mcp's
+#: list tools answer `{"status", "count", "truncated", "items"}` and stop at
+#: their own `limit`; CompOps g002 read 200 of 263 RSEs as "200 rows, all
+#: shown" and never saw T0_CH_CERN_Tape. Read from the object that holds the
+#: rows at `rows_path`, with no binding key: a flag a binding must opt into
+#: is a cut that stays silent until someone remembers to declare it.
+UPSTREAM_TRUNCATED_KEY = "truncated"
+
+#: FastMCP's prefix on a tool's exception text.
+_TOOL_ERROR_PREFIX = re.compile(r"^error executing tool [^:\n]{0,128}:\s*")
+
+
+def _error_summary(message: str) -> str:
+    """The first sentence of a tool's error text, case-folded, without
+    FastMCP's `Error executing tool <name>:` prefix."""
+    folded = _TOOL_ERROR_PREFIX.sub("", message.strip().casefold(), count=1)
+    return re.split(r"[.\n]", folded, maxsplit=1)[0].strip()
+
 #: Shortest credential fragment the reply scan looks for. Shorter strings
 #: occur by chance; `deployment_tools` uses the same floor.
 _MIN_SECRET_SCAN_CHARS = 8
@@ -1124,6 +1172,41 @@ def _follow_rows_path(node: Any, config: McpBindingConfig) -> list[Any]:
     return node
 
 
+def _upstream_cut(document: Any, config: McpBindingConfig) -> bool:
+    """Whether the object holding the rows says, beside them, that the tool
+    stopped early (:data:`UPSTREAM_TRUNCATED_KEY`).
+
+    Only `true` means cut and only `false`/null means whole; any other value
+    is refused `result_unusable`, because "are these all the rows?" must not
+    be guessed in either direction.
+    """
+    if not config.rows_path:
+        return False
+    holder = document
+    for token in config.rows_path[:-1]:
+        if not isinstance(holder, Mapping):
+            return False
+        holder = holder.get(token)
+    if not isinstance(holder, Mapping) or UPSTREAM_TRUNCATED_KEY not in holder:
+        return False
+    if not isinstance(holder.get(config.rows_path[-1]), list):
+        return False
+    flag = holder[UPSTREAM_TRUNCATED_KEY]
+    if flag is True:
+        return True
+    if flag is False or flag is None:
+        return False
+    shown = ".".join(config.rows_path)
+    raise _adapter_error(
+        "result_unusable",
+        excerpt=(
+            f"`{UPSTREAM_TRUNCATED_KEY}` beside `{shown}` is a "
+            f"{type(flag).__name__}, not true or false, so whether these are "
+            f"all the rows cannot be told"
+        ),
+    )
+
+
 def _object_rows(
     node: Mapping, config: McpBindingConfig, shown: str,
 ) -> list[Any]:
@@ -1227,8 +1310,9 @@ def _parse_text_block(text: str) -> Any:
 
 def _rows_from_text_blocks(
     result: Any, texts: list[str], config: McpBindingConfig,
-) -> list[Any]:
-    """Rows from a result with no `structuredContent` (decision `dbsrows A`).
+) -> tuple[list[Any], Any]:
+    """Rows from a result with no `structuredContent` (decision `dbsrows A`),
+    and the one parsed document they came from (None for one row per block).
 
     A FastMCP tool whose return type is not structured (`-> Any`) sends a
     list as ONE TEXT BLOCK PER ITEM, and a one-item list as one block
@@ -1255,8 +1339,8 @@ def _rows_from_text_blocks(
     if len(texts) == 1:
         node = _parse_text_block(texts[0])
         if not config.rows_path and isinstance(node, Mapping):
-            return [node]
-        return _follow_rows_path(node, config)
+            return [node], node
+        return _follow_rows_path(node, config), node
     if config.rows_path:
         raise _adapter_error(
             "result_unusable",
@@ -1284,7 +1368,7 @@ def _rows_from_text_blocks(
                 ),
             )
         rows.append(node)
-    return rows
+    return rows, None
 
 
 def _rows_from_result(
@@ -1331,24 +1415,42 @@ def _rows_from_result(
             # message travels as the excerpt, so the caller reads what the
             # system said rather than a guess at it.
             raise _adapter_error("upstream_empty_result", excerpt=_excerpt(message))
+        if _NOT_FOUND_SUMMARY.search(_error_summary(message)):
+            # The server answered: the object the arguments name does not
+            # exist there. An answer, not an outage; its message travels.
+            raise _adapter_error("upstream_not_found", excerpt=_excerpt(message))
+        if _REJECTED_ARGUMENTS_SUMMARY.search(_error_summary(message)):
+            # The server answered: it cannot use these arguments (a bad RSE
+            # expression, a schema mismatch). Its message travels.
+            raise _adapter_error(
+                "upstream_rejected_arguments", excerpt=_excerpt(message),
+            )
         raise _adapter_error(
             "upstream_unavailable",
             excerpt=_excerpt(message) or "the tool reported an error",
         )
     if result.structuredContent is not None:
-        rows = _follow_rows_path(result.structuredContent, config)
+        document: Any = result.structuredContent
+        rows = _follow_rows_path(document, config)
     else:
-        rows = _rows_from_text_blocks(result, texts, config)
+        rows, document = _rows_from_text_blocks(result, texts, config)
+    cut = document is not None and _upstream_cut(document, config)
+    received = len(rows)
     if config.max_rows is not None:
         rows = rows[: config.max_rows]
     selected = _project_rows(list(rows), config)
 
     from okg.substrate.external_backed.live_dispatch import (
+        UpstreamCutRows,
         _assert_result_is_shapeable,
     )
 
     # Raises `result_unusable` itself for rows too deep or too wide.
     _assert_result_is_shapeable(selected)
+    if cut:
+        # The tool stopped early: the dispatcher says so on the reply and
+        # never calls these rows the whole answer.
+        return UpstreamCutRows(selected, received=received)
     return selected
 
 

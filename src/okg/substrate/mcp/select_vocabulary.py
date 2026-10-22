@@ -159,6 +159,10 @@ WHERE_NAMES_IN_ROWS: Mapping[str, str] = {
 #: modified date where only that is declared, and the handle says which. Not
 #: in the published select text: it names the three fields above.
 WHERE_DATES_IN_ROWS: Mapping[str, str] = {"date.created": "handle"}
+#: On a grep list row (fixed rows, no attributes), the attribute names
+#: agents sent for a record's title and path, read as the handle that holds
+#: them (PACT read-names-list-3666; lane X2 arms B and F were refused).
+GREP_LIST_ATTR_NAMES: Mapping[str, str] = {"attrs.title": "handle", "attrs.path": "handle"}
 #: What each of those row fields holds, as the note says it.
 _HOLDS: Mapping[str, str] = {
     "handle": "the title, path and date", "provenance": "the source and trust",
@@ -535,6 +539,10 @@ def _where_names(
     sent: dict[str, list[str]] = {}
     for name in select:
         target = WHERE_NAMES_IN_ROWS.get(name) or WHERE_DATES_IN_ROWS.get(name)
+        if target is None and shape == "grep_list":
+            # PACT read-names-list-3666: a grep list row names its record by
+            # its handle; `attrs.title` and `attrs.path` were refused there.
+            target = GREP_LIST_ATTR_NAMES.get(name)
         if target is None or name in known or target not in own:
             out.append(name)
             continue

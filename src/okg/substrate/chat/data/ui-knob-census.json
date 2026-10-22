@@ -317,11 +317,11 @@
       "knob": "preset (display name, description, system prompt, suggestions)",
       "manifest_field": "chat.preset",
       "mechanism": "api",
-      "mechanism_detail": "POST /api/v1/models/sync (whole-set reconciliation), or POST /api/v1/models/create and POST /api/v1/models/model/update for single rows.",
+      "mechanism_detail": "POST /api/v1/models/create for a new row and POST /api/v1/models/model/update for an existing one. POST /api/v1/models/sync (whole-set reconciliation) is measured below and never called.",
       "persistent_config": true,
       "readback": "GET /api/v1/models/export",
       "drivable": false,
-      "notes": "BROKEN AT THIS VERSION FOR RECONCILIATION. /api/v1/models/sync inserts and deletes correctly but CANNOT UPDATE an existing preset, and fails silently. See models_sync_semantics below. Single-row create/update endpoints remain available and are the viable path."
+      "notes": "The preset IS written and updated by its own sync surface through /api/v1/models/create and /api/v1/models/model/update, then verified by readback. The census does not admit it as a chat.ui knob because it is a model row, not a chat.ui setting. The whole-set endpoint /api/v1/models/sync cannot update an existing row and fails silently (see models_sync_semantics below), so sync never calls it."
     },
     {
       "knob": "prompt suggestions",

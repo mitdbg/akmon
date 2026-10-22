@@ -307,7 +307,10 @@ def _cmd_source_retry(
     from okg.substrate.cli.dsn_authority import resolve_read_dsn
 
     run = runner or _default_runner
-    resolution = resolve_read_dsn(args, surface="chat.source-retry")
+    try:
+        resolution = resolve_read_dsn(args, surface="chat.source-retry")
+    except SubstrateError as err:
+        return _emit_error(err, as_json=as_json)
     deployment = resolution.deployment or args.deployment
     before_dlq = _read_dlq(resolution.dsn)
     plan = retry_plan(
@@ -622,7 +625,8 @@ def _print_human(report: Any) -> None:
         reason = excluded["reason"]
         print(
             f"  census-excluded knob {excluded['knob']} "
-            f"(mechanism {excluded['mechanism']}): "
+            f"(mechanism {excluded['mechanism']}; census note, "
+            f"not a write failure): "
             + (reason if len(reason) <= 200 else reason[:200] + "…")
         )
     if report.prompt is not None:

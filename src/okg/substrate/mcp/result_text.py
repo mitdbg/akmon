@@ -73,6 +73,10 @@ HANDLE_KEY = "handle"
 #: named in the handle's `masked` list instead of carrying a value.
 HANDLE_FIELDS = ("title", "path", "date")
 HANDLE_MASKED_KEY = "masked"
+#: The row and read field holding the id a reader cites,
+#: ``{"<attr>": "<value>"}`` (`citation_id.CITATION_KEY`, restated: this
+#: renderer imports no operator module; PACT read-names-list-3666).
+CITATION_KEY = "citation_id"
 #: The search row field that points inside a record (PACT
 #: read-model-s5-location, design `read-model` 3.6, D10):
 #: ``{"chunk": <chunk id>, "offset": <character offset in that chunk's
@@ -699,6 +703,31 @@ def _lower_bound(payload: dict[str, Any]) -> bool:
 _COUNT_NOT_IN_TIME = "count not computed in time"
 
 
+#: What a grep page's scan bound counts, as the status line names it.
+_GREP_BOUND_UNITS = {
+    "candidate_rows": "candidate records",
+    "index_rows": "rows the word index returned",
+    "id_rows": "records of the scope",
+}
+
+
+def _grep_scanned(payload: dict[str, Any]) -> Optional[str]:
+    """``no match in the first 2,000 candidate records, more may follow``
+    for a grep page that stopped at its bound with no record of its own
+    (`grep_searched.bound_read`), or None when the page does not say."""
+    searched = payload.get("grep_searched")
+    bound_read = searched.get("bound_read") if isinstance(searched, dict) else None
+    if not isinstance(bound_read, dict):
+        return None
+    read = _int(bound_read.get("rows"))
+    unit = _GREP_BOUND_UNITS.get(str(bound_read.get("bound")))
+    if read is None or unit is None:
+        return None
+    where = "next" if bound_read.get("continued") is True else "first"
+    more = "more may follow" if payload.get("continuation_token") else "not read further"
+    return f"no match in the {where} {read:,} {unit}, {more}"
+
+
 def _counts(payload: dict[str, Any], n_rows: int) -> Optional[str]:
     """``<first>-<last> of <N | N+ | count unknown>`` (design `read-model` 3.5).
 
@@ -721,7 +750,12 @@ def _counts(payload: dict[str, Any], n_rows: int) -> Optional[str]:
         ) + ", not a total"
     if payload.get("page_basis") == "scan_bound_reached" and n_rows == 0:
         # A grep page that stopped at a row bound before any record of its
-        # own: no count line ("0 of 0+" reads as no matches).
+        # own: no count line ("0 of 0+" reads as no matches). Lane ri,
+        # tokens: agents read "no records on this page" as no match (12 such
+        # pages, none continued), so the line says how much was read.
+        scanned = _grep_scanned(payload)
+        if scanned is not None:
+            return scanned
         return "bound reached, no records on this page"
     unknown = payload.get("total_count_basis") == "unknown"
     if total is None and n_rows == 0 and not unknown:
@@ -799,6 +833,20 @@ def _not_a_total_notice(payload: dict[str, Any]) -> Optional[str]:
         else None
     )
     return line + "; for a total: " + (rendered or "see not_a_total.for_a_total")
+
+
+def cut_line(reason: str, shown: int, left: Optional[int], next_call: str) -> str:
+    """The one line a cut page prints (issue #3666, reply-cap's cut line):
+    ``! <reason>: K rows shown, L left; next: <call>``. ``reason`` is what
+    cut it (``cut to fit B bytes``, ``cut at limit L``); ``left`` is None
+    when the rows left are not counted."""
+    rest = "count unknown" if left is None else f"{left:,} left"
+    return f"! {reason}: {shown:,} rows shown, {rest}; next: {next_call}"
+
+
+def page_rows_key(payload: dict[str, Any], tool: str) -> Optional[str]:
+    """The key of the rows list the text view prints for `tool`'s page."""
+    return _rows_key(payload, tool)
 
 
 def _exact_requested(payload: dict[str, Any]) -> bool:
@@ -1193,6 +1241,13 @@ def _summary_lines(block: dict[str, Any]) -> list[str]:
     return [SEP.join(head), *_table_rows("aggregate", block["groups"], {}, 1, _Shown())]
 
 
+#: Token refusals where the token itself did not open as sent, so copying it
+#: again from the reply that printed it can help (continuation.OPAQUE_REASONS).
+_COPYABLE_TOKEN_REASONS = frozenset({
+    "malformed", "signature_invalid", "payload_invalid", "version_invalid",
+})
+
+
 def _retry(error: dict[str, Any]) -> tuple[str, Optional[str]]:
     """A refusal's ``retry: <change>`` text, and the error key it came from.
 
@@ -1218,6 +1273,23 @@ def _retry(error: dict[str, Any]) -> tuple[str, Optional[str]]:
         return (rendered, "retry_call") if rendered is not None else (
             "see retry_call below", None,
         )
+    if (
+        isinstance(call, dict) and isinstance(call.get("tool"), str)
+        and isinstance(call.get("arguments"), dict) and call.get("mode") == "restart"
+        and error.get("code") == "continuation_token_invalid"
+    ):
+        # Lane ri, tokens: a continuation token that did not open. The
+        # restart is the caller's own call without the token, printed as
+        # sent; a token that was miscopied can also be copied again.
+        rendered = _retry_call_text(call)
+        if rendered is not None:
+            data = error.get("data") if isinstance(error.get("data"), dict) else {}
+            copy_again = data.get("reason") in _COPYABLE_TOKEN_REASONS
+            return (
+                ("copy the token exactly as printed, or restart: " if copy_again
+                 else "restart: ") + rendered,
+                "retry_call",
+            )
     for key in ("fix_hint", "remedy"):
         value = error.get(key)
         if isinstance(value, str) and value and not is_block(value):
@@ -1821,6 +1893,25 @@ def _node_cut_notices(payload: dict[str, Any]) -> list[str]:
     return out
 
 
+def _node_cut_reads(payload: dict[str, Any], limit: int = 3) -> list[str]:
+    """The calls that read what a cut inspect(node) left out, each once, in
+    the order its notices name them: the record's whole text, then each cut
+    part's own read (`parts_cut`), then a left-out attribute's read."""
+    calls: list[Any] = [payload.get("read_whole")]
+    parts = payload.get("parts_cut")
+    if isinstance(parts, dict):
+        calls += [entry.get("read_whole") for entry in parts.values() if isinstance(entry, dict)]
+    cut = payload.get("attrs_cut")
+    if isinstance(cut, dict):
+        calls += [entry.get("read") for entry in cut.values() if isinstance(entry, dict)]
+    out: list[str] = []
+    for call in calls:
+        text = _target_call_text(call)
+        if text is not None and text not in out:
+            out.append(text)
+    return out[:limit]
+
+
 def _count(value: Any) -> str:
     """A count or size with thousands separators; other values as scalars."""
     number = _int(value)
@@ -1881,15 +1972,37 @@ def _text_match_notice(payload: dict[str, Any]) -> Optional[str]:
     if read is None:
         return None
     line = f"! text condition: {read:,} records' text read"
+    if facts.get("index_timed_out") is True:
+        # PACT read-search-caps-3666: the word index read passed the
+        # timeout, so the records the rest of the condition admits were
+        # read whole instead.
+        line += " (the rest of the condition's records; the word index read timed out)"
     counted = _int(facts.get("records_counted"))
     if counted is not None:
+        captured = facts.get("capture_group") is True
+        merged = facts.get("merged")
+        # PACT read-aggregate-variants-3666: what a group is.
+        what = "the capture group's text" if captured else "every match"
+        line += f"; {what} in {counted:,} records counted; "
+        if isinstance(merged, str):
+            line += f"groups merge {merged} (variants lists each text as matched)"
+        else:
+            line += "groups keep letter case though matching ignores it"
         line += (
-            f"; every match in {counted:,} records counted; groups keep letter "
-            "case though matching ignores it; a spot two terms match counts once per term"
+            "; only the capture group is counted, other terms choose records"
+            if captured else "; a spot two terms match counts once per term"
         )
+        repeated = _int(facts.get("repeated_passages"))
+        if repeated:
+            line += (
+                f"; {repeated:,} passages repeating their record's own text "
+                "counted once, in the own text"
+            )
         missing = _int(facts.get("records_without_match"))
         if missing:
             line += (
+                f"; {missing:,} of the records hold no text the capture group matched"
+                if captured else
                 f"; {missing:,} of the records hold no matched text (a phrase "
                 "running across two passages)"
             )
@@ -1950,6 +2063,14 @@ def _source_hint_notices(payload: dict[str, Any]) -> list[str]:
         lead = f"{_one_line(note)}; " if isinstance(note, str) else ""
         out.append(f"! source {sent}: {lead}source ids holding it: {named}")
     return out
+
+
+def _names_only_line(payload: dict[str, Any]) -> Optional[str]:
+    """Lane ri (CompOps q020): a read that picked files by name names the
+    grep over file texts, with their count (`name_only_hint`)."""
+    from okg.substrate.mcp.name_only_hint import NAMES_ONLY_KEY, render
+
+    return render(payload.get(NAMES_ONLY_KEY))
 
 
 def _notices(
@@ -2055,6 +2176,9 @@ def _notices(
             "numbers sort as text too"
         )
     out += _source_hint_notices(payload)
+    names_only = _names_only_line(payload)
+    if names_only is not None:
+        out.append(names_only)
     texts = payload.get("contains_text")
     if isinstance(texts, list) and texts and all(isinstance(n, str) for n in texts):
         # Issue #3666: what a text `contains` cannot match.
@@ -2082,6 +2206,19 @@ def _notices(
     if text_match is not None:
         out.append(text_match)
     facts = payload.get("text_match")
+    pairs = facts.get("may_be_one") if isinstance(facts, dict) else None
+    if isinstance(pairs, list) and pairs and all(
+        isinstance(p, list) and len(p) == 2 and all(isinstance(s, str) for s in p)
+        for p in pairs
+    ):
+        # PACT read-aggregate-variants-3666: groups whose words another
+        # group's words hold; no normalization can tell they are one.
+        out.append(
+            "! may be one value: " + "; ".join(
+                f"{safe_json(a)} holds {safe_json(b)}" for a, b in pairs
+            ) + "; to merge, leave the extra words out of the capture group: "
+            "re:/<label>: (?:<extra> )?([A-Za-z ]+)/"
+        )
     if isinstance(facts, dict) and facts.get("one_group_plain_words") is True:
         # Format v10 item C (#3666): by=["match"] over plain words.
         out.append(
@@ -2099,9 +2236,15 @@ def _notices(
                 f"{scalar(payload.get('effective_limit'))} served)"
             )
         remedy = payload.get("truncation_remedy")
+        cut_reads = _node_cut_reads(payload)
         if isinstance(remedy, str) and remedy:
             # Issue #3467: the caller's own select is why few rows fit.
             out.append(" ".join(bits) + f"; {remedy}")
+        elif cut_reads:
+            # Lane ri, tokens: a cut node read ends `next: none`, and agents
+            # moved on from 90 of 98 such pages; this line names the calls
+            # that read what was cut.
+            out.append(" ".join(bits) + "; read what was cut with " + " or ".join(cut_reads))
         else:
             out.append(" ".join(bits))
     # PACT read-passage-rows-3666 (D8): the rerun advice for a bounded
@@ -2153,6 +2296,22 @@ def _notices(
     load_note = payload.get("load_note")
     if isinstance(load_note, str) and load_note:
         out.append(f"! {load_note}")
+    # What a total over a kept live answer covers.
+    cover = payload.get("totals_cover")
+    if isinstance(cover, str) and cover:
+        out.append(f"! totals cover: {cover}")
+    # #3666, lane ri: a group key some rows lack, and a sum that added a
+    # non-integer value, are said, never left for the reader to find.
+    absent_keys = payload.get("absent_keys")
+    if isinstance(absent_keys, dict) and absent_keys:
+        from okg.substrate.mcp.live_result_sets import absent_sentence
+
+        out.append(f"! {absent_sentence(absent_keys)}")
+    not_exact = payload.get("sum_not_exact")
+    if isinstance(not_exact, list) and not_exact:
+        from okg.substrate.mcp.live_result_sets import inexact_sentence
+
+        out.append(f"! {inexact_sentence([str(label) for label in not_exact])}")
     if "zero_hit_reason" in payload:
         out.append(
             f"! no hits: {scalar(payload.get('zero_hit_reason'))} "
@@ -2356,6 +2515,26 @@ def _line_fact(block: dict[str, Any]) -> Optional[str]:
     return f"{whose} lines {held} of {block['total']}"
 
 
+def _not_read_calls(payload: dict[str, Any], first: int, total: int) -> list[str]:
+    """The calls that read a cut text page's lines `first`-`total`: the
+    page's own `next`, and the lines read of the record, each printed as it
+    is sent (lane ri, tokens). Empty when neither can be printed safely."""
+    ways: list[str] = []
+    token = payload.get("continuation_token")
+    if isinstance(token, str) and token:
+        call = _call_text({"tool": "inspect", "arguments": {"next": token}})
+        if call is not None:
+            ways.append(f"read on with {call}")
+    node_id = payload.get("node_id")
+    if isinstance(node_id, str) and node_id:
+        call = _call_text({"tool": "inspect", "arguments": {"target": {
+            "kind": "text", "node_id": node_id, "lines": [[first, total]],
+        }}})
+        if call is not None:
+            ways.append(f"read those lines with {call}")
+    return ways
+
+
 def _line_notices(payload: dict[str, Any]) -> list[str]:
     """What a reader must know before trusting a line number (#3666): that
     the numbers are not the source's, that a range ran past the text's end,
@@ -2374,6 +2553,22 @@ def _line_notices(payload: dict[str, Any]) -> list[str]:
         )
     if block.get("past_end"):
         out.append(f"! lines: the text ends at line {block['total']}")
+    last, total = block.get("last"), block.get("total")
+    if (
+        "served" not in block and isinstance(last, int) and isinstance(total, int)
+        and last < total and payload.get("truncated") is True
+    ):
+        # A page read cut short (in one eval ~80% of cut reads were never
+        # continued): say what was not read and the calls that read it.
+        # Lane ri, tokens: with "`next` reads on" alone, 10 of 50 such notes
+        # in one eval run were followed; the calls are now printed whole.
+        ways = _not_read_calls(payload, last + 1, total)
+        out.append(
+            f"! not read: lines {last + 1}-{total}; " + (
+                ", or ".join(ways) if ways
+                else "`next` reads on, or target lines/matching read chosen parts"
+            )
+        )
     cut = block.get("cut")
     if cut is not None:
         out.append(
@@ -2447,7 +2642,7 @@ _PLACED_TOP = frozenset({
     "generation_id", "session_default_generation_id", "total_count", "next_offset",
     "truncated", "offset", "continuation_token", "source_freshness", "publish_freshness",
     "warning", "schema_behind_by", "pin_scope", "pagination", "pagination_hint",
-    "rank_capped", "method", "diversity_applied", "max_per_parent",
+    "rank_capped", "literal_read_bounded_ms", "method", "diversity_applied", "max_per_parent",
     "suppressed_sibling_count", "total_count_before_diversity", "duplicates_collapsed", "recency",
     "parent_relation", "concept_expansion", "parent_summaries", "row_defaults",
     "total_count_basis", "coverage", "complete", "truncation_reason", "response_byte_budget",
@@ -2464,6 +2659,7 @@ _PLACED_TOP = frozenset({
     "result_reference", "search_next", "exact_matches", "incoming_not_shown",
     "passages_not_shown", "truncation_remedy", "text_elsewhere", "resolved_path",
     "metadata_cut", "sample_nodes_omitted", "link_targets", "load_state", "load_note",
+    "totals_cover", "names_only", "absent_keys", "sum_not_exact",
     "items", "groups", "rows", "columns", "mentions", "not_a_total", "value_hint",
     "where_checked_on",
 })
@@ -2557,9 +2753,17 @@ def _placed_leftovers(
             # `link_targets` with nothing not loaded is its normal state.
             if value is None or isinstance(value, (dict, list)):
                 continue
-        elif key == "load_note":
+        elif key in ("load_note", "totals_cover"):
             # Said by its notice line (issue #3666).
             if value is None or isinstance(value, str):
+                continue
+        elif key in ("absent_keys", "sum_not_exact"):
+            # Said by its notice line (#3666, lane ri).
+            if value is None or isinstance(value, (dict, list)):
+                continue
+        elif key == "names_only":
+            # Said by its notice line whenever it renders (lane ri, q020).
+            if value is None or _names_only_line(payload) is not None:
                 continue
         elif key == "load_state":
             # "not_loaded" is said by the load_note notice (issue #3666);
@@ -3106,14 +3310,63 @@ class _LineParts(_Parts):
 #: Row keys the list line places itself; any other key prints as a fact.
 _LIST_ROW_PLACED = frozenset({
     "node_id", "subtype", HANDLE_KEY, "provenance", "read_provenance", "evidence_kind",
-    "unit", "copies", "copies_total", "parent", "matches", "first_match",
+    "unit", "copies", "copies_total", "parent", "matches", "first_match", CITATION_KEY,
 })
 #: ``search_views.LIST_ROW_UNIT_KEY``, restated: result_text imports no
 #: operator module.
 LIST_ROW_UNIT_KEY = "unit"
 
 
-def _search_list_line(index: int, row: dict[str, Any], page: dict[str, Any]) -> str:
+#: What a list page's notice says when every row's line counts the same text
+#: (PACT read-names-list-3666): said once, not on each row.
+_SHARED_LINE_BASIS_NOTICE = {
+    MATCH_LINE_IN_PASSAGE: "! lines: each counted in its passage",
+    MATCH_LINE_IN_OWN_TEXT: "! lines: each counted in the record's own text",
+}
+
+
+def _shared_line_basis(rows: list[Any]) -> Optional[str]:
+    """The one `line_basis` every list row with a first match carries, when
+    there are at least two such rows and the basis has a notice; else None."""
+    bases = [
+        row["first_match"].get("line_basis") for row in rows
+        if isinstance(row, dict) and isinstance(row.get("first_match"), dict)
+    ]
+    if len(bases) < 2 or len(set(bases)) != 1 or bases[0] not in _SHARED_LINE_BASIS_NOTICE:
+        return None
+    return bases[0]
+
+
+def _plain_text(value: Any) -> Optional[str]:
+    """A string's text without its inline fence, or None."""
+    if not isinstance(value, str):
+        return None
+    inner = _fenced_inner(value) if FENCE in value else value
+    return inner if isinstance(inner, str) else None
+
+
+def _restated_in_handle(text: Any, handle: Any) -> Optional[str]:
+    """``"title"`` or ``"path"`` when a list row's matched line says nothing
+    its handle does not (the line, ellipses cut, is inside that field,
+    ignoring case), else None. Fenced and unfenced values compare by text;
+    a fenced line is only said to restate a field of the same row."""
+    line = _plain_text(text)
+    if not line or not isinstance(handle, dict):
+        return None
+    core = line.strip().removeprefix("...").removesuffix("...").strip().casefold()
+    if not core:
+        return None
+    for name in ("title", "path"):
+        field = _plain_text(handle.get(name))
+        if field and core in field.casefold():
+            return name
+    return None
+
+
+def _search_list_line(
+    index: int, row: dict[str, Any], page: dict[str, Any],
+    *, shared_basis: Optional[str] = None,
+) -> str:
     """One record of ``view="list"`` as exactly one physical line.
 
     ``[n] <id> (<type>) · <title> · <path> · <date>`` from the handle, as on a
@@ -3126,6 +3379,8 @@ def _search_list_line(index: int, row: dict[str, Any], page: dict[str, Any]) -> 
     if row.get(LIST_ROW_UNIT_KEY) == "passage":
         # A passage the records fold kept as its own row, never a record.
         parts.facts.append("passage")
+    # PACT read-names-list-3666: the id a reader cites, then title and path.
+    parts.facts += _citation_facts(parts, row.get(CITATION_KEY))
     if HANDLE_KEY in row:
         parts.facts += _handle_facts(parts, row[HANDLE_KEY], inline=True)
     if "matches" in row:
@@ -3137,20 +3392,35 @@ def _search_list_line(index: int, row: dict[str, Any], page: dict[str, Any]) -> 
         parts.facts.append(f"{count}{more} match" + ("" if row["matches"] == 1 and not more else "es"))
     # Outside the count: a `select` may keep `first_match` without `matches`.
     first = row.get("first_match")
-    if isinstance(first, dict):
+    restated = (
+        _restated_in_handle(first.get("text"), row.get(HANDLE_KEY))
+        if isinstance(first, dict) else None
+    )
+    if restated is not None:
+        # PACT read-names-list-3666: the matched line is the title (or the
+        # path) the row already printed: said once, without its line, which
+        # the JSON form keeps.
+        parts.facts.append(f"match in {restated}")
+    elif isinstance(first, dict):
         where = f"line {scalar(first.get('line'))}"
         if first.get("chunk") != row.get("node_id"):
             where = f"{token_text(first.get('chunk'))} {where}"
-        parts.facts.append(f"first {where}")
+        own_text = (
+            first.get("line_basis") == MATCH_LINE_IN_OWN_TEXT
+            and shared_basis != MATCH_LINE_IN_OWN_TEXT
+        )
+        # PACT read-names-list-3666: the record's own `text` attribute,
+        # which `inspect` text does not read, named in two words.
+        parts.facts.append(f"first own-text {where}" if own_text else f"first {where}")
         if first.get("text") is not None:
             parts.block("text", first["text"])
-        if first.get("line_basis") == MATCH_LINE_IN_PASSAGE:
+        if own_text or (shared_basis is not None and first.get("line_basis") == shared_basis):
+            # Said beside the line, or once in the page's notice
+            # (`_SHARED_LINE_BASIS_NOTICE`).
+            pass
+        elif first.get("line_basis") == MATCH_LINE_IN_PASSAGE:
             # #3666: the line could not be placed in the record's text.
             parts.facts.append("line counted in the passage")
-        elif first.get("line_basis") == MATCH_LINE_IN_OWN_TEXT:
-            # The record's own `text` attribute, not what `inspect`
-            # text reads.
-            parts.facts.append("line counted in its own text")
         elif first.get("line_basis") is not None:
             parts.fact("line_basis", first["line_basis"])
     parent = row.get("parent")
@@ -3846,6 +4116,30 @@ def _head_text(parts: _Parts, name: str, value: Any, *, quote: bool) -> Optional
     return _handle_value(parts, name, value, quote=quote, inline=True)
 
 
+def _citation_facts(parts: _Parts, value: Any) -> list[str]:
+    """``<attr> <value>`` for a row's or read's `citation_id` (PACT
+    read-names-list-3666): the id a reader cites, beside the record's id."""
+    if value is None:
+        return []
+    if not isinstance(value, dict) or len(value) != 1:
+        parts.fact(CITATION_KEY, value)
+        return []
+    ((name, cited),) = value.items()
+    text = _head_text(parts, str(name), cited, quote=False)
+    return [] if text is None else [f"{key_text(str(name))} {text}"]
+
+
+def _read_citation_facts(payload: dict[str, Any], shown: Any) -> list[str]:
+    """An inspect node or text read's citation id as status-line facts; a
+    value that cannot print on that line is left for the other-fields block."""
+    cited = _LineParts()
+    citation = _citation_facts(cited, payload.get(CITATION_KEY))
+    if not citation or cited.facts:
+        return []
+    shown.keys.add(CITATION_KEY)
+    return citation
+
+
 def _head_fields(parts: _Parts, fields: Any) -> list[str]:
     """``[[name, value], ...]`` (or a mapping) as head facts, in order."""
     pairs: list[tuple[Any, Any]] = []
@@ -3944,6 +4238,7 @@ def _passage_head(index: int, row: dict[str, Any], page: dict[str, Any]) -> tupl
         # A list row that is a passage, not a record (`unit`), says so first
         # (PACT read-model-s4-list), as a list line without a head did.
         facts = ["passage"] if row.get("unit") == "passage" else []
+        facts += _citation_facts(parts, row.get(CITATION_KEY))
         facts += _head_fields(parts, head.get("fields"))
         title = _head_text(parts, "title", head.get("title"), quote=True)
         values = head.get("fields") if isinstance(head.get("fields"), list) else []
@@ -3968,7 +4263,7 @@ def _passage_head(index: int, row: dict[str, Any], page: dict[str, Any]) -> tupl
         line = f"[{index}] {ident_text(ident)}"
         if row.get("subtype") is not None:
             line += f" ({ident_text(row.get('subtype'))})"
-        facts = []
+        facts = _citation_facts(parts, row.get(CITATION_KEY))
         if isinstance(row.get(HANDLE_KEY), dict):
             facts += _handle_facts(parts, row[HANDLE_KEY], inline=True)
         parent = row.get("parent")
@@ -3977,6 +4272,12 @@ def _passage_head(index: int, row: dict[str, Any], page: dict[str, Any]) -> tupl
     if row.get("phrase_match") is False:
         # A quoted lexical search: this record does not hold the phrase.
         facts.append("no exact phrase")
+    count = row.get("match_count")
+    if isinstance(count, int) and not isinstance(count, bool):
+        # A grep within="record" row: every match over the record's units
+        # (PACT read-search-caps-3666), on the head line, so a sweep of head
+        # lines still says how much each record holds.
+        facts.append(f"{count:,} {'match' if count == 1 else 'matches'}")
     copies = _copies_fact(row, page)
     if copies is not None:
         facts.append(copies)
@@ -4028,6 +4329,13 @@ def _match_line_body(matches: Any) -> tuple[list[str], Optional[str]]:
             label = key_text(field)
         else:
             label = "match"
+        unit = match.get("unit")
+        if isinstance(unit, str) and unit:
+            # A grep within="record" line names the unit it is in
+            # (`text`, or a passage's type and its stated place).
+            place = match.get("unit_place")
+            name = key_text(unit) + (f" {place}" if _whole(place) else "")
+            label = f"{name} {label}" if _whole(line) else name
         lines.append(
             f"{_ROW_INDENT}{label}: {_one_line(match.get('text'))}{_cut_note(match)}"
         )
@@ -4171,9 +4479,11 @@ def _passage_row(
     page: dict[str, Any],
     session_state: Optional[dict[str, Any]],
     call: Optional[str],
+    repeats: Optional[list[bool]] = None,
 ) -> list[str]:
     """One search row: head, selected values, matched passage (or grep
-    lines). The read call is the reply's one pointer line (D5)."""
+    lines). The read call is the reply's one pointer line (D5). `repeats`
+    gets whether the row printed no new text (`shown earlier`)."""
     lines, ident = _passage_head(index, row, page)
     lines += _selected_lines(row.get("selected"))
     read_kind = _row_read_kind(row, page)
@@ -4195,6 +4505,8 @@ def _passage_row(
             else:
                 _mark_served(session_state, ident, call, key)
     lines += body
+    if repeats is not None:
+        repeats.append(repeat)
     read_whole = None if repeat else _read_whole_line(row, page)
     if read_whole is not None:
         lines.append(read_whole)
@@ -4365,7 +4677,13 @@ def _grep_searched_notice(payload: dict[str, Any], n_rows: int) -> Optional[str]
     fields = [str(f) for f in block.get("fields") or [] if isinstance(f, (str, int))]
     comments = block.get("comments")
     what = ", ".join(key_text(f) for f in fields) or "record text"
-    if comments is True:
+    if block.get("name_only") is True:
+        # Lane ri (CompOps q020): `source_file` records hold path words only.
+        what = (
+            "path words (a source_file holds no file contents; contents are "
+            "document records)"
+        )
+    elif comments is True:
         what += ", comments"
     elif comments is False:
         what += "; comments not searched"
@@ -4441,7 +4759,17 @@ def _search_status(
         facts.append(said)
     elif method is not None and not is_block(method):
         facts.append(token_text(method))
-    if payload.get("view") in ("list", "metadata", "windows"):
+    if method == "grep" and payload.get("and_scope") in ("text_unit", "record"):
+        # PACT read-search-caps-3666: where the terms had to meet, said on
+        # every grep page, so an empty unit page reads as a reason to try
+        # within="record" rather than as "no record holds these words".
+        facts.append("within record" if payload["and_scope"] == "record" else "within unit")
+    if payload.get("view") == "list" and payload.get("view_implied") is True:
+        # PACT read-names-list-3666: the call named no view; grep's default
+        # is one name line per record, and the next call that shows the
+        # matched lines is named.
+        facts.append('list (grep default; view="cards" shows matched lines)')
+    elif payload.get("view") in ("list", "metadata", "windows"):
         facts.append(str(payload["view"]))
     passages = payload.get("result_unit") == "passage"
     if passages:
@@ -4605,8 +4933,14 @@ def _render_search(
     unknown = _unknown_selected_notice(rows, selected)
     if unknown is not None:
         lines.append(unknown)
+    shared_basis = (
+        _shared_line_basis(rows) if payload.get("view") == "list" else None
+    )
+    if shared_basis is not None:
+        lines.append(_SHARED_LINE_BASIS_NOTICE[shared_basis])
     start = (_int(payload.get("offset")) or 0) + 1
     windows_view = payload.get("view") == "windows"
+    repeats: list[bool] = []
     for index, row in enumerate(rows, start):
         if payload.get("view") == "list" and isinstance(row, dict):
             # D1: the short row shape is the head line alone.
@@ -4615,7 +4949,9 @@ def _render_search(
                 # D6: a list row with a select is the head plus the chosen keys.
                 lines += _selected_lines(row.get("selected"))
             else:
-                lines.append(_search_list_line(index, row, payload))
+                lines.append(
+                    _search_list_line(index, row, payload, shared_basis=shared_basis)
+                )
             continue
         lines.append("")
         if not isinstance(row, dict):
@@ -4623,7 +4959,13 @@ def _render_search(
         elif windows_view:
             lines += _window_record_card(index, row)
         else:
-            lines += _passage_row(index, row, payload, session_state, call)
+            lines += _passage_row(index, row, payload, session_state, call, repeats)
+    help_lines = _repeat_help(payload, query, len(rows), sum(repeats))
+    if help_lines is not None:
+        fact, notice = help_lines
+        head, tail = _before_ending(lines[0])
+        lines[0] = SEP.join([head, fact, *([tail] if tail else [])])
+        lines.insert(1, notice)
     block = _summary(payload) if _metadata(payload) else None
     if block is not None:
         lines.append("")
@@ -4632,6 +4974,68 @@ def _render_search(
     if pointer is not None:
         lines += ["", pointer]
     return "\n".join(lines)
+
+
+#: A search page fires the repeat help when every row was shown earlier, or
+#: at least this many rows and this share of them (PACT read-search-caps-3666).
+REPEAT_HELP_ROWS = 3
+REPEAT_HELP_SHARE = 0.8
+#: Arguments the repeat help leaves out of the calls it builds: they page,
+#: size or shape this call's reply, not what it searches.
+_REPEAT_HELP_DROPPED = frozenset({
+    "offset", "continuation_token", "max_bytes", "max_chars", "view", "rank_by",
+    "completeness", "retain", "summary", "scope", "matching", "context_chars",
+    "max_per_parent", "select", "limit", "within",
+})
+
+
+def _repeat_help(
+    payload: dict[str, Any], query: Any, n_rows: int, n_repeat: int,
+) -> Optional[tuple[str, str]]:
+    """``(status fact, notice)`` when a search page holds mostly rows this
+    session already printed (PACT read-search-caps-3666), else None.
+
+    Agents on the hard-50 fishing questions repeated near-identical searches
+    whose rows were all `shown earlier` and never changed method. The page
+    says so on its first line and names the broader moves, each a call built
+    from this one: other words as a regex alternation, every term anywhere
+    in a record (grep `within="record"`), every matching record as ids only
+    (the sweep), and a type or path filter."""
+    if n_rows <= 0 or not (
+        n_repeat == n_rows
+        or (n_repeat >= REPEAT_HELP_ROWS and n_repeat >= REPEAT_HELP_SHARE * n_rows)
+    ):
+        return None
+    fact = (
+        f"all {n_rows} rows shown earlier" if n_repeat == n_rows
+        else f"{n_repeat} of {n_rows} rows shown earlier"
+    )
+    from okg.substrate.mcp.response_bounds import call_arguments
+
+    sent = call_arguments()
+    base: dict[str, Any] = {}
+    if isinstance(sent, dict) and isinstance(sent.get("query"), str):
+        base = {k: v for k, v in sent.items() if k not in _REPEAT_HELP_DROPPED}
+    elif isinstance(query, str) and query:
+        # The query as the reply read it (the page's own `query` key is
+        # not always kept on the rendered payload).
+        base = {"query": query}
+        if isinstance(payload.get("path_prefix"), str):
+            base["path_prefix"] = payload["path_prefix"]
+    moves = ["other words: re:/x|y/ matches either spelling"]
+    if base.get("query"):
+        record = {**base, "method": "grep", "within": "record"}
+        if payload.get("and_scope") != "record":
+            shown = call_text({"tool": "search", "arguments": record})
+            if shown is not None:
+                moves.append(f"each term anywhere in a record: {shown}")
+        sweep = call_text({"tool": "search", "arguments": {
+            **record, "select": ["node_id", "handle"], "limit": 100,
+        }})
+        if sweep is not None:
+            moves.append(f"every match, ids only: {sweep}")
+    moves.append('narrower: where={"type":"<type>"} or path_prefix="<path>"')
+    return fact, "! rows repeat; to find other records: " + "; ".join(moves)
 
 
 def _count_each_match_line(payload: dict[str, Any]) -> Optional[str]:
@@ -5075,7 +5479,13 @@ def _live_lines(node: Any, live: dict[str, Any]) -> list[str]:
     query = live.get("query")
     if shown == 0 and live.get("truncated") is True and isinstance(query, dict) and query:
         lines.append(f"args: {safe_json(query)}")
-    if reference.get("retained") is True and reference.get("id") is not None:
+    if reference.get("retained") is True and reference.get("id") is not None and live.get("each"):
+        # A fanned-out answer is kept for its total: name the call that adds.
+        lines.append(
+            f"kept; total a column: aggregate(input={{\"ref\": {safe_json(reference['id'])}}}, "
+            'by=[], metrics=["sum(attrs.<field>)"]); also min, max, filter, map'
+        )
+    elif reference.get("retained") is True and reference.get("id") is not None:
         # The caller asked to keep the answer: its id, for filter/map/aggregate.
         lines.append(
             f"kept: filter/map/aggregate(input={{\"ref\": {safe_json(reference['id'])}}})"
@@ -5093,6 +5503,61 @@ def _live_lines(node: Any, live: dict[str, Any]) -> list[str]:
         lines.append(
             f"! {len(altered)} upstream field name(s) were rewritten to be safe to print"
         )
+    hint = live.get("run_hint")
+    if isinstance(hint, dict) and isinstance(hint.get("call"), dict):
+        # H3 (#3666, lane ri): built from this session's own calls.
+        from okg.substrate.mcp.run_tool import call_text
+
+        lines.append(
+            f"! {scalar(hint.get('values'))} calls differ only in "
+            f"{scalar(hint.get('argument'))}; one run makes them all (add the "
+            f"other values to the list): {call_text(hint['call'])}"
+        )
+    return lines
+
+
+def held_rows_lines(
+    rows: list[Any], sources: list[str], first: int = 1,
+) -> list[str]:
+    """Rows a `run` step holds (#3666, lane ri), printed as live rows are:
+    one line each, inside an untrusted-data fence per run of rows from one
+    source (a live relation, a values step). `rows` are already wrapped
+    (``_fence_payload``); each value prints its inner text."""
+    lines: list[str] = []
+    current: Optional[str] = None
+    for index, (row, source) in enumerate(zip(rows, sources), first):
+        if source != current:
+            if current is not None:
+                lines.append(FENCE_CLOSE)
+            lines.append(f"{FENCE} source={_marker_source_text(source)}⟧")
+            current = source
+        if isinstance(row, dict):
+            parts = _live_row_parts(row, value_chars=LIVE_VALUE_CHARS, keep_fields=None)
+            body = SEP.join(f"{label} {text}" for label, text in parts)
+        else:
+            body = _live_value(row, LIVE_VALUE_CHARS)
+        lines.append(f"[{index}] {body}".rstrip())
+    if current is not None:
+        lines.append(FENCE_CLOSE)
+    return lines
+
+
+def held_groups_lines(
+    groups: list[dict[str, Any]], by: list[str], metrics: list[str], source: str,
+) -> list[str]:
+    """An aggregate's groups over a `run` step's rows (#3666, lane ri): one
+    line each, the group's key values first, then its metrics, in the order
+    asked. Key values are wrapped (``_fence_payload``) and print their inner
+    text inside one fence; ``(absent)`` is the server's word."""
+    lines = [f"{FENCE} source={_marker_source_text(source)}⟧"]
+    for index, group in enumerate(groups, 1):
+        parts = [
+            f"{_neutralise_markers(name)} {_live_value(group.get(name), LIVE_KEY_CHARS)}"
+            for name in by
+        ]
+        parts += [f"{name} {scalar(group.get(name))}" for name in metrics]
+        lines.append(f"[{index}] " + SEP.join(parts))
+    lines.append(FENCE_CLOSE)
     return lines
 
 
@@ -5362,10 +5827,14 @@ def _render(
         facts.append(
             f"{token_text(payload.get('node_id'))} ({token_text(payload.get('subtype'))})"
         )
+        # PACT read-names-list-3666: the id a reader cites, beside the id.
+        facts += _read_citation_facts(payload, shown)
     elif text_shape:
         facts.append(
             f"text of {token_text(payload.get('node_id'))} ({token_text(payload.get('subtype'))})"
         )
+        # PACT read-names-list-3666: the id a reader cites, beside the id.
+        facts += _read_citation_facts(payload, shown)
         facts.append(f"{len(rows)} segment" + ("" if len(rows) == 1 else "s"))
         line_block = _line_block(payload)
         line_fact = _line_fact(line_block) if line_block is not None else None

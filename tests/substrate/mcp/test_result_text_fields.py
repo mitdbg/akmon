@@ -52,6 +52,9 @@ def _structural_lines(text: str) -> list[str]:
 NORMAL_ONLY = frozenset({
     "response_shape", "row_trust", "ranked_cap", "pagination", "pagination_hint",
     "results", "neighbors", "items", "groups", "rows",
+    # JSON only: the text says the stop through `where_checked_on` (PACT
+    # read-filtered-search-speed-3666).
+    "literal_read_bounded_ms",
 })
 
 #: A compared_as_stored note as the server writes it (issue #3666, 2c).
@@ -241,6 +244,16 @@ ABNORMAL = {
                       "not_loaded_keys": ["lt:MARK"], "basis": "exact"},
                      ["! links: 3 cited, 2 not loaded", "lt:MARK (+1 more)"]),
     "load_note": ("ln-MARK", ["! ln-MARK"]),
+    # what a total over a kept live answer covers.
+    "totals_cover": ("tc-MARK", ["! totals cover: tc-MARK"]),
+    # Lane ri (#3666): a group key some rows lack, a sum over non-integers.
+    "absent_keys": ({"attrs.ak-MARK": 3},
+                    ["! 3 rows have no ak-MARK: they are the group (absent)"]),
+    "sum_not_exact": (["sum(attrs.se-MARK)"],
+                      ["! sum(attrs.se-MARK) includes non-integer values"]),
+    # Lane ri (CompOps q020): a read of file names names the file-text grep.
+    "names_only": ({"reason": "path_test", "query": "nm-MARK", "terms": 1, "count": 0,
+                    "count_basis": "exact"}, ['no file text contains "nm-MARK"']),
     "load_state": ("ls_MARK", ["ls_MARK"]),
 }
 

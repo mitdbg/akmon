@@ -1475,13 +1475,16 @@ def test_a_large_node_with_equal_values_and_an_unserved_copy_is_still_cut() -> N
     def inspect(target: dict[str, Any], max_bytes: int = 4_096) -> dict[str, Any]:
         return json.loads(json.dumps(node))
 
-    for budget in (4_096, 12_288):
-        with result_context(ResultContext(format="json", tool="inspect")):
+    # Measured in the format it was cut for (lane ri, tokens: the text form's
+    # page-cut line now names the calls that read the cut parts, so a page
+    # cut for JSON no longer happens to fit as text too).
+    for budget, fmt in ((4_096, "json"), (12_288, "json"), (4_096, "text"), (12_288, "text")):
+        with result_context(ResultContext(format=fmt, tool="inspect")):
             page = bound_read_tool("inspect", inspect)(
                 target={"kind": "node", "node_id": "jira:BIG-2"}, max_bytes=budget,
             )
-        assert page.get("status") != "refused", page
-        assert public_call_tool_result_bytes(page) <= budget
+            assert page.get("status") != "refused", page
+            assert public_call_tool_result_bytes(page) <= budget
         attrs, cut = page["attrs"], page["attrs_cut"]
         assert PRODUCER_TEXT_ATTR not in cut and PRODUCER_TEXT_ATTR not in attrs
         assert cut["text"]["chars"] == cut["body"]["chars"] == 40_000

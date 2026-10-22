@@ -101,7 +101,10 @@ def _clear_process_schema_caches() -> None:
     from okg.substrate.publisher import native_view_stage as _native_view_stage
     from okg.viz import endpoints as _viz_endpoints
 
+    from okg.substrate.nomos import reader_view as _reader_view
+
     clear_all_registry_caches()
+    _reader_view.clear_reader_view_cache()
     clear_schema_ensured_cache()
     _clear_mcp_grant_guard()
     _attributes._TABLE_EXISTS_CACHE.clear()

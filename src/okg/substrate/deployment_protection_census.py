@@ -10,7 +10,8 @@ protection tier and measures the facts the tiered design needs
   alone (fail-closed: the census informs the policy, it does not relax
   it).
 - ``sealed_candidate`` — chronos interval history whose *closed* rows
-  (``live_hi`` below the open sentinel) could be digest-sealed. The
+  (``live_hi`` below the default branch's open bound; rows of other
+  branches are not told apart and count as closed) could be digest-sealed. The
   census measures row topology only. It never converts a row ratio into
   physical-byte or dump-volume savings.
 - ``rebuildable_candidate`` — derived read models with existing rebuild
@@ -32,11 +33,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from psycopg import sql
+from psycopg.rows import dict_row
 
-# Postgres open-interval sentinel (chronos_core.branching._common:
-# _POSTGRES_MAX_INTERVAL). A row whose live_hi equals the sentinel is an
-# OPEN interval (mutable in place); anything below it is closed.
-POSTGRES_OPEN_INTERVAL_SENTINEL = 10 ** 31
+from okg.substrate.db.cold_history import resolve_open_interval_value
 
 _SYSTEM_SCHEMAS = ("pg_catalog", "information_schema", "pg_toast")
 
@@ -329,7 +328,7 @@ def _compaction_watermark(cur) -> dict[str, Any] | None:
 
 
 def _measure_interval_coldness(
-    cur, schema: str, name: str
+    cur, schema: str, name: str, open_interval_value: int
 ) -> dict[str, Any]:
     cur.execute(
         sql.SQL(
@@ -343,7 +342,7 @@ def _measure_interval_coldness(
           FROM {} AS interval_rows
         """
         ).format(sql.Identifier(schema, name)),
-        (POSTGRES_OPEN_INTERVAL_SENTINEL,),
+        (open_interval_value,),
     )
     total, closed, deleted = cur.fetchone()
     total = int(total)
@@ -362,6 +361,7 @@ def generate_protection_census(conn) -> dict[str, Any]:
     """Generate the census against a live connection (read-only)."""
     entries: list[dict[str, Any]] = []
     observed_at = datetime.now(timezone.utc).isoformat()
+    open_interval_value: int | None = None
     with conn.cursor() as cur:
         fingerprint = _schema_fingerprint(cur)
         watermark = _compaction_watermark(cur)
@@ -386,8 +386,15 @@ def generate_protection_census(conn) -> dict[str, Any]:
                 if _CHRONOS_INTERVAL_COLUMNS <= columns:
                     entry["rule"] = "chronos_interval_history"
                     entry["sealed_candidate"] = True
+                    if open_interval_value is None:
+                        # The segment tables' open bound is the default
+                        # branch's current live_hi, not a fixed constant.
+                        with conn.cursor(row_factory=dict_row) as dict_cur:
+                            open_interval_value = resolve_open_interval_value(
+                                dict_cur
+                            )
                     entry["coldness"] = _measure_interval_coldness(
-                        cur, schema, name
+                        cur, schema, name, open_interval_value
                     )
                 else:
                     entry["rule"] = "chronos_interval_shape_mismatch"

@@ -1046,7 +1046,7 @@ def test_a_failed_commit_says_the_outcome_is_unknown(
 OIDC_BLOCK = {
     "provider_id": "cms-sso",
     "issuer": "https://auth.example.org/realms/cms",
-    "audience": "cms-kb",
+    "audience": "example-kb",
     "subject_claim": "email",
     "roles_claim": "cms_roles",
     "principal_kind": "human_operator",
@@ -1221,18 +1221,18 @@ def test_malformed_provider_or_grant_is_refused_before_connecting(
         # No trusted verifier: the server's start check refuses the row.
         (
             ["--provider-id", "cms-sso", "--issuer", OIDC_BLOCK["issuer"],
-             "--audience", "cms-kb", "--subject-claim", "email"],
+             "--audience", "example-kb", "--subject-claim", "email"],
             "mcp-oidc:jwks",
         ),
         # The subject claim defaults to sub, which the block does not name.
         (
             ["--provider-id", "cms-sso", "--issuer", OIDC_BLOCK["issuer"],
-             "--audience", "cms-kb", "--trusted-verifier", "mcp-oidc:jwks"],
+             "--audience", "example-kb", "--trusted-verifier", "mcp-oidc:jwks"],
             "subject_claim",
         ),
         (
             ["--provider-id", "cms-sso", "--issuer", OIDC_BLOCK["issuer"],
-             "--audience", "cms-kb", "--subject-claim", "email",
+             "--audience", "example-kb", "--subject-claim", "email",
              "--trusted-verifier", "mcp-oidc:jwks", "--role-claim", "cms_roles"],
             "'roles'",
         ),
@@ -1285,20 +1285,20 @@ def test_provider_add_for_oidc_auth_passes_the_server_start_check(
     _declare_oidc_auth(monkeypatch, OIDC_BLOCK)
     rc, added = _run_noun(
         capsys, "provider", "add", *_db(clean_runtime), "--for-oidc-auth",
-        "--reason", "cms-kb launch",
+        "--reason", "example-kb launch",
     )
     assert rc == 0, added
     assert added["oidc_auth_check"]["status"] == "passed"
     provider = added["provider"]
     assert provider["provider_id"] == "cms-sso"
     assert provider["subject_claim"] == "email"
-    assert provider["audiences"] == ["cms-kb"]
+    assert provider["audiences"] == ["example-kb"]
     assert provider["trusted_verifiers"] == ["mcp-oidc:jwks"]
     assert provider["status"] == "active" and provider["in_effect"] is True
     assert provider["written_by"] == _default_actor(clean_runtime)
     events = provider["metadata"]["events"]
     assert [event["action"] for event in events] == ["added"]
-    assert events[0]["reason"] == "cms-kb launch"
+    assert events[0]["reason"] == "example-kb launch"
     # The row the command wrote is the row the MCP server checks at start.
     with psycopg.connect(clean_runtime) as conn:
         providers = load_identity_providers(conn, deployment_name=DEPLOYMENT)

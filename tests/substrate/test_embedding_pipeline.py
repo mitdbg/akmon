@@ -706,9 +706,17 @@ def test_a_cleared_vector_does_not_force_a_new_generation(
             {"node_id": "chunk:1"},
         )
     after = _plain_cycle(clean_runtime, deployment)
-    assert after["reused_generation"] is True
-    assert after["generation_id"] == published["generation_id"]
+    # The cleared vector is not an embedding write: the probe counts none.
+    # It is still a row written since the last generation, and reusing that
+    # generation would leave the row in its head and make admission feedback
+    # refuse it (#3625), so the cycle cuts one checkpoint that seals it
+    # (this test used to expect reuse here). The next idle cycle reuses it.
     assert after["timings_ms"]["embedding_writes_probe.nodes"] == 0.0
+    assert after["noop_reuse_invalidation_reason"] == "zero_net_graph_writes"
+    assert after["generation_id"] != published["generation_id"]
+    idle = _plain_cycle(clean_runtime, deployment)
+    assert idle["reused_generation"] is True
+    assert idle["generation_id"] == after["generation_id"]
 
 
 def test_the_embed_worker_refuses_a_paid_backend(

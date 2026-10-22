@@ -497,6 +497,9 @@ class LiveCall(_Model):
 
     relation: str
     args: dict[str, Any] = Field(default_factory=dict)
+    #: One argument and its values: a list, or {"ref": <kept live answer>,
+    #: "field": <its column>}. One call per value, one kept answer.
+    each: Optional[dict[str, Union[list[Any], dict[str, str]]]] = None
     retain: Optional[bool] = None
 
 
@@ -761,7 +764,9 @@ SearchMethod = Literal[
 DIRECTIONS: tuple[str, ...] = ("out", "in")
 #: v1 computes one metric. `aggregate` raised on anything else; the schema
 #: now says so before the call is made.
-AggregateMetric = Literal["count"]
+#: "count"; over a kept live answer also "sum(attrs.<field>)", "min(...)",
+#: "max(...)" (`live_result_sets.check_metrics` refuses any other by name).
+AggregateMetric = Annotated[str, Field(pattern=r"^(count|(sum|min|max)\(attrs\.[^().]+\))$")]
 
 
 # ── inspect targets ───────────────────────────────────────────────────
@@ -830,8 +835,10 @@ class TText(_Model):
 
     `at` starts the read at a search hit's location; without `node_id` it
     reads that chunk alone (PACT read-model-s5-location). `lines` reads
-    chosen line ranges of the text instead of all of it. `path` (and
-    `source`) name a file instead of `node_id` (#3666 step 3b)."""
+    chosen line ranges of the text instead of all of it. `matching` reads
+    only the lines holding a text or `re:/<regex>/`, with `context` lines
+    around each (default 2). `path` (and `source`) name a file instead of
+    `node_id` (#3666 step 3b)."""
 
     kind: Literal["text"]
     node_id: Optional[str] = None
@@ -839,6 +846,8 @@ class TText(_Model):
     source: Optional[str] = None
     at: Optional[TextAt] = None
     lines: TextLines = None
+    matching: Optional[str] = None
+    context: Optional[int] = None
     continuation_token: Optional[str] = None
 
 
@@ -1564,7 +1573,10 @@ def publish_client_readable_schemas(mcp: Any) -> int:
             _drop_published_op(published, "like")
             _drop_published_op(published, "like_exact")
         budget = published.get("properties", {}).get("max_bytes")
-        if name in OPERATOR_TOOLS and isinstance(budget, dict):
+        # `run` (#3666) shares its budget among its steps and refuses a
+        # budget that cannot give each printed step the floor, naming the
+        # value that would; its schema does not repeat the floor.
+        if name in OPERATOR_TOOLS and name != "run" and isinstance(budget, dict):
             budget["minimum"] = MIN_RESPONSE_BYTES
         _describe_next_alternative(name, published)
         grown += len(json.dumps(published, separators=(",", ":"))) - before

@@ -1068,6 +1068,159 @@ def parse_line_target(
     return parse_lines(lines, field=f"{field}.lines")
 
 
+#: `matching` on a text read (compops-read-fixes): read only
+#: the lines that match, with `context` lines around each, as `rg -n -C`
+#: would. The windows are an ordinary line read of the same text, so every
+#: number is a line `lines` takes back. At most `MAX_LINE_RANGES` windows a
+#: read; `MATCHED_LINES_LISTED` matched line numbers are listed in all.
+MAX_MATCHING_CHARS = 200
+MAX_MATCHING_CONTEXT = 20
+DEFAULT_MATCHING_CONTEXT = 2
+MATCHED_LINES_LISTED = 200
+
+
+@dataclass(frozen=True)
+class LineMatching:
+    """A validated `matching`: its form as given, how many lines of context."""
+
+    pattern: str
+    context: int
+    test: Any
+
+    def signed(self) -> dict[str, Any]:
+        return {"matching": self.pattern, "context": self.context}
+
+
+def parse_matching(
+    matching: Any, context: Any, *, lines: Any, at: Any, field: str = "target",
+) -> Optional[LineMatching]:
+    """A text target's validated `matching`, or None when it names none.
+
+    A literal matches a line holding it, in any case; `re:/<regex>/` is a
+    regex, also in any case. `matching` reads its own lines, so it takes
+    neither `lines` nor `at`."""
+
+    if matching is None:
+        if context is not None:
+            raise InvalidOperatorArguments(
+                "inspect text: context is the lines around each matching line; "
+                "it needs matching",
+                data={"tool": "inspect", "invalid_fields": [f"{field}.context"]},
+                fix_hint='add "matching": "<text or re:/regex/>", or drop context',
+            )
+        return None
+    form = (
+        'target={"kind":"text","node_id":"<record>","matching":"<text>" or '
+        '"re:/<regex>/","context":<0-' + str(MAX_MATCHING_CONTEXT) + ">}"
+    )
+    if lines is not None or at is not None:
+        raise InvalidOperatorArguments(
+            "inspect text: matching reads the lines that match; it cannot be "
+            "combined with lines or at",
+            data={"tool": "inspect", "invalid_fields": [
+                f"{field}.matching", f"{field}.lines" if lines is not None else f"{field}.at",
+            ]},
+            fix_hint="pass one of them",
+        )
+    if (
+        not isinstance(matching, str) or not matching.strip()
+        or len(matching) > MAX_MATCHING_CHARS
+    ):
+        raise InvalidOperatorArguments(
+            f"inspect text: matching is text of 1-{MAX_MATCHING_CHARS} characters",
+            data={"tool": "inspect", "invalid_fields": [f"{field}.matching"]},
+            fix_hint="pass e.g. " + form,
+        )
+    if context is None:
+        context = DEFAULT_MATCHING_CONTEXT
+    if (
+        not isinstance(context, int) or isinstance(context, bool)
+        or not 0 <= context <= MAX_MATCHING_CONTEXT
+    ):
+        raise InvalidOperatorArguments(
+            f"inspect text: context is a whole number of lines, 0-{MAX_MATCHING_CONTEXT}",
+            data={"tool": "inspect", "invalid_fields": [f"{field}.context"]},
+            fix_hint="pass e.g. " + form,
+        )
+    if matching.startswith("re:/") and matching.endswith("/") and len(matching) > 5:
+        from okg.substrate.external_backed.live_dispatch import _backtracks
+
+        body = matching[4:-1]
+        try:
+            compiled = re.compile(body, re.IGNORECASE)
+        except re.error as exc:
+            raise InvalidOperatorArguments(
+                f"inspect text: matching is not a valid regex ({exc.msg})",
+                data={"tool": "inspect", "invalid_fields": [f"{field}.matching"]},
+                fix_hint="fix the regex, or pass the text itself",
+            ) from exc
+        if _backtracks(body):
+            raise InvalidOperatorArguments(
+                "inspect text: matching repeats a group that itself repeats or "
+                "branches (e.g. (a+)+ or (a|b)*), which can take very long",
+                data={"tool": "inspect", "invalid_fields": [f"{field}.matching"]},
+                fix_hint="use a|b at the top level, or a plain repeat",
+            )
+        test = compiled.search
+    else:
+        # `a|b` is either text, as `rg 'a|b'` reads it (in one eval, 21
+        # of 74 reads wrote it so and matched nothing); `||` stays literal.
+        parts = (
+            [part.casefold() for part in matching.split("|") if part.strip()]
+            if "|" in matching and "||" not in matching else [matching.casefold()]
+        ) or [matching.casefold()]
+
+        def test(line: str) -> bool:
+            folded = line.casefold()
+            return any(part in folded for part in parts)
+
+    return LineMatching(matching, context, test)
+
+
+def matching_ranges(
+    segments: Sequence["_Segment"], matching: LineMatching, total: int,
+) -> tuple[tuple[tuple[int, int], ...], dict[str, Any]]:
+    """The line ranges a `matching` read serves, and its `matching` block.
+
+    Lines are numbered as every text read numbers them (`number_lines`). A
+    window is a matched line with `context` lines each side; windows that
+    touch merge. Past `MAX_LINE_RANGES` windows, the block names the first
+    line no window holds, so the rest is one more read away."""
+
+    texts: dict[int, str] = {}
+    for segment in segments:
+        if not segment.text:
+            continue
+        for offset, piece in enumerate(segment.text.split("\n")):
+            number = segment.line_start + offset
+            texts[number] = texts.get(number, "") + piece
+    matched = [number for number in sorted(texts) if matching.test(texts[number])]
+    windows: list[list[int]] = []
+    for number in matched:
+        first = max(1, number - matching.context)
+        last = min(max(total, number), number + matching.context)
+        if windows and first <= windows[-1][1] + 1:
+            windows[-1][1] = max(windows[-1][1], last)
+        else:
+            windows.append([first, last])
+    shown = windows[:MAX_LINE_RANGES]
+    block: dict[str, Any] = {
+        "pattern": matching.pattern,
+        "context": matching.context,
+        "matched": len(matched),
+        "matched_lines": matched[:MATCHED_LINES_LISTED],
+        "windows": len(windows),
+        "windows_shown": len(shown),
+    }
+    if len(matched) > MATCHED_LINES_LISTED:
+        block["matched_lines_cut"] = True
+    if len(windows) > len(shown):
+        later = [number for number in matched if number > shown[-1][1]]
+        block["unshown_from_line"] = later[0]
+        block["unshown_matches"] = len(later)
+    return tuple((first, last) for first, last in shown), block
+
+
 @dataclass(frozen=True)
 class LineSpan:
     """Characters `start` to `end` of one segment, and the `lines` range
@@ -1255,13 +1408,15 @@ def read_record_text(
     continuation_token: Optional[str] = None,
     at: Any = None,
     lines: Any = None,
+    matching: Any = None,
+    context: Any = None,
     max_bytes: int = 64 * 1024,
     reserve_bytes: int = _DEFAULT_RESERVE_BYTES,
 ) -> dict[str, Any]:
     """Return one source-attributed page using the existing single-text contract."""
     prepared = prepare_record_text(
         conn, session, node_id, continuation_token=continuation_token,
-        at=at, lines=lines, max_bytes=max_bytes,
+        at=at, lines=lines, matching=matching, context=context, max_bytes=max_bytes,
     )
     return page_record_text(prepared, max_bytes=max_bytes, reserve_bytes=reserve_bytes)
 
@@ -1290,6 +1445,32 @@ def _text_twin_move(conn: psycopg.Connection, session: Session, node_id: str) ->
     )
 
 
+def _attach_citation(
+    conn: psycopg.Connection, session: Session, payload: dict[str, Any],
+    record: Mapping[str, Any],
+) -> None:
+    """Put the record's citation id on a text read (PACT read-names-list-3666).
+
+    Read from the record row the reader may see (redacted by the read
+    filter) and fenced by its producer's trust, classified on every call
+    as segment trust is. Nothing when the deployment names no attribute or
+    the record has no value."""
+    from okg.substrate.mcp.citation_id import (
+        CITATION_KEY,
+        citation_field,
+        fenced_citation,
+    )
+
+    field = citation_field(record.get("attrs"))
+    if not field:
+        return
+    source = record.get("source")
+    trust = classify_sources(
+        conn, deployment_name=session.deployment_name, sources=[source],
+    ).get(source, "untrusted")
+    payload[CITATION_KEY] = fenced_citation(field, {"trust": trust, "source": source})
+
+
 def prepare_record_text(
     conn: psycopg.Connection,
     session: Session,
@@ -1298,6 +1479,8 @@ def prepare_record_text(
     continuation_token: Optional[str] = None,
     at: Any = None,
     lines: Any = None,
+    matching: Any = None,
+    context: Any = None,
     max_bytes: int = 64 * 1024,
     bind_context: bool = True,
     classify_trust: bool = True,
@@ -1308,8 +1491,11 @@ def prepare_record_text(
     hash and chunk-only semantics. Source rows and trust are read once;
     callers can page this preparation without repeating those reads.
     `lines` makes it a line read: the pages hold those lines only.
+    `matching` makes it a line read of the lines that match (and `context`
+    lines around each), found in the text this reader is served.
     """
 
+    line_matching = parse_matching(matching, context, lines=lines, at=at)
     ranges = parse_line_target(lines, at)
     location = _parse_at(at) if at is not None else None
     given_node_id = node_id or None
@@ -1376,6 +1562,11 @@ def prepare_record_text(
     at_cursor: Optional[tuple[int, int]] = None
     if location is not None:
         at_cursor = _locate(location, located_text, segments, given_node_id, session)
+    matching_block: Optional[dict[str, Any]] = None
+    if line_matching is not None and segments:
+        ranges, matching_block = matching_ranges(
+            segments, line_matching, line_count(segments),
+        )
 
     # New text cursors carry the original response budget, so next alone
     # cannot silently expand a small page to the deployment default. Older
@@ -1384,7 +1575,10 @@ def prepare_record_text(
     projection: dict[str, Any] = {"node_id": node_id, "max_bytes": max_bytes}
     # A line read signs its ranges, so its token continues those lines and
     # no other read; a read with no `lines` binds exactly what it did before.
-    signed_lines = {"lines": asked_lines(ranges)} if ranges is not None else {}
+    signed_lines = (
+        line_matching.signed() if line_matching is not None
+        else {"lines": asked_lines(ranges)} if ranges is not None else {}
+    )
     projection.update(signed_lines)
     if continuation_token is not None:
         previous = open_continuation(continuation_token)["binding"].get("projection")
@@ -1448,6 +1642,7 @@ def prepare_record_text(
         "generation_id": session.generation_id,
         "pinned_generation_id": session.generation_id,
     }
+    _attach_citation(conn, session, payload, record)
     if segments:
         # What a line number of this read means and the last one; the page
         # builder adds the lines the page holds.
@@ -1455,12 +1650,15 @@ def prepare_record_text(
             **line_basis(segments, coverage, order_basis),
             "total": line_count(segments),
         }
-        if ranges is not None:
+        if ranges:
             payload["lines"]["requested"] = asked_lines(ranges)
-    elif ranges is not None:
+        if matching_block is not None:
+            payload["matching"] = matching_block
+    elif ranges is not None or line_matching is not None:
         # A line read of a record with no readable text: no lines exist.
         payload["lines"] = {
-            "basis": LINES_OF_SHOWN_TEXT, "total": 0, "requested": asked_lines(ranges), "served": [],
+            "basis": LINES_OF_SHOWN_TEXT, "total": 0,
+            "requested": asked_lines(ranges or ()), "served": [],
             "past_end": True,
         }
     if location is not None and location.hash is None and continuation_token is None:
@@ -1533,6 +1731,22 @@ def prepare_record_text(
         return PreparedRecordText(
             node_id, payload, (), {}, binding, (seg_index, char_index),
             extent_from, ranges,
+        )
+
+    if matching_block is not None and not ranges:
+        # No line matches: nothing to page. Say so, and what the text holds.
+        payload["lines"]["served"] = []
+        payload["outcome"] = {
+            "code": "no_line_matches",
+            "reason": f"no line of this text matches {line_matching.pattern!r}",
+            "next_move": (
+                "try other words or re:/a|b/; search(method=\"grep\") finds "
+                "the records that hold them"
+            ),
+        }
+        return PreparedRecordText(
+            node_id, payload, (), {}, binding, (seg_index, char_index),
+            extent_from, None,
         )
 
     # Trust is producer policy, not generation state: an operator can change

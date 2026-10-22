@@ -94,8 +94,10 @@ from okg.substrate.mcp.response_bounds import (
     MaxBytes,
     adjusted_reserve_bytes,
     call_arguments,
+    COUNT_EXACT_NOTE,
     forget_adjusted,
     note_adjusted,
+    note_count_may_vary,
     offer_retry_call,
     current_date_call as _current_date_call,
 )
@@ -139,12 +141,18 @@ from okg.substrate.mcp.operator_models import (
 from okg.substrate.mcp import search_where as _search_where
 from okg.substrate.mcp import search_arguments as _search_arguments
 import okg.substrate.mcp.result_references as _result_references
+from okg.substrate.mcp import live_reader as _live_reader
+from okg.substrate.mcp import live_resolver as _live_resolver
+from okg.substrate.mcp import live_nodes as _live_nodes
 from okg.substrate.mcp import live_result_sets as _live_results
+from okg.substrate.mcp import run_steps as _run_steps
+from okg.substrate.mcp import live_access_rules as _live_access_rules
 from okg.substrate.mcp import continuation as _continuation
 from okg.substrate.mcp.session import resolve_generation
 from okg.substrate.mcp.record_window_search import (
     validate_window_call as _validate_window_call,
 )
+from okg.substrate.mcp.operators import COMPOSITION_TOOLS as _COMPOSITION_TOOLS
 from okg.substrate.mcp.operators import OPERATOR_TOOLS, WRITE_ADMIN_TOOLS
 from okg.substrate.mcp.operator_models import (
     publish_client_readable_schemas,
@@ -233,6 +241,7 @@ from okg.substrate.mcp.envelope import (
 from okg.substrate.mcp.passage_rollup import (
     validate_rank_by as _validate_rank_by,
 )
+from okg.substrate.mcp import citation_id as _citation_id
 from okg.substrate.mcp.search_views import (
     SearchLimit as _SearchLimit,
     grep_list_projection as _grep_list_projection,
@@ -892,6 +901,25 @@ def _expand_destination_placed_sql(view: Any, alias: str, conn: Any, *, relation
         guard = _LINEAGE_SERVES_SQL.format(rel=relation)
         return f"(CASE WHEN {guard} THEN TRUE END)"
     return "CAST(NULL AS boolean)"
+
+
+#: The operator's switch for `run`'s live steps (#3666, lane ri).
+RUN_LIVE_STEPS_ENV = "OKG_MCP_RUN_LIVE_STEPS"
+
+
+def run_live_steps_enabled(environ: Optional[Mapping[str, str]] = None) -> bool:
+    """Whether `run` may make live calls: on unless the operator set
+    `OKG_MCP_RUN_LIVE_STEPS` to `0` or `off`. Any other value than those,
+    `1`, `on` or unset is refused at start, never read as on."""
+    raw = (environ if environ is not None else os.environ).get(RUN_LIVE_STEPS_ENV)
+    if raw is None or raw.strip().lower() in ("", "1", "on"):
+        return True
+    if raw.strip().lower() in ("0", "off"):
+        return False
+    raise ValueError(
+        f"{RUN_LIVE_STEPS_ENV}={raw!r}: set it to 0 or off to turn run's live "
+        "steps off, or to 1 or on (the default)"
+    )
 
 
 def _refuse_unbound_live_call(mcp: Any, live: Any) -> None:
@@ -1801,9 +1829,6 @@ def _with_multi_user_principal_gate(
     them, and its identical ``mcp.tool.call`` decision is content-addressed to
     the same row.
     """
-    from okg.substrate.mcp.principal_mapping import (
-        conflicting_identity_channel_error,
-    )
 
     def _resolve_or_refuse(conn: psycopg.Connection, tool_name: str) -> None:
         """Bind this request's claim to a subject, or raise."""
@@ -1849,20 +1874,14 @@ def _with_multi_user_principal_gate(
                         # `authority` is caught too: kwargs.get would report a
                         # missing header to a caller whose actual mistake was
                         # supplying its own identity.
-                        if (
-                            _nomos_identity_claim_from_authority(
-                                _bound_authority(signature, args, kwargs)
-                            )
-                            is not None
-                        ):
-                            raise conflicting_identity_channel_error(
-                                data={
-                                    "tool": tool_name,
-                                    "identity_channel": _identity_channel_for(
-                                        principal_mapping
-                                    ),
-                                },
-                            )
+                        # One rule in one place (#3666, N1): the live-graph
+                        # resolver asks the same check before any upstream
+                        # call (`_okg_identity_precheck`).
+                        refuse_conflicting_identity_channel(
+                            tool_name,
+                            _bound_authority(signature, args, kwargs),
+                            principal_mapping,
+                        )
                         _resolve_or_refuse(conn, tool_name)
                     except SubstrateError as exc:
                         if conn is not None:
@@ -1884,6 +1903,28 @@ def _with_multi_user_principal_gate(
         return _decorate
 
     return _gate
+
+
+def refuse_conflicting_identity_channel(
+    tool_name: str, authority: Mapping[str, Any] | None, principal_mapping: Any,
+) -> None:
+    """Refuse an `authority` that carries its own identity claim on a server
+    whose requests carry identity in their channel (header or token).
+
+    Shared by the per-tool gate (`_gate`) and the live-graph resolver, which
+    asks it before any upstream call (#3666, N1).
+    """
+    from okg.substrate.mcp.principal_mapping import (
+        conflicting_identity_channel_error,
+    )
+
+    if _nomos_identity_claim_from_authority(authority) is not None:
+        raise conflicting_identity_channel_error(
+            data={
+                "tool": tool_name,
+                "identity_channel": _identity_channel_for(principal_mapping),
+            },
+        )
 
 
 def _bound_authority(
@@ -2324,6 +2365,22 @@ OPERATOR_INSTRUCTION_PARAGRAPHS: tuple[tuple[InstructionSlot, ...], ...] = (
         ),
         # Prompt redesign (#3666): "Use search/filter to fetch specific
         # nodes" is gone; NODE LOOKUP and READING say how, per tool.
+        # #3666: served `run` was never called while agents repeated one
+        # call per value; only a launch that serves `run` says what it is
+        # for, and points at `query` only where `query` is served.
+        _alt(
+            (
+                ("run", "query"),
+                "Use `run` to build a list or a count over many records; in "
+                'one run call "$1" names step 1\'s records. `query` is for '
+                "what run cannot express. ",
+            ),
+            (
+                ("run",),
+                "Use `run` to build a list or a count over many records; in "
+                'one run call "$1" names step 1\'s records. ',
+            ),
+        ),
     ),
     NODE_LOOKUP_SLOTS,
     READING_SLOTS,
@@ -3067,6 +3124,11 @@ def _build_server(
     # something false, which is the defect class this rendering exists to
     # close.
     boundary_tools = set(OPERATOR_TOOLS)
+    if agent_surface is not None:
+        # `run` (#3666) is new: a deployment that declares its served set
+        # serves it only when it names it (`apply_admitted_tool_surface`
+        # intersects the same way), so the instructions do not name it.
+        boundary_tools -= set(_COMPOSITION_TOOLS) - set(agent_surface.served)
     # Jason, via orchestrator chat 2026-10-13, query-by-default: serve query
     # by default without access rules (issue #3666). Under `audit` or `enforce` (or a
     # mode that cannot be read) `query` is off on every launch path that
@@ -3612,6 +3674,10 @@ def _build_server(
     mcp._okg_live_bindings = (  # type: ignore[attr-defined]
         dict(agent_surface.live_bindings) if agent_surface is not None else {}
     )
+    # The operator's switch for `run`'s live steps (#3666, lane ri): off,
+    # a run refuses its live steps by name (`run_live_steps_off`) and a live
+    # call sent on its own is unaffected.
+    mcp._okg_run_live_steps = run_live_steps_enabled()  # type: ignore[attr-defined]
     mcp._okg_agent_surface = agent_surface  # type: ignore[attr-defined]
     # Adapter runners for live relations, by binding kind. The substrate's
     # BUILT-IN runners come first and the caller's `live_adapters` is merged
@@ -3650,6 +3716,13 @@ def _build_server(
     # shadow the kind entry. Filled by the load hook below, for deployments
     # that bind something.
     mcp._okg_live_relation_runners = {}  # type: ignore[attr-defined]
+    # The deployment's live types (#3666, PACT live-graph-rucio-sites), built
+    # once by the load hook below. Empty until then, and empty for a
+    # deployment that declares none: a read of a type not in it is a stored
+    # read, as before.
+    from okg.substrate.external_backed.live_types import LiveTypeRegistry
+
+    mcp._okg_live_types = LiveTypeRegistry()  # type: ignore[attr-defined]
     # LOAD-time cross-check (review finding 5). `parse_live_bindings` sees
     # the manifest and not the catalog, so on its own it can never catch a
     # binding for a relation nothing declares, or a declared relation nobody
@@ -3686,6 +3759,22 @@ def _build_server(
                 _live_session,
                 mcp._okg_live_bindings,  # type: ignore[attr-defined]
                 adapter_runners=mcp._okg_live_adapters,  # type: ignore[attr-defined]
+            )
+            # Live types (#3666), checked BEFORE any runner is built: every
+            # relation a type names is bound, `agent_surface.live_types`
+            # names only live types, prefixes are unique, and no stored node
+            # at the pinned generation uses a live type or prefix (one
+            # bounded probe per type). A relation declared on two subtypes
+            # was already refused by `assert_live_bindings_are_declared`.
+            from okg.substrate.external_backed.live_dispatch import (
+                build_live_type_registry,
+            )
+
+            mcp._okg_live_types = build_live_type_registry(  # type: ignore[attr-defined]
+                _live_check_conn,
+                _live_session,
+                bound=mcp._okg_live_bindings,  # type: ignore[attr-defined]
+                served=agent_surface.live_types,
             )
             # STARTUP registration of every bound relation's sample policy.
             # `declared_live_relations` rebuilds each one, which is also
@@ -4710,7 +4799,10 @@ def _build_server(
         def _enter_with_connection(self) -> "_PooledSession":
             self._memo_scope = read_pass_scope()
             self._memo_scope.__enter__()
+            self._run_timeout_prev = None
+            self._run_conn_token = None
             try:
+                self._open_run_budget()
                 header_claim = self._resolve_request_principal()
                 self.request_header_claim = header_claim
                 if header_claim is not None:
@@ -4736,12 +4828,58 @@ def _build_server(
                         use_cache=advance_mode == "never",
                     )
                     self._finish_session(header_claim)
-            except Exception:  # noqa: BLE001 — branch-pin failure must release the pooled conn before propagating; re-raises below.
-                pool.putconn(self.conn)
+            except Exception as exc:  # noqa: BLE001 — branch-pin failure must release the pooled conn before propagating; re-raises below.
+                _run_steps.note_cancelled(exc)
+                try:
+                    self._close_run_budget()
+                finally:
+                    pool.putconn(self.conn)
                 self.conn = None
                 self._close_memo_scope()
                 raise
             return self
+
+        def _open_run_budget(self) -> None:
+            """Inside a `run` step (#3666): every statement on this
+            connection runs under what is left of the step's budget, and a
+            row check reads a set on it."""
+            ms = _run_steps.statement_budget_ms()
+            if ms is None:
+                return
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT current_setting('statement_timeout')")
+                previous = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT set_config('statement_timeout', %s, false)", (f"{int(ms)}ms",),
+                )
+            self._run_timeout_prev = previous
+            self._run_conn_token = _run_steps.bind_connection(self.conn)
+            # The timeout above is per statement; a read that runs several
+            # statements is also cut at the budget's deadline itself.
+            self._run_watch = _run_steps.watch_deadline(self.conn)
+
+        def _close_run_budget(self) -> None:
+            watch, self._run_watch = getattr(self, "_run_watch", None), None
+            # Once stop() returns no cancel is sent; one already sent may
+            # not have reached the server yet.
+            fired = watch.stop() if watch is not None else False
+            token, self._run_conn_token = getattr(self, "_run_conn_token", None), None
+            if token is not None:
+                _run_steps.unbind_connection(token)
+            previous, self._run_timeout_prev = getattr(self, "_run_timeout_prev", None), None
+            if fired and self.conn is not None:
+                # A late cancel could cut the next borrower's statement: the
+                # connection is closed, and the pool discards a closed one.
+                try:
+                    self.conn.close()
+                except Exception:  # noqa: BLE001 - already broken; the pool discards it either way.
+                    pass
+                return
+            if previous is None or self.conn is None:
+                return
+            # A connection whose timeout cannot be put back is closed, and
+            # the pool discards a closed connection.
+            _run_steps.restore_timeout(self.conn, previous)
 
         def _close_memo_scope(self) -> None:
             scope, self._memo_scope = self._memo_scope, None
@@ -4750,7 +4888,12 @@ def _build_server(
 
         def __exit__(self, exc_type, exc, tb) -> None:
             if self.conn is not None:
-                pool.putconn(self.conn)
+                if exc is not None:
+                    _run_steps.note_cancelled(exc)
+                try:
+                    self._close_run_budget()
+                finally:
+                    pool.putconn(self.conn)
                 self.conn = None
             self._close_memo_scope()
 
@@ -5734,6 +5877,7 @@ def _build_server(
         DATE_WINDOW_OP as _DATE_WINDOW_OP,
         EFFECTIVE_VIEW_FIELD_COLUMNS as _EFFECTIVE_VIEW_FIELD_COLUMNS,
         CompiledPredicate as _CompiledPredicate,
+        SqlLeaf as _SqlLeaf,
         as_operator_timestamp as _as_timestamp,
         compile_read_predicate as _compile_read_predicate,
         effective_attr_lowerer as _effective_attr_lowerer,
@@ -6975,6 +7119,16 @@ def _build_server(
         err.code = "unsupported_operator_form"
         return err
 
+    def _run_set_predicate(rest: Any, text_ids: list[str] | None) -> Any:
+        """A `run` step's set (#3666) when `_text_members` took its text
+        clause off: the rest of the condition over the matching ids."""
+        if text_ids is None:
+            return rest
+        # No record's text matches: an empty `in` is refused, so the set is
+        # the empty id, which no record has.
+        members = {"op": "in", "field": "node_id", "values": list(text_ids) or [""]}
+        return {"op": "and", "clauses": [rest, members]} if rest else members
+
     def _text_members(
         conn: psycopg.Connection,
         session: Session,
@@ -7054,29 +7208,63 @@ def _build_server(
         indexable = tm.narrowing_query(condition.parsed) is not None
         rest_given = rest not in (None, {}, True)
         text_over = False
-        if indexable:
-            ids = tm.matching_record_ids(
-                conn, session, condition, tool=tool, subtypes=tm.type_scope(rest),
-            )
-            if len(ids) <= tm.SCAN_LIMIT:
-                return ids, {"records_scanned": len(ids), "scan": "index"}
-            text_over = True
-            if not rest_given:
-                raise refused(
-                    indexable=True, text_over=True, rest_over=False, rest_given=False,
+        index_timeout: Optional[SubstrateError] = None
+        # PACT read-search-caps-3666: a rest that names its node ids is the
+        # set to check; the index read would look at every record in the
+        # graph holding the term first (it timed out with 2 ids named).
+        if indexable and tm.id_scope(rest) is None:
+            from okg.substrate.mcp.grep_search import GrepTimeout
+
+            try:
+                ids = tm.matching_record_ids(
+                    conn, session, condition, tool=tool, subtypes=tm.type_scope(rest),
+                    rest_given=rest_given,
                 )
+            except GrepTimeout as exc:
+                # A short literal ("Own") matches most of the graph's text:
+                # its index read can pass the timeout where the rest of the
+                # condition holds few records. That set is read instead,
+                # and the reply says so (`index_timed_out`).
+                if not rest_given:
+                    raise
+                index_timeout = exc
+            else:
+                if len(ids) <= tm.SCAN_LIMIT:
+                    return ids, {"records_scanned": len(ids), "scan": "index"}
+                text_over = True
+                if not rest_given:
+                    raise refused(
+                        indexable=True, text_over=True, rest_over=False, rest_given=False,
+                    )
         within = _text_rest_ids_dated(
             conn, session, tool=tool, predicate=rest, cap=tm.SCAN_LIMIT,
         )
         if within is None:
             raise _text_not_compiled(tool)
         if len(within) > tm.SCAN_LIMIT:
+            if index_timeout is not None:
+                # PACT read-aggregate-variants-3666: every sliced literal
+                # read stopped and the rest is too large to read instead:
+                # the longest literal is read once with the whole timeout,
+                # as before the slices.
+                ids = tm.matching_record_ids(
+                    conn, session, condition, tool=tool,
+                    subtypes=tm.type_scope(rest), whole=True,
+                )
+                if len(ids) <= tm.SCAN_LIMIT:
+                    return ids, {"records_scanned": len(ids), "scan": "index"}
+                raise refused(
+                    indexable=True, text_over=True, rest_over=True, rest_given=True,
+                )
             raise refused(
                 indexable=indexable, text_over=text_over, rest_over=True,
                 rest_given=rest_given,
             )
         ids = tm.matching_record_ids(conn, session, condition, tool=tool, record_ids=within)
-        return ids, {"records_scanned": len(within), "scan": "set"}
+        return ids, {
+            "records_scanned": len(within), "scan": "set",
+            **({"index_timed_out": True} if index_timeout is not None else {}),
+        }
 
     def _text_type_retry(
         conn: psycopg.Connection,
@@ -7699,14 +7887,39 @@ def _build_server(
             identity["identity_predicate"] = _encode_nonfinite_operands(
                 None if fingerprint_of in (None, True, {}) else fingerprint_of
             )
+        leaf_lowerer = _effective_attr_lowerer(
+            kind, declared=declared, relation=relation, nullable=nullable,
+            readable=readable,
+        )
+        if _run_steps.unresolved_marker(predicate):
+            refusal = _run_steps.stale_marker_refusal()
+            raise InvalidOperatorArguments(refusal.message, fix_hint=refusal.fix_hint)
+        if _run_steps.holds_marker(predicate):
+            # `run` (#3666): a reference to an earlier step's set or values
+            # lowers to that step's query as a subquery; a reference under
+            # `not` is marked so it lowers to a form the planner hashes.
+            predicate = _run_steps.mark_negated(predicate)
+            plain_lowerer = leaf_lowerer
+            attrs_sql = (
+                f"COALESCE({relation + '.' if relation else ''}attrs, '{{}}'::jsonb)"
+                if nullable else f"{relation + '.' if relation else ''}attrs"
+            )
+
+            def leaf_lowerer(node: Any, bound: dict[str, Any], prefix: str) -> Any:
+                lowered = _run_steps.lower_marker(
+                    node, kind=kind, columns=_EFFECTIVE_VIEW_FIELD_COLUMNS[kind],
+                    relation=relation or "", attrs_sql=attrs_sql,
+                    readable=readable is not None,
+                )
+                if lowered is _run_steps.NOT_A_MARKER:
+                    return plain_lowerer(node, bound, prefix)
+                return None if lowered is None else _SqlLeaf(lowered)
+
         try:
             compiled = _compile_read_predicate(
                 _encode_nonfinite_operands(predicate),
                 **identity,
-                leaf_lowerer=_effective_attr_lowerer(
-                    kind, declared=declared, relation=relation, nullable=nullable,
-                    readable=readable,
-                ),
+                leaf_lowerer=leaf_lowerer,
                 field_map_identity=_effective_field_map_identity(kind, declared)
                 + (":reader_view" if readable is not None else ""),
                 prefix="pv",
@@ -8751,6 +8964,9 @@ def _build_server(
         count that did not finish. The timeout is set for this statement only
         and restored; a cancelled count rolls back its own savepoint.
         """
+        # This call's total can come out exact, a lower bound or unknown: the
+        # byte fit sizes for all three (PACT mcp-byte-fit-count-stable).
+        note_count_may_vary()
         cap = int(_OPERATOR_COUNT_CAP)
         sql = (
             f"SELECT count(*) FROM (SELECT 1 {from_where_sql} "
@@ -10340,6 +10556,13 @@ def _build_server(
             values = predicate.get("values")
             if not isinstance(values, list) or not values:
                 raise InvalidOperatorArguments("in predicate requires non-empty values")
+            try:
+                held = _run_steps.marker_matches(row, predicate, _operator_field_value)
+            except _run_steps.RunRefusal as exc:
+                raise InvalidOperatorArguments(exc.message, fix_hint=exc.fix_hint) from exc
+            if held is not _run_steps.NOT_A_MARKER:
+                # `run` (#3666): membership in an earlier step's set.
+                return bool(held)
             field = str(predicate.get("field") or "")
             value = _operator_field_value(row, field)
             # Same timestamp-normalization reason as `eq` above: `in` is a
@@ -11243,6 +11466,10 @@ def _build_server(
             if projection.get("lines") is not None:
                 # A line read signs its ranges; `next` reads on in them.
                 arguments["target"]["lines"] = projection["lines"]
+            if projection.get("matching") is not None:
+                # A matching read signs its pattern and context instead.
+                arguments["target"]["matching"] = projection["matching"]
+                arguments["target"]["context"] = projection.get("context")
         elif kind == "inspect_text_batch":
             arguments["target"] = {
                 "kind": "texts",
@@ -11322,9 +11549,20 @@ def _build_server(
         named. `node`/`text` take `path` (+`source`) for `node_id`.
         `text` reads a record's whole text in reading order,
         in pages of max_bytes (default 65536, up to 262144); `lines` reads
-        a list of [first,last] line ranges.
+        a list of [first,last] line ranges; `matching` (text or
+        re:/regex/) only matching lines, `context` (2) lines around.
         `next` continues a page at its page size, or at a new max_bytes.
         """
+        # A live node or live type (#3666, live-graph-rucio-sites): the
+        # resolver read it before this body ran; serve that reply.
+        live_reply = _live_nodes.served_node_reply("inspect")
+        if live_reply is not None:
+            return _stamp_operator(live_reply, "inspect")
+        # PACT read-names-list-3666: node and text reads name the record's
+        # citation id when this deployment declares `citation_attr`.
+        _citation_id.CITATION_ATTR.set(
+            _citation_id.deployment_citation_attr(deployment_name)
+        )
         if next is not None:
             arguments, refusal = _next_call("inspect", next, given={"target": target, "select": select})
             if refusal is not None:
@@ -11822,6 +12060,8 @@ def _build_server(
                     continuation_token=target.get("continuation_token"),
                     at=target.get("at"),
                     lines=target.get("lines"),
+                    matching=target.get("matching"),
+                    context=target.get("context"),
                     max_bytes=int(max_bytes),
                     reserve_bytes=(
                         max(0, stamp_bytes) + TEXT_READ_RESERVE_MARGIN
@@ -12776,6 +13016,19 @@ def _build_server(
         one_hop = path is None and int(depth) <= 1
         # '*' is any link, as in a path hop: the readers take it as None.
         edge_type = any_link(edge_type)
+        from okg.substrate.mcp.text_match import holds_text_clause
+
+        if one_hop and direction in ("out", "in") and not holds_text_clause(filter):
+            # `run`'s set is the far-end condition every one-hop branch below
+            # reads: the far record's type first, then the filter. A far-end
+            # filter with a text clause is recorded once that clause is the
+            # matched ids (`_expand_text_filter`, below), so a later "$n"
+            # reads exactly the expanded set (#3666).
+            recorded = filter or None
+            if target_subtype is not None:
+                of_type = {"op": "eq", "field": "subtype", "value": str(target_subtype)}
+                recorded = {"op": "and", "clauses": [of_type, recorded]} if recorded else of_type
+            _run_steps.note_set("expand", node_id, edge_type, direction, recorded)
         offset = validate_expand_offset(offset)
         if (filter or offset or order_by) and not one_hop:
             with _open(generation_id, authority=authority) as h:
@@ -12831,6 +13084,12 @@ def _build_server(
                     h.conn, h.session, node_id, filter=far,
                     edge_type=edge_type, direction=direction,
                 )
+                if text_condition is not None and direction in ("out", "in"):
+                    # `run`'s set is the far records the text matched, under
+                    # the rest of the far-end condition; never inlined.
+                    _run_steps.note_set(
+                        "expand", node_id, edge_type, direction, far, text=True,
+                    )
                 record_select = select
                 if text_condition is not None and isinstance(select, list):
                     # The match fields are the server's, not a record column
@@ -12896,10 +13155,14 @@ def _build_server(
                 filter = {"op": "and", "clauses": [typed, filter]} if filter else typed
             with _open(generation_id, authority=authority) as h:
                 validate_one_hop_edge_type(h.conn, h.session, edge_type, direction)
-                filter, text_facts, _ = _expand_text_filter(
+                filter, text_facts, text_condition = _expand_text_filter(
                     h.conn, h.session, node_id, filter=filter,
                     edge_type=edge_type, direction=direction,
                 )
+                if text_condition is not None and one_hop:
+                    _run_steps.note_set(
+                        "expand", node_id, edge_type, direction, filter, text=True,
+                    )
                 payload = _expand_one_hop_effective(
                     h.conn,
                     h.session,
@@ -13028,6 +13291,44 @@ def _build_server(
                 payload["siblings"] = _expand_sibling_block(h, node_id)
             return _stamp_operator(_maybe_stamp_advanced(h, payload), "expand")
 
+    def _each_values_from_kept(
+        argument: Any, source: Mapping[str, Any], authority: Any,
+    ) -> tuple[list[Any], dict[str, Any]]:
+        """`each={arg: {"ref": <kept live answer>, "field": <column>}}`: that
+        column's distinct values, in row order (a wildcard
+        listing feeds per-item size lookups), and the listing's
+        relation and arguments, which a total over the answer names."""
+        from okg.substrate.external_backed.live_dispatch import LiveArgumentsInvalid
+
+        ref, field = source.get("ref"), source.get("field")
+        if set(source) != {"ref", "field"} or not _live_results.is_live_id(ref) \
+                or not isinstance(field, str) or not field:
+            raise LiveArgumentsInvalid(
+                "live.each takes a list of values, or {\"ref\": <kept live "
+                "answer id>, \"field\": <its column>}",
+                data={"argument": str(argument)},
+                fix_hint='e.g. each={"item": {"ref": "l1...", "field": "item"}}',
+            )
+        state = _live_open("expand", ref_id=str(ref), authority=authority)
+        values: list[Any] = []
+        seen: set[str] = set()
+        for row in state["rows"]:
+            value = row.get(field) if isinstance(row, Mapping) else None
+            if value is None:
+                continue
+            text = _json.dumps(value, sort_keys=True, default=str)
+            if text not in seen:
+                seen.add(text)
+                values.append(value)
+        if not values:
+            raise LiveArgumentsInvalid(
+                f"live.each: the kept answer has no value in {field!r}",
+                data={"argument": str(argument), "field": field},
+                fix_hint="name a column the kept answer's rows carry",
+            )
+        listing = state["set"]
+        return values, {"relation": listing.relation_name, "query": dict(listing.query or {})}
+
     def _prepare_live_for_expand(
         mcp_server: Any,
         live: Any,
@@ -13067,9 +13368,32 @@ def _build_server(
         _refuse_unbound_live_call(mcp_server, live)
         body = as_mapping(live) or {}
         relation_name = str(body.get("relation") or "")
+        # Issue #3923: no live relation is called while access rules are on
+        # (audit or enforce) or when their state cannot be told. This is the
+        # first thing after the unbound check, before the anchor node is read,
+        # the gate is built or any adapter is chosen: zero outside calls. A
+        # direct call and a `run` step both come through here.
+        _live_access_rules.refuse_live_under_access_rules(
+            mcp_server,
+            f"expand(live=...) asks the live relation {relation_name!r}",
+            relation=relation_name, tool_called="expand",
+        )
         args = body.get("args") or {}
-        # Live result sets: keep this call's answer for later reads.
-        retain_requested = body.get("retain") is True
+        # `each`: one call per value of one argument, one joined answer. The
+        # values may be a column of a kept live answer (a wildcard listing).
+        each = body.get("each")
+        each_from: Optional[dict[str, Any]] = None
+        if isinstance(each, Mapping) and len(each) == 1:
+            ((each_arg, each_source),) = each.items()
+            if isinstance(each_source, Mapping):
+                values, each_from = _each_values_from_kept(each_arg, each_source, authority)
+                each = {each_arg: values}
+        each_key = (
+            str(next(iter(each))) if isinstance(each, Mapping) and len(each) == 1 else None
+        )
+        # Live result sets: keep this call's answer for later reads. A
+        # fanned-out answer is always kept: its point is a total over it.
+        retain_requested = body.get("retain") is True or each is not None
 
         bindings = getattr(mcp_server, "_okg_live_bindings", None) or {}
         runners = getattr(mcp_server, "_okg_live_adapters", None) or {}
@@ -13117,6 +13441,16 @@ def _build_server(
             # What a retained set is bound to, read here under the same
             # session the anchor was read in: every later read compares it.
             retain_context: dict[str, Any] | None = None
+            # `run` (#3666, lane ri): the reader a run's live step belongs
+            # to, read under the same session the anchor was read in. The
+            # H3 hint memory and a reader's fan-out runs are kept per
+            # (reader, logical MCP session) (review H2, M3).
+            reader_of_call = _continuation.reader_key(
+                authority, h.request_header_claim, multi_user_principals,
+            )
+            reader_for_run: Optional[str] = (
+                reader_of_call if _run_steps.live_prepare_active() else None
+            )
             if retain_requested:
                 retain_context = {
                     "binding": _live_binding(h.conn, h.session),
@@ -13125,6 +13459,20 @@ def _build_server(
                     ),
                     "header_claim": h.request_header_claim,
                 }
+
+        # The caller's logical MCP session, the one `logical_session_id`
+        # names; None without a stable session (stateless HTTP), and then
+        # no H3 hint is given. `session_id` above is not it: the frozen
+        # `Session` has no such field, so it was "mcp" for every caller
+        # and one user's hint showed another user's values (review H2).
+        logical_identity = _current_logical_identity()
+        logical_session: Optional[str] = (
+            str(logical_sessions.snapshot(logical_identity).logical_session_id)
+            if logical_identity is not None else None
+        )
+        hint_memory: Optional[str] = (
+            f"{reader_of_call}:{logical_session}" if logical_session else None
+        )
 
         bound_map = {
             name: BoundLiveRelation(relation=relation, binding=bindings[name])
@@ -13187,7 +13535,7 @@ def _build_server(
         # client error, and it must not cost a graph read first.
         reserve = live_reserve_envelope(
             bound=bound, args_model=args_model, args=args,
-            retain=retain_requested,
+            retain=retain_requested, each=each,
         )
 
         def keep_set(raw: Any, base: Mapping[str, Any], context: Mapping[str, Any]) -> Any:
@@ -13211,12 +13559,13 @@ def _build_server(
                 subject=resolve_live_principal(bound, None),
                 deployment_name=deployment_name,
                 session_id=session_id,
+                each_from=each_from,
             )
             if handle.kept:
                 _live_results.remember_call(
                     handle.draft.id, context["reader_key"],
                     _live_results.redo_call(
-                        node_id, relation_name, base.get("query") or {},
+                        node_id, relation_name, base.get("query") or {}, each_key,
                     ),
                 )
             return handle
@@ -13268,6 +13617,7 @@ def _build_server(
                 refuse_before_adapter=refuse,
                 retain=retain_hook if retain_requested else None,
                 keep=keep_hook,
+                each=each,
             )
 
         class _PreparedExpandLive:
@@ -13276,6 +13626,29 @@ def _build_server(
             #: The generation the relation was resolved at; the wrapper
             #: pins the graph step to it.
             generation_id = pinned_generation_id
+
+            # What a `run` live step reads to make its calls itself, in
+            # three phases (#3666, lane ri): the gate here, the calls on the
+            # wait-only executor, the sample on a call worker. Nothing here
+            # opens a connection except `write_sample`.
+            run_bound = bound
+            run_args_model = args_model
+            run_args = args
+            run_each = each
+            run_node_id = node_id
+            # A plain function, as the built-in runners are: kept unbound.
+            run_adapter = staticmethod(adapter)
+            run_reader_key = reader_for_run
+            run_logical_session = logical_session
+            run_session_id = session_id
+
+            def run_gate(self) -> Any:
+                from okg.substrate.external_backed.live_dispatch import gate_for_call
+
+                return gate_for_call(bound, gate, node_id)
+
+            def run_write_sample(self, **kwargs: Any) -> Any:
+                return write_sample(**kwargs)
 
             def reserve_envelope(self, graph: dict[str, Any]) -> dict[str, Any]:
                 # The pin is the graph page's own: generation ids are
@@ -13290,7 +13663,34 @@ def _build_server(
                 dispatch(room=None, pinned=pinned_generation_id, refuse=reason)
 
             def run(self, graph: dict[str, Any], room: Any) -> dict[str, Any]:
-                return dispatch(room=room, pinned=pinned_generation_id)
+                envelope = dispatch(room=room, pinned=pinned_generation_id)
+                hint = _live_run_hint(envelope)
+                if hint is not None and (room is None or room.fits({**envelope, "run_hint": hint})):
+                    envelope["run_hint"] = hint
+                return envelope
+
+        def _live_run_hint(envelope: Mapping[str, Any]) -> Optional[dict[str, Any]]:
+            """H3 (#3666, lane ri): on a direct call (no `each`) whose
+            relation this session asked with one argument changed, the run
+            that makes those calls in one. Only where `run` is served."""
+            from okg.substrate.external_backed.live_dispatch import (
+                validate_live_arguments,
+            )
+            from okg.substrate.mcp import live_run_hint
+            from okg.substrate.mcp.run_tool import _served as _run_served
+
+            if (
+                hint_memory is None or each is not None
+                or getattr(mcp_server, "_okg_run_live_steps", True) is False
+                or not _run_served(mcp_server, "run")
+            ):
+                return None
+            validated = validate_live_arguments(bound, args, args_model=args_model)
+            hint = live_run_hint.note_call(
+                hint_memory, node_id, relation_name, validated, dict(args or {}),
+            )
+            # Every direct call is remembered; the hint rides on an answer.
+            return hint if envelope.get("state") == "ok" else None
 
         return _PreparedExpandLive()
 
@@ -13316,6 +13716,9 @@ def _build_server(
         max_bytes: MaxBytes = None,
         # Last, after every existing parameter, so no positional call moves.
         next: Optional[str] = None,
+        # The values a live edge takes (`$arg`; #3666). After `next`, so no
+        # positional call moves.
+        args: Optional[dict[str, Any]] = None,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Follow links from one record to the records on the other end.
@@ -13330,8 +13733,23 @@ def _build_server(
         `live={relation, args}` also asks one live relation
         [[if tool:inspect]]`inspect` lists [[/if]]for this record's type; its
         rows return in `external_live`, beside the graph rows and never
-        merged with them.[[/if]]
+        merged with them. `each={"<arg>": [values]}` (or {"ref", "field"} of a
+        kept answer) asks once per value (up to 1,500) in one kept
+        answer[[if tool:aggregate]] to total with
+        `aggregate`[[/if]].[[/if]]
         """
+        # A live edge (#3666, live-graph-rucio-sites): the resolver followed
+        # it before this body ran; serve that reply, paged by `limit`.
+        live_reply = _live_nodes.served_node_reply("expand", limit=limit, offset=offset)
+        if live_reply is not None:
+            return _stamp_operator(live_reply, "expand")
+        if args:
+            raise InvalidOperatorArguments(
+                "expand: `args` carries the values of a live edge's arguments; "
+                "this node is a stored record",
+                data={"argument": "args"},
+                fix_hint="drop args, or expand a live node such as site:<name>",
+            )
         if next is not None:
             arguments, refusal = _next_call(
                 "expand",
@@ -13517,15 +13935,36 @@ def _build_server(
             if narrowed is None:
                 raise _text_not_compiled("aggregate")
             final = narrowed
-        groups, holding = tm.count_matches(
-            h.conn, h.session, condition, final, tool="aggregate",
+        from okg.substrate.mcp import match_keys as mk
+
+        # PACT read-aggregate-variants-3666: `norm(match)` and
+        # `words(match)` merge the variants of one value and list them.
+        key = str(by[0])
+        groups, holding, count_facts = tm.count_matches(
+            h.conn, h.session, condition, final, tool="aggregate", key=key,
         )
+        merged = key != mk.MATCH_KEY
         visible = groups[offset: offset + limit + 1]
         truncated = len(visible) > limit
+        if merged:
+            pairs = mk.may_be_one(group.raw for group in groups)
+            if pairs:
+                # Named by text when every group is trusted; else by place
+                # ("group 2"), so no untrusted text leaves its fence.
+                place = {group.raw: i + 1 for i, group in enumerate(groups)}
+                plain = not any(group.fenced for group in groups)
+                count_facts["may_be_one"] = [
+                    [a, b] if plain else [f"group {place[a]}", f"group {place[b]}"]
+                    for a, b in pairs
+                ]
         payload = {
             "groups": [
+                # The column is `match` for every key: `by` says which
+                # key grouped it (a parenthesized column name prints
+                # quoted twice in the text table).
                 {"match": group.text, "count": group.records,
-                 "occurrences": group.occurrences}
+                 "occurrences": group.occurrences,
+                 **({"variants": group.variants} if merged else {})}
                 for group in visible[:limit]
             ],
             "by": by,
@@ -13545,7 +13984,8 @@ def _build_server(
             # states it (#3666).
             **date_report.payload(),
             "text_match": _text_fact(condition, {
-                **facts, "records_counted": len(final),
+                **facts, **count_facts, "records_counted": len(final),
+                **({"merged": mk.merged_label(key)} if merged else {}),
                 # A record admitted by a phrase across two of its passages
                 # holds no matched text; said, so the groups add up.
                 "records_without_match": len(final) - holding,
@@ -13657,15 +14097,17 @@ def _build_server(
 
     def aggregate(
         input: AggregateInput,
-        by: Annotated[list[str], PField(min_length=1, max_length=MAX_AGGREGATE_BY)],
+        # Empty only over a kept live answer: one total (graph sets refuse it).
+        by: Annotated[list[str], PField(min_length=0, max_length=MAX_AGGREGATE_BY)],
         metrics: Annotated[
-            list[AggregateMetric], PField(min_length=1, max_length=1)
+            list[AggregateMetric], PField(min_length=1, max_length=4)
         ],
         generation_id: Optional[Union[int, str]] = None,
         limit: Limit = 50,
         offset: Offset = 0,
         authority: Optional[dict[str, Any]] = None,
         max_bytes: MaxBytes = None,
+        predicate: Optional[PredicateInput] = None,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Count a set, per value.
@@ -13675,30 +14117,43 @@ def _build_server(
         aggregate(where={"type":"[[subtype]]"}, by=["attrs.<key>"],
         metrics=["count"]). by=["match"] with where
         {"text":{"op":"matches","value":"re:/<regex>/"}} counts each
-        distinct match.
+        distinct match; norm(match) merges case, space and punctuation
+        variants, words(match) word order too; one (group) in the regex
+        is the text counted. A kept live answer also takes by=[] (one
+        total) and sum/min/max, e.g. "sum(attrs.size)".
         """
         date_started = _date_call_started()
         input = as_mapping(input)
+        predicate = as_mapping(predicate)
         digest_refusal = _text_digest_operator_refusal(
             "aggregate", input=input, by=by, metrics=metrics,
         )
         if digest_refusal is not None:
             return digest_refusal
         if isinstance(input, dict) and _live_results.is_live_id(input.get("ref")):
-            if _has_period_field(by):
-                raise InvalidOperatorArguments(
-                    "aggregate: a date period reads graph records; a live "
-                    "result set holds external rows",
-                    data={"by": [str(f) for f in by]},
-                    fix_hint='group a live set by its own columns, e.g. by=["attrs.<field>"]',
-                )
+            _refuse_live_aggregate_arguments(by)
             return _live_read(
                 "aggregate", ref_id=input["ref"], authority=authority,
                 generation_id=generation_id, limit=limit, offset=offset,
-                by=by, metrics=metrics,
+                predicate=predicate, by=by, metrics=metrics,
+            )
+        if predicate not in (None, True, {}):
+            raise InvalidOperatorArguments(
+                "aggregate: `predicate` narrows a kept live answer "
+                "(input={'ref': 'l1...'}); a set of records takes its condition "
+                "in `where` or input.filter",
+                data={"argument": "predicate"},
             )
         if metrics != ["count"]:
-            raise InvalidOperatorArguments("aggregate v1 only supports metrics=['count']")
+            raise InvalidOperatorArguments(
+                "aggregate counts graph records only (metrics=['count']); sum, "
+                "min and max read a kept live answer, input={'ref': 'l1...'}"
+            )
+        if not by:
+            raise InvalidOperatorArguments(
+                f"aggregate: by must name 1..{MAX_AGGREGATE_BY} fields; only a "
+                "kept live answer (input={'ref': 'l1...'}) may omit it for one total"
+            )
         loose_refusal = _loose_match_refusal("aggregate", input)
         if loose_refusal is not None:
             return loose_refusal
@@ -13730,10 +14185,16 @@ def _build_server(
             text_filter, text_condition = _tm.split_text_condition(
                 input.get("filter"), tool="aggregate",
             )
-            by_match = "match" in [str(f) for f in by]
+            from okg.substrate.mcp.match_keys import is_match_key
+
+            # PACT read-aggregate-variants-3666: norm(match) and
+            # words(match) are `match` with its variants merged.
+            match_keys = [str(f) for f in by if is_match_key(str(f))]
+            by_match = bool(match_keys)
+            said = match_keys[0] if match_keys else "match"
             if by_match and text_condition is None:
                 raise _tm.TextConditionInvalid(
-                    "aggregate: `match` in by is the text a text condition "
+                    f"aggregate: `{said}` in by is the text a text condition "
                     "matched; this call has none",
                     data={"by": [str(f) for f in by], "reason": "match_without_text"},
                     fix_hint=(
@@ -13743,15 +14204,22 @@ def _build_server(
                 )
             if by_match and len(by) > 1:
                 refusal = _tm.TextConditionInvalid(
-                    "aggregate: `match` is counted alone in by",
+                    f"aggregate: `{said}` is counted alone in by",
                     data={"by": [str(f) for f in by], "reason": "match_with_other_fields"},
-                    fix_hint='send by=["match"]; group the records by other fields in a second call',
+                    fix_hint=(
+                        f'send by=["{said}"]; group the records by other fields '
+                        "in a second call"
+                    ),
                 )
                 refusal.retry_call = {
                     "tool": "aggregate", "mode": "corrected",
-                    "arguments": {"input": sent_input, "by": ["match"], "metrics": metrics},
+                    "arguments": {"input": sent_input, "by": [said], "metrics": metrics},
                 }
                 raise refusal
+            if by_match and text_condition is not None:
+                # A regex with several capture groups is refused before
+                # any text is read (PACT read-aggregate-variants-3666).
+                _tm.capture_terms(text_condition.parsed, tool="aggregate")
             if text_condition is not None:
                 input = {k: v for k, v in input.items() if k != "filter"}
                 if text_filter is not None:
@@ -13773,6 +14241,8 @@ def _build_server(
             # fold applies that one, and it is still a date condition).
             # Only a count per period with no date condition has none.
             caller_scope = _compose_scope_predicate(kind=kind, input=input, predicate=None)
+            if text_condition is None:
+                _run_steps.note_set("records", kind, caller_scope)
             plain_filter, period_ranges = _split_date_filter(input.get("filter"), {
                 str(f): p for f in by
                 if (p := _parse_period_field(str(f))) is not None
@@ -13805,6 +14275,12 @@ def _build_server(
                             "input": {**sent_input, "subtype": subtype},
                             "by": [str(f) for f in by], "metrics": metrics,
                         },
+                    )
+                    # The run set is the counted records: the text matches
+                    # under the rest of the condition.
+                    _run_steps.note_set(
+                        "records", kind, _run_set_predicate(caller_scope, text_ids),
+                        text=True,
                     )
                 if by_match:
                     return _match_groups(
@@ -14561,9 +15037,18 @@ def _build_server(
         writes the read's sample row and never calls the adapter. The rows
         are parsed outside the store lock and kept for the call's
         byte-fitting reruns.
+
+        First of all (issue #3923, #3666 review M2): a kept live answer, raw
+        or typed, is not served while access rules are on (audit or enforce)
+        or when their state cannot be told, not even one kept while they were
+        off, as `expand(next=...)` refuses its next page. No row is read.
         """
         from okg.substrate.mcp.tools import inspect_node
 
+        _live_access_rules.refuse_live_under_access_rules(
+            mcp, f"{operator} reads a kept live answer",
+            tool_called=operator,
+        )
         memo = _result_references.call_memo()
         key = "live-read:" + ref_id
         if memo is not None and key in memo:
@@ -14580,11 +15065,20 @@ def _build_server(
                 getattr(h.session, "session_id", "") or "mcp"
             )
             refusal: SubstrateError | None = None
-            anchor = inspect_node(
+            # A live read of a live type (#3666, live-graph-rucio-sites) is
+            # bound to its type, not to a stored anchor node: no anchor read.
+            typed = isinstance(retained, _live_resolver.LiveTypedSet)
+            anchor = None if typed else inspect_node(
                 h.conn, h.session, retained.node_id, select=["node_id", "subtype"],
                 include_documents=False,
             )
-            if anchor is None:
+            if typed:
+                field = _result_references.binding_mismatch(
+                    entry.binding, _live_binding(h.conn, h.session),
+                )
+                if field is not None:
+                    refusal = _live_results.invalid("binding_mismatch", field=field)
+            elif anchor is None:
                 refusal = _live_results.invalid("binding_mismatch", field="anchor")
             else:
                 field = _result_references.binding_mismatch(
@@ -14592,6 +15086,8 @@ def _build_server(
                 )
                 if field is not None:
                     refusal = _live_results.invalid("binding_mismatch", field=field)
+        if typed and refusal is None:
+            refusal = _live_typed_binding_refusal(retained)
         refusal_reason: str | None = None
         if refusal is not None:
             from okg.substrate.external_backed.live_dispatch import GateOutcome
@@ -14603,7 +15099,7 @@ def _build_server(
                 action=retained.relation.action,
             )
         else:
-            outcome = _live_regate(retained)
+            outcome = _live_regate_typed(retained) if typed else _live_regate(retained)
             if not outcome.allowed:
                 refusal_reason = "live_result_denied"
                 refusal = _live_results.LiveResultDenied(
@@ -14630,6 +15126,11 @@ def _build_server(
             "generation": generation,
             "session_id": session_id,
             "outcome": outcome,
+            **({
+                "gates": dict(retained.gate_outcomes),
+                "coverage": dict(retained.coverage),
+                "live_line": retained.live_line,
+            } if typed else {}),
         }
         if memo is not None:
             memo[key] = state
@@ -14661,6 +15162,337 @@ def _build_server(
 
         _result_references.on_finish(finished)
         return state
+
+    # -- live types (#3666, PACT live-graph-rucio-sites): what the resolver
+    # -- (`live_resolver`) needs from this server, and the shared pre-check.
+
+    def _live_typed_binding_refusal(retained: Any) -> SubstrateError | None:
+        """A kept live-type set read again: the type's declaration and okg's
+        logical session must be the ones it was read under (the reader is
+        checked by the store lookup). On stateless HTTP the reader alone."""
+        registry = getattr(mcp, "_okg_live_types", None)
+        live_type = registry.by_subtype(retained.subtype) if registry is not None else None
+        if (
+            live_type is None
+            or _live_resolver.declaration_digest(live_type) != retained.declaration_digest
+        ):
+            return _live_results.invalid("binding_mismatch", field="declaration")
+        if not retained.stateless and retained.logical_session is not None:
+            identity = _current_logical_identity()
+            current = (
+                str(logical_sessions.snapshot(identity).logical_session_id)
+                if identity is not None else None
+            )
+            if current != retained.logical_session:
+                return _live_results.invalid("binding_mismatch", field="session")
+        return None
+
+    def _live_regate_typed(retained: Any) -> Any:
+        """Ask the gate again about every relation the set was read with;
+        the first deny (or error) is the answer, else the listing's allow."""
+        from okg.substrate.external_backed.live_dispatch import (
+            GATE_ERROR_REASON,
+            GateOutcome,
+            build_live_gate,
+            gate_for_call,
+        )
+
+        gate = getattr(mcp, "_okg_live_gate", None)
+        if gate is None:
+            gate = build_live_gate(deployment_name)
+            mcp._okg_live_gate = gate  # type: ignore[attr-defined]
+        answer = None
+        for relation, first in sorted(retained.gate_outcomes.items()):
+            if not getattr(first, "allowed", False):
+                continue
+            bound = retained.bound[relation]
+            try:
+                outcome = gate_for_call(bound, gate, retained.node_id)
+            except Exception as exc:  # noqa: BLE001 — fail closed.
+                log.warning(
+                    "live gate raised on a kept live-type read of %r (%s); denying",
+                    relation, type(exc).__name__,
+                )
+                outcome = GateOutcome(
+                    allowed=False, reason=GATE_ERROR_REASON,
+                    principal=getattr(first, "principal", "unresolved"),
+                    action=bound.relation.action, raised=True,
+                )
+            if not isinstance(outcome, GateOutcome) or not outcome.allowed:
+                return outcome if isinstance(outcome, GateOutcome) else GateOutcome(
+                    allowed=False, reason=GATE_ERROR_REASON,
+                    principal=getattr(first, "principal", "unresolved"),
+                    action=bound.relation.action, raised=True,
+                )
+            if relation == retained.relation_name or answer is None:
+                answer = outcome
+        return answer if answer is not None else GateOutcome(
+            allowed=False, reason=GATE_ERROR_REASON, principal="unresolved",
+            action=retained.relation.action, raised=True,
+        )
+
+    def _refuse_live_aggregate_arguments(by: Any) -> None:
+        """`aggregate` over live rows: a date period reads graph records."""
+        if _has_period_field(by):
+            raise InvalidOperatorArguments(
+                "aggregate: a date period reads graph records; a live "
+                "result set holds external rows",
+                data={"by": [str(f) for f in by]},
+                fix_hint='group a live set by its own columns, e.g. by=["attrs.<field>"]',
+            )
+
+    def _refuse_live_filter_dates(predicate: Any) -> None:
+        """`filter` over live rows: a date field reads a record type's
+        declared attribute; a live row has none, so the clause would match
+        nothing and read as "no such rows" (#3666)."""
+        if _holds_date_condition(predicate):
+            raise InvalidOperatorArguments(
+                "filter: a date field reads graph records; a live result "
+                "set holds external rows",
+                data={"reason": "date_condition_on_live_rows"},
+                fix_hint=(
+                    "compare the live set's own column, e.g. "
+                    '{"op":"gt","field":"attrs.<field>","value":"2025-01-01"}'
+                    " (compared as text)"
+                ),
+            )
+
+    def _refuse_live_retain(operator: str, retain: Any) -> None:
+        if retain:
+            raise _live_results.refuse_argument("retain", operator)
+
+    def _live_argument_precheck(operator: str, arguments: Mapping[str, Any]) -> Any:
+        """The tool body's own argument refusals for a live read, before any
+        upstream call (#3666, N1). The tool body calls the same functions on
+        its kept-set path, so there is one rule in one place. Returns a
+        refusal payload (the text-digest refusal, returned as the body
+        returns it), raises a typed refusal, or returns None."""
+        scope = as_mapping(arguments.get("input"))
+        predicate = as_mapping(arguments.get("predicate"))
+        if operator == "filter":
+            refusal = _text_digest_operator_refusal(
+                "filter", input=scope, predicate=predicate,
+                order_by=arguments.get("order_by"),
+            )
+            if refusal is not None:
+                return refusal
+            _refuse_live_filter_dates(predicate)
+            _refuse_live_retain("filter", arguments.get("retain"))
+        elif operator == "aggregate":
+            refusal = _text_digest_operator_refusal(
+                "aggregate", input=scope, by=arguments.get("by"),
+                metrics=arguments.get("metrics"),
+            )
+            if refusal is not None:
+                return refusal
+            _refuse_live_aggregate_arguments(arguments.get("by"))
+        elif operator == "map":
+            refusal = _text_digest_operator_refusal("map", input=scope)
+            if refusal is not None:
+                return refusal
+        return None
+
+    mcp._okg_live_argument_precheck = _live_argument_precheck  # type: ignore[attr-defined]
+
+    if multi_user_principals:
+        def _identity_precheck(tool_name: str, authority: Any) -> None:
+            """The per-tool gate's identity-channel check, asked by the
+            live-graph resolver before any upstream call; a refusal is
+            recorded as the gate records it."""
+            try:
+                refuse_conflicting_identity_channel(
+                    tool_name, as_mapping(authority), principal_mapping,
+                )
+            except SubstrateError as exc:
+                with _pool_connection(pool) as conn:
+                    _persist_principal_refusal(
+                        conn, error=exc, deployment_name=deployment_name,
+                        surface="mcp.tool.call", operator_name=tool_name,
+                    )
+                raise
+
+        mcp._okg_identity_precheck = _identity_precheck  # type: ignore[attr-defined]
+
+    def _live_graph_prepare(
+        operator: str, *, authority: Any, subtypes: Sequence[str], context: Any,
+    ) -> Any:
+        """Phase 1 of a live read, on a call worker: the declared relations
+        of the types read, the reader, okg's logical session, and the call
+        sample writer. One short read; nothing is held after it."""
+        from okg.substrate.external_backed.live_dispatch import (
+            GATE_ERROR_REASON,
+            GateOutcome,
+            LiveAdapterUnavailable,
+            LiveRelationUndeclared,
+            LiveSampleWriteFailed,
+            build_live_gate,
+            declared_live_relations,
+            gate_for_call,
+            validate_live_arguments,
+        )
+        from okg.substrate.external_backed.live_relations import (
+            BoundLiveRelation,
+            compile_args_model,
+        )
+
+        bindings = getattr(mcp, "_okg_live_bindings", None) or {}
+        runners = getattr(mcp, "_okg_live_adapters", None) or {}
+        relation_runners = getattr(mcp, "_okg_live_relation_runners", None) or {}
+        with _open(None, operator_name=operator, authority=authority) as h:
+            pinned_generation = h.session.generation_id
+            declared: dict[str, Any] = {}
+            for subtype in subtypes:
+                declared.update(declared_live_relations(h.conn, h.session, subtype))
+            reader_of_call = _continuation.reader_key(
+                authority, h.request_header_claim, multi_user_principals,
+            )
+            sample_session = getattr(h.session, "logical_session_id", None) or str(
+                getattr(h.session, "session_id", "") or "mcp"
+            )
+            # What a kept live-type set is bound to and counted against
+            # (the keep rule, `live_resolver.seed_call_memo`).
+            store_binding = _live_binding(h.conn, h.session)
+            claim = h.request_header_claim
+        identity = _logical_identity_from_context(context)
+        logical = (
+            str(logical_sessions.snapshot(identity).logical_session_id)
+            if identity is not None else None
+        )
+        is_stateless = bool(getattr(getattr(mcp, "settings", None), "stateless_http", False))
+        live_gate = getattr(mcp, "_okg_live_gate", None)
+        if live_gate is None:
+            live_gate = build_live_gate(deployment_name)
+            mcp._okg_live_gate = live_gate  # type: ignore[attr-defined]
+        bound_cache: dict[str, Any] = {}
+        models: dict[str, Any] = {}
+
+        class _PreparedLiveRead:
+            generation = pinned_generation
+            reader_key = reader_of_call
+            logical_session = logical
+            session_id = sample_session
+            stateless = is_stateless
+            binding = store_binding
+            header_claim = claim
+            deployment = deployment_name
+            multi_user = bool(multi_user_principals)
+
+            def bound(self, name: str) -> Any:
+                if name not in bound_cache:
+                    if name not in declared or name not in bindings:
+                        raise LiveRelationUndeclared(
+                            f"live relation {name!r} is not declared on "
+                            f"{list(subtypes)} or not bound on this deployment",
+                            data={"relation": name, "subtypes": list(subtypes),
+                                  "declared": sorted(declared)},
+                            fix_hint="check the live type's declaration and bindings",
+                        )
+                    bound_cache[name] = BoundLiveRelation(
+                        relation=declared[name], binding=bindings[name],
+                    )
+                    models[name] = compile_args_model(declared[name])
+                return bound_cache[name]
+
+            def adapter(self, name: str) -> Any:
+                kind = self.bound(name).binding.kind
+                runner = relation_runners.get(name) or runners.get(kind)
+                if runner is None:
+                    raise LiveAdapterUnavailable(
+                        f"live relation {name!r} binds adapter kind {kind!r}, for "
+                        "which this runtime has no registered runner",
+                        data={"relation": name, "kind": kind, "registered": sorted(runners)},
+                        fix_hint="register a runner for this kind, or drop the binding",
+                    )
+                return runner
+
+            def validate(self, name: str, args: Mapping[str, Any]) -> dict[str, Any]:
+                bound = self.bound(name)
+                return validate_live_arguments(bound, args, args_model=models[name])
+
+            def gate(self, bound: Any, node_id: str) -> Any:
+                try:
+                    outcome = gate_for_call(bound, live_gate, node_id)
+                except Exception as exc:  # noqa: BLE001 — fail closed.
+                    log.warning(
+                        "live gate raised on a live-type read of %r (%s); denying",
+                        bound.relation.name, type(exc).__name__,
+                    )
+                    outcome = None
+                if not isinstance(outcome, GateOutcome):
+                    return GateOutcome(
+                        allowed=False, reason=GATE_ERROR_REASON,
+                        principal="unresolved", action=bound.relation.action,
+                        raised=True,
+                    )
+                return outcome
+
+            def write_samples(self, samples: Sequence[Mapping[str, Any]]) -> None:
+                """One call sample per upstream call, in one short write.
+                A sample that cannot be written fails the read."""
+                from okg.substrate.external_backed.call_sample import (
+                    record_live_relation_call_sample,
+                )
+
+                try:
+                    with _open(pinned_generation, authority=authority) as sh:
+                        for sample in samples:
+                            record_live_relation_call_sample(
+                                sh.conn,
+                                deployment_name=deployment_name,
+                                tool_name=operator,
+                                trace_id=str(uuid.uuid4()),
+                                session_id=sample_session,
+                                **sample,
+                            )
+                except Exception as exc:  # noqa: BLE001 — re-raised, typed.
+                    relation = samples[0].get("relation") if samples else None
+                    raise LiveSampleWriteFailed(
+                        f"{operator}: live relation {relation!r} could not write "
+                        f"its call samples ({type(exc).__name__}); the read fails: "
+                        "an outside call with no record is what the sample "
+                        "exists to prevent",
+                        data={"relation": relation, "samples": len(samples),
+                              "adapter_ran": True},
+                        fix_hint=(
+                            "check the call-sample table and the deployment's "
+                            "write connection"
+                        ),
+                    ) from None
+
+        return _PreparedLiveRead()
+
+    mcp._okg_live_graph_prepare = _live_graph_prepare  # type: ignore[attr-defined]
+
+    def _live_kept_set(operator: str, ref_id: str, authority: Any) -> Any:
+        """The kept live-type set `ref_id` names for this reader, still bound
+        to its declaration and session, or None (the tool body then reads or
+        refuses it as it always does). Asked by the resolver before it grows
+        a set (N6); no upstream call. Refused, as `_live_open` refuses, while
+        access rules are on or cannot be told (#3666 review M2)."""
+        _live_access_rules.refuse_live_under_access_rules(
+            mcp, f"{operator} reads a kept live answer",
+            tool_called=operator,
+        )
+        try:
+            with _open(None, operator_name=operator, authority=authority) as h:
+                reader = _continuation.reader_key(
+                    authority, h.request_header_claim, multi_user_principals,
+                )
+                entry = _live_results.live_store().lookup(ref_id, reader_key=reader)
+                if _result_references.binding_mismatch(
+                    entry.binding, _live_binding(h.conn, h.session),
+                ) is not None:
+                    return None
+        except _result_references.ResultReferenceInvalid:
+            return None
+        retained = entry.payload
+        if not isinstance(retained, _live_resolver.LiveTypedSet):
+            return None
+        if _live_typed_binding_refusal(retained) is not None:
+            return None
+        return retained
+
+    mcp._okg_live_kept_set = _live_kept_set  # type: ignore[attr-defined]
 
     def _live_next_gone(
         exc: Any, *, set_id: Optional[str], authority: Any,
@@ -14742,6 +15574,14 @@ def _build_server(
             )
             refusal["error"]["fix_hint"] = "call expand(next=<token>) alone"
             return refusal
+        # Issue #3923: a live answer is not served while access rules are on
+        # (or when their state cannot be told), not even the next page of one
+        # kept while they were off.
+        _live_access_rules.refuse_live_under_access_rules(
+            mcp,
+            "expand(next=...) continues a live answer",
+            tool_called="expand",
+        )
         token = arguments.get("next")
         authority = arguments.get("authority")
         set_id: Optional[str] = _live_results.next_set_id(token)
@@ -14779,7 +15619,22 @@ def _build_server(
             )
         return {**frame, "external_live": envelope}
 
-    def _live_served_fields(retained: Any, ref_id: str) -> dict[str, Any]:
+    def _live_served_fields(
+        retained: Any, ref_id: str, state: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        fields = _live_served_fields_of(retained, ref_id)
+        # A read the live-graph resolver made in this call (#3666): the
+        # reply names the set's real id only when it was kept (D8).
+        fresh = _live_resolver.fresh_served_fields(state)
+        if fresh is not None:
+            for key, value in fresh.items():
+                if value is None:
+                    fields.pop(key, None)
+                else:
+                    fields[key] = value
+        return fields
+
+    def _live_served_fields_of(retained: Any, ref_id: str) -> dict[str, Any]:
         return {
             "input": {"ref": ref_id},
             "served_from": _live_results.SERVED_FROM,
@@ -14818,15 +15673,20 @@ def _build_server(
         in memory, outside the store lock. Rows keep upstream order. Served
         values are wrapped as untrusted text again on every page.
         """
+        order_key: Optional[tuple[str, bool]] = None
         if order_by:
-            raise _live_results.refuse_argument("order_by", operator)
-        if retain:
-            raise _live_results.refuse_argument("retain", operator)
-        if metrics is not None and list(metrics) != ["count"]:
+            if operator == "aggregate":
+                raise _live_results.refuse_argument("order_by", operator)
+            order_key = _live_reader.parse_order_by(order_by)
+        _refuse_live_retain(operator, retain)
+        if metrics is not None and operator != "aggregate":
             raise _live_results.refuse_argument("metrics", operator)
         _live_results.check_predicate(predicate)
         _live_results.check_projection(projection, argument=projection_argument)
         fields = _live_results.check_by(by) if operator == "aggregate" else []
+        parsed_metrics = (
+            _live_results.check_metrics(metrics) if operator == "aggregate" else []
+        )
         ref = str(ref_id)
         state = _live_open(operator, ref_id=ref, authority=authority)
         if generation_id is not None and str(generation_id) != str(state["generation"]):
@@ -14838,20 +15698,74 @@ def _build_server(
         rows = state["rows"]
         relation = retained.relation_name
         off = max(0, int(offset))
+        # Live typed rows (#3666): record columns, field states, the
+        # typo check, then the condition, before any grouping or paging.
+        names = _live_reader.names_of(predicate, fields, parsed_metrics)
+        _live_reader.check_record_columns(rows, names, operator)
+        # Refused as a probable typo only on a set that is the whole listing
+        # (a raw kept answer counts as whole); on a narrowed live set the
+        # key is noted, with the resolver's own note for the conditions it
+        # applied before the body saw the rows.
+        keys_absent = _live_reader.check_keys_seen(
+            rows, names, operator,
+            known=getattr(retained, "declared_keys", ()) or (),
+            whole=bool(getattr(retained, "whole_listing", True)),
+        )
+        keys_absent = _live_reader.merge_keys_absent(
+            state.get("keys_absent") if state.get("fresh") else None, keys_absent,
+        )
+        readable, not_read = _live_reader.split_not_read(rows, names.keys)
+        matched, not_comparable = _live_reader.filter_rows(
+            readable, predicate,
+            lambda row: _operator_predicate_matches(
+                {"attrs": row}, predicate, declared=None,
+            ),
+        )
+        if state.get("fresh"):
+            # Rows the resolver set aside because a condition it applied
+            # could not be decided on them never reach these rows: counted
+            # here all the same, with the values it could not compare.
+            not_read.absorb(state.get("condition_not_read"))
+            not_comparable.update(state.get("condition_not_comparable") or {})
+        ids_checked = bool(getattr(retained, "ids_checked", False))
+        reader_notes: dict[str, Any] = {}
+        if (report_not_read := not_read.report()) is not None:
+            # Node ids are built from upstream names: served fenced, as
+            # every other upstream value (#3666).
+            report_not_read["node_ids"] = _live_results.fence_rows(
+                report_not_read["node_ids"], relation,
+            )
+            reader_notes["not_read"] = report_not_read
+        if (report_comparable := _live_reader.not_comparable_report(not_comparable)):
+            reader_notes["not_comparable"] = report_comparable
+        if keys_absent is not None:
+            reader_notes["keys_absent"] = keys_absent
         if operator == "aggregate":
-            groups = _live_results.group_counts(rows, fields)
+            report = _live_results.group_report(
+                [_live_reader.flat_row(row) for row in matched], fields, parsed_metrics,
+            )
+            groups, skipped = report.groups, report.skipped
             page = max(1, min(int(limit), _live_results.MAX_GROUPS))
             visible = groups[off: off + page + 1]
             truncated = len(visible) > page
             cursor = _live_results.page_cursor(off, page, truncated)
-            served = [
-                {**{fields[i]: key[i] for i in range(len(fields))}, "count": count}
-                for key, count in visible[:page]
-            ]
             payload: dict[str, Any] = {
-                "groups": _live_results.fence_rows(served, relation),
+                # A key a row does not carry is the plain `(absent)` group
+                # (#3666, lane ri), apart from a stored null.
+                "groups": _live_results.fenced_groups(visible[:page], fields, relation),
                 "by": fields,
-                "metrics": ["count"],
+                "metrics": [_live_results.metric_label(m) for m in parsed_metrics],
+                # Rows a computed metric left out, per column: never read as 0.
+                **({"values_skipped": skipped} if any(
+                    sum(reasons.values()) for reasons in skipped.values()
+                ) else {}),
+                **({"absent_keys": report.absent} if report.absent else {}),
+                # A sum that added a non-integer value is not exact.
+                **({"sum_not_exact": report.inexact} if report.inexact else {}),
+                "rows_counted": len(matched),
+                # What the totals cover, printed first.
+                "totals_cover": _live_results.totals_cover(retained, len(matched)),
+                **reader_notes,
                 "total_count": len(groups),
                 "groups_total": len(groups),
                 "total_count_basis": "exact",
@@ -14862,25 +15776,53 @@ def _build_server(
                 "offset": off,
                 **cursor,
                 "pinned_generation_id": state["generation"],
-                **_live_served_fields(retained, ref),
+                **_live_served_fields(retained, ref, state),
             }
-            return _stamp_operator(payload, operator)
+            return _stamp_operator(_live_resolver.with_live_line(payload, state), operator)
         page = max(1, min(int(limit), 1000))
-        if predicate in (None, True, {}):
-            matched = rows
-        else:
-            matched = [
-                row for row in rows
-                if _operator_predicate_matches({"attrs": row}, predicate, declared=None)
-            ]
+        if order_key is not None:
+            matched = _live_reader.order_rows(matched, *order_key, operator)
         total = len(matched)
-        raw_page = matched[off: off + page]
+        page_rows = matched[off: off + page]
+        # A typed row's upstream fields are `attrs`; a raw row is its own.
+        raw_page = [_live_reader.attrs_of(row) for row in page_rows]
         served_page = _live_results.fence_rows(raw_page, relation)
         if projection is None:
-            columns, projected = ["attrs"], [{"attrs": row} for row in served_page]
+            typed = [_live_reader.is_typed(row) for row in page_rows]
+            columns = ["node_id", "subtype", "attrs", "live"] if page_rows and all(
+                typed
+            ) else ["attrs"]
+            # Upstream keys in the field states are served neutralised, under
+            # the same served name as in `attrs`; a node id built from an
+            # unchecked upstream name is served as untrusted text (#3666).
+            projected = [
+                (
+                    {"node_id": _live_results.served_node_id(
+                        row["node_id"], relation, checked=ids_checked),
+                     "subtype": row["subtype"],
+                     "attrs": served,
+                     "live": _live_results.served_live(
+                         row["live"], dict(zip((str(k) for k in raw), served)),
+                     )}
+                    if is_typed else {"attrs": served}
+                )
+                for row, raw, served, is_typed in zip(
+                    page_rows, raw_page, served_page, typed,
+                )
+            ]
         else:
             pairs, columns = _operator_projection("nodes", projection)
-            projected = _live_results.project(raw_page, served_page, pairs)
+            _live_reader.check_record_columns(
+                rows, _live_reader.projection_names(projection), operator,
+            )
+            projected = _live_results.project(
+                raw_page, served_page, pairs, records=[
+                    {**row, "node_id": _live_results.served_node_id(
+                        row.get("node_id"), relation, checked=ids_checked)}
+                    if _live_reader.is_typed(row) else row
+                    for row in page_rows
+                ],
+            )
         envelope = _operator_envelope(
             rows=projected,
             columns=columns,
@@ -14901,9 +15843,14 @@ def _build_server(
             **envelope,
             **_live_results.page_cursor(off, page, bool(envelope["truncated"])),
             "operator_name": operator,
-            **_live_served_fields(retained, ref),
+            **reader_notes,
+            **_live_served_fields(retained, ref, state),
         }
-        altered = neutralised_keys(raw_page)
+        altered = neutralised_keys([
+            *raw_page,
+            *(((row.get("live") or {}).get("fields") or {}) for row in page_rows
+              if _live_reader.is_typed(row)),
+        ])
         if altered:
             # As on the expand: the served rows' keys were rewritten.
             payload["neutralised_keys"] = list(altered)
@@ -14913,7 +15860,7 @@ def _build_server(
                 payload["select"] = projection
         else:
             payload["projection"] = projection
-        return _stamp_operator(payload, operator)
+        return _stamp_operator(_live_resolver.with_live_line(payload, state), operator)
 
     def filter(
         input: Optional[SetInput] = None,
@@ -14981,20 +15928,7 @@ def _build_server(
         ):
             raise _text_on_reference("filter")
         if isinstance(input, dict) and _live_results.is_live_id(input.get("ref")):
-            if _holds_date_condition(predicate):
-                # A date field reads a record type's declared attribute; a
-                # live row has none, so the clause would match nothing and
-                # read as "no such rows" (#3666).
-                raise InvalidOperatorArguments(
-                    "filter: a date field reads graph records; a live result "
-                    "set holds external rows",
-                    data={"reason": "date_condition_on_live_rows"},
-                    fix_hint=(
-                        "compare the live set's own column, e.g. "
-                        '{"op":"gt","field":"attrs.<field>","value":"2025-01-01"}'
-                        " (compared as text)"
-                    ),
-                )
+            _refuse_live_filter_dates(predicate)
             return _live_read(
                 "filter", ref_id=input["ref"], authority=authority,
                 generation_id=generation_id, limit=limit, offset=offset,
@@ -15035,6 +15969,10 @@ def _build_server(
             # A text condition (#3666) narrows through the effective view.
             or _holds_text(predicate)
             or _holds_text(input)
+            # A reference to an earlier `run` step is read in SQL (#3666),
+            # and one that is not open here is refused there.
+            or _run_steps.mentions_marker(predicate)
+            or _run_steps.mentions_marker(input)
         )
         # Issue #3666 (2c): a comparison the older translator lacks, on a
         # column of a record or a link, is compiled by the read compiler.
@@ -15105,6 +16043,12 @@ def _build_server(
                         **({"order_by": order_by} if order_by else {}),
                         **({"limit": page} if page != 50 else {}),
                     },
+                )
+                # `run` (#3666): the step's set is the whole condition, its
+                # text clause as the ids whose text matches.
+                _run_steps.note_set(
+                    "records", kind, _run_set_predicate(scoped_predicate, text_ids),
+                    text=text_ids is not None,
                 )
                 # #3666: date conditions compile like any other. The reply
                 # echoes the predicate as the caller wrote it.
@@ -15290,6 +16234,12 @@ def _build_server(
                     # for a predicate attribute, so this page came from the
                     # exact scan. Say so rather than hide the slower path.
                     payload["notes"] = pushdown_notes
+                if kind == "nodes" and not off and keyset is None:
+                    # Lane ri (CompOps q020): files picked by name name the
+                    # grep over file texts, with their count.
+                    _attach_names_only(
+                        h, payload, predicate=sent_predicate, query=None, method="filter",
+                    )
                 return _stamp_operator(
                     _maybe_stamp_advanced(h, payload),
                     "filter",
@@ -15305,6 +16255,7 @@ def _build_server(
                 input=input,
                 predicate=predicate,
             )
+            _run_steps.note_set("records", kind, scoped_predicate)
             program, columns = _filter_program(
                 kind=kind,
                 predicate=scoped_predicate,
@@ -15528,6 +16479,10 @@ def _build_server(
                     # any other.
                     date_report = _DateConditionReport()
                     caller_predicate = scoped_predicate
+                    _run_steps.note_set(
+                        "records", kind, _run_set_predicate(caller_predicate, text_ids),
+                        text=text_ids is not None,
+                    )
                     # One budget for the call's date work; None without any.
                     page_budget = _date_budget(
                         "map", caller_predicate, kind=kind, started_at=date_started,
@@ -16762,6 +17717,15 @@ def _build_server(
             )
             for row in page
         ]
+        # PACT read-names-list-3666: the deployment's citation id on every
+        # lookup row too. Read from the serialized attrs, which are already
+        # fenced on an untrusted row, so it is not fenced again.
+        from okg.substrate.mcp.citation_id import CITATION_KEY, citation_field
+
+        for result, row in zip(results, page):
+            citation = citation_field(row.get("attrs"))
+            if citation:
+                result[CITATION_KEY] = citation
         if attr_keys:
             # D6: the values come from the serialized rows, so an untrusted
             # row's value is fenced as its attrs are; a key the record lacks
@@ -16820,13 +17784,7 @@ def _build_server(
             if fields.get("total_count_basis") == "exact":
                 payload.update(fields)
                 counted = True
-                payload.setdefault("notes", []).append({
-                    "count": "exact",
-                    "how": (
-                        "every condition of this call is decided in SQL, so "
-                        "one COUNT over the whole set gave the total"
-                    ),
-                })
+                payload.setdefault("notes", []).append(dict(COUNT_EXACT_NOTE))
         if where_context is not None:
             payload.update(where_context.disclosure(evaluation_scope="bounded_lookup_sql_page"))
             if not counted:
@@ -16919,6 +17877,7 @@ def _build_server(
         summary: Optional[
             Annotated[list[str], PField(min_length=1, max_length=4)]
         ] = None,
+        within: Optional[Literal["unit", "record"]] = None,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Find records by words, best first.
@@ -16934,11 +17893,19 @@ def _build_server(
 
         method="grep" is exact, case-insensitive: words, "a phrase",
         a NEAR/80 b, -word, re:/<pattern>/, path:<text>. All terms must match
-        one text; re:/a|b|c/ for variants.
+        one text; re:/a|b|c/ for variants. Grep lists one line per record:
+        id, title, path, match count, first matching line. within="record": each term anywhere
+        in a record, in id order; add select=["node_id","handle"] to list
+        every match cheaply.
         `scope={"record": id}` searches one record and its passages (lexical).
         `retain=true` names the page's records as a result reference[[if tool:map|filter|aggregate]]
         for [[tools map/filter/aggregate]] to read[[/if]].
         """
+        # PACT read-names-list-3666: every row names the record's citation
+        # id when this deployment declares `citation_attr`.
+        _citation_id.CITATION_ATTR.set(
+            _citation_id.deployment_citation_attr(deployment_name)
+        )
         # `filter` is a validated SearchFilter by the time an MCP call gets
         # here (#2793); the body below reads the plain mapping it always did.
         filter = search_filter_mapping(filter)
@@ -17042,6 +18009,21 @@ def _build_server(
             )
             else method
         )
+        # PACT read-names-list-3666: a grep call that names no view (and no
+        # card or windows argument) is delivered as the names list; the page
+        # says so on its first line (`view_implied`).
+        from okg.substrate.mcp.search_views import implied_search_view
+
+        _sent_view = view
+        view = implied_search_view(
+            view, method=_effective_method, within=within,
+            arguments={
+                "select": select, "matching": matching,
+                "context_chars": context_chars, "scope": scope,
+                "retain": retain, "summary": summary,
+            },
+        )
+        view_implied = _sent_view is None and view is not None
         # A result reference (#3222 slice 2): every form that cannot produce
         # one is refused by name here, from the arguments alone, before any
         # SQL (design D1, D5).
@@ -17058,7 +18040,10 @@ def _build_server(
             refusal = _result_references.producer_refusal(
                 method=_effective_method, rank_by=rank_by, view=view, offset=offset,
                 select=select, max_chars=max_chars,
-                limit=limit if limit is not None else default_search_limit(view),
+                limit=(
+                    limit if limit is not None
+                    else default_search_limit(view, _effective_method)
+                ),
             )
             if refusal is not None:
                 raise refusal
@@ -17157,6 +18142,17 @@ def _build_server(
 
             parse_grep_query(query or "")
             validate_rank_by(rank_by, method="grep")
+        if within is not None:
+            # PACT read-search-caps-3666: refused by name before any read.
+            from okg.substrate.mcp.grep_record import validate_within
+
+            within = validate_within(
+                within, method=_effective_method, query=query, view=view,
+                record_scope=record_ids is not None or children_scope is not None,
+                rank_by=rank_by, completeness=completeness, retain=bool(retain),
+                max_per_parent=max_per_parent, offset=offset,
+                continuation_token=continuation_token,
+            )
         # `view="windows"` (PACT read-record-windows): every argument a
         # windows read would not honour is refused here, before `_open`.
         window_arguments = dict(
@@ -17787,6 +18783,7 @@ def _build_server(
                             if method == "semantic"
                             else {}
                         ),
+                        **({"within": within} if within is not None else {}),
                     )
                 except SubstrateError as exc:
                     # A refusal an agent cannot parse is read as "the graph has
@@ -17858,6 +18855,21 @@ def _build_server(
                     h, payload, query=query, where=where, path_prefix=path_prefix,
                     record_scoped=record_ids is not None or children_scope is not None,
                 )
+            if (
+                isinstance(payload, dict) and isinstance(payload.get("results"), list)
+                and _effective_method in ("grep", "lexical", "attrs")
+                and view not in ("metadata", "windows")
+                and not offset and continuation_token is None
+                and record_ids is None and children_scope is None
+            ):
+                # Lane ri (CompOps q020): a read of file names names the grep
+                # over file texts, with their count.
+                _attach_names_only(
+                    h, payload, predicate=where, query=query,
+                    method=_effective_method,
+                    subtype_filter=subtype_filter or (filter or {}).get("subtype"),
+                    path_prefix=path_prefix,
+                )
             if lineage_requested:
                 payload = _move_lineage_to_rows(
                     payload, drop_attrs=lineage_drop_attrs,
@@ -17884,6 +18896,10 @@ def _build_server(
                     _grep_list_projection(payload) if _effective_method == "grep"
                     else _list_projection(payload)
                 )
+                if view_implied:
+                    # The call named no view: the page says the list is
+                    # grep's default and how to get the matched lines.
+                    payload["view_implied"] = True
             if reference_wanted and retained is not None:
                 payload = _retain_search_reference(
                     h, payload, retained, authority, metadata=metadata_view,
@@ -17940,6 +18956,60 @@ def _build_server(
         )
         if call is not None:
             payload[hint.COUNT_EACH_MATCH_KEY] = call
+
+    def _attach_names_only(
+        h: Any,
+        payload: dict[str, Any],
+        *,
+        predicate: Any,
+        query: Any,
+        method: str,
+        subtype_filter: Any = None,
+        path_prefix: Optional[str] = None,
+    ) -> None:
+        """Add `names_only` to a page that picked files by name (lane ri,
+        CompOps q020; `name_only_hint`): the grep over `document` records
+        for the same term, counted by running that call once (limit 1)
+        under `COUNT_BUDGET_S` in a savepoint on this read's handle, so the
+        count is the named call's own `total_count` at the same pin and
+        under the same access rules. A named call the server refuses
+        (profile, grep grammar) names nothing."""
+        import time
+
+        from okg.substrate.mcp import name_only_hint as names
+        from okg.substrate.mcp.grep_search import GrepTimeout, deadline
+
+        found = names.plan(
+            predicate, query=query, method=method,
+            subtype_filter=subtype_filter, path_prefix=path_prefix,
+        )
+        if found is None:
+            return
+        total: Optional[int] = None
+        basis: Optional[str] = None
+        try:
+            with h.conn.transaction(), deadline(time.monotonic() + names.COUNT_BUDGET_S):
+                scope = _resolve_mcp_search_scope(
+                    h.conn, h.session, deployment_name=deployment_name,
+                    requested_profile=None, subtype_filter=names.CONTENT_SUBTYPE,
+                    method="grep",
+                )
+                counted = _search(
+                    h.conn, h.session, found.query, method="grep", filter={},
+                    limit=1, offset=0, select=["node_id"], scope=scope,
+                    rank_by=_validate_rank_by(None, method="grep"),
+                    max_chars=_clamp_preview_chars(None)[0],
+                    path_prefix=found.path_prefix, where=found.canonical_where(),
+                    exact_pass=False,
+                )
+        except GrepTimeout:
+            pass
+        except (SubstrateError, ValueError):
+            return
+        else:
+            total = counted.get("total_count")
+            basis = counted.get("total_count_basis")
+        payload[names.NAMES_ONLY_KEY] = names.hint_block(found, total=total, basis=basis)
 
     def _metadata_search_page(
         h: Any,
@@ -18069,9 +19139,250 @@ def _build_server(
         out["coverage"] = coverage
         return out
 
+    # ---------- run (issue #3666, M9) ----------
+
+    def _run_placeholders(sql: str) -> list[str]:
+        """The `%(name)s` placeholders of `sql`, in order, as psycopg reads
+        them: an escaped `%%` is a literal percent, so text inlined from an
+        earlier set (a stored value holding `%(x)s`) is never taken for one."""
+        names: dict[str, None] = {}
+        i = 0
+        while i < len(sql):
+            if sql[i] != "%":
+                i += 1
+                continue
+            following = sql[i + 1: i + 2]
+            if following == "%":
+                i += 2
+                continue
+            if following == "(":
+                end = sql.find(")s", i + 2)
+                if end < 0:
+                    raise ValueError("a placeholder in composed run SQL is not closed")
+                names[sql[i + 2:end]] = None
+                i = end + 2
+                continue
+            raise ValueError("composed run SQL holds a bare percent sign")
+        return list(names)
+
+    def _run_literal_sql(conn: psycopg.Connection, sql: str, params: Mapping[str, Any]) -> str:
+        """`sql` with its parameters bound into the text, so it runs as
+        written and nests in another statement as a subquery."""
+        return psycopg.ClientCursor(conn).mogrify(
+            sql, {name: params[name] for name in _run_placeholders(sql)},
+        )
+
+    def _run_page_meta(
+        conn: psycopg.Connection, session: Session, kind: str, predicate: Any,
+    ) -> dict[str, Any]:
+        """What a filter page over `predicate` reads from, as `filter` reads
+        it (date conditions included); one row is fetched."""
+        budget = _date_budget("filter", predicate, kind=kind)
+
+        def read(read_with: Any) -> dict[str, Any]:
+            meta: dict[str, Any] = {}
+            _effective_view_sql_page(
+                conn, session, kind=kind, predicate=read_with,
+                fingerprint_predicate=predicate, date_budget=budget,
+                limit=1, offset=0, nomos_runtime=False, page_meta=meta,
+            )
+            return meta
+
+        _read_with, meta = _dated_read(
+            conn, session, kind=kind, predicate=predicate, operator="filter",
+            report=_DateConditionReport(), nomos_runtime=False, budget=budget,
+            run=read,
+        )
+        return meta
+
+    class _RunBackend:
+        """`run_tool.RunBackend` over this server's pooled reads."""
+
+        def refused_reason(self) -> Optional[str]:
+            if deployment_requires_nomos_runtime(deployment_name):
+                return (
+                    "run is refused on this deployment because its access "
+                    "rules (Nomos audit or enforce) are on"
+                )
+            return None
+
+        def step_set(
+            self, definition: tuple[Any, ...], sets: Any, key: str,
+            generation: Any, authority: Any,
+        ) -> str:
+            with _open(generation, authority=authority) as h:
+                _require_effective_view(h.conn, h.session, "node")
+                if definition[0] == "records":
+                    predicate = definition[2]
+                else:
+                    _tag, node_id, edge_type, direction, far_filter = definition
+                    _require_effective_view(h.conn, h.session, "edge")
+                    near, far = ("src", "dst") if direction == "out" else ("dst", "src")
+                    clauses: list[dict[str, Any]] = [
+                        {"op": "eq", "field": near, "value": node_id},
+                    ]
+                    if edge_type:
+                        clauses.append({"op": "eq", "field": "edge_type", "value": edge_type})
+                    edges = _run_page_meta(
+                        h.conn, h.session, "edges", {"op": "and", "clauses": clauses},
+                    )
+                    far_key = f"far{key}"
+                    sets.sets[far_key] = _run_steps.StepSet(raw_sql=_run_literal_sql(
+                        h.conn, f"SELECT effective_page.{far} " + edges["from_where_sql"],
+                        edges["params"],
+                    ))
+                    far_leaf = {
+                        "op": "in", "field": "node_id",
+                        "values": [sets.set_marker(far_key)],
+                    }
+                    predicate = (
+                        {"op": "and", "clauses": [far_leaf, far_filter]}
+                        if far_filter else far_leaf
+                    )
+                meta = _run_page_meta(h.conn, h.session, "nodes", predicate)
+                return _run_literal_sql(
+                    h.conn, "SELECT effective_page.target_id " + meta["from_where_sql"],
+                    meta["params"],
+                )
+
+        def current_generation(self, authority: Any) -> Any:
+            with _open(None, authority=authority) as h:
+                return h.session.generation_id
+
+        def ids_set(self, ids: list[str], generation: Any, authority: Any) -> str:
+            with _open(generation, authority=authority) as h:
+                return _run_literal_sql(
+                    h.conn, "SELECT unnest(%(ids)s::text[])", {"ids": list(ids)},
+                )
+
+        def values_sql(
+            self, sets: Any, key: str, field: str, generation: Any, authority: Any,
+        ) -> str:
+            column = _run_steps.value_column(field)
+            with _open(generation, authority=authority) as h:
+                meta = _run_page_meta(h.conn, h.session, "nodes", {
+                    "op": "in", "field": "node_id", "values": [sets.set_marker(key)],
+                })
+                params = dict(meta["params"])
+                if column is None:
+                    params["run_value_key"] = field.split(".", 1)[1]
+                    expr = "effective_page.attrs -> %(run_value_key)s"
+                else:
+                    expr = f"to_jsonb(effective_page.{column})"
+                return _run_literal_sql(
+                    h.conn, f"SELECT DISTINCT {expr} " + meta["from_where_sql"], params,
+                )
+
+        def materialize(
+            self, raw_sql: str, generation: Any, authority: Any, cap: int,
+        ) -> Optional[list[Any]]:
+            with _open(generation, authority=authority) as h:
+                with h.conn.cursor() as cur:
+                    cur.execute(
+                        f"SELECT run_set.v FROM ({raw_sql}) AS run_set(v) "
+                        f"LIMIT {int(cap) + 1}"
+                    )
+                    rows = [row[0] for row in cur.fetchall()]
+            return None if len(rows) > cap else rows
+
+        def _links_sql(self, h: Any, edge_type: str, direction: str) -> str:
+            """The `edge_type` links as `(near, far)` id pairs, as SQL with
+            its parameters bound in: near is the end a join starts from."""
+            _require_effective_view(h.conn, h.session, "edge")
+            near, far = ("src", "dst") if direction == "out" else ("dst", "src")
+            edges = _run_page_meta(
+                h.conn, h.session, "edges",
+                {"op": "eq", "field": "edge_type", "value": edge_type},
+            )
+            return _run_literal_sql(
+                h.conn,
+                f"SELECT effective_page.{near} AS near, effective_page.{far} AS far "
+                + edges["from_where_sql"],
+                edges["params"],
+            )
+
+        def join_far(
+            self, start_sql: str, edge_type: str, direction: str,
+            generation: Any, authority: Any,
+        ) -> str:
+            """The far ends of `edge_type` links from every record of a set."""
+            with _open(generation, authority=authority) as h:
+                links = self._links_sql(h, edge_type, direction)
+            return (
+                f"SELECT run_links.far FROM ({links}) AS run_links "
+                f"WHERE run_links.near IN ({start_sql})"
+            )
+
+        def join_facts(
+            self, start_sql: str, edge_type: str, direction: str, ids_shown: int,
+            generation: Any, authority: Any,
+        ) -> tuple[int, int, list[str]]:
+            """(records in the set, of them with no such link, up to
+            `ids_shown` of those ids in id order): one read, exact."""
+            with _open(generation, authority=authority) as h:
+                links = self._links_sql(h, edge_type, direction)
+                lacking = (
+                    f"SELECT run_start.id FROM (SELECT DISTINCT s.id FROM "
+                    f"({start_sql}) AS s(id)) AS run_start WHERE NOT EXISTS ("
+                    f"SELECT 1 FROM ({links}) AS run_links "
+                    "WHERE run_links.near = run_start.id)"
+                )
+                with h.conn.cursor() as cur:
+                    cur.execute(
+                        f"SELECT (SELECT count(DISTINCT s.id) FROM ({start_sql}) AS s(id)), "
+                        f"(SELECT count(*) FROM ({lacking}) AS l), "
+                        f"ARRAY(SELECT l.id FROM ({lacking}) AS l ORDER BY l.id "
+                        f"LIMIT {int(ids_shown)})"
+                    )
+                    starts, without, ids = cur.fetchone()
+            return int(starts), int(without), [str(i) for i in (ids or [])]
+
+        def count(self, raw_sql: str, generation: Any, authority: Any) -> int:
+            """One COUNT over a step's set, under the step's budget (the
+            pooled read opens with what is left of it as its timeout)."""
+            with _open(generation, authority=authority) as h:
+                with h.conn.cursor() as cur:
+                    cur.execute(f"SELECT count(*) FROM ({raw_sql}) AS run_count")
+                    return int(cur.fetchone()[0])
+
+        def row_matches(self, row: dict[str, Any], predicate: Any) -> bool:
+            """A held row against a condition on `attrs.<column>` (#3666,
+            lane ri), exactly as a kept live answer's rows are filtered."""
+            return bool(_operator_predicate_matches({"attrs": row}, predicate, declared=None))
+
+    _run_backend = _RunBackend()
+    # Reached through the server so a test can watch every composed read.
+    mcp._okg_run_backend = _run_backend  # type: ignore[attr-defined]
+
+    def _run_handler(server: Any, arguments: dict[str, Any]) -> Any:
+        from okg.substrate.mcp.run_tool import serve_run
+
+        return serve_run(server, arguments, server._okg_run_backend)
+
+    mcp._okg_run_handler = _run_handler  # type: ignore[attr-defined]
+
+    def _sets_hook(server: Any, name: str, arguments: Any, plain: Any) -> Any:
+        # No set outlives its run call (#3666): `$r<n>`, `retain=true` set
+        # names and a `$n` outside its run are refused before any SQL.
+        from okg.substrate.mcp.run_tool import guard_call
+
+        return guard_call(server, name, arguments, plain, server._okg_run_backend)
+
+    mcp._okg_sets_hook = _sets_hook  # type: ignore[attr-defined]
+
+    def run(
+        steps: list,
+        generation_id: Optional[Union[int, str]] = None,
+        max_bytes: MaxBytes = None,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        """Up to 8 reads in one call, each over its whole set: steps=[{"<tool>":{<arguments>}}]; in a later step "$n" is step n's records, "$n.<field>" their values.[[if run_live tool:expand]] A live step calls a relation once per value of a column: {"expand":{"input":"<id>","live":{"relation":"<name>","each":{"<arg>":"$1.<column>"}}}}; {"aggregate":{"input":"$2","by":[],"metrics":["count","sum(<column>)"]}} totals its rows; {"minus":["$1","$2"],"on":"<column>"} (or intersect) compares two steps' rows.[[/if]]"""
+        raise RuntimeError("run is served by the MCP server's call_tool, not called directly")
+
     register_core_read_tools(
         mcp,
         traced=traced,
+        run_tool=run,
         inspect_tool=inspect,
         search_tool=search,
         expand_tool=expand,
@@ -18816,6 +20127,7 @@ def _build_server(
         kinds=inspect_kind_set,
         live=bool(getattr(mcp, "_okg_live_bindings", None)),
         example_subtype=example_subtype_for(dataset_facts),
+        run_live=getattr(mcp, "_okg_run_live_steps", True) is not False,
     )
     # `query`'s description from the same facts (issue #3666): the views,
     # the fields of the largest types and examples that run on this graph.
@@ -18948,6 +20260,7 @@ def _serve_dataset_card(
     try:
         card = _render_dataset_card(
             facts, served_tools=served_tools, text_kind_served=text_kind_served,
+            run_live=getattr(mcp, "_okg_run_live_steps", True) is not False,
         )
     except Exception as exc:  # noqa: BLE001 - a card failure never stops start
         log.warning("dataset card could not be rendered", exc_info=True)

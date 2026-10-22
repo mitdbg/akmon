@@ -159,10 +159,18 @@ def main() -> int:
     # Resolve the read-API token before any graph load starts: a named but
     # unusable variable refuses here, never serves unauthenticated.
     from okg.substrate.errors import SubstrateError
-    from okg.viz.auth import resolve_api_token
+    from okg.viz.auth import (
+        require_read_auth_for_sensitive_deployment,
+        resolve_api_token,
+    )
 
     try:
         api_token = resolve_api_token(args.auth_token_env)
+        # A deployment with Nomos runtime enforcement on is sensitive: refuse
+        # an unauthenticated start, loopback included (issue #3278).
+        require_read_auth_for_sensitive_deployment(
+            deployment, api_token, surface="okg.viz",
+        )
     except SubstrateError as exc:
         # The message names the variable, never its value.
         print(f"Error: {exc}", file=sys.stderr)

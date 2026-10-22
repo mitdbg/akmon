@@ -519,6 +519,83 @@ def test_max_rows_cuts_by_count():
     assert got == [{"n": i} for i in range(4)]
 
 
+def _rucio_list(rows: list, truncated: Any) -> dict:
+    """rucio-mcp's list shape (`_ok_items`): the rows under `items` and the
+    tool's own cut flag beside them."""
+    return {"status": "ok", "count": len(rows), "truncated": truncated,
+            "items": rows}
+
+
+@pytest.mark.parametrize(
+    "behaviour",
+    [
+        pytest.param(lambda doc: _structured_document(doc), id="structured"),
+        pytest.param(lambda doc: json_text(doc), id="one-text-block"),
+    ],
+)
+def test_a_reply_marked_truncated_beside_its_rows_comes_back_marked_cut(behaviour):
+    """R7 shape (nemotron35s g002 a1 call 3): rucio-mcp stopped at its
+    `limit` of 200 and said `truncated: true`; the adapter returned the 200
+    rows as if whole. Now the rows come back marked, with the count sent."""
+    from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
+
+    rows = [{"rse": f"T2_X_{i}"} for i in range(7)]
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", behaviour(_rucio_list(rows, True)))
+        got = _call(_runner(mcp_config(fake.url, rows_path="items")))
+
+    assert isinstance(got, UpstreamCutRows)
+    assert list(got) == rows and got.received == 7
+
+
+@pytest.mark.parametrize("flag", [False, None], ids=["false", "null"])
+def test_a_reply_marked_whole_is_a_plain_list(flag):
+    from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
+
+    rows = [{"rse": "T1_A"}]
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", _structured_document(_rucio_list(rows, flag)))
+        got = _call(_runner(mcp_config(fake.url, rows_path="items")))
+
+    assert got == rows and not isinstance(got, UpstreamCutRows)
+
+
+def test_the_cut_counts_the_rows_sent_before_max_rows_cuts_them():
+    from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
+
+    rows = [{"n": i} for i in range(9)]
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", _structured_document(_rucio_list(rows, True)))
+        got = _call(_runner(mcp_config(fake.url, rows_path="items", max_rows=4)))
+
+    assert isinstance(got, UpstreamCutRows)
+    assert list(got) == rows[:4] and got.received == 9
+
+
+@pytest.mark.parametrize("flag", ["yes", 1, [True]], ids=["text", "number", "list"])
+def test_a_truncated_flag_that_is_not_a_boolean_is_unusable(flag):
+    """Must-fail partner: "are these all the rows?" is never guessed."""
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", _structured_document(_rucio_list([{"a": 1}], flag)))
+        error = _failure(_runner(mcp_config(fake.url, rows_path="items")))
+
+    assert error.failure == "result_unusable", error.excerpt
+    assert "`truncated` beside `items`" in error.excerpt
+
+
+def test_a_truncated_key_that_is_not_beside_the_rows_is_row_data():
+    """Only the object HOLDING the rows is read; a row's own `truncated`
+    field is data."""
+    from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
+
+    rows = [{"name": "/A/B/C", "truncated": True}]
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", _structured_document({"status": "ok", "items": rows}))
+        got = _call(_runner(mcp_config(fake.url, rows_path="items")))
+
+    assert got == rows and not isinstance(got, UpstreamCutRows)
+
+
 def test_an_is_error_result_is_upstream_unavailable_with_a_bounded_excerpt():
     """A 2 MB exception text, as Lane CM measured, comes back as 256 chars."""
     text = "Traceback: dbs exploded " + "z" * (2 * MIB)
@@ -576,6 +653,182 @@ def test_an_empty_set_inside_a_successful_result_is_data_not_a_failure():
         got = _call(_runner(mcp_config(fake.url)))
 
     assert got == [{"note": "an empty set is fine"}]
+
+
+#: Rucio's "what you named is not there" replies, verbatim as rucio-mcp sent
+#: them in the CompOps runs (x2-cokg-*, x2-csw-okg-*; lane ri livelabels).
+#: R1: nemotron35s q015 a2 call 3 (a name sent without its leading "/").
+RUCIO_DID_NOT_FOUND = (
+    "Error executing tool rucio_get_did: Data identifier not found.\n"
+    "Details: Data identifier 'cms:ADD-monojet_N-2_MD-10000_TuneCP5_13p6TeV-"
+    "pythia8/Run3Summer23MiniAODv4-130X_mcRun3_2023_realistic_v15-v4/"
+    "MINIAODSIM' not found"
+)
+#: R2: nemotron35s q018 a1 call 2.
+RUCIO_DID_RULES_NOT_FOUND = (
+    "Error executing tool rucio_list_did_rules: Data identifier not found.\n"
+    "Details: Data identifier 'cms:ChargedHiggs_HplusTB_HplusToTB_M-5000_"
+    "13TeV_amcatnlo_pythia8/RunIISummer16NanoAODv4-PUMoriond17_Nano14Dec2018_"
+    "102X_mcRun2_asymptotic_v6-v1/NANOAODSIM' not found"
+)
+#: R4: sol61 c006 a1 call 8 (R5, c007, is the same text with c128171c...).
+RUCIO_RULE_NOT_FOUND = (
+    "Error executing tool rucio_get_replication_rule: No replication rule "
+    "found.\nDetails: No rule with the id 3fe781fc37294eafb22c0c9eb9a584d6 "
+    "found"
+)
+RUCIO_RSE_NOT_FOUND = (
+    "Error executing tool rucio_list_rse_attributes: RSE does not exist.\n"
+    "Details: RSE 'T3_US_FNALPC' cannot be found in vo 'def'"
+)
+RUCIO_SCOPE_NOT_FOUND = (
+    "Error executing tool rucio_list_scopes_for_account: Scope does not "
+    "exist.\nDetails: no scopes found for account ID 'pdmv_group'"
+)
+#: A real outage from the same runs: it must keep `upstream_unavailable`.
+RUCIO_READ_TIMEOUT = (
+    "Error executing tool rucio_list_dids: HTTPConnectionPool("
+    "host='cms-rucio.cern.ch', port=80): Read timed out. (read timeout=110)"
+)
+
+
+@pytest.mark.parametrize(
+    "text, words",
+    [
+        pytest.param(RUCIO_DID_NOT_FOUND, "ADD-monojet", id="R1-did"),
+        pytest.param(RUCIO_DID_RULES_NOT_FOUND, "ChargedHiggs", id="R2-did-rules"),
+        pytest.param(RUCIO_RULE_NOT_FOUND, "3fe781fc37294eafb22c0c9eb9a584d6",
+                     id="R4-rule"),
+        pytest.param(RUCIO_RSE_NOT_FOUND, "T3_US_FNALPC", id="rse"),
+        pytest.param(RUCIO_SCOPE_NOT_FOUND, "pdmv_group", id="scope"),
+    ],
+)
+def test_a_not_found_reply_is_its_own_outcome_not_unavailable(text, words):
+    """The server answered that the named object is not there. That is
+    `upstream_not_found` with the server's own words, never
+    `upstream_unavailable` ("refused the connection"), which sent agents
+    looking for an outage and read a missing "/" as "no longer exists"."""
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", text_blocks(text, is_error=True))
+        error = _failure(_runner(mcp_config(fake.url)))
+
+    assert error.failure == "upstream_not_found", error.excerpt
+    assert words in error.excerpt
+    assert fake.counters.calls == ["datasets"], "one call, no retry"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(RUCIO_READ_TIMEOUT, id="read-timeout"),
+        pytest.param("Error executing tool rucio_list_dids: Response ended "
+                     "prematurely", id="ended-early"),
+        # "not found" past the first sentence is not the error's summary: a
+        # credential problem stays an upstream failure.
+        pytest.param("Error executing tool rucio_whoami: Cannot authenticate."
+                     "\nDetails: x509 proxy file not found", id="auth"),
+    ],
+)
+def test_an_outage_reply_stays_unavailable_even_with_not_found_later(text):
+    """Must-fail partner: the new outcome cannot swallow a real outage."""
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", text_blocks(text, is_error=True))
+        error = _failure(_runner(mcp_config(fake.url)))
+
+    assert error.failure == "upstream_unavailable", error.excerpt
+
+
+def test_not_found_inside_a_successful_result_is_data_not_a_failure():
+    """Only an `isError` result is classified; the same words in a normal
+    reply are row text."""
+    rows = [{"note": "Data identifier not found", "state": "No rule found"}]
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", structured(rows))
+        got = _call(_runner(mcp_config(fake.url)))
+
+    assert got == rows
+
+
+#: Rucio's reply to an RSE expression it cannot parse, verbatim from the r36d
+#: records (new g002 t2 call 6 `T1_*_Tape`; base g002 t3 call 6 `*Tape*`).
+RUCIO_RSE_EXPRESSION_INVALID = (
+    "Error executing tool rucio_list_rses: Provided RSE expression is "
+    "considered invalid.\nDetails: Expression does not comply to RSE "
+    "Expression syntax"
+)
+#: The same first sentence, but the expression parsed and selects no RSE
+#: (r36d `type=TAPE`, `cms_type=real&rse...`): a real empty result.
+RUCIO_RSE_EXPRESSION_EMPTY = (
+    "Error executing tool rucio_list_rses: Provided RSE expression is "
+    "considered invalid.\nDetails: RSE Expression resulted in an empty set."
+)
+#: A call whose arguments break the tool's schema.
+RUCIO_SCHEMA_MISMATCH = (
+    "Error executing tool rucio_list_rses: 1 validation error for "
+    "call[rucio_list_rses]\nlimit\n  Input should be a valid integer"
+)
+
+
+@pytest.mark.parametrize(
+    "text, words",
+    [
+        pytest.param(RUCIO_RSE_EXPRESSION_INVALID, "does not comply",
+                     id="rse-syntax"),
+        pytest.param(RUCIO_SCHEMA_MISMATCH, "validation error", id="schema"),
+        pytest.param("Error executing tool x: Object does not match schema.",
+                     "does not match schema", id="does-not-match-schema"),
+    ],
+)
+def test_an_argument_the_server_rejects_is_its_own_outcome(text, words):
+    """The server answered that the ARGUMENT is invalid. Before: some of
+    these were `upstream_unavailable` ("refused the connection"), others
+    `upstream_empty_result` ("matched nothing"); both are untrue."""
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", text_blocks(text, is_error=True))
+        error = _failure(_runner(mcp_config(fake.url)))
+
+    assert error.failure == "upstream_rejected_arguments", error.excerpt
+    assert words in error.excerpt
+    assert fake.counters.calls == ["datasets"], "one call, no retry"
+
+
+def test_an_expression_that_parses_and_selects_nothing_stays_empty():
+    """Must-fail partner: a real empty set keeps `upstream_empty_result`,
+    even behind the same "considered invalid" first sentence."""
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", text_blocks(RUCIO_RSE_EXPRESSION_EMPTY,
+                                          is_error=True))
+        error = _failure(_runner(mcp_config(fake.url)))
+
+    assert error.failure == "upstream_empty_result", error.excerpt
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(RUCIO_READ_TIMEOUT, id="read-timeout"),
+        # "invalid" past the first sentence is not the error's summary.
+        pytest.param("Error executing tool rucio_whoami: Cannot authenticate."
+                     "\nDetails: x509 proxy is invalid", id="auth"),
+    ],
+)
+def test_an_outage_reply_stays_unavailable_even_with_invalid_later(text):
+    """Must-fail partner: the new outcome cannot swallow a real outage."""
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", text_blocks(text, is_error=True))
+        error = _failure(_runner(mcp_config(fake.url)))
+
+    assert error.failure == "upstream_unavailable", error.excerpt
+
+
+def test_invalid_inside_a_successful_result_is_data_not_a_failure():
+    """Only an `isError` result is classified."""
+    rows = [{"note": "Provided RSE expression is considered invalid"}]
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", structured(rows))
+        got = _call(_runner(mcp_config(fake.url)))
+
+    assert got == rows
 
 
 def test_an_unknown_tool_is_upstream_unavailable():
@@ -1068,7 +1321,7 @@ def test_mcp_is_a_known_kind_and_a_built_in_runner():
 
 #: The declaration the catalog holds for the PostgreSQL rows.
 RELATION = {
-    "action": "external.cms.dbs_datasets",
+    "action": "external.example.items.read",
     "principal_mode": "service",
     "sample_policy": "inline",
     "retention_class": "warm",
@@ -1612,6 +1865,123 @@ def test_a_2_mb_is_error_text_is_served_as_a_bounded_excerpt(
 
 
 @pytest.mark.postgres
+@pytest.mark.parametrize(
+    "text, words",
+    [
+        pytest.param(RUCIO_DID_NOT_FOUND, "Data identifier not found", id="R1"),
+        pytest.param(RUCIO_DID_RULES_NOT_FOUND, "Data identifier not found",
+                     id="R2"),
+        pytest.param(RUCIO_RULE_NOT_FOUND,
+                     "No rule with the id 3fe781fc37294eafb22c0c9eb9a584d6",
+                     id="R4"),
+        pytest.param(RUCIO_RULE_NOT_FOUND.replace(
+            "3fe781fc37294eafb22c0c9eb9a584d6",
+            "c128171c36b343fb88dc9fa965b5a1f2"),
+            "No rule with the id c128171c36b343fb88dc9fa965b5a1f2", id="R5"),
+    ],
+)
+def test_the_reply_a_model_reads_says_not_found_not_an_outage(
+    graph, monkeypatch, tmp_path, text, words,
+):
+    """Replay of the recorded CompOps replies through `expand(live=...)`,
+    in the plain-text form a model reads. Before: `failure:
+    upstream_unavailable` and "refused the connection or returned an error
+    status" above the not-found excerpt."""
+    dsn, hub = graph
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", text_blocks(text, is_error=True))
+        server = build(dsn, mcp_binding(fake.url), monkeypatch=monkeypatch,
+                       tmp_path=tmp_path)
+        reply = drive(server, hub, text=True)["text"]
+
+    assert "failure: upstream_not_found" in reply, reply
+    assert "not an outage" in reply
+    assert words in reply
+    assert "refused the connection" not in reply
+    assert "upstream_unavailable" not in reply
+    rows = _samples(dsn)
+    assert len(rows) == 1 and rows[0]["status"] == "error"
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize(
+    "text, label",
+    [
+        pytest.param(RUCIO_RSE_EXPRESSION_INVALID, "upstream_rejected_arguments",
+                     id="syntax-rejected"),
+        pytest.param(RUCIO_RSE_EXPRESSION_EMPTY, "upstream_empty_result",
+                     id="empty-set-stays-empty"),
+    ],
+)
+def test_the_reply_a_model_reads_names_a_rejected_argument(
+    graph, monkeypatch, tmp_path, text, label,
+):
+    """Replay of the r36d RSE-expression replies through `expand(live=...)`
+    in the text a model reads. Before: the syntax error read `failure:
+    upstream_unavailable` "refused the connection"."""
+    dsn, hub = graph
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", text_blocks(text, is_error=True))
+        server = build(dsn, mcp_binding(fake.url), monkeypatch=monkeypatch,
+                       tmp_path=tmp_path)
+        reply = drive(server, hub, text=True)["text"]
+
+    assert f"failure: {label}" in reply, reply
+    assert "refused the connection" not in reply
+    if label == "upstream_rejected_arguments":
+        assert "rejected these arguments as invalid" in reply
+        assert "not an outage" in reply
+        assert "does not comply to RSE Expression syntax" in reply
+        assert "matched nothing" not in reply
+    else:
+        assert "matched nothing" in reply
+        assert "rejected these arguments" not in reply
+    assert "upstream_unavailable" not in reply
+    rows = _samples(dsn)
+    assert len(rows) == 1 and rows[0]["status"] == "error"
+
+
+@pytest.mark.postgres
+def test_a_reply_the_tool_cut_says_so_and_the_raised_limit_call_runs(
+    graph, monkeypatch, tmp_path,
+):
+    """Replay of R7's shape: the tool sends `limit` rows and `truncated:
+    true`. Before: "3 rows, all shown". Now the status line gives no total,
+    the cut line says where the tool stopped and the call that asks for
+    more -- and that call, made as written, is served whole."""
+    from mcp import types
+
+    def rucio_like(args):
+        limit = int(args["limit"])
+        rows = [{"rse": f"T2_X_{i}"} for i in range(min(limit, 7))]
+        return types.CallToolResult(
+            content=[], structuredContent=_rucio_list(rows, limit < 7),
+        )
+
+    dsn, hub = graph
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", rucio_like)
+        server = build(dsn, mcp_binding(fake.url, rows_path="items"),
+                       monkeypatch=monkeypatch, tmp_path=tmp_path)
+        cut = drive(server, hub, args={"name": "x", "limit": 3}, text=True)["text"]
+        block = live_block(drive(server, hub, args={"name": "x", "limit": 3}))
+        # The call the cut line names: the same arguments, limit 50.
+        whole = drive(server, hub, args={"name": "x", "limit": 50}, text=True)["text"]
+
+    assert "all shown" not in cut, cut
+    assert "rows 1-3 of count unknown" in cut
+    assert "the external system cut its answer at 3 rows" in cut
+    assert "ask again with limit up to 50 (this call had 3)" in cut
+    assert block["truncated"] is True
+    assert block["upstream_cut"] == {"rows": 3, "limit": 3, "limit_max": 50}
+    assert "7 rows, all shown" in whole, whole
+    assert "cut its answer" not in whole
+    assert fake.counters.arguments[-1]["limit"] == 50
+    samples = _samples(dsn)
+    assert [s["attrs"].get("upstream_cut_rows") for s in samples] == [3, 3, None]
+
+
+@pytest.mark.postgres
 def test_an_explicit_budget_over_the_ceiling_is_refused_not_clamped(
     graph, monkeypatch, tmp_path,
 ):
@@ -1653,25 +2023,30 @@ def test_an_explicit_budget_under_the_floor_is_raised_and_says_so(
     assert live_block(out)["state"] == "ok"
 
 
-# ═════════════════════ the live-mcp-cms fixture ═════════════════════════
+# ═════════════════════ the live-mcp-example fixture ═════════════════════
 #
-# tests/substrate/e2e/fixtures/live-mcp-cms is the test-only deployment the
-# hand-run proof in tests/live/mcp_cms/ points at the real DBS and Rucio MCP
-# servers (req.mcp.real-upstream). Here it is checked without a network,
-# then staged against the fake server and walked through build_server, so
-# the hand-run proof's own machinery runs in CI. The helpers below are
-# imported by that proof: both arms must drive the same code.
+# tests/substrate/e2e/fixtures/live-mcp-example is a test-only deployment
+# with neutral names (req.mcp.real-upstream). Here it is checked without a
+# network, then staged against the fake server and walked through
+# build_server. The helpers below take the fixture directory and deployment
+# name as keyword arguments, so a site that keeps its own copy of the tree
+# (for a hand-run proof against real servers) can drive the same code.
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-CMS_FIXTURE = REPO_ROOT / "tests/substrate/e2e/fixtures/live-mcp-cms"
-CMS_NAME = "live-mcp-cms"
+EXAMPLE_FIXTURE = REPO_ROOT / "tests/substrate/e2e/fixtures/live-mcp-example"
+EXAMPLE_NAME = "live-mcp-example"
 #: The variable the fixture's `secret_refs` names. It holds the whole header
 #: value; the tests set it in-process and never write it anywhere.
-CMS_AUTH_ENV = "OKG_MCP_CMS_GATE_AUTH"
+EXAMPLE_AUTH_ENV = "OKG_MCP_EXAMPLE_GATE_AUTH"
 #: Which subtype carries which relation, as the fixture declares them.
-CMS_RELATIONS = {
-    "dbs_instance": ("dataset", "datasets"),
-    "rucio_instance": ("rses",),
+EXAMPLE_RELATIONS = {
+    "catalog_instance": ("item", "items"),
+    "store_instance": ("locations",),
+}
+#: Subtype -> the node id published for it.
+EXAMPLE_NODES = {
+    "catalog_instance": "catalog_instance:main",
+    "store_instance": "store_instance:main",
 }
 
 
@@ -1683,7 +2058,7 @@ def masked_dsn(raw: str):
     return parse(raw)
 
 
-def cms_declarations() -> dict[str, Any]:
+def example_declarations() -> dict[str, Any]:
     """Every relation the fixture's schema declares, compiled, by name."""
     import yaml
 
@@ -1693,11 +2068,11 @@ def cms_declarations() -> dict[str, Any]:
     )
 
     doc = yaml.safe_load(
-        (CMS_FIXTURE / "schemas/cms_live_systems.yaml").read_text(encoding="utf-8"),
+        (EXAMPLE_FIXTURE / "schemas/example_live_systems.yaml").read_text(encoding="utf-8"),
     )
     declared: dict[str, Any] = {}
-    for class_name, subtype in (("DbsInstance", "dbs_instance"),
-                                ("RucioInstance", "rucio_instance")):
+    for class_name, subtype in (("CatalogInstance", "catalog_instance"),
+                                ("StoreInstance", "store_instance")):
         annotations = doc["classes"][class_name]["annotations"]
         declared.update(parse_live_relations(
             {ANNOTATION_KEY: annotations[ANNOTATION_KEY]}, subtype=subtype,
@@ -1705,16 +2080,22 @@ def cms_declarations() -> dict[str, Any]:
     return declared
 
 
-def cms_manifest() -> dict[str, Any]:
+def example_manifest() -> dict[str, Any]:
     import yaml
 
     return yaml.safe_load(
-        (CMS_FIXTURE / "deployment.yaml").read_text(encoding="utf-8"),
+        (EXAMPLE_FIXTURE / "deployment.yaml").read_text(encoding="utf-8"),
     )
 
 
-def stage_cms_fixture(root: Path, *, urls: dict[str, str] | None = None) -> Path:
-    """Copy the fixture under `root/<name>`, repointing bindings in `urls`.
+def stage_example_fixture(
+    root: Path,
+    *,
+    urls: dict[str, str] | None = None,
+    fixture: Path = EXAMPLE_FIXTURE,
+    name: str = EXAMPLE_NAME,
+) -> Path:
+    """Copy `fixture` under `root/<name>`, repointing bindings in `urls`.
 
     `urls` maps a relation to the server URL it should dial instead of the
     committed one, and the allowlist follows it. Nothing else is changed:
@@ -1724,10 +2105,12 @@ def stage_cms_fixture(root: Path, *, urls: dict[str, str] | None = None) -> Path
 
     import yaml
 
-    target = root / CMS_NAME
-    shutil.copytree(CMS_FIXTURE, target)
+    target = root / name
+    shutil.copytree(fixture, target)
     if urls:
-        manifest = cms_manifest()
+        manifest = yaml.safe_load(
+            (fixture / "deployment.yaml").read_text(encoding="utf-8"),
+        )
         bindings = manifest["agent_surface"]["live_bindings"]
         for relation, url in urls.items():
             config = bindings[relation]["config"]
@@ -1740,7 +2123,13 @@ def stage_cms_fixture(root: Path, *, urls: dict[str, str] | None = None) -> Path
     return target
 
 
-def publish_cms_systems(dsn: str) -> dict[str, str]:
+def publish_example_systems(
+    dsn: str,
+    *,
+    fixture: Path = EXAMPLE_FIXTURE,
+    name: str = EXAMPLE_NAME,
+    nodes: dict[str, str] | None = None,
+) -> dict[str, str]:
     """One published node of each system subtype; returns subtype -> node id.
 
     The catalog rows carry the metadata the COMPOSER produces from the
@@ -1757,11 +2146,8 @@ def publish_cms_systems(dsn: str) -> dict[str, str]:
         seed_catalog,
     )
 
-    composed = compose_catalog(CMS_FIXTURE)
-    nodes = {
-        "dbs_instance": "dbs_instance:global",
-        "rucio_instance": "rucio_instance:cms",
-    }
+    composed = compose_catalog(fixture)
+    nodes = dict(nodes or EXAMPLE_NODES)
     with psycopg.connect(dsn, autocommit=True) as conn:
         seed_catalog(conn, subtypes=[
             SubtypeSpec(subtype, metadata=dict(composed.subtype_metadata[subtype]))
@@ -1773,31 +2159,35 @@ def publish_cms_systems(dsn: str) -> dict[str, str]:
             for subtype, node_id in nodes.items()
         ])
     Publisher(
-        dsn, CMS_NAME, catalog_identity=bind_test_catalog_writer(dsn, CMS_NAME),
+        dsn, name, catalog_identity=bind_test_catalog_writer(dsn, name),
     ).cycle()
     return nodes
 
 
-def build_cms_server(dsn: str, deployments_root: Path, monkeypatch):
+def build_example_server(
+    dsn: str, deployments_root: Path, monkeypatch, *, name: str = EXAMPLE_NAME,
+):
     """`build_server` on the staged fixture, with its REAL policy bundle."""
     from okg.substrate.mcp.server import build_server
 
     monkeypatch.setenv("OKG_DEPLOYMENTS_DIR", str(deployments_root))
     monkeypatch.setenv("OKG_DSN", dsn)
-    server = build_server(dsn=dsn, deployment_name=CMS_NAME)
+    server = build_server(dsn=dsn, deployment_name=name)
     _BUILT.append(server)
     return server
 
 
-def deny_every_live_call(server, empty_root: Path) -> None:
+def deny_every_live_call(
+    server, empty_root: Path, *, name: str = EXAMPLE_NAME,
+) -> None:
     """Point the server's gate at a deployments root with no bundle."""
     from okg.substrate.external_backed.live_dispatch import build_live_gate
 
-    (empty_root / CMS_NAME).mkdir(parents=True, exist_ok=True)
-    server._okg_live_gate = build_live_gate(CMS_NAME, deployments_root=empty_root)
+    (empty_root / name).mkdir(parents=True, exist_ok=True)
+    server._okg_live_gate = build_live_gate(name, deployments_root=empty_root)
 
 
-def cms_samples(dsn: str) -> list[dict[str, Any]]:
+def example_samples(dsn: str) -> list[dict[str, Any]]:
     """Every sample the fixture's relations wrote (all are `hot`)."""
     from okg.substrate.external_backed.call_sample import table_for_class
 
@@ -1810,30 +2200,32 @@ def cms_samples(dsn: str) -> list[dict[str, Any]]:
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
-def test_the_cms_fixture_composes_two_system_subtypes_with_their_relations():
+def test_the_example_fixture_composes_two_system_subtypes_with_their_relations():
     from okg.substrate.catalog.modules_compose import compose_catalog
 
-    composed = compose_catalog(CMS_FIXTURE)
-    for subtype, relations in CMS_RELATIONS.items():
+    composed = compose_catalog(EXAMPLE_FIXTURE)
+    for subtype, relations in EXAMPLE_RELATIONS.items():
         assert subtype in composed.subtypes
         live = composed.subtype_metadata[subtype]["live_relations"]
         assert sorted(live) == sorted(relations), live
 
 
-def test_the_cms_fixture_binds_every_declared_relation_and_nothing_else():
+def test_the_example_fixture_binds_every_declared_relation_and_nothing_else():
     from okg.substrate.external_backed.live_relations import parse_live_bindings
 
-    bindings = parse_live_bindings(cms_manifest()["agent_surface"]["live_bindings"])
-    declared = cms_declarations()
-    assert sorted(bindings) == sorted(declared) == ["dataset", "datasets", "rses"]
+    bindings = parse_live_bindings(
+        example_manifest()["agent_surface"]["live_bindings"],
+    )
+    declared = example_declarations()
+    assert sorted(bindings) == sorted(declared) == ["item", "items", "locations"]
     for name, binding in bindings.items():
         assert binding.kind == "mcp", name
         assert binding.upstream_credential == "personal", name
-        assert binding.secret_refs == (f"env:{CMS_AUTH_ENV}",), name
+        assert binding.secret_refs == (f"env:{EXAMPLE_AUTH_ENV}",), name
         assert binding.config["server_url"].startswith("http://127.0.0.1:"), name
 
 
-def test_the_cms_bindings_pass_every_load_check(monkeypatch):
+def test_the_example_bindings_pass_every_load_check(monkeypatch):
     from okg.substrate.external_backed.live_relations import parse_live_bindings
     from okg.substrate.external_backed.mcp_adapter import (
         DEFAULT_MAX_RESPONSE_BYTES,
@@ -1843,98 +2235,100 @@ def test_the_cms_bindings_pass_every_load_check(monkeypatch):
         validate_mcp_binding_configs,
     )
 
-    monkeypatch.setenv(CMS_AUTH_ENV, f"Bearer {TOKEN}")
-    bindings = parse_live_bindings(cms_manifest()["agent_surface"]["live_bindings"])
-    declared = cms_declarations()
+    monkeypatch.setenv(EXAMPLE_AUTH_ENV, f"Bearer {TOKEN}")
+    bindings = parse_live_bindings(
+        example_manifest()["agent_surface"]["live_bindings"],
+    )
+    declared = example_declarations()
     runners = validate_mcp_binding_configs(bindings, declared, runners={})
-    assert sorted(runners) == ["dataset", "datasets", "rses"]
+    assert sorted(runners) == ["item", "items", "locations"]
 
-    wide = parse_mcp_binding("datasets", bindings["datasets"], declared["datasets"])
+    wide = parse_mcp_binding("items", bindings["items"], declared["items"])
     # The wide question is bounded by the DEFAULT cap, which is the bound
-    # the hand-run proof's 60 MB call must meet.
+    # a 60 MB answer must meet.
     assert wide.max_response_bytes == DEFAULT_MAX_RESPONSE_BYTES
-    assert wide.tool == "dbs_list_datasets"
-    assert wide.narrowing_args == ("detail", "primary_ds_name")
+    assert wide.tool == "catalog_list_items"
+    assert wide.narrowing_args == ("detail", "name_pattern")
 
-    lifecycle = cms_manifest()["contract"]["lifecycle"]
+    lifecycle = example_manifest()["contract"]["lifecycle"]
     assert lifecycle == "prototype"
     assert_mcp_credentials_admitted(bindings, lifecycle=lifecycle)
     with pytest.raises(LiveAdapterPersonalCredentialRefused):
         assert_mcp_credentials_admitted(bindings, lifecycle="production")
 
 
-def test_the_cms_bundle_allows_each_relation_only_on_its_own_subtype():
+def test_the_example_bundle_allows_each_relation_only_on_its_own_subtype():
     import dataclasses
 
     from okg.substrate.external_backed.live_dispatch import build_live_gate
 
-    gate = build_live_gate(CMS_NAME, deployments_root=CMS_FIXTURE.parent)
-    declared = cms_declarations()
+    gate = build_live_gate(EXAMPLE_NAME, deployments_root=EXAMPLE_FIXTURE.parent)
+    declared = example_declarations()
     for name, relation in declared.items():
         outcome = gate(relation, "service:okg-runtime", f"{relation.subtype}:x")
         assert outcome.allowed, (name, outcome)
         assert not gate(relation, "service:someone-else", "n").allowed, name
     # The same relation name on the other subtype matches no rule.
-    moved = dataclasses.replace(declared["rses"], subtype="dbs_instance")
-    assert not gate(moved, "service:okg-runtime", "dbs_instance:x").allowed
+    moved = dataclasses.replace(declared["locations"], subtype="catalog_instance")
+    assert not gate(moved, "service:okg-runtime", "catalog_instance:x").allowed
 
 
 @pytest.fixture
-def cms_graph(clean_runtime: str, monkeypatch, tmp_path):
+def example_graph(clean_runtime: str, monkeypatch, tmp_path):
     """The staged fixture's graph, published, with the gate token set."""
-    monkeypatch.setenv(CMS_AUTH_ENV, f"Bearer {TOKEN}")
-    return clean_runtime, publish_cms_systems(clean_runtime)
+    monkeypatch.setenv(EXAMPLE_AUTH_ENV, f"Bearer {TOKEN}")
+    return clean_runtime, publish_example_systems(clean_runtime)
 
 
 @pytest.mark.postgres
-def test_the_cms_fixture_walk_against_the_fake_server(
-    cms_graph, monkeypatch, tmp_path,
+def test_the_example_fixture_walk_against_the_fake_server(
+    example_graph, monkeypatch, tmp_path,
 ):
-    """The hand-run proof's steps, against the fake: a narrow Rucio call
-    served whole, the wide DBS call refused within budget, a deny that never
+    """The proof's steps, against the fake: a narrow store call
+    served whole, the wide catalog call refused within budget, a deny that never
     reaches the server, and one hot sample per call."""
-    dsn, nodes = cms_graph
-    rses = [{"rse": f"T1_SITE_{i}", "noise": "x"} for i in range(5)]
+    dsn, nodes = example_graph
+    locations = [{"location": f"SITE_{i}", "noise": "x"} for i in range(5)]
     with FakeMcpUpstream(token=TOKEN) as fake:
-        fake.tool("rucio_list_rses", structured(rses, path=("items",)))
-        fake.tool("dbs_list_datasets", json_text(sized_rows(60 * MIB)))
-        staged = stage_cms_fixture(tmp_path / "deployments", urls={
-            name: fake.url for name in ("dataset", "datasets", "rses")
+        fake.tool("store_list_locations", structured(locations, path=("items",)))
+        fake.tool("catalog_list_items", json_text(sized_rows(60 * MIB)))
+        staged = stage_example_fixture(tmp_path / "deployments", urls={
+            name: fake.url for name in ("item", "items", "locations")
         })
-        server = build_cms_server(dsn, staged.parent, monkeypatch)
+        server = build_example_server(dsn, staged.parent, monkeypatch)
 
-        narrow = drive(server, nodes["rucio_instance"], relation="rses",
-                       args={"rse_expression": "tier=1"}, max_bytes=BUDGET)
-        wide = drive(server, nodes["dbs_instance"], relation="datasets",
-                     args={"primary_ds_name": "*HI*", "detail": True},
+        narrow = drive(server, nodes["store_instance"], relation="locations",
+                       args={"expression": "zone=1"}, max_bytes=BUDGET)
+        wide = drive(server, nodes["catalog_instance"], relation="items",
+                     args={"name_pattern": "*big*", "detail": True},
                      max_bytes=BUDGET)
         calls_before_deny = list(fake.counters.calls)
         requests_before_deny = fake.counters.requests
         deny_every_live_call(server, tmp_path / "no-bundle")
-        denied = drive(server, nodes["dbs_instance"], relation="datasets",
-                       args={"primary_ds_name": "*HI*", "detail": True},
+        denied = drive(server, nodes["catalog_instance"], relation="items",
+                       args={"name_pattern": "*big*", "detail": True},
                        max_bytes=BUDGET)
 
     block = live_block(narrow)
     assert block["state"] == "ok", block
     assert block.get("truncated") is not True, block
-    assert len(block["rows"]) == len(rses)
-    assert all(set(row) == {"rse"} for row in block["rows"]), "row_fields kept"
-    assert fake.counters.arguments[0] == {"rse_expression": "tier=1", "limit": 50}
+    assert len(block["rows"]) == len(locations)
+    assert all(set(row) == {"location"} for row in block["rows"]), "row_fields kept"
+    assert fake.counters.arguments[0] == {"expression": "zone=1", "limit": 50}
     assert fake.counters.authorization[0] == f"Bearer {TOKEN}"
 
     assert wide["served"] <= BUDGET
     error = live_block(wide)["error"]
     assert error["failure"] == "response_over_cap", error
-    assert error["narrow_with"] == ["detail", "primary_ds_name"]
+    assert error["narrow_with"] == ["detail", "name_pattern"]
 
     assert live_block(denied)["state"] == "denied"
     assert fake.counters.calls == calls_before_deny
     assert fake.counters.requests == requests_before_deny
 
-    samples = cms_samples(dsn)
+    samples = example_samples(dsn)
     assert [(s["relation"], s["decision"]) for s in samples] == [
-        ("rses", "allow"), ("datasets", "allow"), ("datasets", "deny"),
+        ("locations", "allow"), ("items", "allow"), ("items", "deny"),
     ]
     assert samples[0]["status"] == "ok"
     assert samples[1]["status"] == "error"
@@ -1942,67 +2336,67 @@ def test_the_cms_fixture_walk_against_the_fake_server(
 
 
 @pytest.mark.postgres
-def test_the_cms_narrow_dbs_call_returns_its_one_row_whole(
-    cms_graph, monkeypatch, tmp_path,
+def test_the_example_narrow_catalog_call_returns_its_one_row_whole(
+    example_graph, monkeypatch, tmp_path,
 ):
-    """req.mcp.real-upstream (b) against the fake, in the shape the real DBS
-    server sends: one dataset is one text block holding one object. The
+    """req.mcp.real-upstream (b) against the fake, in the shape a real MCP
+    server sends: one item is one text block holding one object. The
     pattern relation sends the operator's detail=false with it."""
-    dsn, nodes = cms_graph
-    name = "/HIMinimumBias0/HIRun2099A-v1/RAW"
+    dsn, nodes = example_graph
+    name = "/Alpha0/Run1-v1/RAW"
 
-    def one_dataset(args):
+    def one_item(args):
         from mcp import types
 
-        assert args == {"dataset": name, "detail": False}
+        assert args == {"path": name, "detail": False}
         return types.CallToolResult(content=[types.TextContent(
-            type="text", text=json.dumps({"dataset": name, "size": 7}),
+            type="text", text=json.dumps({"item": name, "size": 7}),
         )])
 
     with FakeMcpUpstream(token=TOKEN) as fake:
-        fake.tool("dbs_list_datasets", one_dataset)
-        staged = stage_cms_fixture(tmp_path / "deployments", urls={
-            relation: fake.url for relation in ("dataset", "datasets", "rses")
+        fake.tool("catalog_list_items", one_item)
+        staged = stage_example_fixture(tmp_path / "deployments", urls={
+            relation: fake.url for relation in ("item", "items", "locations")
         })
-        server = build_cms_server(dsn, staged.parent, monkeypatch)
-        out = drive(server, nodes["dbs_instance"], relation="dataset",
-                    args={"dataset": name}, max_bytes=BUDGET)
+        server = build_example_server(dsn, staged.parent, monkeypatch)
+        out = drive(server, nodes["catalog_instance"], relation="item",
+                    args={"path": name}, max_bytes=BUDGET)
 
     block = live_block(out)
     assert block["state"] == "ok", block
     assert block.get("truncated") is not True, block
     assert len(block["rows"]) == 1
     assert name in json.dumps(block["rows"])
-    assert [(s["relation"], s["status"]) for s in cms_samples(dsn)] == [
-        ("dataset", "ok"),
+    assert [(s["relation"], s["status"]) for s in example_samples(dsn)] == [
+        ("item", "ok"),
     ]
 
 
 @pytest.mark.postgres
 def test_many_one_object_blocks_are_bounded_like_any_rows(
-    cms_graph, monkeypatch, tmp_path,
+    example_graph, monkeypatch, tmp_path,
 ):
-    """A wide DBS answer under the cap, one block per dataset: served as the
+    """A wide catalog answer under the cap, one block per item: served as the
     longest prefix that fits plus a digest of the full set."""
-    dsn, nodes = cms_graph
-    rows = [{"dataset": f"/P{i}/Q/RAW", "pad": "y" * 400} for i in range(300)]
+    dsn, nodes = example_graph
+    rows = [{"item": f"/P{i}/Q/RAW", "pad": "y" * 400} for i in range(300)]
 
     with FakeMcpUpstream(token=TOKEN) as fake:
-        fake.tool("dbs_list_datasets",
+        fake.tool("catalog_list_items",
                   text_blocks(*(json.dumps(row) for row in rows)))
-        staged = stage_cms_fixture(tmp_path / "deployments", urls={
-            relation: fake.url for relation in ("dataset", "datasets", "rses")
+        staged = stage_example_fixture(tmp_path / "deployments", urls={
+            relation: fake.url for relation in ("item", "items", "locations")
         })
-        server = build_cms_server(dsn, staged.parent, monkeypatch)
-        out = drive(server, nodes["dbs_instance"], relation="datasets",
-                    args={"primary_ds_name": "P*"}, max_bytes=BUDGET)
+        server = build_example_server(dsn, staged.parent, monkeypatch)
+        out = drive(server, nodes["catalog_instance"], relation="items",
+                    args={"name_pattern": "P*"}, max_bytes=BUDGET)
 
     assert out["served"] <= BUDGET
     block = live_block(out)
     assert block["state"] == "ok", block
     assert block["truncated"] is True
     assert block["summary"]["row_count"] == len(rows)
-    assert block["digest"] == _independent_digest(rows, relation="datasets")
+    assert block["digest"] == _independent_digest(rows, relation="items")
     for index, row in enumerate(block.get("rows") or []):
         assert f"/P{index}/Q/RAW" in json.dumps(row)
 
@@ -2269,50 +2663,11 @@ def test_a_group_of_a_cancellation_and_an_error_leaves_as_a_declared_failure(
     "postgresql://okg:fake-proof-pw-4f1c@127.0.0.1:6521/okg_test_lanei",
     "host=127.0.0.1 port=6521 user=okg password=fake-proof-pw-4f1c dbname=okg_t",
 ], ids=["url", "keyword"])
-def test_the_live_proofs_dsn_value_never_prints_its_password(raw):
-    """The hand-run proof receives its database as this value, and a failing
+def test_a_live_proofs_dsn_value_never_prints_its_password(raw):
+    """A hand-run proof receives its database as this value, and a failing
     test prints its arguments: the password must not be in either text."""
     value = masked_dsn(raw)
 
     assert "fake-proof-pw-4f1c" not in repr(value)
     assert "fake-proof-pw-4f1c" not in str(value)
     assert "fake-proof-pw-4f1c" in value.render(), "connecting still works"
-
-
-def test_the_live_proof_forces_short_tracebacks():
-    """A long traceback prints each frame's arguments, DSNs included."""
-    from types import SimpleNamespace
-
-    from tests.live.mcp_cms.conftest import pytest_configure
-
-    for given, expected in (("auto", "short"), ("long", "short"),
-                            ("short", "short"), ("line", "line"),
-                            ("no", "no")):
-        config = SimpleNamespace(option=SimpleNamespace(tbstyle=given))
-        pytest_configure(config)
-        assert config.option.tbstyle == expected, given
-
-
-def test_the_live_proofs_deny_window_starts_below_the_second():
-    """The hand-run proof counts tool calls the server logs after a stamp
-    taken right before the denied call. Rounded to the second, that stamp
-    reached back over the allowed call before it."""
-    from datetime import datetime, timedelta, timezone
-
-    from tests.live.mcp_cms.test_real_upstream import (
-        count_call_tool_requests,
-        since_stamp,
-    )
-
-    eastern = timezone(timedelta(hours=-4))
-    moment = datetime(2026, 10, 6, 9, 58, 12, 345678, tzinfo=eastern)
-    assert since_stamp(moment) == "2026-10-06T13:58:12.345678Z"
-    assert datetime.fromisoformat(since_stamp(moment)) == moment
-
-    log = (
-        "INFO Processing request of type CallToolRequest\n"
-        "INFO Processing request of type ListToolsRequest\n"
-        "INFO Processing request of type CallToolRequest\n"
-    )
-    assert count_call_tool_requests(log) == 2
-    assert count_call_tool_requests("") == 0

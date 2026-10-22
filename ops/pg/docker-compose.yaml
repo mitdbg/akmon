@@ -13,6 +13,10 @@
 # Settings (environment variables; the defaults are the values above):
 #   OKG_PG_PORT=5433            host port, always bound to 127.0.0.1
 #   OKG_PG_CONTAINER=okg-pg     container name
+#   OKG_PG_IMAGE=okg-pg17:local name and tag of the image `build` produces and
+#                               `up` starts. Give each checkout its own name
+#                               (OKG_PG_IMAGE=okg-pg17:other) so a build from
+#                               one does not retag the image the other runs.
 #   OKG_PG_PASSWORD=okg         postgres password, read only when the volume
 #                               is first created (unset means okg; an empty
 #                               value is refused at first start)
@@ -23,6 +27,8 @@
 # project, so it gets its own data volume:
 #   COMPOSE_PROJECT_NAME=okg2 OKG_PG_CONTAINER=okg2-pg OKG_PG_PORT=5434 \
 #     docker compose up -d --build --wait
+# To run the published image instead of building one, use the `docker run`
+# command in docs/start/quickstart.md (it also works with podman).
 #
 # The project is named okg-pg (issue #3639). Without a name Compose used the
 # folder name, `pg`, and joined any other app's project called `pg` that has a
@@ -39,7 +45,7 @@ name: okg-pg
 services:
   db:
     build: .
-    image: okg-pg17:local
+    image: ${OKG_PG_IMAGE:-okg-pg17:local}
     container_name: ${OKG_PG_CONTAINER:-okg-pg}
     # Run a minimal init as PID 1 so Postgres is not. Without it Postgres
     # adopts every orphan in the container. A healthcheck that times out

@@ -2,7 +2,7 @@
 
 PACT `mcp-schema-inline-types`.
 
-An Ollama-served model (qwen3.8:27B, the cms-kb public chat model) converts
+An Ollama-served model (qwen3.8:27B, the example-kb public chat model) converts
 each tool argument by the top-level `type` its schema declares. An argument
 spelled only as a `$ref` pointer, or as a `oneOf`/`anyOf` union with no
 `type` beside it, came back as a string holding JSON, and the server refused
@@ -81,7 +81,7 @@ def _close(mcp: Any) -> None:
 
 
 #: The launches whose `tools/list` a client can receive. `reader` is the
-#: cms-kb public chat's profile; write/admin serves every tool.
+#: example-kb public chat's profile; write/admin serves every tool.
 SURFACES = {
     "full read": {},
     "reader": {"tool_profile": "reader"},
@@ -229,6 +229,11 @@ async def test_max_bytes_publishes_the_minimum_the_runtime_enforces(
             # read-passage-rows-3666 (D3): accepted, not published; a search
             # page shortens its text to fit instead.
             assert "max_bytes" not in listed[name]["properties"]
+            continue
+        if name == "run":
+            # `run` shares its budget among its steps and its own refusal
+            # names the value that works; it does not publish the floor.
+            assert listed[name]["properties"]["max_bytes"] == {"type": "integer"}
             continue
         assert listed[name]["properties"]["max_bytes"] == {
             "minimum": MIN_RESPONSE_BYTES, "type": "integer",

@@ -120,6 +120,12 @@ MORE_NOT_LISTED = "more_not_listed"
 #: Prefix of a live result set's id (`live_result_sets.ID_PREFIX`; a test
 #: pins the two). Its rows are an outside system's, with their own columns.
 _LIVE_REF_PREFIX = "l1."
+
+
+def _is_live_ref(ref: Any) -> bool:
+    return isinstance(ref, str) and ref.startswith(_LIVE_REF_PREFIX)
+
+
 #: The reply key a live call's rows come back under (issue #3666): agents
 #: sent it in `select` as if it were a field.
 LIVE_ROWS_KEY = "external_live"
@@ -241,7 +247,10 @@ EDGE_FIELDS = Fields(
     },
 )
 #: A live result set's rows carry an outside system's fields under `attrs`.
-LIVE_FIELDS = Fields()
+#: Live typed rows (`{node_id, subtype, attrs, live}`) also have the two
+#: record columns; the reader refuses them by name on raw rows
+#: (`live_reader.check_record_columns`).
+LIVE_FIELDS = Fields(names=frozenset({"node_id", "subtype"}))
 #: The stable fields search's `where` reads (`search_where`), under the names
 #: it already accepts; it keeps both spellings itself, and compares dates.
 SEARCH_FIELDS = Fields(
@@ -2715,9 +2724,10 @@ def _group_key_verdict(
     `mode` is `corrected` or `guess` with the one replacement key, `link`
     for the far end of a link on a set of records, or `unfixable`.
     """
-    if kind == "nodes" and key == "match":
-        # The text a text condition matched (#3666); the tool refuses it
-        # without one.
+    if kind == "nodes" and key in ("match", "norm(match)", "words(match)"):
+        # The text a text condition matched (#3666), as written or with its
+        # variants merged (PACT read-aggregate-variants-3666); the tool
+        # refuses it without one.
         return None
     if key == _TEXT:
         return (
@@ -3181,7 +3191,9 @@ class _Rewrite:
         })
 
     def inspect(self) -> None:
+        self.subject_into_target()
         self.lines_into_target()
+        self.matching_into_target()
         self.lines_as_ranges()
         self.lift("target", ("select", "max_bytes"))
         self.node_select_second_names()
@@ -3239,6 +3251,76 @@ class _Rewrite:
             self.args["select"] = served
             self.adjusted += notes
 
+    def subject_into_target(self) -> None:
+        """A subject named at the top level (`kind`, `node_id`, ...) is refused
+        with the call that has it inside `target` (issue #3961).
+
+        Models send `inspect {"kind": "text", "node_id": ...}`. The argument
+        stays refused (it is never served silently), but the refusal carries
+        the same call with the subject fields moved into `target`, checked
+        servable before it is shown. Only when `kind` is a known target kind,
+        or `node_id` is sent alone (read as a `node` read, said as a guess).
+        A flat field that disagrees with a sent `target` is refused naming
+        both readings. A paged read (`next`) is left alone.
+        """
+        from okg.substrate.mcp.operator_models import (
+            INSPECT_KIND_ALIASES,
+            INSPECT_TARGET_KINDS,
+        )
+
+        flat_kind = self.args.get("kind")
+        if self.args.get("next") is not None or (
+            "kind" not in self.args and "node_id" not in self.args
+        ):
+            return
+        if "kind" in self.args and (
+            not isinstance(flat_kind, str)
+            or INSPECT_KIND_ALIASES.get(flat_kind, flat_kind) not in INSPECT_TARGET_KINDS
+        ):
+            return
+        target = self.args.get("target")
+        if target is not None:
+            if not isinstance(target, Mapping):
+                return
+            clashes = [
+                name for name in _SUBJECT_NAMES
+                if name in self.args and name in target
+                and _differ(self.args[name], target[name])
+            ]
+            if clashes:
+                raise GrammarRefusal(
+                    "inspect: " + ", ".join(f"`{name}`" for name in clashes)
+                    + " is given beside `target` and inside it, with different values",
+                    fix_hint=(
+                        "send the subject once, inside target: "
+                        '{"kind":"<kind>","node_id":"<record node id>"}'
+                    ),
+                    fields=tuple(clashes) + tuple(f"target.{name}" for name in clashes),
+                )
+            return
+        kind = flat_kind if isinstance(flat_kind, str) else "node"
+        moved_names = _SUBJECT_NAMES + {
+            "text": ("lines",), "texts": ("items",),
+        }.get(kind, ())
+        moved = {name: self.args[name] for name in moved_names if name in self.args}
+        moved["kind"] = kind
+        rest = {k: v for k, v in self.sent.items() if k not in moved_names}
+        refusal = GrammarRefusal(
+            "inspect: " + ", ".join(
+                f"`{name}`" for name in moved_names if name in self.args
+            ) + " must be inside `target`, not beside it",
+            fix_hint=(
+                "put them inside target"
+                + ("" if "kind" in self.args else
+                   '; with no kind, a node read is assumed (kind "node")')
+            ),
+            fields=tuple(name for name in moved_names if name in self.args),
+            retry_arguments={**rest, "target": moved},
+        )
+        if "kind" not in self.args:
+            refusal.retry_mode = "guess"
+        raise refusal
+
     def lines_into_target(self) -> None:
         """A top-level `lines` beside a text target is the target's `lines`.
 
@@ -3272,6 +3354,33 @@ class _Rewrite:
             "sent": "lines beside target",
             "served": "target.lines",
         })
+
+    def matching_into_target(self) -> None:
+        """A top-level `matching` or `context` beside a text target is the
+        target's (in one eval, 23 calls were refused "remove 'context'").
+        The same value in both places is read once; two differ: refused."""
+        target = self.args.get("target")
+        if not isinstance(target, Mapping) or target.get("kind") != "text":
+            return
+        for name in ("matching", "context"):
+            if name not in self.args:
+                continue
+            top = self.args[name]
+            if name in target and target[name] != top:
+                raise GrammarRefusal(
+                    f"inspect text: `{name}` is given beside `target` and inside "
+                    "it, with different values",
+                    fix_hint=f"send `{name}` once, inside target",
+                    fields=(name, f"target.{name}"),
+                )
+            self.args.pop(name)
+            target = {**target, name: target.get(name, top)}
+            self.args["target"] = target
+            self.adjusted.append({
+                "rule": "argument_moved_into_target",
+                "sent": f"{name} beside target",
+                "served": f"target.{name}",
+            })
 
     def lines_as_ranges(self) -> None:
         """A text read's `lines` in another common shape is read in the
@@ -3347,12 +3456,41 @@ class _Rewrite:
         """`map` and `aggregate`: a top-level `where` is the scope's `filter`."""
         tool = self.tool
         self.lower_scope_filter()
+        if tool == "aggregate":
+            self.lower_argument("predicate")
         given, where = self.take_where()
         if not given:
             return
         scope = self.args.get("input")
         if scope is None:
             scope = {"kind": "nodes"}
+        live_ref = (
+            isinstance(scope, Mapping) and set(scope) == {"ref"}
+            and _is_live_ref(scope["ref"])
+        )
+        if live_ref and tool != "aggregate":
+            # `map` is a projection of a set; a condition beside a kept live
+            # answer goes to `filter`, which takes `select` as well.
+            raise GrammarRefusal(
+                f"{tool}: `where` does not narrow a kept live answer here",
+                fix_hint=(
+                    "narrow and project it in one call: "
+                    'filter(input={"ref": "<the l1... id>"}, where=..., '
+                    'select=["<field>", ...])'
+                ),
+                fields=("where", "input.ref"),
+            )
+        if live_ref:
+            # A kept live answer is read in memory: the condition is the
+            # tool's own `predicate`, applied before projection or grouping,
+            # as `filter` takes it.
+            predicate = self.args.get("predicate")
+            if _given(predicate) and _given(where) and _differ(predicate, where):
+                raise _both_spellings(tool, "where", "predicate")
+            self.spellings.append(("where", "predicate"))
+            if _given(where):
+                self.args["predicate"] = where
+            return
         if (
             not isinstance(scope, Mapping)
             or scope.get("node_id") or scope.get("start_node")
@@ -3435,10 +3573,30 @@ class _Rewrite:
         self.args["projection"] = select
 
     def aggregate(self) -> None:
+        self.kept_ref_from_where()
         self.default_scope()
         self.lift("input", ("max_bytes",))
         self._where_into_scope(kind_optional=True)
         self.group_keys()
+
+    def kept_ref_from_where(self) -> None:
+        """`where={"ref": "l1..."}` names a kept live answer: read it as
+        input={"ref": ...} (in one eval, refused 8 times at high)."""
+        from okg.substrate.mcp.live_result_sets import is_live_id
+
+        where = self.args.get("where")
+        if (
+            "input" in self.args or not isinstance(where, Mapping)
+            or set(where) != {"ref"} or not is_live_id(where.get("ref"))
+        ):
+            return
+        self.args.pop("where")
+        self.args["input"] = {"ref": where["ref"]}
+        self.adjusted.append({
+            "rule": "kept_answer_ref_as_input",
+            "sent": "where.ref",
+            "served": "input.ref",
+        })
 
     def group_keys(self) -> None:
         """Refuse a `by` key the set cannot be grouped by, by name.
@@ -3625,6 +3783,9 @@ GRAPH_SELECT_NAMES: Mapping[str, tuple[str, ...]] = {
 
 #: Arguments an offered call leaves for the caller to repeat.
 _REPEATED = ("authority",)
+
+#: What names an `inspect` subject: inside `target`, never beside it.
+_SUBJECT_NAMES = ("kind", "node_id", "path", "source", "at")
 
 _REWRITES = {
     "search": _Rewrite.search,

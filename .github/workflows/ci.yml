@@ -26,9 +26,13 @@ jobs:
       - name: Build the wheel and sdist
         run: uv build --out-dir dist
       - name: Install the wheel in a fresh environment
+        # Run the installed okg outside the checkout, as a user would: inside
+        # a source checkout okg refuses a bare `okg` that is not that
+        # checkout's code ("bare okg is not running this checkout's code").
         run: |
           python -m venv /tmp/wheel-env
           /tmp/wheel-env/bin/pip install dist/*.whl
+          cd "$RUNNER_TEMP"
           /tmp/wheel-env/bin/okg --version
 
   fast-tests:

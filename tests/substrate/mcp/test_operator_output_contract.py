@@ -129,6 +129,8 @@ def _minimal_arguments(name: str) -> dict:
         "aggregate": {"input": {"kind": "nodes"}, "by": ["subtype"],
                       "metrics": ["count"]},
         "query": {"sql": "SELECT 1"},
+        # `run` refuses an empty step list itself, before any step.
+        "run": {"steps": []},
     }[name]
 
 

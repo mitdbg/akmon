@@ -10,6 +10,7 @@ import subprocess
 import sys
 import stat
 import threading
+import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -451,9 +452,60 @@ def _probe_ui_http(
     timeout_seconds: float,
 ) -> dict[str, Any]:
     url = f"http://{environment.ui.host}:{environment.ui.port}/viz/api/health"
+    request: urllib.request.Request | str = url
+    token_env = getattr(environment.ui, "auth_token_env", None)
+    if token_env:
+        # The UI refuses unauthenticated reads (issue #3278), so the probe must
+        # present the same token. It goes in the Authorization header only: it
+        # is never put in the URL, the result, or an error message.
+        token = os.environ.get(token_env, "")
+        if not token.strip():
+            return {
+                "ok": False,
+                "status": "unavailable",
+                "url": url,
+                "error": "UiAuthTokenUnavailable",
+                "message": (
+                    f"ui.auth_token_env names ${token_env}, which is unset or "
+                    "empty in this process; the health probe cannot "
+                    "authenticate"
+                ),
+            }
+        # Prove the listener is the supervised UI process BEFORE sending the
+        # credential: a foreign process on the port must never receive it.
+        pre_service = ((processes or {}).get("services") or {}).get(
+            environment.ui.service,
+            {},
+        )
+        pre_authority = pre_service.get("authority") or {}
+        pre_pid = pre_authority.get("pid")
+        if not (
+            pre_service.get("ok")
+            and isinstance(pre_pid, int)
+            and _pid_owns_tcp_listener(
+                pre_pid, environment.ui.host, environment.ui.port,
+            )
+            and process_start_identity(pre_pid)
+            == pre_authority.get("process_start_identity")
+        ):
+            return {
+                "ok": False,
+                "status": "foreign_or_unready",
+                "url": url,
+                "deployment_matches": False,
+                "owner_matches": False,
+                "expected_pid": pre_pid if isinstance(pre_pid, int) else None,
+                "message": (
+                    "the UI port is not owned by the supervised UI process; "
+                    "no credential was sent"
+                ),
+            }
+        request = urllib.request.Request(
+            url, headers={"Authorization": f"Bearer {token}"},
+        )
     try:
         with open_validated_url(
-            url,
+            request,
             allow_hosts=(environment.ui.host,),
             same_origin=environment.ui.host,
             timeout=timeout_seconds,

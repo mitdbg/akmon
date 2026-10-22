@@ -1719,6 +1719,17 @@ codes:
     fix_hint_template: "the database session holding the signal ended (killed backend, idle timeout, or network drop); rerun the ingest"
     data_shape: [deployment, own_pid, holder_pids]
 
+  - code: viz_read_auth_required
+    python_exception: VizReadAuthRequired
+    severity: user
+    raised_by:
+      - okg ui
+      - python -m okg.viz
+    referenced_in:
+      - docs/reference/cli.md
+    fix_hint_template: "set a token in an environment variable and pass its NAME: --auth-token-env VARIABLE_NAME"
+    data_shape: [deployment, reason]
+
   - code: catalog_apply_lease_held
     python_exception: CatalogApplyLeaseHeld
     severity: recoverable
@@ -3305,6 +3316,93 @@ codes:
     fix_hint_template: "name a type, or add a narrower condition that is not on a date"
     data_shape: [reason, fields, budget_ms, typed, date_index]
 
+  # A step of `run` used its time budget (5,000 ms a step, 15,000 ms a run).
+  # The arguments are valid.
+  - code: run_over_budget
+    python_exception: RunOverBudget
+    severity: recoverable
+    raised_by:
+      - MCP run steps
+    referenced_in:
+      - pact/changes/run-composed-3666/pact.yaml
+    fix_hint_template: "narrow the step's condition, or split the run"
+    data_shape: []
+
+  # A printed `run` step would print more than 200 rows (records, or groups
+  # for aggregate), or a search step's whole match set holds more than 200
+  # records. The refusal states the exact count and offers served calls.
+  - code: run_step_too_many_rows
+    python_exception: RunStepTooManyRows
+    severity: recoverable
+    raised_by:
+      - MCP run steps
+    referenced_in:
+      - pact/changes/run-composed-3666/pact.yaml
+    fix_hint_template: "pass the set on without its rows (show false), or count it with aggregate"
+    data_shape: [count, groups, cap, retry_calls]
+
+  # A `run` step's exact count did not finish inside the step's time budget.
+  # The count is never estimated.
+  - code: run_count_not_finished
+    python_exception: RunCountNotFinished
+    severity: recoverable
+    raised_by:
+      - MCP run steps
+    referenced_in:
+      - pact/changes/run-composed-3666/pact.yaml
+    fix_hint_template: "narrow the step's condition, or split the run"
+    data_shape: []
+
+  # A read named a set kept past its run call (`$r<n>`) or asked
+  # `retain=true` where only such a set name answered it. A set lasts for one
+  # run call.
+  - code: set_names_removed
+    python_exception: SetNamesRemoved
+    severity: recoverable
+    raised_by:
+      - MCP read tools
+    referenced_in:
+      - pact/changes/run-composed-3666/pact.yaml
+    fix_hint_template: "put both reads in one run(steps=[...])"
+    data_shape: []
+
+  # The operator turned `run`'s live steps off (OKG_MCP_RUN_LIVE_STEPS=0).
+  # A live call sent on its own is unaffected.
+  - code: run_live_steps_off
+    python_exception: RunLiveStepsOff
+    severity: recoverable
+    raised_by:
+      - MCP run steps
+    referenced_in:
+      - pact/changes/run-composed-3666/pact.yaml
+    fix_hint_template: "send the expand(live=...) call on its own"
+    data_shape: []
+
+  # This session already has a run whose live step calls once per value,
+  # or its reader has two.
+  - code: run_live_busy
+    python_exception: RunLiveBusy
+    severity: recoverable
+    raised_by:
+      - MCP run steps
+    referenced_in:
+      - pact/changes/run-composed-3666/pact.yaml
+    fix_hint_template: "send this run again when the other one has answered"
+    data_shape: []
+
+  # A `run` live step refused: its relation's gate denied it, it would pass
+  # a run's limit, the column it reads holds no value, or its one call (no
+  # `each`) gave no answer.
+  - code: run_live_step_refused
+    python_exception: RunLiveStepRefused
+    severity: recoverable
+    raised_by:
+      - MCP run steps
+    referenced_in:
+      - pact/changes/run-composed-3666/pact.yaml
+    fix_hint_template: "the message names the limit, the column, or the gate's reason"
+    data_shape: [step, column, columns, values, cap, calls, made, relation, reason]
+
   # A write or admin MCP tool refused because `okg mcp-serve` runs read-only:
   # the database is behind this code only by migrations that are safe to read
   # behind (release verdict `read_only`), so nothing may write through it.
@@ -4733,10 +4831,11 @@ codes:
     python_exception: ContinuationTokenInvalid
     severity: user
     raised_by: [okg.substrate.mcp.continuation]
-    fix_hint_template: "restart the read without a continuation token"
+    fix_hint_template: "pass the token exactly as the reply printed it after `next:` (a token is opaque: never build, shorten or edit one), or restart the read without it; error.retry_call (mode restart) is that restart"
     # PACT read-model-s6-page-next: `mismatched` names the bound parts that
     # differ; `token_kind`/`tool` route a `next` token; reasons add
-    # signing_key_changed, kind_unroutable and wrong_tool.
+    # signing_key_changed, kind_unroutable, wrong_tool and token_unknown (a
+    # handle this process no longer holds).
     data_shape: [reason, pinned_generation_id, authority_fingerprint, mismatched, token_kind, tool]
 
   - code: result_reference_invalid
@@ -5266,6 +5365,54 @@ codes:
     fix_hint_template: "call `inspect(target={{'kind':'subtype','name':'{0}'}})` to see what this subtype offers"
     data_shape: [subtype, relation, declared]
 
+  # ---- live types (PACT live-graph-rucio-sites) -------
+  # live_type_invalid and live_relation_declared_twice refuse the catalog or
+  # the server start. live_node_id_invalid and live_arg_missing are READ-time
+  # refusals made before any upstream call.
+  - code: live_type_invalid
+    python_exception: LiveTypeInvalid
+    severity: user
+    raised_by:
+      - okg.substrate.external_backed.live_types
+      - okg.substrate.external_backed.live_dispatch.build_live_type_registry
+    fix_hint_template: null
+    data_shape: []
+
+  - code: live_node_id_invalid
+    python_exception: LiveNodeIdInvalid
+    severity: user
+    raised_by: [okg.substrate.external_backed.live_types]
+    fix_hint_template: null
+    data_shape: []
+
+  - code: live_arg_missing
+    python_exception: LiveArgMissing
+    severity: user
+    raised_by: [okg.substrate.external_backed.live_types]
+    fix_hint_template: null
+    data_shape: [relation, arg]
+
+  # A read of a live type (filter, map, aggregate, inspect, expand) refused
+  # by the live-graph resolver; `data.reason` names which (e.g. mixed_set,
+  # planned_overrun, heavy_reads_busy, store_full). Most come before any
+  # upstream call; store_full, kept_set_too_large, listing_failed and
+  # system_unavailable come after the calls they count.
+  - code: live_read_refused
+    python_exception: LiveReadRefused
+    severity: user
+    raised_by:
+      - okg.substrate.mcp.live_resolver
+      - okg.substrate.mcp.live_nodes
+    fix_hint_template: null
+    data_shape: [reason]
+
+  - code: live_relation_declared_twice
+    python_exception: LiveRelationDeclaredTwice
+    severity: user
+    raised_by: [okg.substrate.external_backed.live_dispatch.all_declared_live_relations]
+    fix_hint_template: "declare the relation on one subtype only, or give the second one its own name"
+    data_shape: [relation, subtypes]
+
   - code: live_arguments_invalid
     python_exception: LiveArgumentsInvalid
     severity: user
@@ -5436,6 +5583,20 @@ codes:
     raised_by: [okg.substrate.mcp.server]
     fix_hint_template: "declare the relation on the subtype and bind it in `agent_surface.live_bindings`, or drop the `live` argument"
     data_shape: [relation, bound, issue]
+
+  # Refused before any outside call, so the adapter runs zero
+  # times: access rules (Nomos read enforcement) are in audit or enforce mode,
+  # or their state cannot be told. Not served from a kept answer either.
+  - code: live_refused_under_access_rules
+    python_exception: LiveRefusedUnderAccessRules
+    severity: user
+    raised_by:
+      - MCP `expand(live=...)` (direct or as a `run` step), `expand(next=<live token>)`, and every read of a live type (filter, aggregate, map, inspect, and growing a kept live set) on a deployment whose access rules (Nomos) are audit or enforce, or whose state cannot be told
+    referenced_in:
+      - src/okg/substrate/mcp/live_access_rules.py
+      - src/okg/substrate/mcp/live_resolver.py
+    fix_hint_template: "read the stored graph (search, expand without live, filter, inspect); live reads under access rules are not served"
+    data_shape: [reason, access_rules, tool_called]
 
   - code: dsn_parse_error
     python_exception: DsnParseError

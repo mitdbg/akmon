@@ -9,8 +9,8 @@ canonical_id: operator-ui
 The Operator UI is a read-only browser tool for inspecting a running AKMON
 deployment: whether its graph is healthy, what each update did, the state of
 every source, and the records and relationships the graph holds.
-It never changes deployment state: it issues only `GET` reads and shows what it
-found, including loud failures when a read returns no data.
+It never changes deployment state: it issues only `GET` reads and shows loud
+failures when a read returns no data.
 
 ## Start It
 
@@ -33,8 +33,7 @@ ship it. `okg ui` serves the bundle `npm run operator-ui:build` writes to
 `.tmp/operator-ui-dist/` in the source checkout, or the directory named by
 `--dist` or `$OKG_OPERATOR_UI_DIST`. With no built bundle it refuses with
 `operator_ui_bundle_missing` and the build command; it never starts the read
-API alone. A bundle built from an older checkout is served as it is, so
-rebuild after pulling UI changes.
+API alone. An older bundle is served as it is; rebuild after pulling UI changes.
 
 `okg ui` answers only `GET`, `HEAD` and `OPTIONS`. Any other request gets
 HTTP `405` with `operator_ui_read_only`, before it reaches the read API.
@@ -111,14 +110,20 @@ dev server separately.
 
 ```bash
 export OKG_DSN=postgres://.../okg          # or pass --dsn
+export OKG_UI_TOKEN=<token>                # if the deployment is sensitive
 uv run --extra postgres --extra viz \
-  python -m okg.viz --deployment <name> --port 8765
+  python -m okg.viz --deployment <name> --port 8765 \
+  --auth-token-env OKG_UI_TOKEN
 # → OKG viz: http://127.0.0.1:8765/viz/ (deployment=<name>, loading in background)
 ```
 
-The API loads the graph in the background; `--generation N` pins a specific
-generation instead of the latest published one. Check it is up with
-`curl -fsS http://127.0.0.1:8765/viz/api/health`.
+`--generation N` pins a generation. Check it
+with the token on stdin:
+
+```bash
+printf 'header = "Authorization: Bearer %s"\n' "$OKG_UI_TOKEN" \
+  | curl -K - -fsS http://127.0.0.1:8765/viz/api/health
+```
 
 **Terminal 2 — the frontend:**
 
@@ -144,10 +149,9 @@ bash src/okg/operator_ui/web/audit/stop-servers.sh    # when done
 
 It sources the deployment DSN from `.okg/local.env` (override with
 `OKG_AUDIT_DSN_ENV`, or export `OKG_DSN` yourself) and is idempotent — if a
-server is already answering it is reused. When `OKG_AUDIT_DEPLOYMENT` is
-unset, the script falls back to this repository's own workspace deployment,
-which an outside checkout does not have, so set `OKG_AUDIT_DEPLOYMENT=<name>`
-to your deployment's name before you run it.
+server is already answering it is reused. Its read token is
+`OKG_AUDIT_API_TOKEN` or the 0600 file `audit/.servers/api.token`. Outside this repository, set
+`OKG_AUDIT_DEPLOYMENT=<name>`: the default is its own workspace deployment.
 
 ## Ports And Environment
 
@@ -171,35 +175,35 @@ Vite dev server (development only):
 | Env | Purpose |
 |---|---|
 | `OKG_OPERATOR_API_BASE` | Read-API URL the dev/preview server proxies `/viz/api` to |
+| `OKG_OPERATOR_API_TOKEN` | Token the proxy sends as a Bearer header |
 
 ## Access And Safety
 
 The UI is read-only, with no restart, publish, repair, source-sync, retry,
-approve, or edit controls. Backend read failures are
-shown as failures — with the route, view, generation, and parameters that
-failed — never papered over with a default empty state.
+approve, or edit controls. A failed read shows its route, view, generation, and
+parameters, never an empty default.
 
-`okg ui` **never binds a non-loopback address** and refuses every request
-that is not `GET`, `HEAD` or `OPTIONS`; reach it remotely through an SSH
+`okg ui` **never binds a non-loopback address**; reach it through an SSH
 tunnel. The bare read API also carries legacy admin routes: it gates and
 audits them with `OKG_VIZ_OPERATOR_TOKEN`, restricts them to loopback peers
 without it, and refuses a non-loopback bind without both that token and
 `--auth-token-env`. See [Security](../reference/security.md).
 
-Loopback is not private on a shared host. There, pass
-`--auth-token-env OKG_UI_TOKEN` after
-`export OKG_UI_TOKEN=$(openssl rand -hex 32)`: every request then needs the
-token (browser: any user name, token as password; scripts:
-`Authorization: Bearer`).
+On a shared host loopback is not private; run
+`export OKG_UI_TOKEN=$(openssl rand -hex 32)` and pass
+`--auth-token-env OKG_UI_TOKEN`; every request then needs the token (browser:
+any user name, token as password; scripts: `Authorization: Bearer`). A
+`nomos.runtime_enforcement` of `audit` or `enforce` refuses to start without
+it. A supervised environment sets `ui.auth_token_env` and a matching
+`runtime.credential_refs` entry.
 
 ## Using The Views
 
 Every view names the graph version its figures come from. The top bar is the
 same on every view: the five views, a record search box, the deployment's name,
 a version picker, a theme picker, and **Open chat** when the deployment declares
-a chat site. The deployment name is printed, not a switcher: each read-API
-process serves one deployment, so to look at another one, open the operator UI
-that serves it (run a separate `okg ui` per deployment). The version
+a chat site. The deployment name is printed, not a switcher: each process
+serves one deployment, so run a separate `okg ui` for another. The version
 picker changes what Explore and Graph read; Home, Updates and Sources always
 read the version the read API is serving and say so under their title.
 

@@ -139,14 +139,15 @@ def test_bundled_database_port_name_and_password_are_settable() -> None:
     reads an OKG_PG_* variable whose default is today's value, and the host
     side of the port stays the literal loopback address. An empty password
     is passed through (Postgres refuses it) instead of becoming `okg`. The
-    image tag stays fixed: the academic-researcher install builds it from
-    this file and then looks for `okg-pg17:local`."""
+    image name reads OKG_PG_IMAGE and defaults to `okg-pg17:local`: the
+    academic-researcher install builds the image from this file and then
+    looks for that default name, so the default must not move."""
     import yaml
 
     service = yaml.safe_load(
         Path("ops/pg/docker-compose.yaml").read_text()
     )["services"]["db"]
-    assert service["image"] == "okg-pg17:local"
+    assert service["image"] == "${OKG_PG_IMAGE:-okg-pg17:local}"
     assert service["container_name"] == "${OKG_PG_CONTAINER:-okg-pg}"
     assert service["environment"]["POSTGRES_PASSWORD"] == "${OKG_PG_PASSWORD-okg}"
     assert service["ports"] == ["127.0.0.1:${OKG_PG_PORT:-5433}:5432"]

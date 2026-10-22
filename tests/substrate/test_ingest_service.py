@@ -3036,7 +3036,7 @@ def test_run_ingest_publishes_allowed_producer_signature(
 # END of the run, after the streaming loop. That tail used to put every
 # retraction into one buffer and flush it once, so a run owing more than
 # MAX_FACTS_PER_CHUNK retractions was refused by `FactChunk` and published
-# nothing (cms-kb kb76: 21,398 retractions). The tests lower both limits so a
+# nothing (example-kb kb76: 21,398 retractions). The tests lower both limits so a
 # few dozen retractions cross several slice boundaries.
 
 _TAIL_LIMIT = 20
@@ -8862,3 +8862,394 @@ def test_real_ingest_rejected_token_maps_onto_authentication_failed(
     )
     validate_conformance_exchange(request, receipt)
     check_conformance_diagnostic_profiles(request, receipt)
+
+
+# ---------------------------------------------------------------------------
+# #3927: a health rejection names the connector's reason and the other sources
+# ---------------------------------------------------------------------------
+
+
+def _write_mixed_health_deployment(tmp_path: Path) -> Path:
+    """Three sources: `gated` is unhealthy (its credential is unset), `steady`
+    is an independent healthy peer, and `after_gated` depends on `gated`."""
+
+    dep = _write_credential_gated_deployment(
+        tmp_path,
+        adapter_class="CredentialGatedFixtureSource",
+        params={
+            "credential_ref": UNSET_CREDENTIAL_REF,
+            "node_id": "svc:gated",
+        },
+    )
+    registry_path = dep / "source_registry.yaml"
+    registry = yaml.safe_load(registry_path.read_text())
+    for name, node_id, predecessor in (
+        ("steady", "svc:steady", None),
+        ("after_gated", "svc:after-gated", "gated"),
+    ):
+        fixture = dep / f"{name}.json"
+        fixture.write_text(json.dumps({
+            "nodes": [{
+                "node_id": node_id,
+                "subtype": "document",
+                "attrs": {"text": name},
+                "source_record_id": {"path": fixture.name},
+            }],
+            "edges": [],
+        }))
+        registry["sources"][name] = {
+            **_source(f"svc.{name}", predecessor_source=predecessor),
+            "module": "okg.substrate.library.sources.bootstrap_fixture",
+            "class": "BootstrapFixtureSource",
+            "params": {"fixture_path": str(fixture)},
+            "source_policy": _fixture_source_privacy_policy(),
+            "sync": {
+                "triggers": ["manual", "reconcile"],
+                "default_event_mode": "scope_complete",
+                "reconcile_mode": "scope_complete",
+            },
+        }
+    registry_path.write_text(yaml.safe_dump(registry))
+    _commit_layered_fixture_deployment(dep, message="mixed health fixture")
+    return dep
+
+
+def _run_mixed_health_ingest(dsn: str, dep: Path, *, publish: bool):
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        seed_catalog(conn, subtypes=["document"])
+    _claim_layered_fixture_catalog(dsn, dep)
+    return run_ingest(
+        IngestOptions(
+            dsn=dsn,
+            deployment="svc",
+            deployment_dir=dep,
+            publish=publish,
+        ),
+    )
+
+
+def _mixed_health_ingest_cli(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    dsn: str,
+    dep: Path,
+    *flags: str,
+    as_json: bool,
+):
+    """Run the real `okg ingest` command function on the mixed deployment."""
+    from okg.substrate.cli import main as cli_main
+
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        seed_catalog(conn, subtypes=["document"])
+    _claim_layered_fixture_catalog(dsn, dep)
+    monkeypatch.setattr(cli_main, "_resolve_dsn", lambda args: dsn)
+    args = cli_main._build_parser().parse_args(
+        ["ingest", "--deployment", str(dep), *flags],
+    )
+    rc = cli_main._cmd_ingest(args, as_json=as_json)
+    captured = capsys.readouterr()
+    return rc, captured.out, captured.err
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("publish", [True, False])
+def test_health_rejection_names_the_reason_and_the_other_sources(
+    tmp_path: Path,
+    clean_runtime: str,
+    monkeypatch: pytest.MonkeyPatch,
+    publish: bool,
+) -> None:
+    monkeypatch.delenv(UNSET_CREDENTIAL_REF, raising=False)
+    assert UNSET_CREDENTIAL_REF not in os.environ
+    dep = _write_mixed_health_deployment(tmp_path)
+
+    outcome = _run_mixed_health_ingest(clean_runtime, dep, publish=publish)
+
+    assert outcome.any_failed is True
+    by_name = {r["name"]: r for r in outcome.report["results"]}
+    gated = by_name["gated"]
+    assert gated["status"] == "FAIL", gated
+    # The refusal carries the connector's own reason, not only the code.
+    said = gated["source_health"]["reason"]
+    assert said
+    assert gated["error"].startswith(
+        "source admission rejected: source_health_not_healthy ("
+    )
+    assert "missing_credential" in gated["error"]
+    assert said in gated["error"]
+    assert by_name["steady"]["status"] == "OK"
+
+    # ... and the note built from this run's own report says what became of
+    # the other sources.
+    from okg.substrate.ingest.failure_followup import (
+        other_sources_after_failure,
+    )
+
+    others = other_sources_after_failure(
+        deployment="svc",
+        completeness=outcome.report["completeness"],
+        publishes=outcome.report["publishes"],
+    )
+    assert others is not None
+    assert others["failed"] == ["gated"]
+    assert others["not_run_depends_on_failed"] == ["after_gated"]
+    if publish:
+        assert others["published_without_failed"] == ["steady"], (
+            outcome.report["publishes"], outcome.report["completeness"],
+        )
+        assert others["ingested_not_published"] == []
+        assert "1 other source was published without gated: steady." in (
+            others["message"]
+        )
+    else:
+        assert others["published_without_failed"] == []
+        assert others["ingested_not_published"] == ["steady"]
+        assert "1 other source was ingested but not published: steady." in (
+            others["message"]
+        )
+    assert (
+        "1 source that depends on gated did not run: after_gated."
+        in others["message"]
+    )
+    assert "okg ingest --deployment svc --exclude gated" in others["next_step"]
+    assert "one run" in others["next_step"]
+
+
+@pytest.mark.postgres
+def test_okg_ingest_text_prints_the_other_sources_note(
+    tmp_path: Path,
+    clean_runtime: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv(UNSET_CREDENTIAL_REF, raising=False)
+    dep = _write_mixed_health_deployment(tmp_path)
+
+    rc, out, _err = _mixed_health_ingest_cli(
+        monkeypatch, capsys, clean_runtime, dep, "--inline", as_json=False,
+    )
+
+    assert rc == 1
+    lines = out.splitlines()
+    # The two note lines come after the report, and name the connector's
+    # reason in the report above them.
+    assert "1 other source was published without gated: steady. " in lines[-2]
+    assert "1 source that depends on gated did not run: after_gated." in lines[-2]
+    assert lines[-1].startswith("To go on, fix gated and run `okg ingest --inline")
+    assert "--exclude gated`" in lines[-1]
+    assert "missing_credential" in out
+
+
+@pytest.mark.postgres
+def test_okg_ingest_json_carries_the_other_sources_note(
+    tmp_path: Path,
+    clean_runtime: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv(UNSET_CREDENTIAL_REF, raising=False)
+    dep = _write_mixed_health_deployment(tmp_path)
+
+    rc, out, _err = _mixed_health_ingest_cli(
+        monkeypatch, capsys, clean_runtime, dep, as_json=True,
+    )
+
+    assert rc == 1
+    report = json.loads(out.strip().splitlines()[-1])
+    others = report["other_sources"]
+    assert others["published_without_failed"] == ["steady"]
+    assert others["not_run_depends_on_failed"] == ["after_gated"]
+    # Not asked to run inline: the suggested command does not add the flag.
+    assert "--inline" not in others["next_step"]
+    gated = {r["name"]: r for r in report["results"]}["gated"]
+    assert "missing_credential" in gated["error"]
+
+
+@pytest.mark.postgres
+def test_healthy_okg_ingest_has_no_other_sources_note(
+    tmp_path: Path,
+    clean_runtime: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The same deployment with the credential supplied: nothing failed, so
+    # there is no failure note and no `other_sources` key.
+    monkeypatch.setenv(UNSET_CREDENTIAL_REF, "supplied-for-this-test")
+    dep = _write_mixed_health_deployment(tmp_path)
+
+    rc, out, _err = _mixed_health_ingest_cli(
+        monkeypatch, capsys, clean_runtime, dep, "--no-publish", as_json=True,
+    )
+
+    assert rc == 0
+    assert "other_sources" not in json.loads(out.strip().splitlines()[-1])
+
+
+def test_admission_rejection_error_without_a_reason_says_so() -> None:
+    from okg.deployment import ConnectorHealth
+
+    bare = ConnectorHealth(status="endpoint_failed")
+    assert ingest_service._admission_rejection_error(
+        "source_health_not_healthy", bare,
+    ) == (
+        "source admission rejected: source_health_not_healthy "
+        "(the connector reported endpoint_failed and gave no reason)"
+    )
+    # Other rejection codes stay bare.
+    assert ingest_service._admission_rejection_error(
+        "producer_profile_not_writable", bare,
+    ) == "source admission rejected: producer_profile_not_writable"
+    assert ingest_service._admission_rejection_error(
+        "source_health_not_healthy", None,
+    ) == "source admission rejected: source_health_not_healthy"
+
+
+def test_other_sources_note_is_absent_when_there_is_nothing_to_say() -> None:
+    from okg.substrate.ingest.failure_followup import (
+        other_sources_after_failure,
+        text_lines,
+    )
+
+    def note(completeness):
+        return other_sources_after_failure(
+            deployment="svc", completeness=completeness, publishes=[],
+        )
+
+    assert note(None) is None
+    assert note({"failed_sources": [], "completed_sources": ["a"]}) is None
+    # The failed source was the only one selected: no other source to name.
+    assert note({
+        "failed_sources": [{"source": "a"}],
+        "completed_sources": [],
+        "dependency_blocked_sources": [],
+    }) is None
+    assert text_lines({"results": []}) == []
+
+
+def test_other_sources_note_uses_plural_wording() -> None:
+    from okg.substrate.ingest.failure_followup import (
+        other_sources_after_failure,
+        text_lines,
+    )
+
+    result = other_sources_after_failure(
+        deployment="svc",
+        completeness={
+            "failed_sources": [{"source": "cds"}],
+            "completed_sources": ["a", "b"],
+            "dependency_blocked_sources": [
+                {"source": "x", "blocked_by": ["cds"]},
+                {"source": "y", "blocked_by": ["cds"]},
+            ],
+        },
+        publishes=[{"label": "commit", "status": "published"}],
+    )
+
+    assert result is not None
+    assert result["message"] == (
+        "2 other sources were published without cds: a, b. "
+        "2 sources that depend on cds did not run: x, y."
+    )
+    assert text_lines({"other_sources": result}) == [
+        result["message"], result["next_step"],
+    ]
+
+
+_NOTE_COMPLETENESS = {
+    "failed_sources": [{"source": "cds"}],
+    "completed_sources": ["notes"],
+    "dependency_blocked_sources": [],
+}
+
+
+def _note_for(publishes, **kwargs):
+    from okg.substrate.ingest.failure_followup import (
+        other_sources_after_failure,
+    )
+
+    return other_sources_after_failure(
+        deployment="svc",
+        completeness=_NOTE_COMPLETENESS,
+        publishes=publishes,
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize(
+    ("final", "published"),
+    [
+        pytest.param(
+            {"label": "commit", "status": "published",
+             "generation_id": "g2", "predecessor_generation_id": "g1"},
+            True, id="published",
+        ),
+        pytest.param(
+            {"label": "commit", "status": "published",
+             "generation_id": "g1", "predecessor_generation_id": "g1"},
+            True, id="no-change",
+        ),
+        pytest.param(
+            {"label": "commit", "status": "published",
+             "generation_id": "g2", "phase_b_blocked": True},
+            False, id="phase-b-blocked",
+        ),
+        pytest.param(
+            {"label": "commit", "status": "published",
+             "generation_id": "g2",
+             "blocked_reason": {"reason": "gate failed"}},
+            False, id="blocked-reason",
+        ),
+        pytest.param(
+            {"label": "commit", "status": "fail", "error": "boom"},
+            False, id="failed",
+        ),
+        pytest.param(
+            {"label": "commit", "status": "skipped"},
+            False, id="skipped",
+        ),
+    ],
+)
+def test_other_sources_note_judges_the_final_publish_by_its_outcome(
+    final: dict, published: bool,
+) -> None:
+    note = _note_for([final])
+
+    assert note is not None
+    assert (note["published_without_failed"] == ["notes"]) is published
+    assert (note["ingested_not_published"] == ["notes"]) is not published
+
+
+def test_other_sources_note_ignores_the_resume_publishes_before_the_run() -> None:
+    # A staged-source redrive or a recovery promotion published, but they
+    # say nothing about the sources of THIS run: its own last publish
+    # (label commit) was blocked.
+    note = _note_for([
+        {"label": "staged-source-redrive", "status": "published",
+         "generation_id": "g2", "predecessor_generation_id": "g1"},
+        {"label": "recovery-promotion", "status": "published",
+         "generation_id": "g3", "predecessor_generation_id": "g2"},
+        {"label": "commit", "status": "published", "generation_id": "g4",
+         "phase_b_blocked": True},
+    ])
+    assert note is not None
+    assert note["ingested_not_published"] == ["notes"]
+    assert note["published_without_failed"] == []
+    # With no commit publish at all, nothing of this run was published.
+    only_resume = _note_for([
+        {"label": "staged-source-redrive", "status": "published",
+         "generation_id": "g2", "predecessor_generation_id": "g1"},
+    ])
+    assert only_resume is not None
+    assert only_resume["ingested_not_published"] == ["notes"]
+
+
+def test_other_sources_note_advises_inline_only_when_run_inline() -> None:
+    publishes = [{"label": "commit", "status": "published",
+                  "generation_id": "g2", "predecessor_generation_id": "g1"}]
+    plain = _note_for(publishes)
+    inline = _note_for(publishes, inline_flag=True)
+    assert plain is not None and inline is not None
+    assert "okg ingest --deployment svc --exclude cds" in plain["next_step"]
+    assert "--inline" not in plain["next_step"]
+    assert "okg ingest --inline --deployment svc --exclude cds" in inline["next_step"]
+    assert "later run includes it again" in inline["next_step"]

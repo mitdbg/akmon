@@ -964,7 +964,9 @@ def _token_body(token: str) -> dict[str, Any]:
     and a windows cursor (`{"position": ...}`) compare in the clear. A grep
     cursor is sealed (compressed, then encrypted), so only its length is
     comparable: a length that moved with hidden rows would show here."""
-    encoded = token.split(".", 1)[0]
+    from okg.substrate.mcp.continuation import full_token
+
+    encoded = full_token(token).split(".", 1)[0]
     raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
     body = json.loads(zlib.decompress(raw))
     cursor = dict(body.get("cursor") or {})

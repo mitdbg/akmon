@@ -62,6 +62,7 @@ still would not prove the adapter ran.
 """
 from __future__ import annotations
 
+import collections
 import hashlib
 import json
 import logging
@@ -147,6 +148,22 @@ _FAILURE_MESSAGES: Mapping[str, str] = {
     "upstream_empty_result": (
         "the external system answered that this query matched nothing; no "
         "rows were served"
+    ),
+    # The system is up and answered that the object the arguments name does
+    # not exist there (Rucio: "Data identifier not found", "No replication
+    # rule found"). Not an outage: the arguments are what to check.
+    "upstream_not_found": (
+        "the external system answered that what this call names was not "
+        "found there; that is its answer, not an outage, so check the "
+        "arguments"
+    ),
+    # The system is up and answered that it cannot use these arguments
+    # (Rucio: "Provided RSE expression is considered invalid"). Not an
+    # outage and not an empty match: the argument's grammar is what to check.
+    "upstream_rejected_arguments": (
+        "the external system rejected these arguments as invalid; that is "
+        "its answer, not an outage: check the argument's grammar (inspect "
+        "publishes it)"
     ),
     "redirect_refused": (
         "the external system answered with a redirect, which is never "
@@ -529,6 +546,37 @@ def _only_wildcards_rejected(
     )
 
 
+def _with_leading_slash(
+    pattern: str, value: Any, *, max_length: int | None = None,
+) -> str | None:
+    """`"/" + value` when the pattern requires a leading `/` the value lacks
+    and the corrected value passes the argument's pattern and length; else
+    None.
+
+    CompOps q015/q018: names sent without their leading "/" reached Rucio and
+    came back "Data identifier not found", read as "not registered". A
+    pattern starting `^/` refuses them before the call; this words that
+    refusal as the one change that fixes it. Same probe bounds as
+    :func:`_only_wildcards_rejected` (value length, no nested repeats).
+    """
+    import re
+
+    if not isinstance(value, str) or value.startswith("/"):
+        return None
+    if not pattern.startswith("^/"):
+        return None
+    fixed = "/" + value
+    if max_length is not None and len(fixed) > max_length:
+        return None
+    if len(fixed) > PROBE_VALUE_CHARS or _backtracks(pattern):
+        return None
+    try:
+        compiled = re.compile(pattern)
+    except re.error:
+        return None
+    return fixed if compiled.search(fixed) is not None else None
+
+
 def _argument_violation_phrases(
     bound: BoundLiveRelation,
     errors: list[Mapping[str, Any]],
@@ -568,7 +616,22 @@ def _argument_violation_phrases(
                 pattern, err.get("input"),
                 max_length=arg.max_length if arg is not None else None,
             ):
-                phrase = f"wildcards are not accepted in {name}"
+                # A pattern that admits `*` somewhere refused it where it
+                # stands (a leading `/*/` read as "no
+                # wildcards" when `/ab*/` is accepted).
+                phrase = (
+                    f"a wildcard is not accepted where it stands in {name} "
+                    f"(pattern {_short_pattern(pattern)})" if "*" in pattern
+                    else f"wildcards are not accepted in {name}"
+                )
+            elif (fixed := _with_leading_slash(
+                pattern, err.get("input"),
+                max_length=arg.max_length if arg is not None else None,
+            )) is not None:
+                # The message names the corrected value whole; the one-line
+                # hint says the change, which stays short for a long name.
+                phrase = f"{name} must start with '/'; did you mean {fixed!r}?"
+                cut = f"{name} must start with '/'; send '/' + the value you gave"
             else:
                 phrase = f"{name} does not match its pattern {pattern}"
                 cut = (
@@ -719,6 +782,186 @@ def validate_live_arguments(
             fix_hint=_argument_fix_hint(short, extras),
         ) from exc
     return dict(model.model_dump())
+
+
+#: `live.each` (compops-read-fixes): one call asks the relation once per
+#: value of ONE argument and answers with every row, each tagged with its
+#: value. A question over 30 items took 30 single calls and left the
+#: agent to add 30 sizes by hand; another needs over a thousand values.
+#: At most `MAX_EACH_VALUES`
+#: values, `EACH_WORKERS` upstream calls at a time, all inside one deadline of
+#: the relation's own per `EACH_WORKERS` values, at most
+#: `EACH_MAX_DEADLINE_SECONDS`. The reply shows at most `EACH_ROWS_SHOWN`
+#: rows; every row is kept for `aggregate` and for `next`.
+MAX_EACH_VALUES = 1_500
+EACH_WORKERS = 8
+EACH_MAX_DEADLINE_SECONDS = 180.0
+EACH_ROWS_SHOWN = 20
+
+
+#: How many of a fanned-out argument's values a REPLY names; the rest are
+#: counted. A reply's `query` used to list every value (about 67 B each), and
+#: the byte reserve is sized from the reply, so a fan-out over more than about
+#: 600 values was refused before it ran under a 60,000 B budget although the
+#: reply shows at most `EACH_ROWS_SHOWN` rows (a fan-out of about 1,400
+#: values, reserve 95,860 B). The kept answer, the redo call and the total's
+#: cover line still get every value: they are handed the full arguments.
+EACH_QUERY_VALUES_SHOWN = 3
+
+
+def _printed_query(query: Mapping[str, Any]) -> dict[str, Any]:
+    """`query` as a reply prints it: a fanned-out argument's list of more
+    than :data:`EACH_QUERY_VALUES_SHOWN` values becomes `{"values": <count>,
+    "first": [<the first ones>]}`. Declared arguments are never lists, so
+    only `each` is ever shortened."""
+    printed: dict[str, Any] = {}
+    for key, value in query.items():
+        if isinstance(value, list) and len(value) > EACH_QUERY_VALUES_SHOWN:
+            value = {
+                "values": len(value),
+                "first": list(value[:EACH_QUERY_VALUES_SHOWN]),
+            }
+        printed[key] = value
+    return printed
+
+
+def _within_each_rows(fragment: Mapping[str, Any]) -> bool:
+    rows = fragment.get("rows")
+    return not isinstance(rows, list) or len(rows) <= EACH_ROWS_SHOWN
+
+
+def validate_each(
+    bound: BoundLiveRelation,
+    args: Mapping[str, Any] | None,
+    each: Any,
+    *,
+    args_model: type,
+) -> tuple[str, list[dict[str, Any]]]:
+    """The argument `each` names, and the validated arguments of every call.
+
+    Each value is validated as that argument, exactly as a single call's
+    would be (a wildcard refused for one value is refused here too)."""
+
+    declared = sorted(arg.name for arg in bound.relation.args)
+    shape_ok = (
+        isinstance(each, Mapping) and len(each) == 1
+        and isinstance(next(iter(each.values())), (list, tuple))
+    )
+    key = str(next(iter(each))) if shape_ok else ""
+    values = list(next(iter(each.values()))) if shape_ok else []
+    if not shape_ok or not 1 <= len(values) <= MAX_EACH_VALUES:
+        raise LiveArgumentsInvalid(
+            f"live.each names ONE argument of {bound.name!r} and a list of "
+            f"1-{MAX_EACH_VALUES} values to call it with, e.g. "
+            '{"item": ["a", "b"]}',
+            data={"relation": bound.name, "declared_arguments": declared},
+            fix_hint="pass each={<argument>: [value, ...]}",
+        )
+    if key not in declared:
+        raise LiveArgumentsInvalid(
+            f"live.each names {key!r}, which {bound.name!r} does not declare",
+            data={"relation": bound.name, "declared_arguments": declared},
+            fix_hint="name one of the declared arguments in each",
+        )
+    if key in (args or {}):
+        raise LiveArgumentsInvalid(
+            f"live.each and live.args both give {key!r}; give it in one of them",
+            data={"relation": bound.name, "argument": key},
+            fix_hint=f"drop {key!r} from args",
+        )
+    seen: set[str] = set()
+    for value in values:
+        text = json.dumps(value, sort_keys=True, default=str)
+        if text in seen:
+            raise LiveArgumentsInvalid(
+                f"live.each lists a value of {key!r} twice",
+                data={"relation": bound.name, "argument": key},
+                fix_hint="list each value once",
+            )
+        seen.add(text)
+    per_value = [
+        validate_live_arguments(bound, {**dict(args or {}), key: value}, args_model=args_model)
+        for value in values
+    ]
+    return key, per_value
+
+
+def each_query(key: str, per_value: list[dict[str, Any]]) -> dict[str, Any]:
+    """What a fanned-out call asked: the shared arguments, and the list."""
+
+    return {**per_value[0], key: [validated[key] for validated in per_value]}
+
+
+def each_deadline(relation_deadline: float, values: int) -> float:
+    rounds = -(-values // EACH_WORKERS)
+    return min(EACH_MAX_DEADLINE_SECONDS, float(relation_deadline) * rounds)
+
+
+def each_adapter(
+    adapter: Callable[..., Any],
+    key: str,
+    per_value: list[dict[str, Any]],
+    relation_deadline: float,
+    slots: Optional[threading.Semaphore] = None,
+) -> Callable[..., Any]:
+    """An adapter that runs `adapter` once per value and joins the rows.
+
+    Rows keep upstream order within a value, values keep the caller's
+    order. A row (an object) that does not carry the argument gets it as
+    its first field, so a total can be grouped or checked by value. Any
+    one call's failure fails the whole answer, naming the value.
+
+    `slots` is the binding's shared upstream cap (:func:`upstream_slots`):
+    each value's call holds one while it runs, so fan-outs side by side
+    never put more calls in flight to one system than the cap."""
+
+    def run(*, config: Any, args: Any, node_id: str, deadline_seconds: float) -> list[Any]:
+        import time as _time
+
+        stop = _time.monotonic() + float(deadline_seconds)
+
+        def one(validated: dict[str, Any]) -> Any:
+            left = stop - _time.monotonic()
+            if left <= 0 or (slots is not None and not slots.acquire(timeout=left)):
+                raise LiveAdapterError(
+                    "timeout", excerpt=f"each {key}={validated[key]!r}: not started in time",
+                )
+            try:
+                left = stop - _time.monotonic()
+                return adapter(
+                    config=config, args=dict(validated), node_id=node_id,
+                    deadline_seconds=max(0.001, min(left, float(relation_deadline))),
+                )
+            except LiveAdapterError as exc:
+                raise LiveAdapterError(
+                    exc.failure,
+                    excerpt=f"each {key}={validated[key]!r}: {exc.excerpt or exc.failure}",
+                    status=exc.status,
+                ) from exc
+            finally:
+                if slots is not None:
+                    slots.release()
+
+        with ThreadPoolExecutor(
+            max_workers=min(EACH_WORKERS, len(per_value)),
+            thread_name_prefix="okg-live-each",
+        ) as pool:
+            answers = list(pool.map(one, per_value))
+        rows: list[Any] = []
+        for validated, answer in zip(per_value, answers):
+            for row in (answer if isinstance(answer, list) else [answer]):
+                if isinstance(row, Mapping) and key not in row:
+                    row = {key: validated[key], **row}
+                rows.append(row)
+        cut = sum(1 for answer in answers if isinstance(answer, UpstreamCutRows))
+        if cut:
+            # One cut call makes the joined answer short too; say so.
+            return UpstreamCutRows(
+                rows, received=len(rows), parts_cut=cut, parts=len(answers),
+            )
+        return rows
+
+    return run
 
 
 def resolve_live_relation(
@@ -1578,7 +1821,8 @@ def _base_envelope(
         # Fixed width: plain isoformat() drops the fraction when the
         # microsecond is zero, which made the reserve 7 bytes short.
         "observed_at": observed_at.isoformat(timespec="microseconds"),
-        "query": dict(validated),
+        # As printed: a fan-out's values are counted past the first few.
+        "query": _printed_query(validated),
         "args_fingerprint": fingerprint,
         "pinned_generation_id": generation_id,
     }
@@ -1615,6 +1859,7 @@ def live_reserve_envelope(
     args: Mapping[str, Any] | None,
     generation_id: Any = None,
     retain: bool = False,
+    each: Any = None,
 ) -> dict[str, Any]:
     """The reserve R: the largest envelope this call can return unshrunk.
 
@@ -1646,13 +1891,20 @@ def live_reserve_envelope(
     )
 
     relation = bound.relation
-    validated = validate_live_arguments(bound, args, args_model=args_model)
+    each_key: Optional[str] = None
+    if each is not None:
+        each_key, per_value = validate_each(bound, args, each, args_model=args_model)
+        validated = each_query(each_key, per_value)
+    else:
+        validated = validate_live_arguments(bound, args, args_model=args_model)
     fingerprint = canonical_args_fingerprint(validated)
     base = _base_envelope(
         bound=bound, validated=validated, fingerprint=fingerprint,
         observed_at=datetime.now(timezone.utc),
         generation_id=generation_id,
     )
+    if each_key is not None:
+        base["each"] = each_key
     pointer = _refetch_pointer(
         relation=relation.name, source=bound.binding.kind, query=validated,
         args_fingerprint=fingerprint,
@@ -1711,8 +1963,12 @@ def dispatch_live_relation(
     now: Optional[datetime] = None,
     retain: Optional[Callable[[Any, Mapping[str, Any]], Any]] = None,
     keep: Optional[Callable[[Any, Mapping[str, Any]], Any]] = None,
+    each: Any = None,
 ) -> dict[str, Any]:
     """Run one live call and return its `external_live` envelope.
+
+    `each` (`{argument: [values]}`) makes it one call per value, joined
+    into one answer (:func:`each_adapter`); `query` then lists the values.
 
     `keep` (#3666, Live build 3) is called, like `retain` and with the same
     arguments, only when the answer is CUT to fit (rows left out, or fields
@@ -1761,7 +2017,24 @@ def dispatch_live_relation(
     """
     relation = bound.relation
     observed_at = now or datetime.now(timezone.utc)
-    validated = validate_live_arguments(bound, args, args_model=args_model)
+    # Every upstream call holds one of its system's shared slots (#3666,
+    # lane ri): a direct call, each value of a fan-out, a run's live step.
+    slots = upstream_slots(bound)
+    run_adapter = adapter
+    #: A direct call waits for its upstream slot before it takes a live slot.
+    capped_slots: Any = slots
+    deadline_seconds = relation.deadline_seconds
+    if each is not None:
+        each_key, per_value = validate_each(bound, args, each, args_model=args_model)
+        validated = each_query(each_key, per_value)
+        run_adapter = each_adapter(
+            adapter, each_key, per_value, relation.deadline_seconds, slots=slots,
+        )
+        # A fan-out holds one live slot; each value takes its upstream slot.
+        capped_slots = None
+        deadline_seconds = each_deadline(relation.deadline_seconds, len(per_value))
+    else:
+        validated = validate_live_arguments(bound, args, args_model=args_model)
     fingerprint = canonical_args_fingerprint(validated)
 
     # WHO this call acts as, resolved on one explicit branch (#2160). An
@@ -1783,6 +2056,9 @@ def dispatch_live_relation(
         bound=bound, validated=validated, fingerprint=fingerprint,
         observed_at=observed_at, generation_id=generation_id,
     )
+    if each is not None:
+        # The argument the answer was fanned out over (its values: `query`).
+        envelope["each"] = each_key
 
     payload: Any = None
     # What the SAMPLE stores, and the pointer a digest sample needs. Both
@@ -1861,21 +2137,37 @@ def dispatch_live_relation(
             adapter_ran = True
 
         try:
-            payload = _run_adapter_under_deadline(
-                adapter,
-                config=dict(bound.binding.config),
-                args=dict(validated),
-                node_id=node_id,
-                deadline_seconds=relation.deadline_seconds,
-                on_started=_mark_adapter_started,
+            payload = (
+                _run_adapter_under_deadline(
+                    run_adapter,
+                    config=dict(bound.binding.config),
+                    args=dict(validated),
+                    node_id=node_id,
+                    deadline_seconds=deadline_seconds,
+                    on_started=_mark_adapter_started,
+                ) if capped_slots is None else _run_capped_under_deadline(
+                    run_adapter, capped_slots,
+                    config=dict(bound.binding.config),
+                    args=dict(validated),
+                    node_id=node_id,
+                    deadline_seconds=deadline_seconds,
+                    on_started=_mark_adapter_started,
+                )
             )
-            ok_base = {**envelope, "state": "ok"}
+            # The external system's own cut, said on every form the rows are
+            # fitted into, so it is counted in every fit.
+            upstream_fragment = _upstream_cut_fragment(bound, validated, payload)
+            ok_base = {**envelope, "state": "ok", **upstream_fragment}
+            # What a kept set records: the FULL arguments, every fanned-out
+            # value included (its redo call and its totals' cover line count
+            # them), where the reply prints only the first few.
+            hook_base = {**ok_base, "query": dict(validated)}
             if retain is not None:
                 # The structural check first, exactly as shaping runs it: a
                 # depth or width bomb is `result_unusable` whether or not the
                 # caller asked to keep the answer, never a capture failure.
                 _assert_result_is_shapeable(payload)
-                retain_handle = _begin_retain_distinctly(retain, payload, ok_base)
+                retain_handle = _begin_retain_distinctly(retain, payload, hook_base)
             reference_fragment = (
                 {"result_reference": retain_handle.block}
                 if retain_handle is not None else {}
@@ -1889,8 +2181,11 @@ def dispatch_live_relation(
                     args_fingerprint=fingerprint,
                     fits=(
                         None if room is None
-                        else lambda fragment: room.fits(
-                            {**ok_base, **fragment, **reference_fragment, **extra},
+                        else lambda fragment: (
+                            (each is None or _within_each_rows(fragment))
+                            and room.fits(
+                                {**ok_base, **fragment, **reference_fragment, **extra},
+                            )
                         )
                     ),
                     budget_bytes=getattr(room, "budget_bytes", None),
@@ -1904,7 +2199,7 @@ def dispatch_live_relation(
                 # is one; otherwise `keep` keeps it now.
                 holder = retain_handle
                 if holder is None and keep is not None:
-                    keep_handle = _begin_retain_distinctly(keep, payload, ok_base)
+                    keep_handle = _begin_retain_distinctly(keep, payload, hook_base)
                     holder = keep_handle
                 if holder is not None and holder.kept:
                     from okg.substrate.mcp.live_result_sets import (
@@ -1965,7 +2260,7 @@ def dispatch_live_relation(
             envelope["error"] = _capped_error({
                 "reason": "live_relation_timeout",
                 "relation": relation.name,
-                "deadline_seconds": relation.deadline_seconds,
+                "deadline_seconds": deadline_seconds,
                 "detail": _FAILURE_MESSAGES["timeout"],
                 # WHICH mechanism cut the call. The STATE no longer depends
                 # on the microsecond race between them (#2149) -- both are
@@ -2004,7 +2299,7 @@ def dispatch_live_relation(
                 envelope["error"] = _capped_error({
                     "reason": "live_relation_timeout",
                     "relation": relation.name,
-                    "deadline_seconds": relation.deadline_seconds,
+                    "deadline_seconds": deadline_seconds,
                     "detail": _FAILURE_MESSAGES["timeout"],
                     "failure": exc.failure,
                     "cut_by": "adapter",
@@ -2103,7 +2398,22 @@ def dispatch_live_relation(
             if shaped.text_shortened is not None:
                 # The caller's text cut these rows' values to fit (#3666).
                 sample_attrs_extra["text_shortened"] = dict(shaped.text_shortened)
+            envelope.update(upstream_fragment)
             envelope.update(next_fragment)
+            if upstream_fragment:
+                sample_attrs_extra["upstream_cut_rows"] = (
+                    upstream_fragment["upstream_cut"]["rows"]
+                )
+                if "next" in next_fragment:
+                    # The kept rows page on; the cut is still said by
+                    # `upstream_cut` and `truncated`.
+                    envelope.pop("next_unavailable", None)
+                else:
+                    # Nothing past the external system's cut can be paged:
+                    # its sentence is the one the cut line prints.
+                    envelope["next_unavailable"] = (
+                        upstream_fragment["next_unavailable"]
+                    )
             if "next" in next_fragment:
                 # The row the token starts at; never the token (it holds the
                 # kept set's id, which no sample records).
@@ -2356,6 +2666,94 @@ class LiveAdapterError(SubstrateError):
         self.status = status
 
 
+class UpstreamCutRows(list):
+    """Rows from a reply the external system marked as cut short.
+
+    An adapter returns this in place of a plain list when the upstream said,
+    beside its rows, that it stopped early (rucio-mcp: `truncated: true` next
+    to `items`, at the tool's own `limit`). The dispatcher then never reports
+    the answer as whole: the envelope says `truncated: true` and carries
+    `upstream_cut`, and the reply says where it was cut and how to ask for
+    more (:func:`_upstream_cut_fragment`). A `list` subclass, so every reader
+    of rows is unchanged; slicing or copying it gives a plain list, and the
+    mark is read once, right after the adapter returns.
+    """
+
+    def __init__(
+        self, rows: Any, *, received: int,
+        parts_cut: int | None = None, parts: int | None = None,
+    ) -> None:
+        super().__init__(rows)
+        #: Rows the external system sent before it stopped.
+        self.received = int(received)
+        #: For a fanned-out call: how many of its calls were cut, of how many.
+        self.parts_cut = parts_cut
+        self.parts = parts
+
+
+#: The relation argument the cut note names as the way to ask for more rows.
+#: A naming convention, not a mapping: the binding may slot any argument into
+#: the tool's own limit, but the CompOps relations, like the fixtures, call
+#: it `limit`. A relation without one is told to narrow its arguments.
+UPSTREAM_LIMIT_ARGUMENT = "limit"
+
+
+def _upstream_cut_fragment(
+    bound: BoundLiveRelation, validated: Mapping[str, Any], payload: Any,
+) -> dict[str, Any]:
+    """What an envelope says when the external system cut its answer, or
+    `{}` when it did not.
+
+    `truncated: true` keeps the status line from saying "all shown" (it
+    says "rows 1-N of count unknown"), and `next_unavailable` carries the
+    sentence the reply prints on its cut line: no `next` token can page
+    past rows the external system never sent, so the one call that goes on
+    is the same call with a larger `limit`.
+    """
+    if not isinstance(payload, UpstreamCutRows):
+        return {}
+    received = payload.received
+    what = (
+        f"the external system cut {payload.parts_cut} of its {payload.parts} "
+        f"answers short ({received} rows in all)"
+        if payload.parts is not None
+        else f"the external system cut its answer at {received} rows"
+    )
+    limit_arg = next(
+        (
+            arg for arg in bound.relation.args
+            if arg.name == UPSTREAM_LIMIT_ARGUMENT and arg.type_name == "integer"
+        ),
+        None,
+    )
+    current = validated.get(UPSTREAM_LIMIT_ARGUMENT) if limit_arg else None
+    top = (
+        int(limit_arg.maximum)
+        if limit_arg is not None and limit_arg.maximum is not None else None
+    )
+    block: dict[str, Any] = {"rows": received}
+    if payload.parts is not None:
+        block.update({"calls_cut": payload.parts_cut, "calls": payload.parts})
+    if limit_arg is None:
+        remedy = f"{what}; this relation takes no limit, so narrow the arguments"
+    else:
+        block["limit"] = current
+        block["limit_max"] = top
+        if top is not None and isinstance(current, int) and current >= top:
+            remedy = (
+                f"{what}, at the largest limit ({top}); narrow the other "
+                f"arguments"
+            )
+        elif top is not None:
+            remedy = (
+                f"{what}; ask again with limit up to {top} (this call had "
+                f"{current})"
+            )
+        else:
+            remedy = f"{what}; ask again with a larger limit (this call had {current})"
+    return {"truncated": True, "upstream_cut": block, "next_unavailable": remedy}
+
+
 class LiveConcurrencyExhausted(SubstrateError):
     """Too many live calls already in flight in this process.
 
@@ -2434,12 +2832,19 @@ def declared_live_relations(
     }
 
 
-def all_declared_live_relations(conn: Any, session: Any) -> dict[str, str]:
-    """Every live relation the enrolled catalog declares, name -> subtype.
+class LiveRelationDeclaredTwice(SubstrateError):
+    """One live relation name declared on two subtypes (issue #3666, B7).
 
-    Used by the LOAD-time cross-check, which has to see the whole catalog:
-    a binding is undeclared only if NO subtype declares it.
+    Bindings are keyed by relation name alone, so a second declaration made
+    the dispatcher's map name whichever subtype sorted last -- the gate
+    resource then said the call read one subtype while it served the other.
+    A START refusal.
     """
+
+    code = "live_relation_declared_twice"
+
+
+def _catalog_metadata(conn: Any, session: Any) -> dict[str, dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT name, metadata FROM okg.subtypes "
@@ -2447,13 +2852,163 @@ def all_declared_live_relations(conn: Any, session: Any) -> dict[str, str]:
             (session.catalog_version_id,),
         )
         rows = cur.fetchall()
+    return {
+        str(name): (metadata if isinstance(metadata, dict) else {})
+        for name, metadata in rows
+    }
+
+
+def all_declared_live_relations(conn: Any, session: Any) -> dict[str, str]:
+    """Every live relation the enrolled catalog declares, name -> subtype.
+
+    Used by the LOAD-time cross-check, which has to see the whole catalog:
+    a binding is undeclared only if NO subtype declares it.
+
+    A relation declared on two subtypes is REFUSED
+    (:class:`LiveRelationDeclaredTwice`), naming both. It used to be kept
+    silently, with the last subtype in name order winning.
+    """
     declared: dict[str, str] = {}
-    for name, metadata in rows:
-        stored = (metadata or {}).get("live_relations") or {}
-        if isinstance(stored, dict):
-            for relation in stored:
-                declared[str(relation)] = str(name)
+    for name, metadata in _catalog_metadata(conn, session).items():
+        stored = metadata.get("live_relations") or {}
+        if not isinstance(stored, dict):
+            continue
+        for relation in stored:
+            relation = str(relation)
+            other = declared.get(relation)
+            if other is not None and other != name:
+                raise LiveRelationDeclaredTwice(
+                    f"live relation {relation!r} is declared on two subtypes, "
+                    f"{other!r} and {name!r}. A binding names a relation, not "
+                    f"a subtype, so the server could not say which subtype a "
+                    f"call reads.",
+                    data={"relation": relation, "subtypes": [other, name]},
+                    fix_hint=(
+                        "declare the relation on one subtype only, or give "
+                        "the second one its own name"
+                    ),
+                )
+            declared[relation] = name
     return declared
+
+
+#: Statement timeout for each start-time stored-node probe, in ms. The probe
+#: is `LIMIT 1` and stops at its first match; with no match it reads the node
+#: set once per live prefix. Past this budget the start is refused by name,
+#: never assumed clean.
+STORED_LIVE_NODE_PROBE_MS = 10_000
+
+
+def _like_literal(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def assert_no_stored_live_nodes(conn: Any, session: Any, registry: Any) -> None:
+    """START time: refuse when a stored node uses a live type or prefix.
+
+    One bounded probe per live type, at the session's pinned generation:
+    ``SELECT node_id ... WHERE node_id LIKE '<prefix>:%' OR subtype = <type>
+    LIMIT 1`` under a statement timeout of
+    :data:`STORED_LIVE_NODE_PROBE_MS`. The cost is at most one read of the
+    node set per live type (two in part 1), and nothing when the first row
+    matches. A probe that runs out of time refuses the start: "could not
+    check" is never read as "none".
+
+    The publish-time half is the `no_stored_live_nodes` consistency program
+    (`transform/consistency.py`), which blocks a generation adding one.
+    """
+    from psycopg import pq
+
+    from okg.substrate.external_backed.live_types import LiveTypeInvalid
+    from okg.substrate.graph_store import ChronosGraphStore
+
+    store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
+    graph = store.checkout_generation(
+        session.generation_id, branch=session.branch_name,
+    )
+    with conn.cursor() as cur:
+        cur.execute("SELECT current_setting('statement_timeout')")
+        before = cur.fetchone()[0]
+    for live_type in sorted(registry.types.values(), key=lambda t: t.subtype):
+        pattern = _like_literal(live_type.id_prefix) + ":%"
+        try:
+            # The same budget mechanism as the close-id read
+            # (`mcp.tools._read_budget`): set, read, put the caller's back.
+            conn.execute(
+                "SELECT set_config('statement_timeout', %s, false)",
+                (str(STORED_LIVE_NODE_PROBE_MS),),
+            )
+            try:
+                rows = graph.query(
+                    "SELECT node_id, subtype FROM okg.graph_nodes "
+                    "WHERE node_id LIKE :pattern OR subtype = :subtype "
+                    "LIMIT 1",
+                    {"pattern": pattern, "subtype": live_type.subtype},
+                )
+            finally:
+                if conn.info.transaction_status != pq.TransactionStatus.INERROR:
+                    conn.execute(
+                        "SELECT set_config('statement_timeout', %s, false)",
+                        (before,),
+                    )
+        except Exception as exc:  # noqa: BLE001 - a probe that did not finish
+            raise LiveTypeInvalid(
+                f"could not check that no stored node uses live type "
+                f"{live_type.subtype!r} or its prefix "
+                f"`{live_type.id_prefix}:` at generation "
+                f"{session.generation_id} ({type(exc).__name__}). The start "
+                f"is refused rather than assumed clean.",
+                data={"subtype": live_type.subtype,
+                      "prefix": live_type.id_prefix,
+                      "generation_id": str(session.generation_id),
+                      "reason": "stored_node_check_failed"},
+                fix_hint="check the database, then start the server again",
+            ) from exc
+        if rows:
+            row = rows[0]
+            raise LiveTypeInvalid(
+                f"stored node {row['node_id']!r} (subtype "
+                f"{row['subtype']!r}) at generation {session.generation_id} "
+                f"uses live type {live_type.subtype!r} or its prefix "
+                f"`{live_type.id_prefix}:`. A live type is never stored, so "
+                f"a read could not tell the stored node from the live one.",
+                data={"subtype": live_type.subtype,
+                      "prefix": live_type.id_prefix,
+                      "node_id": str(row["node_id"]),
+                      "stored_subtype": str(row["subtype"]),
+                      "generation_id": str(session.generation_id),
+                      "reason": "stored_node_uses_live_prefix"},
+                fix_hint=(
+                    "retract the stored nodes, or give the live type another "
+                    "prefix"
+                ),
+            )
+
+
+def build_live_type_registry(
+    conn: Any,
+    session: Any,
+    *,
+    bound: Any,
+    served: Any = (),
+) -> Any:
+    """START time: the deployment's live types, checked, as one registry.
+
+    Builds :class:`~okg.substrate.external_backed.live_types.LiveTypeRegistry`
+    from the enrolled catalog and refuses, by name: a relation a live type
+    names that is not bound; an ``agent_surface.live_types`` name that is
+    not a live type; and a stored node that uses a live type or prefix.
+    Prefix uniqueness, far-end types and the relation and argument checks
+    run inside the registry build.
+    """
+    from okg.substrate.external_backed.live_types import LiveTypeRegistry
+
+    registry = LiveTypeRegistry.from_catalog(_catalog_metadata(conn, session))
+    registry.assert_bound(bound)
+    registry.assert_served(served)
+    if registry.types:
+        assert_no_stored_live_nodes(conn, session, registry)
+    return registry
 
 
 def assert_live_bindings_are_declared(
@@ -2524,8 +3079,635 @@ def assert_live_bindings_are_declared(
 __all__ += [
     "BUILTIN_LIVE_ADAPTERS",
     "LiveAdapterUnavailable",
+    "LiveRelationDeclaredTwice",
+    "STORED_LIVE_NODE_PROBE_MS",
     "all_declared_live_relations",
+    "assert_no_stored_live_nodes",
+    "build_live_type_registry",
     "builtin_live_adapters",
     "assert_live_bindings_are_declared",
     "declared_live_relations",
+]
+
+
+# ---------------------------------------------------------------------------
+# One upstream cap per bound system, and `run`'s live steps (#3666, lane ri)
+# ---------------------------------------------------------------------------
+
+#: Upstream calls in flight to one bound system (one endpoint) from this
+#: process, whoever makes them (review finding 8: 8 live slots times a
+#: fan-out's own 8 threads was 64 calls in flight to one system).
+UPSTREAM_CALLS_PER_BINDING = budget_width("live.upstream_per_binding")
+#: Slots of a system one run live step leaves to other callers: its pool is
+#: the cap less these, so a direct call to the system finds one free while
+#: a run fans out (review H1).
+RUN_LEAVES_FREE = 2
+_UPSTREAM_LOCK = threading.Lock()
+
+
+class FairSlots:
+    """One system's upstream slots, given out first come, first served
+    (#3666, lane ri, review H1).
+
+    A ``threading.Semaphore`` lets the thread that just released a slot take
+    it again before a woken waiter can. A run's fan-out cycles its threads
+    through the cap that way, and a direct call to the same system waited
+    until its deadline (5 of 6 timed out). Here a waiter keeps its place in
+    line: a freed slot goes to the longest waiter."""
+
+    def __init__(self, width: int) -> None:
+        self._width = int(width)
+        self._free = int(width)
+        self._line: collections.deque[object] = collections.deque()
+        self._cond = threading.Condition(threading.Lock())
+
+    @property
+    def in_use(self) -> int:
+        with self._cond:
+            return self._width - self._free
+
+    def acquire(
+        self, blocking: bool = True, timeout: Optional[float] = None,
+        stop: Optional[Callable[[], bool]] = None,
+    ) -> bool:
+        """Take a slot. False when none came to this waiter within
+        `timeout` seconds, or once `stop()` is true (asked every 50 ms)."""
+        import time as _time
+
+        with self._cond:
+            if self._free > 0 and not self._line:
+                self._free -= 1
+                return True
+            if not blocking or (timeout is not None and timeout <= 0):
+                return False
+            ticket = object()
+            self._line.append(ticket)
+            end = None if timeout is None else _time.monotonic() + timeout
+            try:
+                while True:
+                    if self._line[0] is ticket and self._free > 0:
+                        self._line.popleft()
+                        self._free -= 1
+                        return True
+                    if stop is not None and stop():
+                        return False
+                    wait = None if end is None else end - _time.monotonic()
+                    if wait is not None and wait <= 0:
+                        return False
+                    if stop is not None:
+                        wait = 0.05 if wait is None else min(wait, 0.05)
+                    self._cond.wait(wait)
+            finally:
+                if ticket in self._line:  # left the line without a slot
+                    self._line.remove(ticket)
+                # The next in line may now be first with a slot free.
+                self._cond.notify_all()
+
+    def release(self) -> None:
+        with self._cond:
+            if self._free >= self._width:
+                raise ValueError("an upstream slot was released that was not taken")
+            self._free += 1
+            self._cond.notify_all()
+
+
+_UPSTREAM_SLOTS: dict[str, FairSlots] = {}
+#: The binding config keys that name the system a call goes to.
+_ENDPOINT_KEYS = ("server_url", "url", "base_url")
+
+
+def binding_key(bound: BoundLiveRelation) -> str:
+    """The system a binding calls: its kind and endpoint. Relations bound to
+    one endpoint (every relation of a system names one `server_url`) share a key; a
+    binding that names no endpoint key is keyed by its whole config, so it
+    is a system of its own."""
+    binding = bound.binding
+    config = dict(binding.config or {})
+    endpoint = next((config[k] for k in _ENDPOINT_KEYS if config.get(k)), None)
+    basis = endpoint if endpoint is not None else config
+    text = json.dumps(basis, sort_keys=True, default=str)
+    return f"{binding.kind}:{hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]}"
+
+
+def upstream_slots(bound: BoundLiveRelation) -> FairSlots:
+    """The shared cap of the system `bound` calls."""
+    key = binding_key(bound)
+    with _UPSTREAM_LOCK:
+        slots = _UPSTREAM_SLOTS.get(key)
+        if slots is None:
+            slots = FairSlots(UPSTREAM_CALLS_PER_BINDING)
+            _UPSTREAM_SLOTS[key] = slots
+        return slots
+
+
+#: Why a direct call never started: no slot of its system came to it.
+UPSTREAM_SLOT_TIMEOUT = "no upstream slot of this system came free before the deadline"
+
+
+def _run_capped_under_deadline(
+    adapter: Callable[..., Any],
+    slots: Any,
+    *,
+    config: Mapping[str, Any],
+    args: Mapping[str, Any],
+    node_id: str,
+    deadline_seconds: float,
+    on_started: Optional[Callable[[], None]] = None,
+) -> Any:
+    """A direct call: its system's upstream slot first, then a live slot.
+
+    The upstream wait is in the caller's thread and comes out of the call's
+    own deadline; no live slot is held while it waits (review H1: 7 direct
+    calls waiting on one system held 7 of the 8 live slots, and calls to
+    every other system were refused). The upstream slot is given back when
+    the adapter returns, in its worker, so a call abandoned at its deadline
+    holds it until its I/O ends; a call that never started gives it back
+    here. Whichever side claims the slot first owns its release."""
+    import time as _time
+
+    started = _time.monotonic()
+    left = float(deadline_seconds)
+    if not slots.acquire(blocking=False):
+        # Only a call that waited for a slot has less of its deadline.
+        if not slots.acquire(timeout=max(0.0, left)):
+            raise LiveAdapterError("timeout", excerpt=UPSTREAM_SLOT_TIMEOUT)
+        left = max(0.001, left - (_time.monotonic() - started))
+    owner_lock = threading.Lock()
+    owner: list[Optional[str]] = [None]
+
+    def claim(who: str) -> bool:
+        with owner_lock:
+            if owner[0] is None:
+                owner[0] = who
+                return True
+            return False
+
+    def capped(**kwargs: Any) -> Any:
+        if not claim("worker"):
+            # Abandoned before it began: its slot is already given back.
+            raise LiveAdapterError("timeout", excerpt="abandoned before it started")
+        try:
+            return adapter(**kwargs)
+        finally:
+            slots.release()
+
+    try:
+        return _run_adapter_under_deadline(
+            capped, config=config, args=args, node_id=node_id,
+            deadline_seconds=left, on_started=on_started,
+        )
+    finally:
+        if claim("caller"):
+            slots.release()
+
+
+#: What one value of a run live step came to. `ok`, `empty` and `not_found`
+#: are the external system's own answers; the others leave the step partial.
+VALUE_OK = "ok"
+VALUE_EMPTY = "empty"
+VALUE_NOT_FOUND = "not_found"
+VALUE_FAILED = "failed"
+VALUE_CUT = "cut"
+VALUE_NOT_STARTED = "not_started"
+VALUE_OUTCOMES = (
+    VALUE_OK, VALUE_EMPTY, VALUE_NOT_FOUND, VALUE_FAILED, VALUE_CUT, VALUE_NOT_STARTED,
+)
+WHOLE_OUTCOMES = frozenset({VALUE_OK, VALUE_EMPTY, VALUE_NOT_FOUND})
+#: Failures the external system answers with that are answers, not
+#: outages: an empty match is 0 rows (never retried, never partial).
+_EMPTY_FAILURES = frozenset({"upstream_empty_result"})
+_NOT_FOUND_FAILURES = frozenset({"upstream_not_found"})
+
+#: The executor a run's live step waits on (#3666, lane ri). Its threads
+#: open no database connection: they wait on the step's calls.
+RUN_WAIT_WIDTH = budget_width("live.run_waits")
+_RUN_WAIT_LOCK = threading.Lock()
+_RUN_WAIT_EXECUTOR: Optional[ThreadPoolExecutor] = None
+
+
+def run_wait_executor() -> ThreadPoolExecutor:
+    """The wait-only executor, made on first use."""
+    global _RUN_WAIT_EXECUTOR
+    with _RUN_WAIT_LOCK:
+        if _RUN_WAIT_EXECUTOR is None:
+            _RUN_WAIT_EXECUTOR = ThreadPoolExecutor(
+                max_workers=RUN_WAIT_WIDTH, thread_name_prefix="okg-run-wait",
+            )
+        return _RUN_WAIT_EXECUTOR
+
+
+#: Runs whose live step fans out right now: one per reader and logical MCP
+#: session (review finding 8, review M3), and at most
+#: :data:`HEAVY_RUNS_PER_READER` per reader across its sessions, so one
+#: principal cannot hold every wait thread. Without a stable session the
+#: reader alone is the key: one such run per reader.
+HEAVY_RUNS_PER_READER = 2
+_HEAVY_LOCK = threading.Lock()
+_HEAVY_RUNS: set[str] = set()
+_HEAVY_PER_READER: "collections.Counter[str]" = collections.Counter()
+
+
+def _heavy_key(reader_key: str, session: Optional[str]) -> str:
+    return reader_key if not session else f"{reader_key}:{session}"
+
+
+def claim_live_heavy_run(reader_key: str, session: Optional[str] = None) -> bool:
+    """Take a fan-out run for this reader and session; False when the
+    session already has one or the reader has its ceiling."""
+    key = _heavy_key(reader_key, session)
+    with _HEAVY_LOCK:
+        if key in _HEAVY_RUNS or _HEAVY_PER_READER[reader_key] >= HEAVY_RUNS_PER_READER:
+            return False
+        _HEAVY_RUNS.add(key)
+        _HEAVY_PER_READER[reader_key] += 1
+        return True
+
+
+def release_live_heavy_run(reader_key: str, session: Optional[str] = None) -> None:
+    key = _heavy_key(reader_key, session)
+    with _HEAVY_LOCK:
+        if key not in _HEAVY_RUNS:
+            return
+        _HEAVY_RUNS.discard(key)
+        _HEAVY_PER_READER[reader_key] -= 1
+        if _HEAVY_PER_READER[reader_key] <= 0:
+            del _HEAVY_PER_READER[reader_key]
+
+
+#: Heavy reads of a live TYPE (a set read that calls once per node, spec 7,
+#: N4; PACT live-graph-rucio-sites) at once, per reader and okg logical
+#: session. Without a durable session (stateless HTTP) the reader alone is
+#: the key. Counted apart from `run`'s fan-out runs above.
+LIVE_TYPE_READS_PER_KEY = HEAVY_RUNS_PER_READER
+_LIVE_TYPE_READS: "collections.Counter[str]" = collections.Counter()
+
+
+def claim_live_type_read(reader_key: str, session: Optional[str] = None) -> bool:
+    """Take a heavy live-type read for this reader and session; False when
+    that key already runs :data:`LIVE_TYPE_READS_PER_KEY`."""
+    key = _heavy_key(reader_key, session)
+    with _HEAVY_LOCK:
+        if _LIVE_TYPE_READS[key] >= LIVE_TYPE_READS_PER_KEY:
+            return False
+        _LIVE_TYPE_READS[key] += 1
+        return True
+
+
+def release_live_type_read(reader_key: str, session: Optional[str] = None) -> None:
+    key = _heavy_key(reader_key, session)
+    with _HEAVY_LOCK:
+        if _LIVE_TYPE_READS[key] <= 1:
+            _LIVE_TYPE_READS.pop(key, None)
+        else:
+            _LIVE_TYPE_READS[key] -= 1
+
+
+@dataclass
+class LiveCallsResult:
+    """What a run live step's calls came to, value by value."""
+
+    #: Every row of every answered value, in value order, each a JSON object.
+    rows: list[dict[str, Any]]
+    #: One outcome (`VALUE_OUTCOMES`) per value, in value order.
+    outcomes: list[str]
+    #: Why a value failed, was cut or was not started (None for the rest).
+    reasons: list[Optional[str]]
+    #: Adapter calls started.
+    started: int
+    #: Bytes of rows held (compact JSON).
+    held_bytes: int
+    #: Why the step stopped starting calls: `deadline`, `memory`,
+    #: `cancelled`, or None when every value was called.
+    stopped: Optional[str]
+    #: Rows that were not objects, held as {"value": <row>}.
+    non_object_rows: int
+    elapsed_ms: int
+
+    def counts(self) -> dict[str, int]:
+        return {name: self.outcomes.count(name) for name in VALUE_OUTCOMES}
+
+    @property
+    def partial(self) -> bool:
+        return any(outcome not in WHOLE_OUTCOMES for outcome in self.outcomes)
+
+    @property
+    def answered(self) -> int:
+        return sum(1 for outcome in self.outcomes if outcome != VALUE_NOT_STARTED)
+
+
+def gate_for_call(
+    bound: BoundLiveRelation,
+    gate: Callable[[LiveRelation, Optional[str], Optional[str]], GateOutcome],
+    node_id: str,
+    principal: Optional[str] = None,
+) -> GateOutcome:
+    """The relation's gate, asked as `dispatch_live_relation` asks it: an
+    unresolved subject is denied without asking."""
+    subject = resolve_live_principal(bound, principal)
+    if subject:
+        return gate(bound.relation, subject, node_id)
+    return GateOutcome(
+        allowed=False, reason=PRINCIPAL_UNRESOLVED_REASON,
+        principal=UNRESOLVED_PRINCIPAL, action=bound.relation.action,
+    )
+
+
+def run_live_calls(
+    *,
+    bound: BoundLiveRelation,
+    adapter: Callable[..., Any],
+    per_value: list[dict[str, Any]],
+    each_key: Optional[str],
+    node_id: str,
+    deadline: float,
+    stop: threading.Event,
+    max_bytes: int,
+) -> LiveCallsResult:
+    """Every call of one run live step; no database (#3666, lane ri).
+
+    Runs on the wait-only executor. It takes one live slot for the whole
+    step, as a direct ``expand(live=...)`` takes one (none free is
+    :class:`LiveConcurrencyExhausted`, before any call), and each value's
+    call holds one of its system's shared upstream slots
+    (:func:`upstream_slots`). Each value's outcome is counted: the system's
+    answers (`ok`, `empty`: it said nothing matched, `not_found`: it said
+    the named object does not exist) leave the step whole; `failed`, `cut`
+    (the system cut its own answer short) and `not_started` leave it
+    partial.
+
+    No call starts once the run's `stop` is set (the client went away) or
+    `deadline` (``time.monotonic``) has passed. The step's own halt is set
+    under the same lock as the check and the count of started calls, so
+    the count of adapter calls is flat from the moment this function
+    returns; `stop` is never set here, so a later step of the run starts. Calls not yet started are cancelled
+    (``cancel_futures``); a call in flight is abandoned, counted `failed`
+    (cut at the run's deadline) and its answer discarded. The live slot is
+    given back when the last abandoned call returns. Past `max_bytes` of
+    rows no further call starts (`stopped` = ``memory``)."""
+    import time as _time
+    from concurrent.futures import FIRST_COMPLETED, wait
+
+    started_at = _time.monotonic()
+    live_slots = _take_live_slot()
+    if live_slots is None:
+        raise LiveConcurrencyExhausted(
+            f"{MAX_CONCURRENT_LIVE_CALLS} live calls are already in flight in "
+            "this process; this live step is refused rather than queued",
+            data={"limit": MAX_CONCURRENT_LIVE_CALLS},
+            fix_hint="send the run again once the other live calls have returned",
+        )
+    upstream = upstream_slots(bound)
+    total = len(per_value)
+    outcomes = [VALUE_NOT_STARTED] * total
+    reasons: list[Optional[str]] = [None] * total
+    answers: list[Any] = [None] * total
+    lock = threading.Lock()
+    state: dict[str, Any] = {
+        "started": 0, "bytes": 0, "closed": False, "stopped": None,
+        "inflight": set(),
+    }
+    relation_deadline = float(bound.relation.deadline_seconds)
+    config = dict(bound.binding.config)
+    #: This step's own stop (the byte bound, the deadline, the step's end);
+    #: `stop` is the run's, set only from outside (the client went away).
+    halt = threading.Event()
+
+    def halted() -> bool:
+        return halt.is_set() or stop.is_set()
+
+    def _stop(reason: str) -> None:
+        # Under `lock`: the first reason stands.
+        if state["stopped"] is None:
+            state["stopped"] = reason
+        halt.set()
+
+    def one(index: int) -> None:
+        validated = per_value[index]
+        left = deadline - _time.monotonic()
+        # In line for a slot of the system until one comes, the step halts
+        # or the deadline passes; the line is first come, first served.
+        if halted() or left <= 0 or not upstream.acquire(timeout=left, stop=halted):
+            return
+        try:
+            with lock:
+                if halted() or _time.monotonic() >= deadline:
+                    return
+                state["started"] += 1
+                state["inflight"].add(index)
+            left = deadline - _time.monotonic()
+            outcome, reason, answer = VALUE_FAILED, None, None
+            try:
+                answer = adapter(
+                    config=config, args=dict(validated), node_id=node_id,
+                    deadline_seconds=max(0.001, min(left, relation_deadline)),
+                )
+                _assert_result_is_shapeable(answer)
+            except LiveAdapterError as exc:
+                if exc.failure in _EMPTY_FAILURES:
+                    outcome, answer = VALUE_EMPTY, []
+                elif exc.failure in _NOT_FOUND_FAILURES:
+                    outcome, answer = VALUE_NOT_FOUND, []
+                else:
+                    reason = exc.failure
+            except Exception as exc:  # noqa: BLE001 - a value's failure is counted, by type.
+                reason = f"adapter_raised:{type(exc).__name__}"
+            else:
+                rows = answer if isinstance(answer, list) else [answer]
+                cut = isinstance(answer, UpstreamCutRows)
+                outcome = VALUE_CUT if cut else (VALUE_OK if rows else VALUE_EMPTY)
+                if cut:
+                    reason = f"the system cut its answer at {answer.received:,} row" + ("" if answer.received == 1 else "s")
+                answer = list(rows)
+            size = 0
+            if answer:
+                try:
+                    size = len(json.dumps(answer, separators=(",", ":"), default=str))
+                except (TypeError, ValueError):
+                    outcome, reason, answer = VALUE_FAILED, "result_unusable", None
+            with lock:
+                state["inflight"].discard(index)
+                if state["closed"]:
+                    return
+                outcomes[index] = outcome
+                reasons[index] = reason
+                answers[index] = answer
+                state["bytes"] += size
+                if state["bytes"] > max_bytes:
+                    _stop("memory")
+        finally:
+            upstream.release()
+
+    try:
+        pool = ThreadPoolExecutor(
+            # The cap less RUN_LEAVES_FREE: a direct call to the system
+            # finds a slot while this step fans out (review H1).
+            max_workers=max(1, min(UPSTREAM_CALLS_PER_BINDING - RUN_LEAVES_FREE, total)),
+            thread_name_prefix="okg-run-live",
+        )
+    except BaseException:
+        live_slots.release()
+        raise
+    futures: list[Any] = []
+    remaining = [total]
+    remaining_lock = threading.Lock()
+
+    def _finished(_future: Any) -> None:
+        with remaining_lock:
+            remaining[0] -= 1
+            last = remaining[0] == 0
+        if last:
+            live_slots.release()
+
+    pending: set[Any] = set()
+    try:
+        futures.extend(pool.submit(one, index) for index in range(total))
+        pending = set(futures)
+        while pending:
+            left = deadline - _time.monotonic()
+            if left <= 0:
+                break
+            if stop.is_set() and state["stopped"] is None:
+                # Cancelled from outside (the client went away). Past the
+                # byte bound the calls in flight are waited for: their
+                # rows are counted, and nothing new starts.
+                break
+            _done, pending = wait(pending, timeout=min(left, 0.25), return_when=FIRST_COMPLETED)
+    finally:
+        # A value never submitted (a failed submit) is a future that never
+        # finishes: count it finished now, so the slot comes back.
+        with remaining_lock:
+            remaining[0] -= total - len(futures)
+            if remaining[0] == 0:
+                live_slots.release()
+        with lock:
+            # A value left unstarted is a stop too: once `stop` or the
+            # deadline is seen, the queued calls return at once, so every
+            # future can be done before this loop looks at `stop` again.
+            if pending or VALUE_NOT_STARTED in outcomes:
+                _stop("cancelled" if stop.is_set() and state["stopped"] is None
+                      and _time.monotonic() < deadline else "deadline")
+            else:
+                halt.set()
+            state["closed"] = True
+            for index in state["inflight"]:
+                outcomes[index] = VALUE_FAILED
+                reasons[index] = (
+                    "in flight at the run's deadline; its answer is not read"
+                    if state["stopped"] == "deadline"
+                    else f"in flight when the step stopped ({state['stopped']}); not read"
+                )
+            started = state["started"]
+            held = state["bytes"]
+            stopped = state["stopped"]
+        pool.shutdown(wait=False, cancel_futures=True)
+        for future in futures:
+            future.add_done_callback(_finished)
+    for index, outcome in enumerate(outcomes):
+        if outcome == VALUE_NOT_STARTED:
+            reasons[index] = stopped or "not started"
+    rows: list[dict[str, Any]] = []
+    non_objects = 0
+    for index, answer in enumerate(answers):
+        if outcomes[index] not in (VALUE_OK, VALUE_CUT) or not answer:
+            continue
+        value = per_value[index].get(each_key) if each_key is not None else None
+        for row in answer:
+            if not isinstance(row, Mapping):
+                non_objects += 1
+                row = {"value": row}
+            elif not all(isinstance(key, str) for key in row):
+                row = {str(key): item for key, item in row.items()}
+            if each_key is not None and each_key not in row:
+                row = {each_key: value, **row}
+            rows.append(dict(row))
+    return LiveCallsResult(
+        rows=rows, outcomes=outcomes, reasons=reasons, started=started,
+        held_bytes=held, stopped=stopped, non_object_rows=non_objects,
+        elapsed_ms=int((_time.monotonic() - started_at) * 1000),
+    )
+
+
+def run_sample_kwargs(
+    *,
+    bound: BoundLiveRelation,
+    node_id: str,
+    outcome: GateOutcome,
+    query: Mapping[str, Any],
+    result: Optional[LiveCallsResult],
+    observed_at: datetime,
+    refused: Optional[str] = None,
+) -> dict[str, Any]:
+    """The call sample of one run live step (#3666, lane ri): what
+    ``write_sample`` takes. The rows went to the run, not to a reply, so the
+    sample holds their digest and the step's counts, never the rows."""
+    from okg.substrate.external_backed.call_sample import digest_of
+
+    attrs: dict[str, Any] = {
+        "args_fingerprint": canonical_args_fingerprint(query),
+        "action": outcome.action,
+        "adapter_kind": bound.binding.kind,
+        "reason_code": outcome.reason,
+        "adapter_ran": bool(result is not None and result.started),
+        "served_to": "run",
+        **(
+            {"policy_fingerprint": outcome.policy_fingerprint}
+            if outcome.policy_fingerprint else {}
+        ),
+        **({"gate_raised": True} if outcome.raised else {}),
+    }
+    if refused is not None:
+        attrs["refused_before_adapter"] = refused
+    if not outcome.allowed:
+        status = "denied"
+    elif result is None:
+        status = "error"
+    else:
+        counts = result.counts()
+        attrs.update({
+            "run_values": len(result.outcomes),
+            "run_outcomes": counts,
+            "run_calls_started": result.started,
+            "run_rows": len(result.rows),
+            "run_rows_sha256": "sha256:" + digest_of(result.rows)[0],
+            **({"run_stopped": result.stopped} if result.stopped else {}),
+        })
+        answered = counts[VALUE_OK] + counts[VALUE_EMPTY] + counts[VALUE_NOT_FOUND] + counts[VALUE_CUT]
+        if answered:
+            status = "ok"
+        elif result.stopped == "deadline":
+            status = "timeout"
+        else:
+            status = "error"
+    return {
+        "relation": bound.relation.name,
+        "node_id": node_id,
+        "principal": outcome.principal,
+        "decision": "allow" if outcome.allowed else "deny",
+        "status": status,
+        "payload": None,
+        "refetch": None,
+        "store_inline": True,
+        "observed_at": observed_at,
+        "attrs": attrs,
+    }
+
+
+__all__ += [
+    "FairSlots",
+    "HEAVY_RUNS_PER_READER",
+    "LiveCallsResult",
+    "RUN_LEAVES_FREE",
+    "UPSTREAM_CALLS_PER_BINDING",
+    "VALUE_OUTCOMES",
+    "WHOLE_OUTCOMES",
+    "binding_key",
+    "claim_live_heavy_run",
+    "claim_live_type_read",
+    "gate_for_call",
+    "release_live_heavy_run",
+    "release_live_type_read",
+    "run_live_calls",
+    "run_sample_kwargs",
+    "run_wait_executor",
+    "upstream_slots",
 ]

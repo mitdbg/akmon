@@ -623,8 +623,11 @@ def test_the_schema_accepts_the_documented_call_and_legacy_grep_is_unchanged(ser
         _search(served, **{**documented, "view": "cards"})
     assert refused.value.code == "window_argument_unsupported"
     assert _search(served, **documented)["total_count"] == 1
+    # PACT read-names-list-3666: a grep naming no view is the names list.
     legacy = _search(served, query="zirconium", method="grep")
-    assert "view" not in legacy and legacy["results"]
+    assert legacy["view"] == "list" and legacy["view_implied"] is True and legacy["results"]
+    cards = _search(served, query="zirconium", method="grep", view="cards")
+    assert "view" not in cards and cards["results"]
 
 
 def test_limit_counts_records_and_the_token_reaches_the_next_record(served) -> None:

@@ -69,10 +69,17 @@ _DIET_HIDDEN: dict[str, tuple[str, ...]] = {
     "expand": (
         "depth", "target_subtype", "continuation_token", "filter", "offset",
         "generation_id", "include_siblings", "live", "authority",
+        # The values of a live edge's arguments (PACT live-graph-rucio-sites);
+        # hidden so the published schema keeps its measured size.
+        "args",
     ),
     "filter": ("input", "predicate", "offset", "generation_id", "authority"),
+    # aggregate's `predicate` reads a kept live answer; the agent writes the
+    # condition as `where`, which the grammar lowers to `predicate` (PACT
+    # live-graph-rucio-sites). Hidden so the published schema keeps its
+    # measured size.
     "map": ("input", "projection", "offset", "generation_id", "authority"),
-    "aggregate": ("input", "offset", "generation_id", "authority"),
+    "aggregate": ("input", "offset", "generation_id", "authority", "predicate"),
 }
 
 #: Arguments published again (PACT publish-paging-args-3666), each with the
@@ -269,6 +276,12 @@ def _narrow_inspect_target(
 #: kept where it is still true of the code; the listing is not sent at
 #: connect, so its detail costs no startup tokens. Keyed by the line's name.
 HIDDEN_NOTES: dict[str, str] = {
+    # PACT live-graph-rucio-sites (#3666).
+    "expand(args=...)": (
+        "the values a live edge takes, e.g. expand(input=\"site:A\", "
+        "edge_type=\"link\", args={\"to\": \"site:B\"}); a node id is "
+        "passed as its name"
+    ),
     "search(profile=...)": (
         "applies a declared subtype scope (`all` disables it); the "
         "deployment's default applies when neither profile nor a `where` type "

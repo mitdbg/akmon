@@ -1,0 +1,159 @@
+{
+ "source": "Synthetic replay, same shape as a recorded listing-then-size answer: 30 items matching one pattern, each with a block count and a byte size, and one exact total. The numbers are made up.",
+ "pattern": "/Alpha*/Run1-v1/KIND",
+ "total_bytes": 2100435002090900,
+ "items": 30,
+ "blocks": 4935,
+ "rows": [
+  {
+   "item": "/Alpha0/Run1-v1/KIND",
+   "blocks": 150,
+   "bytes": 70000000000000
+  },
+  {
+   "item": "/Alpha1/Run1-v1/KIND",
+   "blocks": 151,
+   "bytes": 70001000003108
+  },
+  {
+   "item": "/Alpha2/Run1-v1/KIND",
+   "blocks": 152,
+   "bytes": 70002000006398
+  },
+  {
+   "item": "/Alpha3/Run1-v1/KIND",
+   "blocks": 153,
+   "bytes": 70003000009870
+  },
+  {
+   "item": "/Alpha4/Run1-v1/KIND",
+   "blocks": 154,
+   "bytes": 70004000013524
+  },
+  {
+   "item": "/Alpha5/Run1-v1/KIND",
+   "blocks": 155,
+   "bytes": 70005000017360
+  },
+  {
+   "item": "/Alpha6/Run1-v1/KIND",
+   "blocks": 156,
+   "bytes": 70006000021378
+  },
+  {
+   "item": "/Alpha7/Run1-v1/KIND",
+   "blocks": 157,
+   "bytes": 70007000025578
+  },
+  {
+   "item": "/Alpha8/Run1-v1/KIND",
+   "blocks": 158,
+   "bytes": 70008000029960
+  },
+  {
+   "item": "/Alpha9/Run1-v1/KIND",
+   "blocks": 159,
+   "bytes": 70009000034524
+  },
+  {
+   "item": "/Alpha10/Run1-v1/KIND",
+   "blocks": 160,
+   "bytes": 70010000039270
+  },
+  {
+   "item": "/Alpha11/Run1-v1/KIND",
+   "blocks": 161,
+   "bytes": 70011000044198
+  },
+  {
+   "item": "/Alpha12/Run1-v1/KIND",
+   "blocks": 162,
+   "bytes": 70012000049308
+  },
+  {
+   "item": "/Alpha13/Run1-v1/KIND",
+   "blocks": 163,
+   "bytes": 70013000054600
+  },
+  {
+   "item": "/Alpha14/Run1-v1/KIND",
+   "blocks": 164,
+   "bytes": 70014000060074
+  },
+  {
+   "item": "/Alpha15/Run1-v1/KIND",
+   "blocks": 165,
+   "bytes": 70015000065730
+  },
+  {
+   "item": "/Alpha16/Run1-v1/KIND",
+   "blocks": 166,
+   "bytes": 70016000071568
+  },
+  {
+   "item": "/Alpha17/Run1-v1/KIND",
+   "blocks": 167,
+   "bytes": 70017000077588
+  },
+  {
+   "item": "/Alpha18/Run1-v1/KIND",
+   "blocks": 168,
+   "bytes": 70018000083790
+  },
+  {
+   "item": "/Alpha19/Run1-v1/KIND",
+   "blocks": 169,
+   "bytes": 70019000090174
+  },
+  {
+   "item": "/Alpha20/Run1-v1/KIND",
+   "blocks": 170,
+   "bytes": 70020000096740
+  },
+  {
+   "item": "/Alpha21/Run1-v1/KIND",
+   "blocks": 171,
+   "bytes": 70021000103488
+  },
+  {
+   "item": "/Alpha22/Run1-v1/KIND",
+   "blocks": 172,
+   "bytes": 70022000110418
+  },
+  {
+   "item": "/Alpha23/Run1-v1/KIND",
+   "blocks": 173,
+   "bytes": 70023000117530
+  },
+  {
+   "item": "/Alpha24/Run1-v1/KIND",
+   "blocks": 174,
+   "bytes": 70024000124824
+  },
+  {
+   "item": "/Alpha25/Run1-v1/KIND",
+   "blocks": 175,
+   "bytes": 70025000132300
+  },
+  {
+   "item": "/Alpha26/Run1-v1/KIND",
+   "blocks": 176,
+   "bytes": 70026000139958
+  },
+  {
+   "item": "/Alpha27/Run1-v1/KIND",
+   "blocks": 177,
+   "bytes": 70027000147798
+  },
+  {
+   "item": "/Alpha28/Run1-v1/KIND",
+   "blocks": 178,
+   "bytes": 70028000155820
+  },
+  {
+   "item": "/Alpha29/Run1-v1/KIND",
+   "blocks": 179,
+   "bytes": 70029000164024
+  }
+ ]
+}

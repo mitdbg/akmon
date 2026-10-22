@@ -60,6 +60,7 @@ from okg.substrate.attributes import (
 )
 from okg.substrate.bm25_node_search import (
     RANKED_BM25_MATCH,
+    SearchIndexUnavailable,
     bm25_match_sql,
     drop_repeated_rows,
     branch_point,
@@ -902,6 +903,17 @@ def _attach_reading_keys(
             passage["author"] = _fence_value(passage.get("author"), source=source)
         selected = {key: _fence_attr_value(value, source=source) for key, value in selected.items()}
     row[ROW_HEAD_KEY] = head
+    # PACT read-names-list-3666: the deployment's citation attribute, when
+    # it names one, on every row (`citation_id`), fenced by the row's trust.
+    from okg.substrate.mcp.citation_id import (
+        CITATION_KEY,
+        citation_field,
+        fenced_citation,
+    )
+
+    citation = fenced_citation(citation_field(attrs), provenance)
+    if citation:
+        row[CITATION_KEY] = citation
     if PASSAGE_KEY in full:
         row[PASSAGE_KEY] = passage
     row[READ_MORE_KEY] = row_read_more(full, meta)
@@ -932,8 +944,13 @@ def _fence_search_rows(
     scope: Optional[ResolvedScope] = None,
     max_chars: int = DEFAULT_PREVIEW_CHARS,
     metadata: Mapping[str, Mapping[str, Any]] | None = None,
+    path_from_default: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Project each row, then attach provenance + fence untrusted attrs.
+
+    `path_from_default` (PACT read-names-list-3666) is the attribute a
+    handle's path reads on a row whose type declares no path
+    (`_with_handles`); None keeps the catalog's rule, no declared path.
 
     Each `full_rows` entry carries `source` (the node's producer_id);
     project_row drops it, so it is re-attached before the trust pass
@@ -951,7 +968,10 @@ def _fence_search_rows(
     """
     metadata = _metadata_for_rows(conn, session, full_rows, metadata=metadata)
     if select is None or HANDLE_KEY in select:
-        full_rows = _with_handles(conn, session, full_rows, metadata=metadata)
+        full_rows = _with_handles(
+            conn, session, full_rows, metadata=metadata,
+            path_from_default=path_from_default,
+        )
     classified = classify_evidence_rows(conn, session, full_rows, metadata=metadata)
     projected = [
         {
@@ -992,8 +1012,15 @@ def _with_handles(
     rows: list[dict[str, Any]],
     *,
     metadata: Mapping[str, Mapping[str, Any]] | None = None,
+    path_from_default: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Each row with its handle (`HANDLE_KEY`) when it has anything to say.
+
+    `path_from_default` names the attribute the path reads when the row's
+    type declares no `path_from` (PACT read-names-list-3666: a grep list
+    passes `path`, the stored attribute grep's `path_prefix` reads). It is
+    read through the same declared-attribute rule, so a masked or redacted
+    value is reported masked, never shown. None: no declared path, no path.
 
     The handle carries optional title/path/date/masked and date provenance:
     a field is present only when the record has it, and `masked` lists the
@@ -1019,6 +1046,8 @@ def _with_handles(
     out: list[dict[str, Any]] = []
     for row in rows:
         row_metadata = metadata.get(str(row.get("subtype")))
+        if path_from_default is not None and not (row_metadata or {}).get("path_from"):
+            row_metadata = {**(row_metadata or {}), "path_from": path_from_default}
         fields = handle_fields(row_metadata, row.get("attrs"))
         handle: dict[str, Any] = {}
         masked: list[str] = []
@@ -1306,8 +1335,14 @@ def _search_pinned(
     exact_pass: bool = False,
     own_path_tail: Optional[str] = None,
     passage_chars: Optional[int] = None,
+    within: Optional[str] = None,
 ) -> dict[str, Any]:
     """Pinned search across the three ranker methods and `grep`.
+
+    `within` (grep only; PACT read-search-caps-3666): "unit" (None, the
+    default) matches all terms inside one text unit; "record" matches each
+    term anywhere in one record, unranked, in node-id order
+    (`grep_record.search_grep_record`).
 
     `passage_chars` (PACT read-passage-rows-3666, D2): the `max_chars` the
     caller passed, which sizes each row's `passage`; None (not passed) keeps
@@ -1607,6 +1642,11 @@ def _search_pinned(
             f"search: own_path_tail applies only to method='grep'; got "
             f"method={method!r}"
         )
+    if within not in (None, "unit", "record") or (within == "record" and method != "grep"):
+        raise InvalidOperatorArguments(
+            f"search: within='record' applies only to method='grep'; got "
+            f"within={within!r}, method={method!r}"
+        )
 
     if method != "lexical" and expand_concepts is not None:
         # Same rule the embedder arguments follow above: an argument named for a
@@ -1703,7 +1743,16 @@ def _search_pinned(
             measure=window_measure, continuation_token=continuation_token,
             reserve_bytes=window_reserve,
         )
-    if method == "grep":
+    if method == "grep" and within == "record":
+        from okg.substrate.mcp.grep_record import search_grep_record
+
+        result = search_grep_record(
+            conn, session, query,
+            filter=filter, limit=limit, offset=offset, select=select,
+            scope=scope, path_prefix=path_prefix, max_chars=max_chars,
+            continuation_token=continuation_token,
+        )
+    elif method == "grep":
         from okg.substrate.mcp.grep_search import search_grep
 
         result = search_grep(
@@ -2652,6 +2701,21 @@ def _next_offset(
 #: hundred is noise.
 _LEXICAL_RANK_CAP = 200
 
+#: The rank cap of a bounded search whose rows are filtered after ranking
+#: (`attr_filters`, or a `where` part the ranked SQL does not decide). A
+#: filter naming one source drops most of a 200-row ranking: on ERAG 2-70
+#: of 200 ranked rows passed `source_system = <one source>`, so the page was
+#: filled by the unranked literal read. 1,000 ranked rows took about 1 s
+#: and left 13-287 rows in the source (lane X2, 2026-10-18).
+_FILTERED_RANK_CAP = 1000
+
+#: Statement timeout of the literal read (`_effective_view_lexical_candidates`)
+#: under the bounded default. Past it the filter is said to be checked on the
+#: ranked rows only. On ERAG the read needs 11-41 s and stopped at a 1.5 s
+#: budget on all 18 filtered searches replayed, so a longer budget only adds
+#: wait; on a small graph it finishes in milliseconds.
+_LITERAL_READ_BUDGET_MS = 500
+
 #: Semantic pagination is over the VISIBLE ordered result set (issue #1438).
 #: Read-time filtering can drop rows anywhere in the ranking, so a raw window
 #: sized to `offset + limit + 1` cannot fill a deep page. The window grows by
@@ -2718,6 +2782,333 @@ def _authoritative_alias_target(
     return str(row[0]) if row is not None else None
 
 
+def _promotion_clauses(
+    filter: dict[str, Any],
+    scope: Optional[ResolvedScope],
+    params: dict[str, Any],
+) -> list[str]:
+    """The selections a promoted row must obey (alias or exact name).
+
+    Promotion is a side door into the page, so it keeps every selection the
+    ranked query keeps: the subtype filter, the profile's subtypes, the
+    applied families, the caller's producer filter and the path exclusions.
+    A row outside any of them stays out even when the query names it."""
+    clauses: list[str] = []
+    subtype = filter.get("subtype")
+    if subtype is not None:
+        clauses.append("subtype = %(subtype)s")
+        params["subtype"] = subtype
+    # Site 3 of 3. Promotion must not be a side door into a scoped page: a
+    # canonical whose subtype is outside the profile stays out, even when the
+    # query exactly matches an alias that names it.
+    scope_sql = _scope_sql(scope, params, column="subtype")
+    if scope_sql is not None:
+        clauses.append(scope_sql)
+    # Promotion is a side door into every selection, not only the subtype one:
+    # a canonical outside the applied families, or under an excluded path, stays
+    # out even when the query exactly matches an alias that names it.
+    family_sql = _family_sql(scope, params, column="source")
+    if family_sql is not None:
+        clauses.append(family_sql)
+    # Promotion is a side door into the caller's producer filter too: a
+    # canonical another producer wrote stays out even when the query exactly
+    # matches an alias that names it.
+    source_sql = _source_sql(filter, params, column="source")
+    if source_sql is not None:
+        clauses.append(source_sql)
+    clauses.extend(_path_exclusion_sql(scope, params, column="attrs"))
+    return clauses
+
+
+#: Subtypes whose rows repeat another row's name without being the thing it
+#: names: an import or a reference says a symbol's name and would crowd out
+#: the definition. Every other row whose own name (`attrs.name`,
+#: `attrs.qualified_name`) is the query is read by the exact-name step, so a
+#: release, a ticket or a person is found by its name as a code symbol is,
+#: and core lists no deployment's subtype. The names are the
+#: `codebase-index` source's output subtypes that carry a mention, not a
+#: definition.
+EXACT_NAME_EXCLUDED_SUBTYPES = ("code_import", "code_reference")
+#: Readable rows one exact-name query promotes; a name with more readable
+#: symbols than this is served as a lower bound, never as an exact count.
+EXACT_NAME_ROWS = 50
+#: Rows of the one candidate list that are checked at a time. Access rules,
+#: the effective name and the filters apply to each window before anything
+#: is cut, so rows the caller may not read never take a place from rows they
+#: may.
+_EXACT_NAME_WINDOW = 50
+#: Segment rows one exact-name query reads in all (a name shared by more
+#: rows than this, most of them unreadable, is served as a lower bound).
+_EXACT_NAME_SCAN_ROWS = 1_000
+#: The trigram index needs a run of this many letters or digits in the
+#: pattern; a shorter pattern reads the whole segment, so it is not read.
+_EXACT_NAME_MIN_RUN = 3
+_ALNUM_RUN = re.compile(r"[A-Za-z0-9]{%d}" % _EXACT_NAME_MIN_RUN)
+#: A single code identifier: letters, digits and underscores, optionally
+#: dotted (`Class.method`).
+_IDENTIFIER_QUERY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
+#: What marks an identifier as code rather than a plain word: an underscore,
+#: a dot, an uppercase letter after two lowercase ones (`CamelCase`,
+#: `getUser`), a capital, one lowercase letter, a capital and a lowercase
+#: letter (`MyClass`, `IsValid`, `OnClick`, `PyTorch`), or an acronym that
+#: ends where a word starts (`HTTPError`). Plain words (`serializer`,
+#: `Serializer`), all-capital words (`TODO`, `API`, `CERNs`), short mixed
+#: forms (`PhD`, `IoT`, `QoS`, `DoS`, `GiB`, `NaN`) and brand spellings with
+#: one leading lowercase letter (`iPhone`, `eBay`) never qualify, so their
+#: page is the BM25 page and they cost no extra statement. Names such as
+#: `McDonald` and `LeBron` have the same shape as `MyClass` and do qualify;
+#: that costs one bounded statement.
+_CODE_SHAPE = re.compile(r"[_.]|[a-z]{2}[A-Z]|[A-Z][a-z][A-Z][a-z]|[A-Z]{3}[a-z]{2}")
+
+
+def exact_name_query(query: str) -> Optional[str]:
+    """The identifier `query` is (surrounding spaces dropped), when it is one
+    code-shaped token."""
+    name = query.strip()
+    if _IDENTIFIER_QUERY.fullmatch(name) and _CODE_SHAPE.search(name):
+        return name
+    return None
+
+
+def _exact_name_rows(
+    conn: psycopg.Connection,
+    session: Session,
+    *,
+    name: str,
+    query: str,
+    segment: str,
+    branch_point_value: int,
+    filter: dict[str, Any],
+    scope: Optional[ResolvedScope] = None,
+    withhold_counts: bool = False,
+    keep: Optional[Callable[[str], bool]] = None,
+) -> tuple[list[dict[str, Any]], Optional[str]]:
+    """The readable records whose own name is exactly `name` (any subtype but
+    `EXACT_NAME_EXCLUDED_SUBTYPES`), hydrated like an alias target, and why
+    the list is cut short (a lower bound), or None when it is not: "rows"
+    (more readable records than `EXACT_NAME_ROWS`), "scan_rows" (`_EXACT_NAME_SCAN_ROWS` rows read) or
+    "time_limit" (the pass deadline).
+
+    BM25 reads the stored `text`. A symbol's text keeps its name only as one
+    dotted token (`src.pkg.mod.URLSafeSerializer`) when its producer body
+    already holds the name (`_searchable_text_with_body`), so no word of the
+    query matches the symbol's row while every import row of it matches. A
+    record named `CMSSW_14_0_0` shares its words with every `CMSSW_14_0_x`
+    sibling, and a longer text ranks it below them. The record that bears the
+    name is the answer to a query that is only that name, so it is read by
+    name here and ranked ahead of the BM25 rows. Imports and references are
+    left out: they repeat the name of the symbol they mention.
+
+    The read is bounded by the trigram index on `text`, which covers every
+    subtype (the stored text holds the name, as a part or inside the body; a
+    record whose text lacks its name is not found here and keeps its BM25
+    rank); the equality on the attributes then decides. Selections, Nomos and
+    the effective attributes apply as for an alias target, to each window of
+    the read BEFORE any cut: one statement reads the rows in order (qualified
+    name equal to the query first, then records with another qualified name,
+    then records with only a name, each group by byte-wise node id), up to
+    `_EXACT_NAME_SCAN_ROWS` of them, they are checked `_EXACT_NAME_WINDOW`
+    at a time, and the list stops at `EXACT_NAME_ROWS`
+    readable rows. A list cut by that bound, by `_EXACT_NAME_SCAN_ROWS` rows
+    read, or by the pass deadline (`EXACT_PASS_BUDGET_MS`) is reported with
+    its cause and the caller serves a lower bound.
+
+    Under enforced Nomos (`withhold_counts`) the cause is always "enforced"
+    whenever the read ran, never "rows" (which of the bounds stops the read
+    first can depend on hidden rows). The scan bound and the deadline are reached through rows the
+    reader may not read (their number and the time they take), and so is
+    whether the read found every readable symbol behind them. A cut taken
+    from them would let hidden rows change the page's count facts (the #3560
+    class), and an "exact" count after such a stop could be wrong. So the
+    page never calls the count exact there, and says why with a note that
+    depends only on the query's shape and the index, never on the rows. The
+    cost: when `_EXACT_NAME_SCAN_ROWS` or more hidden same-name symbols sort
+    ahead of a readable one, or the deadline passes first, the readable one
+    is not listed (the count is only a lower bound). Placing the reader's
+    access rules in this read's SQL removes the trade-off (follow-up with
+    the reader-view work of issue 3560). A read that stops exactly at the
+    scan bound with nothing left is still reported as cut outside
+    enforcement.
+
+    A name with no run of three letters or digits, or a graph without the
+    trigram index, is not read (no statement runs, nothing is reported):
+    either would scan the whole segment."""
+    from okg.substrate.mcp.grep_search import (
+        _DEADLINE,
+        _bounded,
+        _Cancelled,
+        deadline,
+        resolve_trgm_segment,
+    )
+
+    # Not read: no statement runs, so nothing is cut and nothing is reported.
+    if not _ALNUM_RUN.search(name):
+        return [], None
+    try:
+        resolve_trgm_segment(conn)
+    except SearchIndexUnavailable:
+        return [], None
+    at = time.monotonic() + EXACT_PASS_BUDGET_MS / 1000.0
+    outer = _DEADLINE.get()
+    if outer is not None:
+        at = min(at, outer)
+    like = name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    # Rank 0: the qualified name is the query. Rank 1: the record has some
+    # other qualified name (a code symbol whose short name is the query).
+    # Rank 2: it has only a name. A record type without qualified names
+    # (a profile hotspot, a branch) must not push a definition behind it by
+    # node-id order.
+    rank_sql = (
+        "(CASE WHEN attrs->>'qualified_name' = %(name)s THEN 0 "
+        "WHEN attrs->>'qualified_name' IS NOT NULL THEN 1 ELSE 2 END)"
+    )
+    where = [
+        "deleted = FALSE",
+        "live_lo <= %(bp)s",
+        "%(bp)s < live_hi",
+        "attrs ? 'text'",
+        "(attrs->>'text') LIKE %(like)s",
+        "subtype <> ALL(%(excluded_subtypes)s)",
+        "(attrs->>'qualified_name' = %(name)s OR attrs->>'name' = %(name)s)",
+    ]
+    params: dict[str, Any] = {
+        "bp": branch_point_value,
+        "like": f"%{like}%",
+        "name": name,
+        "excluded_subtypes": list(EXACT_NAME_EXCLUDED_SUBTYPES),
+    }
+    where.extend(_promotion_clauses(filter, scope, params))
+    # Node ids compare byte-wise in SQL, as the Python sort below compares
+    # them, so the set kept above the bound does not depend on the database's
+    # collation.
+    node_order = 'node_id COLLATE "C"'
+    # One statement reads the first `_EXACT_NAME_SCAN_ROWS` candidates in
+    # final order; the windows below are cut from that list in Python. A
+    # keyset condition per window (`(rank, node_id) > (...)`) is only a filter
+    # after the trigram bitmap scan, so every window re-read all the
+    # candidates (about 22k rows, 300 ms each, for `__init__` on the comp-ops
+    # copy; 5 windows under enforced rules). The index serves the match, not
+    # the order, so one bitmap scan plus one top-N sort is the cheapest plan
+    # for the whole bounded list.
+    sql = (
+        f"SELECT node_id, subtype, attrs, text_hash, source, "
+        f"source_record_id, source_revision "
+        f"FROM {segment} WHERE {' AND '.join(where)} "
+        f"ORDER BY {rank_sql}, {node_order} LIMIT {_EXACT_NAME_SCAN_ROWS}"
+    )
+    out: list[dict[str, Any]] = []
+    cause: Optional[str] = None
+    try:
+        # The statement runs under the pass deadline.
+        with deadline(at):
+            candidates = _bounded(conn, sql, params)
+    except _Cancelled:
+        candidates = []
+        cause = "time_limit"
+    for start in range(0, len(candidates), _EXACT_NAME_WINDOW):
+        if time.monotonic() >= at:
+            cause = "time_limit"
+            break
+        window = candidates[start:start + _EXACT_NAME_WINDOW]
+        # `keep` (record scope, the alias-promoted row) acts before the cut
+        # too: a row it drops never takes a place.
+        out.extend(_readable_exact_name_rows(
+            conn, session,
+            [r for r in window if keep is None or keep(str(r["node_id"]))],
+            name=name, query=query, filter=filter, scope=scope,
+        ))
+        if len(out) > EXACT_NAME_ROWS:
+            # More readable matches than the page source holds: the extra
+            # one only proves the list is cut.
+            cause = "rows"
+            break
+    else:
+        if len(candidates) >= _EXACT_NAME_SCAN_ROWS:
+            cause = "scan_rows"
+    # Stored order was by the stored name; the effective name may differ.
+    out.sort(key=lambda row: (
+        _exact_name_rank(row.get("attrs") or {}, name),
+        str(row["node_id"]).encode("utf-8"),
+    ))
+    out = out[:EXACT_NAME_ROWS]
+    if withhold_counts:
+        # Which bound stopped the read depends on rows the reader may not
+        # read (a hidden-row pile-up reaches the scan bound or the deadline
+        # before 51 readable symbols are found), and so does whether the read
+        # found every readable symbol behind it. Under enforced Nomos the page
+        # therefore never claims an exact count once the read has run, and it
+        # always says "enforced", whatever stopped the read: the note is
+        # decided by the query's shape and the index alone.
+        cause = "enforced"
+    return out, cause
+
+
+def _exact_name_rank(attrs: dict[str, Any], name: str) -> int:
+    """The group of an exact-name row, as the SQL order puts it: 0 when its
+    qualified name is `name`, 1 when it has another qualified name, 2 when it
+    has none."""
+    qualified = attrs.get("qualified_name")
+    if qualified == name:
+        return 0
+    return 2 if qualified is None else 1
+
+
+def _exact_name_cap(cause: str) -> dict[str, Any]:
+    """The `exact_name_cap` note for a cut of the given cause."""
+    if cause == "rows":
+        return {"cause": "rows", "rows": EXACT_NAME_ROWS}
+    if cause == "scan_rows":
+        return {"cause": "scan_rows", "rows_read": _EXACT_NAME_SCAN_ROWS}
+    if cause == "enforced":
+        return {"cause": "enforced"}
+    return {"cause": "time_limit"}
+
+
+def _readable_exact_name_rows(
+    conn: psycopg.Connection,
+    session: Session,
+    rows: list[dict[str, Any]],
+    *,
+    name: str,
+    query: str,
+    filter: dict[str, Any],
+    scope: Optional[ResolvedScope] = None,
+) -> list[dict[str, Any]]:
+    """The rows of one window the session may read that still bear `name`
+    once overlays apply and that pass the caller's filters and the profile's
+    path exclusions (checked on the effective path, as the ranked rows are)."""
+    visible = filter_node_rows_for_session(conn, session, rows)
+    if not visible:
+        return []
+    out: list[dict[str, Any]] = []
+    for effective in apply_effective_attrs_to_rows(
+        conn,
+        visible,
+        target_kind="node",
+        target_id_field="node_id",
+        generation_id=session.generation_id,
+    ):
+        attrs = effective.get("attrs") or {}
+        # An overlay may have renamed the symbol: the effective name decides.
+        if name not in (attrs.get("qualified_name"), attrs.get("name")):
+            continue
+        if not _matches_filter(effective, _row_filter(filter)):
+            continue
+        # The SQL exclusion reads the stored path; an overlay may have moved
+        # the symbol under an excluded one.
+        if scope is not None and scope.excluded_path_globs and (
+            excluded_by_path_globs(attrs, scope.excluded_path_globs)
+        ):
+            continue
+        out.append({
+            **effective,
+            "score": -1.0,
+            "excerpt": _bounded_excerpt(str(attrs.get("text", "")), query),
+            "match_kind": "exact_name",
+        })
+    return out
+
+
 def _hydrate_lexical_alias_target(
     conn: psycopg.Connection,
     session: Session,
@@ -2737,29 +3128,7 @@ def _hydrate_lexical_alias_target(
         "%(bp)s < live_hi",
     ]
     params: dict[str, Any] = {"target": target, "bp": branch_point_value}
-    subtype = filter.get("subtype")
-    if subtype is not None:
-        where.append("subtype = %(subtype)s")
-        params["subtype"] = subtype
-    # Site 3 of 3. Promotion must not be a side door into a scoped page: a
-    # canonical whose subtype is outside the profile stays out, even when the
-    # query exactly matches an alias that names it.
-    scope_sql = _scope_sql(scope, params, column="subtype")
-    if scope_sql is not None:
-        where.append(scope_sql)
-    # Promotion is a side door into every selection, not only the subtype one:
-    # a canonical outside the applied families, or under an excluded path, stays
-    # out even when the query exactly matches an alias that names it.
-    family_sql = _family_sql(scope, params, column="source")
-    if family_sql is not None:
-        where.append(family_sql)
-    # Promotion is a side door into the caller's producer filter too: a
-    # canonical another producer wrote stays out even when the query exactly
-    # matches an alias that names it.
-    source_sql = _source_sql(filter, params, column="source")
-    if source_sql is not None:
-        where.append(source_sql)
-    where.extend(_path_exclusion_sql(scope, params, column="attrs"))
+    where.extend(_promotion_clauses(filter, scope, params))
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             f"SELECT node_id, subtype, attrs, text_hash, source, "
@@ -2803,7 +3172,19 @@ def _effective_view_lexical_candidates(
     scope: Optional[ResolvedScope] = None,
     effective_view_source: Any = None,
     scope_rows: Optional[Union["_RecordScope", "_ChildrenScope"]] = None,
-) -> list[dict[str, Any]]:
+    reader_sql: Optional[str] = None,
+    budget_ms: Optional[int] = None,
+) -> Optional[list[dict[str, Any]]]:
+    """Rows whose effective attributes hold `attr_filters` and whose text
+    holds every query word as a substring, past the ranked candidates.
+
+    No index serves this read: on ERAG (542,000 records) it took 11-41 s
+    alone, against 0.2 s for the ranked read (lane X2, 2026-10-18). With
+    `budget_ms` (the bounded default) it runs under that statement timeout
+    and returns None when the timeout stops it, so the caller reports the
+    filter as checked on the ranked rows only. Under `completeness="exact"`
+    no budget applies. The rows do not depend on `limit` or `offset`, so the
+    byte-budget wrapper's reruns of one call reuse them (`cached_read`)."""
     attr_filters = filter.get("attr_filters") or {}
     if not attr_filters:
         return []
@@ -2879,17 +3260,19 @@ def _effective_view_lexical_candidates(
     if exclude_node_ids:
         where.append("v.target_id <> ALL(%(exclude_node_ids)s::text[])")
         params["exclude_node_ids"] = sorted(exclude_node_ids)
+    if reader_sql is not None:
+        # #3560: this read has its own cap; rows the reader may not read
+        # (judged on the stored row `n`) never fill it.
+        where.append(reader_sql)
     for idx, term in enumerate(terms):
         key = f"term_{idx}"
         where.append(f"(av.attrs->>'text') ILIKE %({key})s")
         params[key] = f"%{term}%"
 
     where_sql = " AND ".join(where)
-    with conn.cursor(row_factory=dict_row) as cur:
-        # schema-interval-narrow-split: the snapshot row carries attrs_hash; the
-        # payload is materialized through the version-store join.
-        cur.execute(
-            f"""
+    # schema-interval-narrow-split: the snapshot row carries attrs_hash; the
+    # payload is materialized through the version-store join.
+    sql = f"""
             SELECT v.target_id AS node_id,
                    v.subtype,
                    av.attrs,
@@ -2907,10 +3290,60 @@ def _effective_view_lexical_candidates(
              WHERE {where_sql}
              ORDER BY v.target_id
              LIMIT %(limit)s
-            """,
-            params,
-        )
-        return cur.fetchall()
+            """
+
+    def read() -> Optional[list[dict[str, Any]]]:
+        if budget_ms is None:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, params)
+                return cur.fetchall()
+        return _fetch_within_budget(conn, sql, params, budget_ms=budget_ms)
+
+    # The Jsonb wrapper is keyed by the value it carries.
+    key_params = {**params, "attr_filters": attr_filters}
+    return cached_read(
+        _read_key(conn, session, f"effective_read:{budget_ms}", sql, key_params), read,
+    )
+
+
+def _fetch_within_budget(
+    conn: psycopg.Connection, sql: str, params: dict[str, Any], *, budget_ms: int,
+) -> Optional[list[dict[str, Any]]]:
+    """`sql`'s rows, or None when its `budget_ms` statement timeout stopped it.
+
+    It runs in a savepoint, so a cancelled statement leaves the connection
+    usable. A transaction-local setting outlives a released savepoint, so
+    after a finished read the previous timeout is put back, as
+    `aggregate_each.run_within_budget` does. A cancel for any other reason
+    (a client or an administrator) is raised as it came."""
+    try:
+        with conn.transaction():
+            with conn.cursor(row_factory=dict_row) as cur:
+                # A stricter timeout the caller already holds wins, as in
+                # `_exact_lexical_plan`.
+                cur.execute(
+                    "SELECT current_setting('statement_timeout') AS v, "
+                    "setting::integer AS ms FROM pg_settings "
+                    "WHERE name = 'statement_timeout'"
+                )
+                held = cur.fetchone()
+                previous, held_ms = held["v"], int(held["ms"])
+                timeout = min(held_ms, int(budget_ms)) if held_ms else int(budget_ms)
+                cur.execute(
+                    "SELECT set_config('statement_timeout', %s, true)", (f"{timeout}ms",),
+                )
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+                cur.execute(
+                    "SELECT set_config('statement_timeout', %s, true)", (previous,),
+                )
+                return rows
+    except psycopg.errors.QueryCanceled as cancelled:
+        from okg.substrate.mcp.aggregate_each import _timed_out
+
+        if not _timed_out(cancelled):
+            raise
+        return None
 
 
 #: Rows examined by the zero-hit diagnostic. One bounded read, never a
@@ -4304,6 +4737,7 @@ def _fold_filtered(
     cap: _IndexScanCap,
     phrases: Sequence[re.Pattern[str]] = (),
     text_redaction: bool = False,
+    reader_sql: Optional[str] = None,
 ) -> _FilteredFold:
     """D3-i: fold the self read and one capped passage read; decision 5 = 5b.
 
@@ -4352,6 +4786,9 @@ def _fold_filtered(
         if clause is not None:
             where.append(clause)
     where.extend(_path_exclusion_sql(scope, params, column="n.attrs"))
+    if reader_sql is not None:
+        # #3560: passages the reader may not read never fill the passage cap.
+        where.append(reader_sql)
     score = f"(n.attrs->>'text') <@> to_bm25query(%(q)s, '{index_literal}')"
     parent_test = (
         f"EXISTS (SELECT 1 FROM {edge_segment} e "
@@ -4591,8 +5028,12 @@ def _read_key(
 def _ranked_read(
     conn: psycopg.Connection, session: Session, sql: str, params: dict[str, Any],
     *, cap: _IndexScanCap, name: str, where: Sequence[str],
+    limit: int = _LEXICAL_RANK_CAP,
 ) -> list[dict[str, Any]]:
     """One BM25-ordered read with a custom plan, run once per tool call.
+
+    `limit` is the LIMIT the statement carries (`_FILTERED_RANK_CAP` for a
+    bounded read filtered after ranking, else `_LEXICAL_RANK_CAP`).
 
     Under the MCP byte-budget wrapper a call reruns the operator at smaller
     limits; this read's rows do not depend on the limit, so the reruns reuse
@@ -4615,10 +5056,10 @@ def _ranked_read(
         distinct = drop_repeated_rows(rows)
         try:
             complete, matches = cap.read_complete(
-                distinct, where=where, limit=_LEXICAL_RANK_CAP, params=params,
+                distinct, where=where, limit=limit, params=params,
             )
         except LexicalIndexScanCapRefused as exc:
-            if len(rows) >= _LEXICAL_RANK_CAP > len(distinct) and not cap.withhold_counts:
+            if len(rows) >= limit > len(distinct) and not cap.withhold_counts:
                 # The read filled its LIMIT and only the dropped repeats made
                 # it short, so the exact read ran; say so in the refusal.
                 exc.data["index_repeated_rows"] = True
@@ -4635,7 +5076,7 @@ def _ranked_read(
     rows, matches, read_rows = cached_read(
         _read_key(conn, session, f"ranked_read:{cap.mode}", sql, params), read,
     )
-    cap.record(name, rows, limit=_LEXICAL_RANK_CAP, count=matches, read_rows=read_rows)
+    cap.record(name, rows, limit=limit, count=matches, read_rows=read_rows)
     return rows
 
 
@@ -4708,17 +5149,22 @@ def _count_basis(
     rank_capped: bool,
     rollup_chunk_cap_reached: Optional[bool],
     fold: Optional[_FilteredFold],
+    rows_cap: int = _LEXICAL_RANK_CAP,
 ) -> dict[str, Any]:
-    """`total_count_basis` and, when capped, `ranked_cap` (DESIGN.md D2)."""
+    """`total_count_basis` and, when capped, `ranked_cap` (DESIGN.md D2).
+    `rows_cap` is the ranked read's LIMIT on an unfolded page."""
     if rank_by == RANK_BY_PASSAGES:
         lower = bool(rollup_chunk_cap_reached)
         cap: dict[str, int] = {"passages": PASSAGE_ROLLUP_CHUNK_CAP}
     elif fold is not None:
-        lower = fold.lower_bound
+        # `rank_capped` is the fold's own floor, widened by an exact-name cut
+        # (or, under enforced access rules, by the exact-name read having
+        # run): the count basis says what `rank_capped` says.
+        lower = bool(rank_capped)
         cap = {"rows": _LEXICAL_RANK_CAP, "passages": _LEXICAL_RANK_CAP}
     else:
         lower = bool(rank_capped)
-        cap = {"rows": _LEXICAL_RANK_CAP}
+        cap = {"rows": rows_cap}
     out: dict[str, Any] = {
         "total_count_basis": "lower_bound" if lower else "exact",
     }
@@ -4924,6 +5370,19 @@ def _search_lexical(
             where_after_ranking and compiled_where.qualification != "exact"
         )
     row_filter_after_ranking = where_after_ranking or bool(filter.get("attr_filters"))
+    # A bounded read whose rows are filtered after ranking ranks deeper, so the
+    # filter keeps ranked rows instead of leaving the page to the unranked
+    # literal read. Exact mode, record scopes, passages and the filtered fold
+    # keep their own 200-row reads.
+    rank_limit = (
+        _FILTERED_RANK_CAP
+        if row_filter_after_ranking and not exact and scope_rows is None
+        and rank_by != RANK_BY_PASSAGES and fold_shape != _FOLD_FILTERED
+        else _LEXICAL_RANK_CAP
+    )
+    # The unindexed literal read runs under a time budget, except in exact mode.
+    literal_budget_ms = None if exact else _LITERAL_READ_BUDGET_MS
+    literal_read_bounded = False
     if scope_rows is not None:
         where.append(scope_rows.sql(params, column="node_id"))
     # Site 1 of 3. The scope goes into the RANKED query, so the rank cap below
@@ -4979,6 +5438,18 @@ def _search_lexical(
     # Verified by comparing ordered node-id lists for those four queries
     # against the live deployment: all four identical, with `deployment` at the
     # saturated 200-row cap -- the case where a mis-ordered cap would show.
+    #
+    # Issue #3560: the reader's access rules join the RANKED query, like the
+    # scope above, so the rank cap is spent only on rows the reader may read
+    # with their text as stored. Otherwise rows the reader may not see fill
+    # the cap and a word only they hold ends the page differently from a word
+    # nobody stored. A superset (rows the SQL cannot place are kept); the
+    # per-row read filter still decides every ranked row. None with Nomos off.
+    # Issue #3899: written so the planner prices the ranked read as if the
+    # clause kept every row; see `_planned_as_keeping_all`.
+    reader_sql = _reader_predicate_sql(conn, session)
+    if reader_sql is not None:
+        where.append(_planned_as_keeping_all(reader_sql))
     where_sql = " AND ".join(where)
     # One ranked read, shared by the literal pass and the expansion pass so the
     # two cannot drift into different plans. The inner query is the capped,
@@ -4990,8 +5461,8 @@ def _search_lexical(
         f"SELECT node_id, subtype, attrs, text_hash, source, "
         f"source_record_id, source_revision, "
         f"{order_sql} AS score "
-        f"FROM {segment} WHERE {where_sql} "
-        f"ORDER BY {order_sql}, node_id LIMIT {_LEXICAL_RANK_CAP}"
+        f"FROM {segment} n WHERE {where_sql} "
+        f"ORDER BY {order_sql}, node_id LIMIT {rank_limit}"
         f") AS ranked WHERE {RANKED_BM25_MATCH}"
     )
     if scope_rows is not None:
@@ -5020,7 +5491,7 @@ def _search_lexical(
             f"WITH scoped AS MATERIALIZED ("
             f"SELECT node_id, subtype, attrs, text_hash, source, "
             f"source_record_id, source_revision "
-            f"FROM {segment} WHERE {where_sql}) "
+            f"FROM {segment} n WHERE {where_sql}) "
             f"SELECT * FROM ("
             f"SELECT s.*, {scope_score} AS score FROM scoped s "
             f"OFFSET 0"
@@ -5072,6 +5543,9 @@ def _search_lexical(
                     clause for clause in (
                         _family_sql(scope, params, column="source"),
                         _source_sql(filter, params, column="source"),
+                        # #3560: chunks the reader may not read never spend
+                        # the chunk budget or the policy scan cap.
+                        reader_sql,
                     ) if clause is not None
                 ) + tuple(exclusion_sql),
                 # Only under completeness="exact": the rollup then keeps its
@@ -5118,13 +5592,14 @@ def _search_lexical(
         # Rank self rows, then apply authority and effective attrs in Python.
         candidates = _ranked_read(
             conn, session, ranked_sql, params, cap=cap, name="self", where=where,
+            limit=rank_limit,
         )
 
     # Preserve the literal query's candidates AND their scores before a
     # separately capped expansion read. Sorting one expanded top-k afterwards
     # cannot recover originals it excluded, or restore their original order.
     original_scores = {str(row["node_id"]): row["score"] for row in candidates}
-    expansion_scan_capped = len(candidates) >= _LEXICAL_RANK_CAP or "self" in cap.filled
+    expansion_scan_capped = len(candidates) >= rank_limit or "self" in cap.filled
     # The literal self read's saturation, counted on RAW rows before any
     # filter: the filtered fold's exactness rule needs it (D3-i).
     self_literal_saturated = expansion_scan_capped
@@ -5133,10 +5608,10 @@ def _search_lexical(
     if expansion.applied:
         added = _ranked_read(
             conn, session, ranked_sql, {**params, "q": ranked_query},
-            cap=cap, name="self_expanded", where=where,
+            cap=cap, name="self_expanded", where=where, limit=rank_limit,
         )
         expansion_scan_capped |= (
-            len(added) >= _LEXICAL_RANK_CAP or "self_expanded" in cap.filled
+            len(added) >= rank_limit or "self_expanded" in cap.filled
         )
         candidates.extend(
             row for row in added if str(row["node_id"]) not in original_scores
@@ -5186,9 +5661,17 @@ def _search_lexical(
             ),
             scope=scope,
             effective_view_source=effective_view_source,
-            scope_rows=scope_rows,
+            scope_rows=scope_rows, reader_sql=reader_sql,
+            budget_ms=literal_budget_ms,
         )
     )
+    if effective_candidates is None:
+        # The literal read ran out of its time budget: no row of it is served,
+        # and the page says the filter was checked on the ranked rows only
+        # (`where_checked_on`), with the read that checks every record.
+        effective_candidates = []
+        expansion_scan_capped = True
+        literal_read_bounded = True
     if rank_by != RANK_BY_PASSAGES:
         # The effective-attribute reads carry their own 200-row LIMIT, so a
         # filled one may hold matches past it like any capped read: the
@@ -5215,13 +5698,20 @@ def _search_lexical(
             redaction=redaction,
         ))
     if expansion.applied:
-        added_effective = _effective_view_lexical_candidates(
+        # Once the first literal read stopped at its budget the expanded one
+        # would stop too, so it is not run: one budget per call.
+        added_effective = None if literal_read_bounded else _effective_view_lexical_candidates(
             conn, session, query=ranked_query, filter=filter, segment=segment,
             branch_point_value=bp,
             exclude_node_ids={str(row["node_id"]) for row in candidates},
             scope=scope, effective_view_source=effective_view_source,
-            scope_rows=scope_rows,
+            scope_rows=scope_rows, reader_sql=reader_sql,
+            budget_ms=literal_budget_ms,
         )
+        if added_effective is None:
+            added_effective = []
+            expansion_scan_capped = True
+            literal_read_bounded = True
         expansion_scan_capped |= len(added_effective) >= _LEXICAL_RANK_CAP
         cap.record("effective_expanded", added_effective, limit=_LEXICAL_RANK_CAP,
                    count=None, native=False)
@@ -5285,12 +5775,12 @@ def _search_lexical(
     rank_capped = (
         bool(rollup_chunk_cap_reached)
         if rank_by == RANK_BY_PASSAGES
-        else len(candidates) >= _LEXICAL_RANK_CAP
+        else len(candidates) >= rank_limit
         if cap.withhold_counts
         else (
             expansion_scan_capped
             or bool(cap.saturated & {"self", "self_expanded"})
-            or len(candidates) >= _LEXICAL_RANK_CAP
+            or len(candidates) >= rank_limit
         )
     )
 
@@ -5342,6 +5832,68 @@ def _search_lexical(
             # candidate, and it must appear once, at the promoted rank.
             by_id = {str(row["node_id"]): row for row in candidates}
             by_id[str(alias_row["node_id"])] = alias_row
+            candidates = list(by_id.values())
+
+    # A query that is exactly one record's name ranks that record ahead
+    # of the rows that merely mention it (an import repeats the name in a few
+    # words and out-scores the definition's longer text; the definition's own
+    # text may hold the name only inside a dotted token). After an alias
+    # target, which keeps the first place.
+    exact_name_capped = False
+    exact_name_cap: Optional[dict[str, Any]] = None
+    exact_name = (
+        None
+        if rank_by == RANK_BY_PASSAGES or phrases
+        else exact_name_query(query)
+    )
+    if exact_name is not None:
+        name_rows, exact_name_cause = _exact_name_rows(
+            conn,
+            session,
+            name=exact_name,
+            query=query,
+            segment=segment,
+            branch_point_value=bp,
+            filter=filter,
+            scope=scope,
+            withhold_counts=cap.withhold_counts,
+            keep=lambda node_id: node_id != promoted_id and (
+                scope_rows is None or node_id in scope_rows.record_ids
+            ),
+        )
+        if exact_name_cause is not None:
+            exact_name_cap = _exact_name_cap(exact_name_cause)
+            if name_rows or exact_name_cause != "time_limit":
+                # The list stopped at a bound after it found rows (or at a
+                # row bound): the count is a floor. A time limit that cut
+                # the read before it found anything changes no count; the
+                # page only names the time limit.
+                exact_name_capped = True
+                rank_capped = True
+        if name_rows:
+            best_score = min(
+                (
+                    float(original_scores[str(row["node_id"])])
+                    if expansion.applied else float(row.get("score") or 0.0)
+                    for row in candidates
+                    if not row.get("match_kind")
+                    and (
+                        not expansion.applied
+                        or str(row["node_id"]) in original_scores
+                    )
+                ),
+                default=0.0,
+            )
+            by_id = {str(row["node_id"]): row for row in candidates}
+            for index, name_row in enumerate(name_rows):
+                # The read order (qualified-name match, other qualified name,
+                # name only, then node id) is the rank; the offsets are far
+                # below the 0.5 gap that keeps the whole group ahead of the
+                # BM25 rows.
+                name_row["score"] = (
+                    best_score - 0.5 - (len(name_rows) - index) * 1e-6
+                )
+                by_id[str(name_row["node_id"])] = name_row
             candidates = list(by_id.values())
 
     # Exact before expanded, as the LEADING sort key. `_expansion_rank` is 0
@@ -5399,7 +5951,9 @@ def _search_lexical(
             ranked_query=ranked_query,
             expansion=expansion,
             self_saturated=self_literal_saturated,
-            self_effective_saturated=self_effective_saturated,
+            # A literal read stopped at its budget is as incomplete as a
+            # filled one: the fold's count is then a floor.
+            self_effective_saturated=self_effective_saturated or literal_read_bounded,
             self_effective_ids=self_effective_ids,
             self_expanded_saturated=bool(
                 cap.saturated & {"self_expanded", "effective_expanded"}
@@ -5413,9 +5967,10 @@ def _search_lexical(
             cap=cap,
             phrases=phrases,
             text_redaction=text_redaction,
+            reader_sql=reader_sql,
         )
         candidates = fold.rows
-        rank_capped = fold.lower_bound
+        rank_capped = fold.lower_bound or literal_read_bounded or exact_name_capped
 
     # Exact duplicates (issue #3465, `rank3465 A`): under `records` a row
     # whose type and served text equal a higher-ranked row's leaves the list,
@@ -5838,7 +6393,7 @@ def _search_lexical(
         "results": results,
         "total_count": total_count,
         "truncated": truncated,
-        # Each pass has _LEXICAL_RANK_CAP candidates; disclose saturation so
+        # Each pass has `rank_limit` candidates; disclose saturation so
         # (offset past the cap) returning empty is legible rather than silent.
         "rank_capped": rank_capped,
         # Diversity disclosure. `total_count` is the number of rows a caller can
@@ -5889,7 +6444,12 @@ def _search_lexical(
         rank_capped=rank_capped,
         rollup_chunk_cap_reached=rollup_chunk_cap_reached,
         fold=fold,
+        rows_cap=rank_limit,
     ))
+    if literal_read_bounded:
+        # The unindexed literal read stopped at its time budget and served no
+        # row; `where_checked_on` below says where the filter was checked.
+        payload["literal_read_bounded_ms"] = literal_budget_ms
     if result_unit is not None:
         payload["result_unit"] = result_unit
     if duplicates_collapsed is not None:
@@ -5932,7 +6492,7 @@ def _search_lexical(
         payload["rank_capped"] = True
         payload.update(_count_basis(
             rank_by=rank_by, rank_capped=True, rollup_chunk_cap_reached=True,
-            fold=None,
+            fold=None, rows_cap=rank_limit,
         ))
         if fold is not None:
             payload["ranked_cap"] = {
@@ -5942,6 +6502,11 @@ def _search_lexical(
     # `coverage.retrieval`, pre-filled here and kept by `with_read_coverage`.
     # `completeness` is only the requested mode, which pagination and the
     # renderer read.
+    if exact_name_cap is not None:
+        # The exact-name list stopped at a bound (`EXACT_NAME_ROWS` readable
+        # symbols, rows read, or the pass deadline) and says which. The count
+        # is a floor unless the time limit cut it before any row was found.
+        payload["exact_name_cap"] = exact_name_cap
     payload["completeness"] = cap.mode
     payload["coverage"] = {
         "retrieval": _lexical_retrieval(
@@ -5971,7 +6536,7 @@ def _search_lexical(
         # candidates only, so a record past the cap was never checked. Said
         # where the count is read, with the read that checks every record.
         payload["where_checked_on"] = {
-            "ranked_cap": dict(payload.get("ranked_cap") or {"rows": _LEXICAL_RANK_CAP}),
+            "ranked_cap": dict(payload.get("ranked_cap") or {"rows": rank_limit}),
             "every_record": WHERE_EVERY_RECORD,
         }
     count_unknown = not exact or (
@@ -6795,13 +7360,40 @@ def vector_set_route_for_config(
     return _VectorSetRoute(configured, stored, "active", drift)
 
 
+def _planned_as_keeping_all(clause: str) -> str:
+    """``clause`` for a WHERE list, keeping exactly the rows it keeps, in a
+    form the planner estimates keeps almost every row.
+
+    ``CASE WHEN c THEN TRUE END`` is TRUE where ``c`` is TRUE and NULL where it
+    is FALSE or NULL; ``IS NOT NULL`` then admits the same rows a bare ``c``
+    admits in WHERE. PostgreSQL has no statistics for the CASE, so it uses its
+    default for IS NOT NULL on an expression: 0.995.
+
+    Why (issue #3899): the planner multiplies the reader clause's table-wide
+    keep fraction into the ranked read's row estimate, as if hidden rows were
+    spread evenly over subtypes. They are not: on the comp-ops copy the hidden
+    classes hold no ``document`` rows (every one kept), but the estimate kept
+    0.44-0.85 of them. A LIMIT over the BM25-ordered scan is priced as that
+    scan's cost times 200 / estimated rows, so the smaller estimate priced the
+    BM25 index out and the planner scored and sorted every ``document`` row
+    from the subtype btree instead (about 2x slower, same rows). With this
+    form the ranked read is planned as it was before the clause existed.
+    """
+    return f"(CASE WHEN {clause} THEN TRUE END) IS NOT NULL"
+
+
 def _reader_predicate_sql(conn: psycopg.Connection, session: Session) -> Optional[str]:
     """The reader's access rules as SQL over the node row ``n`` (rows the
     read filter could serve, with ``text`` not known to be masked), or None
-    when the deployment runs no access rules. A superset: the per-row read
-    filter still runs on every ranked row."""
-    from psycopg import sql as pg_sql
+    when the clause would keep every row: the deployment runs no access
+    rules, or this reader's view admits every row
+    (``ReaderView.admits_every_row``, proven equivalent to the clause being
+    TRUE). A superset: the per-row read filter still runs on every ranked
+    row.
 
+    The view's class decisions come from the process-local cache in
+    ``reader_view`` (keyed by policy, catalog, reader, action and surface), so
+    a search after the first pays no policy evaluation."""
     from okg.substrate.nomos import reader_view
     from okg.substrate.nomos.runtime_enforcement import (
         deployment_requires_nomos_runtime,
@@ -6813,10 +7405,11 @@ def _reader_predicate_sql(conn: psycopg.Connection, session: Session) -> Optiona
         conn, session, row_kind="node", action=None, surface=None,
         nomos_runtime=True,
     )
-    predicate = pg_sql.SQL("({}) AND (({}) IS NOT FALSE)").format(
-        view.predicate("n"), view.readable("n", "text"),
-    )
-    return predicate.as_string(conn).replace("%", "%%")
+    if view.admits_every_row:
+        return None
+    # The negation of what is hidden or masked, not a list of what is visible:
+    # a fraction of the text, and an estimate the planner can use.
+    return view.keep_sql("n", "text").as_string(conn).replace("%", "%%")
 
 
 def _search_semantic_vector_set(

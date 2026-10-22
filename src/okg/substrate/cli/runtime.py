@@ -23,12 +23,43 @@ def _complete_runtime_worker_process(
     *,
     operator: bool,
 ) -> int:
-    """Own the final process boundary for an attested supervised handoff."""
+    """Own the final process boundary of a supervised worker.
+
+    Supervised mode hard-exits (``os._exit``) for two codes: the attested
+    controlled-recovery handoff, and the unattested code 7 where a workflow is
+    still running. Operator mode and every other code return normally.
+    """
     from okg.substrate.runtime.recovery_handoff import (
         CONTROLLED_RECOVERY_EXIT_CODE,
     )
+    from okg.substrate.runtime.worker import WORKER_RECOVERY_UNATTESTED_EXIT_CODE
 
     if returncode == CONTROLLED_RECOVERY_EXIT_CODE and not operator:
+        os._exit(returncode)
+    if returncode == WORKER_RECOVERY_UNATTESTED_EXIT_CODE and not operator:
+        # The worker already stopped dispatch and waited out its bounded grace
+        # period; a workflow (for example a publish) is still running on an
+        # executor thread. A normal return would make the interpreter join that
+        # thread, so the stop would last until its statement timeout (issue
+        # #3861). Leave now; DBOS recovers the workflow on the next start.
+        # The exit closes the client's sockets but Postgres does not drop the
+        # session at once: it notices the closed socket only through
+        # `client_connection_check_interval` (set on every okg session, 5 s by
+        # default), then cancels the running statement and frees the session
+        # advisory publish lock. Anything already committed stays committed.
+        import logging
+        import sys
+
+        logging.getLogger(__name__).error(
+            "worker exiting with code %d while workflow(s) are still running; "
+            "Postgres ends their in-flight statements once it notices the "
+            "closed connection (client_connection_check_interval) and DBOS "
+            "recovers them on the next start",
+            returncode,
+        )
+        logging.shutdown()
+        sys.stdout.flush()
+        sys.stderr.flush()
         os._exit(returncode)
     return returncode
 

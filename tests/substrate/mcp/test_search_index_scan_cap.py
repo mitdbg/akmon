@@ -913,6 +913,9 @@ def test_an_enforced_where_after_ranking_names_no_cap(
     (which hides no row) the same call names the 200-row cap."""
     from tests.substrate.mcp.test_search_records import MAIN, OPEN, READER, _activate, _allow
 
+    # The 220 comments fill a 200-row filtered ranking, as before the deeper
+    # filtered cap (PACT read-filtered-search-speed-3666).
+    monkeypatch.setattr(search_module, "_FILTERED_RANK_CAP", 200)
     groups, main = _bulk_facts(hidden_comments=True)
     deployment = _publish(tmp_path, clean_runtime, groups=groups, main=main)
     _activate(clean_runtime, deployment, [_allow(OPEN), _allow(MAIN)])
@@ -942,18 +945,32 @@ def test_an_enforced_where_after_ranking_names_no_cap(
         assert "where checked on the top 200 rows" in line, (rank_by, mode)
 
 
+@pytest.mark.parametrize("sql_view", [True, False], ids=["sql-view", "no-sql-view"])
 def test_enforced_output_never_says_hidden_rows_filled_a_read(
-    clean_runtime, tmp_path, monkeypatch,
+    clean_runtime, tmp_path, monkeypatch, sql_view,
 ):
-    """Review 5. 220 matching comments the reader may not see fill the raw
-    200-row read before Nomos hides them; 5 visible tickets match. Under
-    enforce neither mode may name `candidate_cap` or the raw reads: bounded
-    keeps its plain bounded fact, exact says `unknown` with no reason. Off,
-    the same graph names the cap: that is the signal enforce withholds."""
+    """Review 5, changed by #3560. 220 matching comments the reader may not
+    see are stored; 5 visible tickets match. Under enforce neither mode may
+    name `candidate_cap` or the raw reads, and neither may say hidden rows
+    filled a read.
+
+    With the reader's SQL view (`sql-view`, the default), the 200-row read
+    counts only rows the reader may read, so the 220 hidden comments never
+    fill it: exact is `exhaustive` with count 5, as for a graph that holds no
+    hidden comments. Review 5 had exact say `unknown` here, "the one bit the
+    PR body discloses" (PACT lexical-index-scan-cap-3162); issue #3560 closes
+    it. With no SQL view (`no-sql-view`: the view cannot place rows, as with an
+    identity claim or an access context) the read is still taken before the
+    per-row filter, so the old answers stand: exact says `unknown`. Off, the
+    same graph names the cap."""
     from tests.substrate.mcp.test_search_records import (
         MAIN, OPEN, READER, _activate, _allow,
     )
 
+    if not sql_view:
+        monkeypatch.setattr(
+            search_module, "_reader_predicate_sql", lambda conn, session: None,
+        )
     groups, main = _bulk_facts(hidden_comments=True)
     deployment = _publish(tmp_path, clean_runtime, groups=groups, main=main)
     _activate(clean_runtime, deployment, [_allow(OPEN), _allow(MAIN)])
@@ -984,27 +1001,42 @@ def test_enforced_output_never_says_hidden_rows_filled_a_read(
         assert "+" not in first and "cap 200" not in first and "bounds" not in first
         assert "rank_capped" not in render(page, tool="search")
     assert enforced["bounded"]["coverage"]["retrieval"] == BOUNDED
-    # Exact's proof needs the raw read, which hidden rows filled: retrieval
-    # says `unknown` (the one bit the PR body discloses), and the count says
-    # no more than that.
-    assert enforced["exact"]["coverage"]["retrieval"] == {"status": "unknown"}
-    for page in enforced.values():
-        assert page["total_count"] is None and page["total_count_basis"] == "unknown"
-    exact_text = render(enforced["exact"], tool="search").splitlines()[0]
-    assert "retrieval unknown" in exact_text and "count unknown" in exact_text
-    # Issue #3666: the exact page is a listing that is not complete, and
-    # under enforce it names no cap, in JSON or in text.
-    assert enforced["exact"]["completeness"] == "exact"
-    assert enforced["exact"]["listing"] == {
-        "complete": False, "reason": "scan_bound",
-        "literal_text_match": {"method": "grep", "completeness": "exact"},
-    }
-    assert "listing not shown whole" in exact_text
-    assert "rank cap" not in exact_text and " · complete" not in exact_text
-    last = dict(enforced["exact"], next_offset=None, truncated=False)
-    last_text = render(last, tool="search").splitlines()[0]
-    assert "bound reached (not shown whole) · next: none" in last_text
-    assert "rank cap" not in last_text
+    assert enforced["bounded"]["total_count"] is None
+    assert enforced["bounded"]["total_count_basis"] == "unknown"
+    if sql_view:
+        # #3560: the hidden comments never reached the read, so exact is
+        # whole, with the count a graph without them gives.
+        assert enforced["exact"]["coverage"]["retrieval"] == {
+            "status": "exhaustive", "basis": "exact_scalar",
+        }
+        assert enforced["exact"]["total_count"] == 5
+        assert enforced["exact"]["total_count_basis"] == "exact"
+        assert "listing" not in enforced["exact"]
+        exact_text = render(enforced["exact"], tool="search").splitlines()[0]
+        assert "unknown" not in exact_text and "not shown whole" not in exact_text
+        assert "rank cap" not in exact_text and "cap 200" not in exact_text
+    else:
+        # No SQL view: exact's proof needs the raw read, which hidden rows
+        # filled: retrieval says `unknown`, and the count says no more than
+        # that.
+        assert enforced["exact"]["coverage"]["retrieval"] == {"status": "unknown"}
+        assert enforced["exact"]["total_count"] is None
+        assert enforced["exact"]["total_count_basis"] == "unknown"
+        exact_text = render(enforced["exact"], tool="search").splitlines()[0]
+        assert "retrieval unknown" in exact_text and "count unknown" in exact_text
+        # Issue #3666: the exact page is a listing that is not complete, and
+        # under enforce it names no cap, in JSON or in text.
+        assert enforced["exact"]["completeness"] == "exact"
+        assert enforced["exact"]["listing"] == {
+            "complete": False, "reason": "scan_bound",
+            "literal_text_match": {"method": "grep", "completeness": "exact"},
+        }
+        assert "listing not shown whole" in exact_text
+        assert "rank cap" not in exact_text and " · complete" not in exact_text
+        last = dict(enforced["exact"], next_offset=None, truncated=False)
+        last_text = render(last, tool="search").splitlines()[0]
+        assert "bound reached (not shown whole) · next: none" in last_text
+        assert "rank cap" not in last_text
     monkeypatch.setenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", "0")
     off = pages()
     assert off["bounded"]["coverage"]["retrieval"]["bounds"] == ["candidate_cap"]

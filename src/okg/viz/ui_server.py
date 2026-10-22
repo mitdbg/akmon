@@ -281,7 +281,10 @@ def prepare(args: argparse.Namespace) -> UiLaunch:
     """
     from okg.substrate.cli import dsn_authority
 
-    from okg.viz.auth import resolve_api_token
+    from okg.viz.auth import (
+        require_read_auth_for_sensitive_deployment,
+        resolve_api_token,
+    )
 
     host, port = resolve_bind(args.host, args.port)
     # Fail closed before any I/O: a named but unusable variable refuses.
@@ -295,6 +298,11 @@ def prepare(args: argparse.Namespace) -> UiLaunch:
             data={"deployment": None},
             fix_hint="pass --deployment <name> or set OKG_DEPLOYMENT",
         )
+    # A deployment with Nomos runtime enforcement on is sensitive: refuse an
+    # unauthenticated start, loopback included (issue #3278).
+    require_read_auth_for_sensitive_deployment(
+        deployment, api_token, surface="okg ui",
+    )
     resolution = dsn_authority.resolve_read_dsn(args, surface="okg ui")
     return UiLaunch(
         dsn=resolution.dsn,

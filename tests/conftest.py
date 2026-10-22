@@ -106,6 +106,19 @@ def _no_live_decision_ledger(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OKG_PACT_DECISION_PROJECTION", "off")
 
 
+@pytest.fixture(autouse=True)
+def _hints_do_not_depend_on_the_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hint text pins the checkout form (`uv run okg`) however pytest started.
+
+    `okg_prefix` says plain `okg` in a shell with the venv activated (#3891).
+    Without this, a developer who activated the venv would see every test that
+    pins `uv run okg` fail. Tests of the shell check set their own value.
+    """
+    from okg.substrate.support import user_hints
+
+    monkeypatch.setattr(user_hints, "plain_okg_runs_this_package", lambda: False)
+
+
 def _module_origin_under_deployments(module: object) -> bool:
     """True if ``module`` was loaded from a ``deployments/`` tree."""
     origins: list[str] = []

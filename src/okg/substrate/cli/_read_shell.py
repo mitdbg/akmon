@@ -1193,40 +1193,14 @@ def emit_refusal(
 ) -> int:
     """A read command refused before any call: a shell form of this module,
     an argument the command cannot read (`--args`, an argument given twice)
-    or no deployment. One shape, a tool refusal's: one JSON object
-    (`status`, `error`) with `--json`; otherwise `<op> refused <code>: ...`,
-    the fix, the data and the `retry:` line. Always exit 2: a refusal is
-    the call as typed, not an error."""
-    from okg.substrate.cli._read_operators import mask, mask_value, say
+    or no deployment. One shape, a tool refusal's, defined by the render
+    step (`_read_render.render_refusal`): one JSON object (`status`,
+    `error`) with `--json`; otherwise `<op> refused <code>: ...`, the fix,
+    the data and the `retry:` line. Always exit 2: a refusal is the call as
+    typed, not an error."""
+    from okg.substrate.cli._read_render import render_refusal
 
-    error: dict[str, Any] = {
-        "code": exc.code, "message": exc.message,
-        **({"fix_hint": exc.fix_hint} if exc.fix_hint else {}),
-        "data": exc.data,
-    }
-    retry = getattr(exc, "retry", None)
-    if retry is not None:
-        error["retry_call"] = {
-            "tool": retry[0], "mode": getattr(exc, "retry_mode", "corrected"),
-            "arguments": retry[1],
-        }
-    if mode == "json":
-        print(json.dumps(mask_value({"status": "refused", "error": error})), file=sys.stderr)
-        return REFUSED_EXIT
-    say(f"{operator} refused {exc.code}: {exc.message}")
-    if exc.fix_hint:
-        sys.stderr.write(mask(f"  fix_hint: {exc.fix_hint}") + "\n")
-    if exc.data:
-        sys.stderr.write(mask(f"  data: {exc.data}") + "\n")
-    command = getattr(exc, "retry_command", None)
-    line = (
-        "retry: " + command if command
-        else retry_line(error.get("retry_call"), {}, args)
-    )
-    if line is not None:
-        # Not masked: it is the caller's own call, to be run as printed.
-        sys.stderr.write(line + "\n")
-    return REFUSED_EXIT
+    return render_refusal(exc, operator, args, mode=mode).write()
 
 
 def reply_rows(operator: str, payload: dict[str, Any]) -> list[Any]:
@@ -1757,11 +1731,11 @@ class _Text:
     cut_open: bool = False
 
     def take(self, entry: dict[str, Any]) -> None:
-        """Add one page's item. Only its first piece can go on from the
-        last piece before it, and only when the page that served that piece
-        left the text partial: pieces within one page are as a single read
-        serves them. A page that serves the text nothing (`deferred`)
-        changes neither."""
+        """Add one page's item. A piece goes on from the piece before it,
+        on this page or an earlier one, when it starts where that piece was
+        cut in the same chunk; a page's first piece only when the page that
+        served the one before left the text partial. A page that serves the
+        text nothing (`deferred`) changes neither."""
         cut_before = self.cut_open
         if entry.get("segments"):
             self.cut_open = entry.get("state") == "partial"
@@ -1781,8 +1755,13 @@ class _Text:
             chunk, span = piece.get("chunk_id"), piece.get("text_range")
             start, end = (span[0], span[1]) if isinstance(span, list) and len(span) == 2 else (None, None)
             last = self.pieces[-1] if self.pieces else None
+            # A piece goes on from the one before it when it starts where that
+            # one was cut in the same chunk. The page that served the last
+            # piece left it cut (`cut_before`) for a piece opening a page; a
+            # page's own second piece can also be the rest of its first, when
+            # the batch gave the same text a second share of the page.
             if (
-                index == 0 and cut_before and last is not None and chunk is not None
+                (index > 0 or cut_before) and last is not None and chunk is not None
                 and last[0] == chunk and last[1] is not None and start == last[1]
             ):
                 last[1] = end

@@ -267,3 +267,94 @@ def test_migrated_hints_keep_uv_run_in_a_checkout() -> None:
     assert publish_recovery._ingest_command("d") == (
         "uv run okg ingest --deployment d --json"
     )
+
+
+# -- an activated virtual environment gets plain `okg` (#3891, #3848) --------
+
+#: The real check, taken before tests/conftest.py patches the module attribute.
+_REAL_CHECK = user_hints.plain_okg_runs_this_package
+
+
+def _venv(tmp_path: Path) -> tuple[Path, Path]:
+    venv = tmp_path / "venv"
+    scripts = venv / "bin"
+    scripts.mkdir(parents=True)
+    (scripts / "okg").write_text("#!/bin/sh\n")
+    (scripts / "okg").chmod(0o755)
+    return venv, scripts
+
+
+def _plain(venv: Path, scripts: Path, tmp_path: Path, env: dict, **overrides) -> bool:
+    kwargs = dict(
+        prefix=str(venv), base_prefix=str(tmp_path / "base"),
+        scripts_dir=str(scripts),
+    )
+    kwargs.update(overrides)
+    return _REAL_CHECK(env, **kwargs)
+
+
+def test_an_activated_venv_whose_okg_is_first_on_path_gets_plain_okg(tmp_path) -> None:
+    venv, scripts = _venv(tmp_path)
+    env = {"VIRTUAL_ENV": str(venv), "PATH": f"{scripts}:/usr/bin"}
+    assert _plain(venv, scripts, tmp_path, env) is True
+
+
+def test_a_process_started_by_uv_run_keeps_uv_run(tmp_path) -> None:
+    """`uv run` sets VIRTUAL_ENV and PATH for the child only: the user's own
+    shell has no `okg`, so the hint must still say `uv run okg`."""
+    venv, scripts = _venv(tmp_path)
+    env = {
+        "VIRTUAL_ENV": str(venv), "PATH": f"{scripts}:/usr/bin",
+        "UV_RUN_RECURSION_DEPTH": "1",
+    }
+    assert _plain(venv, scripts, tmp_path, env) is False
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["no_venv_var", "other_env", "okg_not_on_path", "other_okg_first", "not_a_venv"],
+)
+def test_every_other_case_keeps_the_checkout_command(tmp_path, case) -> None:
+    venv, scripts = _venv(tmp_path)
+    other = tmp_path / "other" / "bin"
+    other.mkdir(parents=True)
+    (other / "okg").write_text("#!/bin/sh\n")
+    (other / "okg").chmod(0o755)
+    env = {"VIRTUAL_ENV": str(venv), "PATH": f"{scripts}:/usr/bin"}
+    overrides: dict = {}
+    if case == "no_venv_var":
+        env.pop("VIRTUAL_ENV")
+    elif case == "other_env":
+        env["VIRTUAL_ENV"] = str(tmp_path / "elsewhere")
+    elif case == "okg_not_on_path":
+        env["PATH"] = "/usr/bin:/nonexistent"
+    elif case == "other_okg_first":
+        env["PATH"] = f"{other}:{scripts}"
+    elif case == "not_a_venv":
+        overrides["base_prefix"] = str(venv)
+    assert _plain(venv, scripts, tmp_path, env, **overrides) is False
+
+
+def test_okg_prefix_uses_the_activated_venv(monkeypatch) -> None:
+    monkeypatch.setattr(user_hints, "plain_okg_runs_this_package", lambda: True)
+    assert user_hints.okg_prefix() == "okg"
+    assert user_hints.hint_command(okg_command("doctor", deployment="x")) == (
+        "okg doctor --deployment x"
+    )
+    monkeypatch.setattr(user_hints, "plain_okg_runs_this_package", lambda: False)
+    assert user_hints.okg_prefix() == "uv run okg"
+
+
+def test_the_suite_pins_the_checkout_form_whatever_shell_started_it() -> None:
+    """tests/conftest.py makes the shell check say no for every test."""
+    assert user_hints.okg_prefix() == "uv run okg"
+
+
+def test_written_files_use_one_form_whatever_the_shell(monkeypatch) -> None:
+    """The generated README and its next commands must not change with the
+    shell that wrote them."""
+    monkeypatch.setattr(user_hints, "plain_okg_runs_this_package", lambda: True)
+    assert user_hints.okg_prefix() == "okg"
+    assert user_hints.stable_okg_prefix() == "uv run okg"
+    monkeypatch.setattr(user_hints, "checkout_root", lambda: None)
+    assert user_hints.stable_okg_prefix() == "okg"

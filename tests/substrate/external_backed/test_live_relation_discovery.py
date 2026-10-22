@@ -137,6 +137,25 @@ def test_the_inspect_output_schema_declares_live_relations() -> None:
     assert "live_relations" in schema["properties"]
 
 
+def test_inspect_publishes_a_declared_description_beside_the_arguments() -> None:
+    """Item 7: the text an operator writes on a relation
+    reaches `inspect`, from the catalog's stored copy; a relation without
+    one publishes no key."""
+    text = (
+        "Space per source: `static` is the configured capacity, `replicas` the "
+        "space the replicas use."
+    )
+    relations = parse_live_relations(
+        {ANNOTATION_KEY: {"hits": {**HITS, "description": text},
+                          "plain": dict(HITS)}},
+        subtype="search_index",
+    )
+    stored = {name: rel.to_metadata() for name, rel in relations.items()}
+    published = _shape({"live_relations": stored})["live_relations"]
+    assert published["hits"]["description"] == text
+    assert "description" not in published["plain"]
+
+
 def test_the_published_block_withholds_the_operator_only_fields() -> None:
     """`principal_mode` and `deadline_seconds` are stored, not advertised.
 

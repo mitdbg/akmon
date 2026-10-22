@@ -86,6 +86,8 @@ tests/substrate/mcp/test_effective_surface.py::test_the_ci_instructions_are_stil
 tests/substrate/mcp/test_effective_surface.py::test_the_ci_instructions_are_still_served_after_the_move[okg-ci]  # pins private deployments' real manifests/instructions
 tests/substrate/mcp/test_effective_surface.py::test_the_manifest_and_the_definition_declare_the_same_surface[okg-ci-dev]  # pins private deployments' real manifests/instructions
 tests/substrate/mcp/test_effective_surface.py::test_the_manifest_and_the_definition_declare_the_same_surface[okg-ci]  # pins private deployments' real manifests/instructions
+tests/substrate/mcp/test_effective_surface.py::test_every_migrated_launch_registers_exactly_what_it_did[okg-ci-dev]  # pins private deployments' real manifests/instructions
+tests/substrate/mcp/test_effective_surface.py::test_every_migrated_launch_registers_exactly_what_it_did[okg-ci]  # pins private deployments' real manifests/instructions
 tests/substrate/mcp/test_effective_surface.py::test_the_two_real_instruction_files_pass  # pins private deployments' real manifests/instructions
 tests/substrate/nomos/test_nomos_deployment_policy_audit.py::test_real_okg_ci_and_workspace_manifests_have_nomos_posture  # private manifests
 tests/substrate/nomos/test_nomos_identity_absence_fail_closed.py::TestCallerAudit::test_shipped_claim_builders_state_their_verification[deployments]  # no raw claim literals ship under deployments/, so there is nothing to audit (the src/ param still runs)
@@ -145,3 +147,5 @@ tests/docs/test_docs_task_navigation.py::test_ci_and_quality_runbooks_are_off_th
 
 # --- Found by the v0.2.0 release-commit proof (98e7e266e2), 2026-10-19 -------
 tests/substrate/test_deployment_views_helper.py::test_helper_imports_deployment_views_and_restores_state  # imports deployments/okg-workspace/views, which does not ship
+tests/substrate/test_environment_ui_auth_review_fixes.py::test_install_time_and_running_ui_agree_on_sensitivity_for_shipped_environments  # reads ops/environments/, which does not ship
+tests/substrate/test_environment_ui_auth_review_fixes.py::test_shipped_ui_environments_name_the_token_variable_and_no_value  # reads ops/environments/, which does not ship

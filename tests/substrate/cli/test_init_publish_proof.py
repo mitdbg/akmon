@@ -750,7 +750,9 @@ def test_init_with_no_runnable_sources_exits_zero_with_next_step(
         # After the OKG_DEPLOYMENTS_DIR export, before everything else.
         assert payload["next"][1] == command
     else:
-        assert command in captured.err
+        # The short summary carries the command, once, on stdout (#3891).
+        assert captured.out.count(command) == 1
+        assert command not in captured.err
 
 
 def test_run_once_outcome_reads_both_run_paths() -> None:
@@ -921,7 +923,9 @@ def test_init_prints_each_agent_line_once(
         "--non-interactive",
         "--no-publish",
     ]
-    assert cli.main(argv) == 0
+    # `--verbose` prints the agent step's full message; the short summary
+    # (#3891) names one connect command instead.
+    assert cli.main([*argv, "--verbose"]) == 0
     captured = capsys.readouterr()
     lines = (captured.out + captured.err).splitlines()
     agent_lines = [line for line in lines if " is not connected (" in line]
@@ -1122,3 +1126,284 @@ def test_text_mode_install_failure_without_sources_prints_message(
     assert "install failed at stage catalog\n  catalog load failed: boom" in err
     assert "fix: " in err
     assert "next: " in err
+
+
+# Issue #3927 / #3928: the failed-install summary says what became of the
+# other sources and gives the fix for the failed one.
+_OTHER_SOURCES = {
+    "failed": ["cds"],
+    "published_without_failed": ["notes"],
+    "ingested_not_published": [],
+    "not_run_depends_on_failed": ["cds_links"],
+    "message": (
+        "1 other source was published without cds: notes. 1 source that "
+        "depends on cds did not run: cds_links."
+    ),
+    "next_step": "To go on, fix cds and run `okg ingest` again.",
+}
+_HEALTH_FAILED_REPORT = {
+    "results": [
+        {"name": "notes", "status": "OK"},
+        {
+            "name": "cds",
+            "status": "FAIL",
+            "stage": "admission_finalize",
+            "error": (
+                "source admission rejected: source_health_not_healthy "
+                "(the connector reported endpoint_failed: harvest "
+                "incomplete; no complete scope claimed)"
+            ),
+        },
+    ],
+    "other_sources": _OTHER_SOURCES,
+}
+
+
+def test_ingest_failure_names_other_sources_and_the_fix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dep_dir = _deployment_with_sources(tmp_path, notes=True, talks=False)
+    _stub_bringup_children(
+        monkeypatch,
+        returncodes={"ingest": 1},
+        ingest_stdout=json.dumps(_HEALTH_FAILED_REPORT),
+    )
+
+    outcome = init_mod._run_init_migrate_and_publish(
+        deployment_name="demo",
+        deployment_dir=dep_dir,
+        answers={"postgres_dsn": "postgresql://postgres@127.0.0.1:1/demo"},
+    )
+
+    assert outcome["details"]["other_sources"] == _OTHER_SOURCES["message"]
+    # The fix names the failed source and the command that leaves it out.
+    assert "okg ingest --deployment demo --exclude cds" in outcome["fix_hint"]
+    assert "Fix the failed source above" in outcome["fix_hint"]
+    assert "remaining steps" in outcome["fix_hint"]
+    assert "did not run" in outcome["fix_hint"]
+    assert "harvest incomplete" in outcome["message"]
+
+
+def test_ingest_other_sources_message_reads_only_a_report_that_has_it() -> None:
+    assert init_mod.ingest_other_sources_message(None) is None
+    assert init_mod.ingest_other_sources_message("not json") is None
+    assert init_mod.ingest_other_sources_message(
+        json.dumps({"results": [{"name": "a", "status": "OK"}]}),
+    ) is None
+    assert init_mod.ingest_other_sources_message(
+        json.dumps(_HEALTH_FAILED_REPORT),
+    ) == _OTHER_SOURCES["message"]
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+def test_text_mode_install_failure_prints_other_sources_and_fix(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    verbose: bool,
+) -> None:
+    repo = _sample_repo(tmp_path)
+    log_noise = '{"phase": "stream.final_flush", "schema": "okg.source_tail.v1"}'
+
+    def _health_failed(**_kwargs):
+        return {
+            "ok": False,
+            "stage": "ingest",
+            "message": f"ingest failed: (cut)\nstderr tail:\n{log_noise}",
+            "fix_hint": init_mod._ingest_failure_fix("proof_demo", ["cds"]),
+            "details": {
+                "failed_sources": init_mod.ingest_failed_sources(
+                    json.dumps(_HEALTH_FAILED_REPORT),
+                ),
+                "other_sources": _OTHER_SOURCES["message"],
+            },
+        }
+
+    monkeypatch.setattr(init_mod, "_run_init_migrate_and_publish", _health_failed)
+    args = _init_args(repo, tmp_path / "deployments")
+    args.remove("--json")
+    if verbose:
+        args.append("--verbose")
+    rc = cli.main(args)
+    err = capsys.readouterr().err
+
+    assert rc == 1
+    assert "install failed at stage ingest" in err
+    assert "source cds failed at admission_finalize" in err
+    assert "harvest incomplete; no complete scope claimed" in err
+    assert _OTHER_SOURCES["message"] in err
+    assert "fix: the install stopped at ingest" in err
+    assert "--exclude cds" in err
+    # The failed command's log tail is a screen of JSON lines. The short
+    # text leaves it out (the causes above state it); --verbose keeps it.
+    assert (log_noise in err) is verbose
+
+
+# Every source ran and `okg ingest` still exited 1: its final publish failed.
+# The entry below is the shape a real run printed (a lab host run, 2026-10-20).
+_PUBLISH_FAILED_REPORT = {
+    "results": [{"name": "git_files", "status": "OK"}],
+    "publishes": [{
+        "label": "commit",
+        "status": "fail",
+        "code": "substrate_error",
+        "error": (
+            "repository provenance inputs are not committed: commit the "
+            "deployment folder first"
+        ),
+        "fix_hint": "git add -A && git commit in the deployment folder",
+    }],
+    "padding": "x" * 20000,
+}
+
+
+def test_ingest_with_every_source_ok_names_the_failed_final_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dep_dir = _deployment_with_sources(tmp_path, notes=True, talks=False)
+    _stub_bringup_children(
+        monkeypatch,
+        returncodes={"ingest": 1},
+        ingest_stdout=json.dumps(_PUBLISH_FAILED_REPORT),
+    )
+
+    outcome = init_mod._run_init_migrate_and_publish(
+        deployment_name="demo",
+        deployment_dir=dep_dir,
+        answers={"postgres_dsn": "postgresql://postgres@127.0.0.1:1/demo"},
+    )
+
+    assert outcome["stage"] == "ingest"
+    assert "repository provenance inputs are not committed" in outcome["message"]
+    assert "[substrate_error]" in outcome["message"]
+    # The cause, not the raw streams.
+    assert "stdout tail" not in outcome["message"]
+    assert "stubbed ingest" not in outcome["message"]
+    assert outcome["details"]["ingest_failure"]["code"] == "substrate_error"
+    assert outcome["fix_hint"] == "git add -A && git commit in the deployment folder"
+
+
+def test_ingest_publish_failure_reads_blocked_and_error_envelopes() -> None:
+    blocked = init_mod.ingest_publish_failure(
+        json.dumps({
+            "results": [{"name": "a", "status": "OK"}],
+            "publishes": [{
+                "label": "commit", "status": "blocked",
+                "blocked_reason": {
+                    "reason": "consistency gate failed",
+                    "failed_consistency_gates": [{"gate_name": "no_orphans"}],
+                },
+            }],
+        }),
+        "",
+    )
+    assert blocked is not None
+    assert blocked["message"].startswith("the final publish was blocked: ")
+    assert "no_orphans" in blocked["message"]
+
+    # No report at all: the command refused before it ran a source and
+    # printed its error envelope on stderr, after some log lines.
+    envelope = {"error": {
+        "code": "deployment_not_found",
+        "message": "deployment dir for 'x' not found",
+        "fix_hint": "check deployments/<name>/ exists",
+    }}
+    refused = init_mod.ingest_publish_failure(
+        "", "12:00:00 INFO starting\n" + json.dumps(envelope),
+    )
+    assert refused == {
+        "message": "deployment dir for 'x' not found",
+        "code": "deployment_not_found",
+        "fix_hint": "check deployments/<name>/ exists",
+    }
+    # A clean report and an unreadable stream name no cause.
+    assert init_mod.ingest_publish_failure(
+        json.dumps({"results": [{"name": "a", "status": "OK"}],
+                    "publishes": [{"label": "commit", "status": "published",
+                                   "generation_id": "g"}]}),
+        "plain text",
+    ) is None
+
+
+# #3966: `okg install --force` rewrote the files while the database kept the
+# identity claimed before, so the install's own publish was refused.
+_DRIFT_CODES = ["catalog_manifest_drifted", "catalog_applied_version_absent"]
+
+
+def _drifted_report(code: str) -> dict:
+    return {
+        "results": [{"name": "git_files", "status": "OK"}],
+        "publishes": [{
+            "label": "commit",
+            "status": "fail",
+            "code": code,
+            "error": "deployment manifest content differs from the claimed identity",
+            "fix_hint": "re-claim ownership from the worker directory",
+        }],
+    }
+
+
+@pytest.mark.parametrize("code", _DRIFT_CODES)
+def test_ingest_refused_for_manifest_drift_names_the_claim_then_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str,
+) -> None:
+    dep_dir = _deployment_with_sources(tmp_path, notes=True, talks=False)
+    _stub_bringup_children(
+        monkeypatch,
+        returncodes={"ingest": 1},
+        ingest_stdout=json.dumps(_drifted_report(code)),
+    )
+
+    outcome = init_mod._run_init_migrate_and_publish(
+        deployment_name="demo",
+        deployment_dir=dep_dir,
+        answers={"postgres_dsn": "postgresql://postgres@127.0.0.1:1/demo"},
+    )
+
+    assert outcome["ok"] is False
+    assert outcome["stage"] == "ingest"
+    assert f"[{code}]" in outcome["message"]
+    fix = outcome["fix_hint"]
+    assert "`okg status` shows what was published" in fix
+    assert "nothing was published" not in fix
+    claim = f"okg catalog ownership claim --deployment {dep_dir}"
+    run = "okg run --once --deployment demo --apply"
+    assert claim in fix and run in fix
+    assert fix.index(claim) < fix.index(run)
+
+
+@pytest.mark.parametrize("code", _DRIFT_CODES)
+def test_install_over_drifted_manifest_exits_1_and_prints_next_commands(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    code: str,
+) -> None:
+    repo = _sample_repo(tmp_path)
+    _stub_bringup_children(
+        monkeypatch,
+        returncodes={"ingest": 1},
+        ingest_stdout=json.dumps(_drifted_report(code)),
+    )
+    # A folder name with a space: the printed claim command must quote it.
+    args = _init_args(repo, tmp_path / "my deployments")
+    args.remove("--json")
+
+    rc = cli.main(args)
+    err = capsys.readouterr().err
+
+    assert rc == 1
+    assert "install failed at stage ingest" in err
+    assert f"[{code}]" in err
+    assert "`okg status` shows what was published" in err
+    assert "nothing was published" not in err
+    claim = "okg catalog ownership claim --deployment '"
+    assert "my deployments/proof_demo'" in err
+    run = "okg run --once --deployment proof_demo --apply"
+    fix_line = next(x for x in err.splitlines() if x.startswith("fix: "))
+    assert fix_line.index(claim) < fix_line.index(run)
+    # No `next:` line offers the run before the claim.
+    next_lines = [x for x in err.splitlines() if x.startswith("next: ")]
+    claim_at = next(i for i, x in enumerate(next_lines) if claim in x)
+    run_at = next(i for i, x in enumerate(next_lines) if run in x)
+    assert claim_at < run_at

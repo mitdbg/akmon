@@ -43,15 +43,18 @@ The [glossary](reference/glossary.md) defines the rest.
 ## Get started
 
 - [Quickstart](start/quickstart.md): in about 15 minutes after the database
-  image downloads (about 6.5 GB the first time), build a graph from one of
-  your repositories and a folder of your documents, connect your agent, and
-  get a cited answer. You need Git, `uv` and Docker.
+  image downloads (about 1.9 GB to download, 6.5 GB on disk), install a released version,
+  build a graph from one of your repositories and a folder of your documents,
+  connect your agent, and get a cited answer. You need Git, `uv`, and Docker
+  or podman.
 - [The AKMON model](start/concepts.md) explains deployments, sources,
   published versions and provenance.
 - [How information becomes searchable](start/data-lifecycle.md) follows one
   change from import to a searchable published version.
-- [Install AKMON](operate/install.md) covers the same first graph in more
-  detail: where its configuration lives, a second graph, and Codex logs.
+- [Install from a source checkout](operate/install.md) builds the same first
+  graph from a source checkout instead of a release: where its configuration lives, a second
+  graph, and Codex logs. [Install from a wheel](operate/install-packaged.md)
+  covers a wheel or a producer-built release.
 - Optional, later: [Evaluate AKMON from source](start/evaluate-from-source.md)
   builds a small throwaway graph from two sample records, publishes it and
   searches it.

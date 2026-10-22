@@ -32,6 +32,7 @@ from typing import Callable
 
 from .config import RuntimeConfig
 from .engine import build_dbos_config
+from .stop_request import request_stop
 from .scheduled import (
     apply_deployment_author_schedules,
     apply_substrate_schedules,
@@ -2369,6 +2370,9 @@ def run_worker(
             "worker received signal %s; shutting down",
             signum,
         )
+        # Tell the publisher's own retry loop not to start another attempt
+        # (issue #3861); an attempt already running is left to finish or fail.
+        request_stop()
         shutdown.set()
 
     signal.signal(signal.SIGTERM, _on_signal)

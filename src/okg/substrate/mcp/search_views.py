@@ -32,6 +32,10 @@ from okg.substrate.mcp.passage_rollup import validate_rank_by
 CARDS_LIMIT = 8
 #: The omitted-``limit`` row budget for a list, which is also its maximum.
 LIST_LIMIT = 100
+#: The omitted-``limit`` row budget for a grep list (PACT
+#: read-names-list-3666): grep's default delivery, one name line per record,
+#: about 150-300 bytes each, so 20 rows cost about what 2-3 cards do.
+GREP_LIST_LIMIT = 20
 #: The largest explicit ``limit`` a list accepts. Larger refuses; never clipped.
 LIST_MAX_LIMIT = 100
 #: The largest explicit ``limit`` cards accept (``operator_models.MAX_PAGE_LIMIT``).
@@ -67,13 +71,19 @@ LIST_FIELDS = ("node_id", "subtype", "handle", "parent")
 #: What a grep list row delivers, in this order (#3659). The rows are fixed:
 #: this resolver takes no `select`; the served tool cuts the finished rows
 #: to one (`select_vocabulary`, issue #3666).
-GREP_LIST_FIELDS = ("node_id", "subtype", "matches", "first_match")
+GREP_LIST_FIELDS = ("node_id", "subtype", "handle", "matches", "first_match")
 #: Every key a served `select` may keep on a grep list row (issue #3666):
 #: the fixed fields and a passage row's parent id.
 GREP_LIST_SELECTABLE = (*GREP_LIST_FIELDS, "parent")
 #: What a cut grep list row always keeps: which record it is, whether it is
 #: a passage, and its trust.
-GREP_LIST_ALWAYS = ("node_id", "subtype", "unit", "provenance", "read_provenance")
+GREP_LIST_ALWAYS = (
+    "node_id", "subtype", "unit", "provenance", "read_provenance",
+    # The id a reader cites (PACT read-names-list-3666): identity, kept.
+    "citation_id",
+)
+#: `citation_id.CITATION_KEY`, restated: this module imports no search code.
+_CITATION_KEY = "citation_id"
 #: What a list of the query-less lookup (`method="attrs"`) selects when the
 #: call names no `select` (issue #3666). Its rows are the lookup's own, so a
 #: `select` may name any lookup field.
@@ -143,9 +153,52 @@ class SearchViewUnsupported(SubstrateError):
     code = "search_view_unsupported"
 
 
-def default_search_limit(view: Any) -> int:
-    """The row budget an omitted ``limit`` means for ``view``."""
-    return LIST_LIMIT if view == "list" else CARDS_LIMIT
+def default_search_limit(view: Any, method: Any = None) -> int:
+    """The row budget an omitted ``limit`` means for ``view`` (on ``method``,
+    the effective method, when known: a grep list has its own)."""
+    if view == "list":
+        return GREP_LIST_LIMIT if method == "grep" else LIST_LIMIT
+    return CARDS_LIMIT
+
+
+#: The arguments that ask for card content or another grep read; naming
+#: any of them keeps a grep call on cards (or on its own read) when it names
+#: no view (PACT read-names-list-3666). `select` picks card fields;
+#: `matching`, `context_chars` and `scope` belong to the windows read;
+#: `retain` and `summary` to result references. `max_chars` is not one:
+#: arm A's agent sent it on 1,662 of 1,714 grep calls as a size habit, and
+#: a list line is cut to its own 100 characters (the page says the list is
+#: the default and names view="cards").
+NAMES_DEFAULT_BLOCKERS = (
+    "select", "matching", "context_chars", "scope", "retain", "summary",
+)
+
+
+def implied_search_view(
+    view: Any, *, method: Any, within: Any = None, arguments: Any = None,
+) -> Any:
+    """The delivery view a search call means. Pure.
+
+    PACT read-names-list-3666 (issue #3666): a grep call that names no view
+    is delivered as the list, one name line per record (id, title, path,
+    match count, first matching line), the OKG form of the shell's
+    ``rg -l``. ``view="cards"`` keeps the matched lines. The list is implied
+    only on grep's unit form (``within`` omitted or ``"unit"``) and only
+    when the call names none of :data:`NAMES_DEFAULT_BLOCKERS` (a false
+    ``retain`` counts as not named); any other call keeps ``view`` as sent.
+    ``method`` is the effective method (a grep page's token sent without
+    ``method`` is grep). ``arguments`` maps argument names to the values
+    the call bound.
+    """
+    if view is not None or method != "grep" or within not in (None, "unit"):
+        return view
+    sent = arguments if isinstance(arguments, dict) else {}
+    for name in NAMES_DEFAULT_BLOCKERS:
+        value = sent.get(name)
+        if value is None or (name == "retain" and value is False):
+            continue
+        return view
+    return "list"
 
 
 def view_matrix(
@@ -250,7 +303,7 @@ def resolve_search_view(
                 fix_hint="drop rank_by and max_per_parent, or omit view for cards",
             )
     if limit is None:
-        limit = default_search_limit(view)
+        limit = default_search_limit(view, method)
     elif isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise _refuse(
             f"search: limit must be a positive integer; got {limit!r}",
@@ -263,7 +316,12 @@ def resolve_search_view(
             f"search: view={view or 'cards'!r} accepts limit at most {maximum}; "
             f"got {limit}",
             data={"view": view or "cards", "limit": limit, "maximum_limit": maximum},
-            fix_hint=f"pass limit <= {maximum} and page with offset",
+            fix_hint=f"pass limit <= {maximum} and page with offset" + (
+                # PACT read-names-list-3666: grep's list is its default, so
+                # the cards a larger page used to get are named.
+                f', or view="cards" for up to {CARDS_MAX_LIMIT} cards'
+                if view == "list" and method == "grep" else ""
+            ),
         )
     if view != "list" or method == "grep":
         # A grep list is projected from grep's own default rows.
@@ -390,6 +448,12 @@ def grep_list_projection(payload: dict[str, Any]) -> dict[str, Any]:
     delivery changes. A row keeps `node_id`, `subtype`, its trust, a
     resolved parent's id, and:
 
+    * `handle`: the record's title, path and date when it has any (PACT
+      read-names-list-3666). The title and date are the catalog's, as on a
+      card; the path is the catalog's, or, where the type declares none, the
+      stored `path` attribute that grep's `path_prefix` and `path:` read
+      (`grep_search.GREP_PATH_ATTR`).
+
     * `matches`: how many of the record's text units match (its own text
       and its passages), grep's unit of a match (`and_scope: text_unit`),
       not occurrences inside a unit. Grep stops scanning once a page is
@@ -428,11 +492,17 @@ def _grep_list_row(row: dict[str, Any], *, passage: bool) -> dict[str, Any]:
     own = row.get(_OWN_MATCH_KEY)
     if not isinstance(own, bool):
         own = row.get("excerpt") is not None or bool(own_windows)
-    out: dict[str, Any] = {
-        "node_id": row.get("node_id"), "subtype": row.get("subtype"),
-        # A served row matched somewhere, so never fewer than one.
-        "matches": max(folded + (1 if own else 0), 1),
-    }
+    out: dict[str, Any] = {"node_id": row.get("node_id"), "subtype": row.get("subtype")}
+    if row.get(_CITATION_KEY):
+        # The id a reader cites, as the read fenced it (read-names-list-3666).
+        out[_CITATION_KEY] = row[_CITATION_KEY]
+    handle = row.get("handle")
+    if isinstance(handle, dict) and handle:
+        # PACT read-names-list-3666: the record's title and path (and date)
+        # as the read already fenced them, so a row names what it is.
+        out["handle"] = handle
+    # A served row matched somewhere, so never fewer than one.
+    out["matches"] = max(folded + (1 if own else 0), 1)
     if windows:
         if own_windows:
             first = min(own_windows, key=_window_start)

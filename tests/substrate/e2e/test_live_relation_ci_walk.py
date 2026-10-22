@@ -496,6 +496,13 @@ def test_the_walk_reaches_the_live_service_through_mcp(
     with psycopg.connect(deployment_dsn, autocommit=True) as warm:
         ChronosGraphStore.from_connection(warm)
 
+    # The staged manifest runs `runtime_enforcement: audit`, and a live call
+    # is refused while access rules are on (audit or enforce; issue #3923).
+    # This walk is about reaching the live service, so the rules are turned
+    # off for the served calls only, by the operator override; provisioning
+    # above ran under the manifest's own posture. The refusal itself is
+    # proved in tests/substrate/external_backed/test_live_call_access_rules.py.
+    monkeypatch.setenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", "off")
     with mock_dbos_context():
         monkeypatch.setattr(
             admission_workflows, "_resolve_dsn",

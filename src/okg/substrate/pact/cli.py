@@ -204,8 +204,8 @@ VERB_SUGGESTIONS: dict[str, str] = {
     "task": "okg pact gate task-done <id> <task>",
     "task-done": "okg pact gate task-done <id> <task>",
     "advance": "okg pact gate task-done <id> <task>",
-    "attach": "okg pact evidence attach <id> <req> --kind ... --ref ...",
-    "attach-evidence": "okg pact evidence attach <id> <req> --kind ... --ref ...",
+    "attach": "okg pact evidence attach <id> --kind executed_test --requirement <req> ...",
+    "attach-evidence": "okg pact evidence attach <id> --kind executed_test --requirement <req> ...",
     "ingest": "okg pact evidence ingest <id> --pytest-report <junit.xml>",
     "waive": "okg pact evidence waive <id> --scope <req> --reason ...",
     "waiver": "okg pact evidence waive <id> --scope <req> --reason ...",
@@ -932,7 +932,16 @@ def register_subparser(
     # `evidence` namespace (complete-pact-surface-cut req.evidence-namespace).
     # Each mirrors its predecessor's args and forwards to the same operation,
     # so the manifest mutation is identical.
-    p_evidence_attach = evidence_sub.add_parser("attach")
+    p_evidence_attach = evidence_sub.add_parser(
+        "attach",
+        epilog=(
+            "This is the legacy PACT v4 form. A pact_version 5 change (the "
+            "default) uses: okg pact evidence attach <id> --kind "
+            "{executed_test,formal_check,published_generation,design_review,"
+            "manual} --requirement <req> [--artifact PATH] [--command ...] "
+            "[--note ...]."
+        ),
+    )
     add_json_flag(p_evidence_attach)
     p_evidence_attach.add_argument("change")
     p_evidence_attach.add_argument("target")

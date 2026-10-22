@@ -206,21 +206,25 @@ def _delta_or_absolute(current: int, previous: int | None) -> int:
 def _queue_depth(
     cur: psycopg.Cursor,
     ignored_job_kinds: set[str] | None = None,
+    ignored_workflow_names: set[str] | None = None,
 ) -> dict[str, int]:
     return summarize_runtime_queue_health(
         cur,
         ignored_job_kinds=ignored_job_kinds,
+        ignored_workflow_names=ignored_workflow_names,
     )["queue_depth"]
 
 
 def _dlq_count(
     cur: psycopg.Cursor,
     ignored_job_kinds: set[str] | None = None,
+    ignored_workflow_names: set[str] | None = None,
 ) -> int:
     return int(
         summarize_runtime_queue_health(
             cur,
             ignored_job_kinds=ignored_job_kinds,
+            ignored_workflow_names=ignored_workflow_names,
         )["dlq_count"]
     )
 
@@ -308,6 +312,7 @@ def snapshot(
     generation_id: int | str | None = None,
     skip_doctor: bool = False,
     ignored_job_kinds: set[str] | None = None,
+    ignored_workflow_names: set[str] | None = None,
 ) -> QAGateMetrics:
     """Capture a `QAGateMetrics` snapshot.
 
@@ -315,7 +320,8 @@ def snapshot(
     `deployment`. `skip_doctor=True` bypasses the doctor subprocess
     (used by tests that already control the environment); production
     callers leave it False so the snapshot reflects extension/role
-    health.
+    health. ``ignored_workflow_names`` leaves named runtime workflows out of
+    queue depth and the DLQ count (the caller decides which; default none).
     """
     with db_connect(dsn) as conn:
         target = _resolve_target_generation(conn, deployment, generation_id)
@@ -331,8 +337,10 @@ def snapshot(
                 target.edge_count,
                 target.previous_edge_count,
             )
-            depth = _queue_depth(cur, ignored_job_kinds)
-            dlq = _dlq_count(cur, ignored_job_kinds)
+            depth = _queue_depth(
+                cur, ignored_job_kinds, ignored_workflow_names
+            )
+            dlq = _dlq_count(cur, ignored_job_kinds, ignored_workflow_names)
             blocked = _generation_blocked_count(conn, deployment)
 
     wallclock = float(target.metadata.get("publish_wallclock_seconds") or 0.0)

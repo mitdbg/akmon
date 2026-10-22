@@ -116,7 +116,11 @@ async def _follow(client: Any, tool: str, first: dict, *, bound: str) -> list[di
             break
         assert ending[0] == f"bound reached ({bound})", text.split("\n", 1)[0]
         token = fact_value(status_facts(text), "next:", last=True)
-        assert isinstance(token, str) and token.count(".") == 1, ending
+        # Lane ri, tokens: a reply prints a short handle for its token.
+        assert isinstance(token, str) and (
+            token.startswith(continuation.HANDLE_PREFIX) or token.count(".") == 1
+        ), ending
+        assert len(token) <= 40 or token.count(".") == 1, token
         result = await client.call_tool(tool, {"next": token})
         if budget is not None:
             assert len(result.model_dump_json(by_alias=True, exclude_none=True).encode()) <= budget
@@ -140,7 +144,9 @@ async def _follow(client: Any, tool: str, first: dict, *, bound: str) -> list[di
     raise AssertionError("the JSON read did not end within 20 pages")
 
 
-@pytest.mark.parametrize(("budget", "deployment"), [(4096, 1), (8192, 1), (131072, 30)], indirect=["deployment"])
+# Lane ri, tokens: 6144, not 8192: with a 40-character handle in place of a
+# 500-character token, the whole three-chunk record fits one 8192-byte page.
+@pytest.mark.parametrize(("budget", "deployment"), [(4096, 1), (6144, 1), (131072, 30)], indirect=["deployment"])
 def test_inspect_text_reads_the_whole_record_by_next(
     clean_runtime: str, deployment: str, budget: int,
 ) -> None:
@@ -373,15 +379,25 @@ def test_next_refusals_say_why_and_how_to_retry(
         assert error["data"]["reason"] == "wrong_tool"
         assert " · retry: call expand(next=<this token>)" in text.split("\n", 1)[0]
 
-        text, error = await _refusal(client, "expand", {"next": token, **start})
+        # Lane ri, tokens: the read's own arguments beside its token are
+        # read as `next` alone, with a note; another value is still refused.
+        repeated = result_text(await client.call_tool("expand", {"next": token, **start}))
+        assert repeated.startswith("expand ok"), repeated.split("\n", 1)[0]
+        assert "beside `next` read as `next` alone" in repeated
+        text, error = await _refusal(client, "expand", {"next": token, **start, "limit": 2})
         assert error["code"] == "next_with_read_arguments"
         assert text.startswith("expand refused next_with_read_arguments")
         assert " · retry: call expand(next=<token>) alone" in text.split("\n", 1)[0]
 
-        body_, signature = token.split(".")
+        body_, signature = continuation.full_token(token).split(".")
         forged = body_ + "." + ("A" if signature[0] != "A" else "B") + signature[1:]
         _, error = await _refusal(client, "expand", {"next": forged})
         assert error["data"]["reason"] == "signature_invalid"
+        # A miscopied handle reads the same way.
+        if token.startswith(continuation.HANDLE_PREFIX):
+            miscopied = token[:-1] + ("A" if token[-1] != "A" else "B")
+            _, error = await _refusal(client, "expand", {"next": miscopied})
+            assert error["data"]["reason"] == "signature_invalid"
 
         text, error = await _refusal(client, "inspect", {})
         # Neither `target` nor `next`: refused as validation refused it before.
@@ -1067,8 +1083,18 @@ def test_a_keyset_token_stands_alone_and_ordered_reads_say_where_they_stop(
         page = json_payload(await client.call_tool("filter", first, meta=JSON_META))
         token = page["continuation_token"]
 
-        _, error = await _refusal(client, "filter", {"next": token, "predicate": first["predicate"]})
+        other = {"op": "eq", "field": "attrs.group", "value": "b"}
+        _, error = await _refusal(client, "filter", {"next": token, "predicate": other})
         assert error["code"] == "next_with_read_arguments", error
+        # Lane ri, tokens: the read's own predicate beside its token is read
+        # as `next` alone, with a note.
+        repeated = json_payload(await client.call_tool(
+            "filter", {"next": token, "predicate": first["predicate"]}, meta=JSON_META,
+        ))
+        assert repeated.get("status") != "refused", repeated.get("error")
+        assert any(
+            record.get("rule") == "next_repeats_read" for record in repeated.get("adjusted") or []
+        ), repeated.get("adjusted")
         _, error = await _refusal(client, "map", {"next": token})
         assert error["data"]["reason"] == "wrong_tool", error
         # M10 (lead's ruling for experimental6, applied on read-v2):

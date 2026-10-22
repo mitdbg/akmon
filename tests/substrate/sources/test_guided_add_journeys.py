@@ -16,6 +16,7 @@ import stat
 import subprocess
 import textwrap
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
@@ -26,10 +27,21 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
 
 from okg.substrate.cli import main as cli
+from okg.substrate.cli.child_argv import running_okg_argv
 from okg.substrate.deployment_scaffold import create_deployment_scaffold
 from okg.substrate.graph_store import ChronosGraphStore
-from okg.substrate.sources.guided_add import read_ledger
+from okg.substrate.producer_authority import (
+    ProducerPolicyViolation,
+    ProducerProfile,
+    evaluate_source_run_signature,
+)
+from okg.substrate.sources import guided_add
+from okg.substrate.sources.guided_add import build_registry_entry, read_ledger
+from okg.substrate.sources.guided_catalog import supported_type
+from okg.substrate.sources.guided_defaults import EXTRACTORS_YAML
 from tests.pytest.admission_envelope_reads import fetch_admission_envelope
+from tests.substrate.sources.no_model_calls import attempts, sitecustomize_text
+from tests.substrate.sources.pdf_fixtures import make_pdf
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -783,6 +795,17 @@ _FAKE_GH = textwrap.dedent(
             print("HTTP 502: bad gateway", file=sys.stderr)
             sys.exit(1)
         path = args[-1]
+        discussion = os.environ.get("FAKE_GH_DISCUSSION")
+        if discussion:
+            streams = json.load(open(discussion))
+            for marker, key in (
+                ("/issues/comments", "comments"),
+                ("/pulls/comments", "review_comments"),
+                ("/pulls?", "pulls"),
+            ):
+                if marker in path:
+                    print(json.dumps(streams[key]))
+                    sys.exit(0)
         items = json.load(open(os.environ["FAKE_GH_FIXTURE"]))
         if re.search(r"per_page=1(?!\\d)", path):
             items = items[:1]
@@ -1016,3 +1039,510 @@ def test_github_journey_with_recovery_and_removal(
     assert set(issues) == {next(k for k in issues if k.endswith("#1"))}
     assert "Safari" in json.dumps(issues)
     record_property("removal_generation", gen2)
+
+
+# --------------------------------------------------------------------------
+# GitHub discussion (#3579): comments publish; the merge link is opt-in
+# --------------------------------------------------------------------------
+
+_MERGE_SHA = "c" * 40
+
+
+def _discussion_payload(fake_gh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve issues, comments, review comments and a merged pull request.
+
+    Item 2 is a pull request that merged; the pulls stream carries its merge sha.
+    """
+    root = fake_gh.parent
+    (root / "discussion.json").write_text(json.dumps({
+        "comments": [{
+            "id": 501, "body": "Can you reproduce this?", "user": {"login": "bob"},
+            "issue_url": "https://api.github.com/repos/acme/widgets/issues/1",
+            "created_at": "2026-09-02T01:00:00Z", "updated_at": "2026-09-02T01:00:00Z",
+            "author_association": "MEMBER",
+            "html_url": "https://github.com/acme/widgets/issues/1#issuecomment-501",
+        }],
+        "review_comments": [{
+            "id": 601, "body": "Rename this.", "user": {"login": "bob"},
+            "pull_request_url": "https://api.github.com/repos/acme/widgets/pulls/2",
+            "path": "ui.py", "commit_id": "d" * 40,
+            "created_at": "2026-09-03T01:00:00Z", "updated_at": "2026-09-03T01:00:00Z",
+            "author_association": "MEMBER",
+            "html_url": "https://github.com/acme/widgets/pull/2#discussion_r601",
+        }],
+        "pulls": [{
+            "number": 2, "merged_at": "2026-09-03T02:00:00Z",
+            "merge_commit_sha": _MERGE_SHA,
+        }],
+    }))
+    monkeypatch.setenv("FAKE_GH_DISCUSSION", str(root / "discussion.json"))
+
+
+@pytest.mark.postgres
+def test_github_discussion_publishes_comments_and_says_merge_link_is_missing(
+    deployment: Path, private_dsn: str, fake_gh: Path,
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+    record_property,
+) -> None:
+    """#3579: include_discussion=true with merged pull requests and no commit
+    repo imports, publishes the comments, drops only the merge link, and the
+    import step says so. Before the fix this import failed with
+    producer_node_subtype_not_allowed."""
+    _discussion_payload(fake_gh, monkeypatch)
+    rc, outcome = _run(capsys, [
+        "deployment", "add-source", str(deployment), "widgets",
+        "--type", "github", "--setting", "repository=acme/widgets",
+        "--setting", "include_discussion=true", "--apply", "--yes",
+    ])
+    assert rc == 0 and outcome["status"] == "published", outcome
+    gen = outcome["generation_id"]
+    record_property("published_generation", gen)
+    comments = _live_nodes(private_dsn, gen, "forge_comment")
+    assert len(comments) == 2, comments
+    has_comment = _live_edges(private_dsn, gen, "has_comment")
+    assert len(has_comment) == 2 and {dst for _src, dst in has_comment} == set(comments)
+    assert _live_edges(private_dsn, gen, "merged_as") == set()
+    imported = next(s for s in outcome["steps"] if s["step"] == "import")
+    assert "without a link to their merge commit" in imported["detail"]["note"]
+    entry = _registry(deployment)["sources"]["widgets"]
+    assert "commit_repo" not in entry["params"]
+    assert not any(
+        e["edge_type"] == "merged_as"
+        for e in entry["admission_policy"]["output_signature"]["edges"]
+    )
+
+
+@pytest.mark.postgres
+def test_github_commit_repo_without_a_git_source_is_refused_at_plan_time(
+    deployment: Path, fake_gh: Path,
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A guided deployment holds no git source. Naming a commit repo there is
+    refused before any call, with the way out, instead of failing at the
+    import. (With the commit present, admission accepts the edge, below.)"""
+    _discussion_payload(fake_gh, monkeypatch)
+    rc, plan = _run(capsys, [
+        "deployment", "add-source", str(deployment), "widgets",
+        "--type", "github", "--setting", "repository=acme/widgets",
+        "--setting", "include_discussion=true",
+        "--setting", "commit_repo=widgets-code",
+    ])
+    assert rc == 1 and plan["ok"] is False
+    failed = [s for s in plan["steps"] if s["status"] == "failed"][0]
+    assert failed["step"] == "settings"
+    assert "widgets-code" in failed["cause"]
+    assert "add the git source" in failed["fix_hint"]
+    assert "clear the commit_repo" in failed["fix_hint"]
+
+
+def _plan_with_commit_repo(
+    deployment: Path, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch, fake_gh: Path, registry_edit: dict,
+) -> tuple[int, dict]:
+    """Merge `registry_edit` into the saved registry, then plan a GitHub source
+    that names commit_repo=widgets-code."""
+    document = _registry(deployment)
+    for key, value in registry_edit.items():
+        if key == "sources":
+            document.setdefault("sources", {}).update(value)
+        else:
+            document[key] = value
+    (deployment / "source_registry.yaml").write_text(
+        yaml.safe_dump(document, sort_keys=False), encoding="utf-8",
+    )
+    _discussion_payload(fake_gh, monkeypatch)
+    return _run(capsys, [
+        "deployment", "add-source", str(deployment), "widgets",
+        "--type", "github", "--setting", "repository=acme/widgets",
+        "--setting", "include_discussion=true",
+        "--setting", "commit_repo=widgets-code",
+    ])
+
+
+def _git_source(repo: str, **extra: object) -> dict:
+    return {"git-widgets": {
+        "module": guided_add._GIT_HISTORY_MODULE,
+        "class": "GitHistorySource",
+        "params": {"repo": repo},
+        **extra,
+    }}
+
+
+def _commit_repo_failure(plan: dict) -> dict:
+    failed = [s for s in plan["steps"] if s["status"] == "failed"]
+    assert plan["ok"] is False and failed, plan
+    assert failed[0]["step"] == "settings"
+    assert "widgets-code" in failed[0]["cause"]
+    assert "add the git source" in failed[0]["fix_hint"]
+    return failed[0]
+
+
+@pytest.mark.postgres
+def test_commit_repo_passes_for_a_git_history_source_the_code_repos_block_generates(
+    deployment: Path, fake_gh: Path, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#3918: the registry loader expands `code_repos` into git-history-<slug>
+    at load time, so the saved file never lists it under `sources`."""
+    rc, plan = _plan_with_commit_repo(
+        deployment, capsys, monkeypatch, fake_gh, {"code_repos": {
+            "base": str(tmp_path / "checkouts"),
+            "repos": [{"slug": "widgets-code"}],
+            "expand": ["git-history"],
+        }},
+    )
+    failed = [s for s in plan["steps"] if s["status"] == "failed"]
+    assert rc == 0 and plan["ok"] is True, failed
+    assert "git-history-widgets-code" not in _registry(deployment).get("sources", {})
+
+
+@pytest.mark.postgres
+def test_commit_repo_passes_for_a_written_git_source(
+    deployment: Path, fake_gh: Path,
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rc, plan = _plan_with_commit_repo(
+        deployment, capsys, monkeypatch, fake_gh,
+        {"sources": _git_source("widgets-code")},
+    )
+    failed = [s for s in plan["steps"] if s["status"] == "failed"]
+    assert rc == 0 and plan["ok"] is True, failed
+
+
+@pytest.mark.postgres
+def test_commit_repo_is_refused_for_a_git_source_of_another_repository(
+    deployment: Path, fake_gh: Path,
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rc, plan = _plan_with_commit_repo(
+        deployment, capsys, monkeypatch, fake_gh,
+        {"sources": _git_source("other-code")},
+    )
+    assert rc == 1
+    _commit_repo_failure(plan)
+
+
+@pytest.mark.postgres
+def test_commit_repo_is_refused_for_a_disabled_git_source(
+    deployment: Path, fake_gh: Path,
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rc, plan = _plan_with_commit_repo(
+        deployment, capsys, monkeypatch, fake_gh,
+        {"sources": _git_source("widgets-code", enabled_by_default=False)},
+    )
+    assert rc == 1
+    _commit_repo_failure(plan)
+
+
+@pytest.mark.postgres
+def test_commit_repo_with_a_malformed_code_repos_block_is_a_plain_refusal(
+    deployment: Path, fake_gh: Path, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A code_repos entry the loader cannot read refuses the settings step
+    with the loader's message, not a traceback."""
+    rc, plan = _plan_with_commit_repo(
+        deployment, capsys, monkeypatch, fake_gh, {"code_repos": {
+            "base": str(tmp_path / "checkouts"),
+            "repos": [{"url": "https://example.org/widgets.git"}],
+            "expand": ["git-history"],
+        }},
+    )
+    assert rc == 1
+    failed = [s for s in plan["steps"] if s["status"] == "failed"]
+    assert failed and failed[0]["step"] == "settings", plan
+    assert "code_repos block cannot be read" in failed[0]["cause"]
+    assert "slug" in failed[0]["cause"]
+
+
+def test_commit_repo_dangling_import_refusal_names_the_git_source_fix() -> None:
+    """When a git source exists but lacks the commit, the import refusal says
+    what to do, not the generic 'fix the named cause'."""
+    cause = (
+        "producer_edge_endpoint_missing: edge pull_request -merged_as-> "
+        f"git_commit points at commit:widgets-code:{'c' * 40}, which is not in "
+        "the graph"
+    )
+    hint = guided_add._import_fix_hint(cause, Path("registry.yaml"))
+    assert "add the git source" in hint and "clear the commit_repo" in hint
+    other = guided_add._import_fix_hint("lock timeout", Path("registry.yaml"))
+    assert "git source" not in other
+
+
+@pytest.mark.postgres
+def test_github_commit_repo_must_look_like_a_repository_name(
+    deployment: Path, fake_gh: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A malformed commit repo is refused at the settings step, before any call."""
+    rc, plan = _run(capsys, [
+        "deployment", "add-source", str(deployment), "widgets",
+        "--type", "github", "--setting", "repository=acme/widgets",
+        "--setting", "commit_repo=not a repo",
+    ])
+    assert rc == 1 and plan["ok"] is False
+    assert [s for s in plan["steps"] if s["status"] == "failed"][0]["step"] == "settings"
+
+
+@pytest.mark.postgres
+def test_github_empty_commit_repo_means_unset(
+    deployment: Path, fake_gh: Path,
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`commit_repo=` is the documented 'empty: no merge link', not an error."""
+    _discussion_payload(fake_gh, monkeypatch)
+    rc, plan = _run(capsys, [
+        "deployment", "add-source", str(deployment), "widgets",
+        "--type", "github", "--setting", "repository=acme/widgets",
+        "--setting", "include_discussion=true", "--setting", "commit_repo=",
+    ])
+    failed = [s for s in plan["steps"] if s["status"] == "failed"]
+    assert rc == 0 and plan["ok"] is True, failed
+
+
+# --------------------------------------------------------------------------
+# The guided GitHub source's declared signature (#3579). Admission refuses any
+# record the source type did not declare: comment records always, the merge
+# link only when the source names a commit repo.
+# --------------------------------------------------------------------------
+
+_SHA = "c" * 40
+_PR_ID = "pr:github:acme/widgets:#2"
+_COMMIT_ID = f"commit:widgets-code:{_SHA}"
+_SOURCE = "fixture.widgets"
+
+
+def _signature(**params: str) -> dict:
+    github = supported_type("github")
+    assert github is not None
+    entry = build_registry_entry(
+        github, deployment_name="fixture", name="widgets",
+        params={"repo": "acme/widgets", **params},
+    )
+    return entry["admission_policy"]["output_signature"]
+
+
+def _triples(signature: dict) -> set[tuple[str, str, str]]:
+    return {
+        (e["src_subtype"], e["edge_type"], e["dst_subtype"])
+        for e in signature["edges"]
+    }
+
+
+def test_default_signature_declares_comments_but_not_the_merge_link() -> None:
+    signature = _signature()
+    assert {n["subtype"] for n in signature["nodes"]} >= {"forge_comment"}
+    assert _triples(signature) >= {
+        ("issue", "has_comment", "forge_comment"),
+        ("pull_request", "has_comment", "forge_comment"),
+    }
+    assert ("pull_request", "merged_as", "git_commit") not in _triples(signature)
+
+
+def test_commit_repo_declares_the_merge_link() -> None:
+    assert ("pull_request", "merged_as", "git_commit") in _triples(
+        _signature(commit_repo="widgets-code")
+    )
+
+
+def _merge_profile() -> ProducerProfile:
+    return ProducerProfile(
+        deployment_name="fixture", producer_id=_SOURCE, producer_kind="source",
+        trust_label="trusted", admission_mode="fast_track",
+        authority_scope={}, allowed_record_kinds=("node", "edge"),
+        output_signature=_signature(commit_repo="widgets-code"),
+        policy_clauses=(), output_scope_summary={}, source_ref={},
+        catalog_version_id=None, profile_fingerprint="sha256:test-github-merge",
+        status="active",
+    )
+
+
+def _insert_merge(conn: psycopg.Connection, *, commit_from_other_source: bool) -> str:
+    run_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    with conn.cursor() as cur:
+        rows = [(_PR_ID, "pull_request", _SOURCE, run_id)]
+        if commit_from_other_source:
+            rows.append((_COMMIT_ID, "git_commit", "fixture.code", str(uuid.uuid4())))
+        for node_id, subtype, source, node_run in rows:
+            cur.execute(
+                """
+                INSERT INTO okg.node_facts
+                  (node_id, subtype, attrs, source, source_record_id,
+                   source_revision, observed_at, dedupe_key, run_id, op)
+                VALUES (%s, %s, '{}'::jsonb, %s, '{}'::jsonb, '{}'::jsonb,
+                        %s, %s, %s::uuid, 'I')
+                """,
+                (node_id, subtype, source, now, f"dedupe:{source}:{node_id}", node_run),
+            )
+        cur.execute(
+            """
+            INSERT INTO okg.edge_facts
+              (edge_id, src, dst, edge_type, attrs, provenance, confidence,
+               source, source_record_id, source_revision, observed_at,
+               dedupe_key, run_id, op)
+            VALUES (1, %s, %s, 'merged_as', '{}'::jsonb, 'explicit', 1.0, %s,
+                    '{}'::jsonb, '{}'::jsonb, %s, %s, %s::uuid, 'I')
+            """,
+            (_PR_ID, _COMMIT_ID, _SOURCE, now, f"dedupe:{_SOURCE}:merged", run_id),
+        )
+    return run_id
+
+
+@pytest.mark.postgres
+def test_merged_as_to_a_commit_another_source_owns_is_admitted(
+    clean_runtime: str,
+) -> None:
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        run_id = _insert_merge(conn, commit_from_other_source=True)
+        evidence = evaluate_source_run_signature(
+            conn, profile=_merge_profile(), source=_SOURCE, run_id=run_id,
+        )
+    assert evidence["producer_policy"]["status"] == "matched"
+
+
+@pytest.mark.postgres
+def test_merged_as_to_a_commit_no_source_owns_is_refused_by_name(
+    clean_runtime: str,
+) -> None:
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        run_id = _insert_merge(conn, commit_from_other_source=False)
+        with pytest.raises(ProducerPolicyViolation) as exc:
+            evaluate_source_run_signature(
+                conn, profile=_merge_profile(), source=_SOURCE, run_id=run_id,
+            )
+    assert exc.value.code == "producer_edge_endpoint_missing"
+    assert _COMMIT_ID in exc.value.message
+
+
+# --------------------------------------------------------------------------
+# PDF folder: no model calls (issue #3900)
+#
+# The promise: `okg deployment add-source ... --type local-folder` over PDFs
+# reads each PDF's text layer and nothing else. It builds no captioning or
+# table-transcription client and sends no request to a model provider or an
+# embedding service. The whole flow, preview through publish and a search,
+# runs as a child process with a tripwire armed (`no_model_calls.py`) that
+# raises on any model entry point or any connection that leaves the machine.
+# The control test turns captioning on and checks the tripwire fires, so a
+# passing promise test cannot mean the tripwire is disarmed.
+# --------------------------------------------------------------------------
+
+PAPERS = {
+    "higgs.pdf": ["Search for the Higgs boson", "Decay to two photons"],
+    "wz.pdf": ["Measurement of W and Z production", "Cross section ratio"],
+}
+
+
+@pytest.fixture
+def papers(tmp_path: Path) -> Path:
+    folder = tmp_path / "papers"
+    folder.mkdir()
+    for name, pages in PAPERS.items():
+        (folder / name).write_bytes(make_pdf(list(pages)))
+    return folder
+
+
+def _tripwired_env(tmp_path: Path) -> tuple[dict[str, str], Path]:
+    log = tmp_path / "model-call-attempts.log"
+    site = tmp_path / "tripwire"
+    site.mkdir()
+    (site / "sitecustomize.py").write_text(sitecustomize_text(log), encoding="utf-8")
+    env = {
+        key: value for key, value in os.environ.items()
+        if not key.endswith("_API_KEY") and not key.endswith("_API_BASE")
+    }
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(site), env.get("PYTHONPATH", "")) if part
+    )
+    return env, log
+
+
+def _okg(env: dict[str, str], *argv: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [*running_okg_argv(), *argv, "--json"],
+        capture_output=True, text=True, env=env, check=False,
+    )
+
+
+def _add_pdf_folder(
+    deployment: Path, papers: Path, env: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    return _okg(
+        env, "deployment", "add-source", str(deployment), "papers",
+        "--type", "local-folder", "--setting", f"root={papers}",
+        "--setting", 'include=["**/*.pdf"]', "--apply", "--yes",
+    )
+
+
+def _last_json(proc: subprocess.CompletedProcess[str]) -> dict:
+    """The JSON the command printed, or {} when it crashed before printing any."""
+    for text in (proc.stdout.strip(), proc.stderr.strip()):
+        if text:
+            try:
+                return json.loads(text.splitlines()[-1])
+            except json.JSONDecodeError:
+                continue
+    return {}
+
+
+@pytest.mark.postgres
+def test_adding_and_searching_a_pdf_folder_makes_no_model_calls(
+    tmp_path: Path, deployment: Path, private_dsn: str, papers: Path,
+    record_property,
+) -> None:
+    env, log = _tripwired_env(tmp_path)
+
+    proc = _add_pdf_folder(deployment, papers, env)
+    outcome = _last_json(proc)
+
+    assert attempts(log) == [], f"a model call was attempted: {attempts(log)}"
+    assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]
+    assert outcome["status"] == "published", outcome
+    assert outcome["warnings"] == []
+    generation = outcome["generation_id"]
+    record_property("published_generation", generation)
+    record_property("counts", json.dumps(outcome["counts"]))
+
+    docs = _live_nodes(private_dsn, generation, "document")
+    assert set(docs) == {"doc:papers:higgs.pdf", "doc:papers:wz.pdf"}
+    chunks = _live_nodes(private_dsn, generation, "document_chunk")
+    pages = {
+        (attrs["citation_label"], attrs["heading_path"]): attrs["text"]
+        for attrs in chunks.values()
+    }
+    assert pages[("papers/higgs.pdf", "page 1")] == "Search for the Higgs boson"
+    assert pages[("papers/higgs.pdf", "page 2")] == "Decay to two photons"
+    assert "Higgs" in " ".join(_chunk_texts(private_dsn, generation, "papers"))
+
+    search = _okg(
+        env, "search", "--deployment", deployment.name, "--query", "Higgs",
+    )
+    assert attempts(log) == [], f"a model call was attempted: {attempts(log)}"
+    assert search.returncode == 0, search.stdout[-2000:] + search.stderr[-2000:]
+    assert "higgs.pdf" in search.stdout
+
+
+@pytest.mark.postgres
+def test_the_tripwire_fires_when_captioning_is_switched_on(
+    tmp_path: Path, deployment: Path, papers: Path,
+) -> None:
+    """Control: the same flow with captioning enabled must trip the wire."""
+    defaults = yaml.safe_load(EXTRACTORS_YAML.read_text(encoding="utf-8"))
+    defaults["captioning"] = {"enabled": True, "model": "openrouter/test/vision"}
+    (deployment / "extractors.yaml").write_text(
+        yaml.safe_dump(defaults, sort_keys=False), encoding="utf-8",
+    )
+    subprocess.run(
+        ["git", "-C", str(deployment), "add", "extractors.yaml"],
+        check=True, capture_output=True,
+    )
+    _commit_all(deployment, "turn captioning on")
+    env, log = _tripwired_env(tmp_path)
+
+    proc = _add_pdf_folder(deployment, papers, env)
+
+    recorded = attempts(log)
+    assert recorded, "captioning is on but the tripwire saw no model call"
+    assert any("CaptionService" in line or "VLMClient" in line for line in recorded)
+    assert proc.returncode != 0 or _last_json(proc).get("status") != "published"

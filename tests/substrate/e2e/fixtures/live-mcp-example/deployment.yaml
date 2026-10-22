@@ -1,16 +1,16 @@
-name: live-mcp-cms
+name: live-mcp-example
 description: >
   A TEST FIXTURE, not a shipped deployment (PACT live-relation-mcp-adapter,
   req.mcp.real-upstream). It binds three live relations to two MCP servers
-  with the built-in `kind: mcp` adapter: two DBS dataset relations (a wide
-  search and one dataset by name) and a Rucio RSE relation, on two
-  deployment-private system subtypes.
+  with the built-in `kind: mcp` adapter: two catalog relations (a wide
+  search and one item by path) and a store-location relation, on two
+  deployment-private system subtypes. The names are neutral on purpose; a
+  site that runs real MCP servers keeps its own copy of this tree in its
+  deployments repository.
 
-  Two tests stage a copy of this tree. In CI,
-  `tests/substrate/external_backed/test_live_relation_mcp_adapter.py` points
-  every binding at an in-process fake MCP server. By hand, and never in CI,
-  `tests/live/mcp_cms/` runs it against the two real servers on loopback.
-  The committed ports are the hand-run proof's; the CI copy rewrites them.
+  In CI, `tests/substrate/external_backed/test_live_relation_mcp_adapter.py`
+  stages a copy and points every binding at an in-process fake MCP server.
+  The committed ports are placeholders that the CI copy rewrites.
 
 # Prototype, and it has to be: every binding declares a `personal` upstream
 # credential, which the server build refuses on any lifecycle but
@@ -20,8 +20,8 @@ contract:
   lifecycle: prototype
   owner: agent-surface
   intended_usage: >-
-    a test-only deployment proving the `kind: mcp` live adapter against real
-    MCP servers; never deployed or operated
+    a test-only deployment proving the `kind: mcp` live adapter against an
+    in-process fake MCP server; never deployed or operated
   evidence:
     readiness:
       status: not_required
@@ -39,7 +39,7 @@ schema_dir: schemas
 source_registry: source_registry.yaml
 
 # No library module: the two subtypes are this deployment's own
-# (`schemas/cms_live_systems.yaml`). The tests publish one node of each.
+# (`schemas/example_live_systems.yaml`). The tests publish one node of each.
 modules: []
 
 enrichers: []
@@ -51,7 +51,7 @@ agent_surface:
     - expand
 
   live_bindings:
-    datasets:
+    items:
       kind: mcp
       # The upstream server holds one person's credential. okg cannot
       # inspect it; this line declares it, and `contract.lifecycle` above is
@@ -63,11 +63,11 @@ agent_surface:
         server_url: http://127.0.0.1:5952/mcp
         allowed_hosts: ["127.0.0.1:5952"]
         allow_non_global: true
-        tool: dbs_list_datasets
+        tool: catalog_list_items
         arguments:
-          primary_ds_name: {$arg: primary_ds_name}
+          name_pattern: {$arg: name_pattern}
           detail: {$arg: detail}
-        # The tool's JSON text is the list of datasets itself.
+        # The tool's JSON text is the list of items itself.
         rows_path: "."
         # No `max_response_bytes`: the 8 MiB default is the bound under
         # test. A wide query returns far more and must be refused on the
@@ -76,48 +76,48 @@ agent_surface:
       # The variable holds the whole header value, `Bearer <token>`. The
       # tests set it in-process; it is never written to a file in this tree.
       secret_refs:
-        - env:OKG_MCP_CMS_GATE_AUTH
+        - env:OKG_MCP_EXAMPLE_GATE_AUTH
 
-    dataset:
+    item:
       kind: mcp
       upstream_credential: personal
       config:
         server_url: http://127.0.0.1:5952/mcp
         allowed_hosts: ["127.0.0.1:5952"]
         allow_non_global: true
-        tool: dbs_list_datasets
+        tool: catalog_list_items
         arguments:
-          dataset: {$arg: dataset}
+          path: {$arg: path}
           # Operator-fixed: a pattern lists names only. A caller who needs
-          # the detail of many datasets asks the wide relation, which is
+          # the detail of many items asks the wide relation, which is
           # bounded by the default cap.
           detail: false
         rows_path: "."
         # A name-only row is about a hundred bytes; a pattern that matches
-        # more than ~10,000 datasets is refused `response_over_cap`, with
-        # `dataset` named as the argument to narrow.
+        # more than ~10,000 items is refused `response_over_cap`, with
+        # `path` named as the argument to narrow.
         max_response_bytes: 1048576
         auth_header: Authorization
       secret_refs:
-        - env:OKG_MCP_CMS_GATE_AUTH
+        - env:OKG_MCP_EXAMPLE_GATE_AUTH
 
-    rses:
+    locations:
       kind: mcp
       upstream_credential: personal
       config:
         server_url: http://127.0.0.1:5951/mcp
         allowed_hosts: ["127.0.0.1:5951"]
         allow_non_global: true
-        tool: rucio_list_rses
+        tool: store_list_locations
         arguments:
-          rse_expression: {$arg: rse_expression}
+          expression: {$arg: expression}
           limit: {$arg: limit}
         # The tool returns an object; its structured result carries the rows
         # under `items`.
         rows_path: items
-        row_fields: [rse]
+        row_fields: [location]
         max_rows: 500
         max_response_bytes: 1048576
         auth_header: Authorization
       secret_refs:
-        - env:OKG_MCP_CMS_GATE_AUTH
+        - env:OKG_MCP_EXAMPLE_GATE_AUTH

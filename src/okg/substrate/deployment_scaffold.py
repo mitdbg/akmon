@@ -16,7 +16,7 @@ from typing import Any
 
 from okg.substrate.deployments import find_deployments_root
 from okg.substrate.errors import SubstrateError
-from okg.substrate.support.user_hints import okg_prefix
+from okg.substrate.support.user_hints import stable_okg_prefix
 
 
 _SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$")
@@ -443,10 +443,10 @@ def _file_bodies(plan: DeploymentScaffoldPlan) -> dict[str, str]:
             "  `workflows/`, `enrichers/`, and `views/`.\n\n"
             "Smoke commands:\n\n"
             "```bash\n"
-            f"{okg_prefix()} deployment env {deployment_ref} --json\n"
-            f"{okg_prefix()} catalog load --deployment {deployment_ref} --json\n"
-            f"{okg_prefix()} ingest --deployment {deployment_ref} --json\n"
-            f"{okg_prefix()} deployment ready {deployment_ref} --checks general --json\n"
+            f"{stable_okg_prefix()} deployment env {deployment_ref} --json\n"
+            f"{stable_okg_prefix()} catalog load --deployment {deployment_ref} --json\n"
+            f"{stable_okg_prefix()} ingest --deployment {deployment_ref} --json\n"
+            f"{stable_okg_prefix()} deployment ready {deployment_ref} --checks general --json\n"
             "```\n"
         ),
     }
@@ -455,10 +455,10 @@ def _file_bodies(plan: DeploymentScaffoldPlan) -> dict[str, str]:
 def _next_commands(plan: DeploymentScaffoldPlan) -> list[str]:
     deployment_ref = _command_ref(plan)
     return [
-        f"{okg_prefix()} deployment env {deployment_ref} --json",
-        f"{okg_prefix()} catalog load --deployment {deployment_ref} --json",
-        f"{okg_prefix()} ingest --deployment {deployment_ref} --json",
-        f"{okg_prefix()} deployment ready {deployment_ref} --checks general --json",
+        f"{stable_okg_prefix()} deployment env {deployment_ref} --json",
+        f"{stable_okg_prefix()} catalog load --deployment {deployment_ref} --json",
+        f"{stable_okg_prefix()} ingest --deployment {deployment_ref} --json",
+        f"{stable_okg_prefix()} deployment ready {deployment_ref} --checks general --json",
     ]
 
 

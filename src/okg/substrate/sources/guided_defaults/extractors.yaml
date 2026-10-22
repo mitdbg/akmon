@@ -1,6 +1,8 @@
 # Default file readers, written by `okg deployment bootstrap` and by
 # `okg deployment add-source` for a local-folder source: parsers and chunkers
-# for Markdown, text, JSON and YAML. No entity extraction, no captioning.
+# for Markdown, text, JSON, YAML and PDF text. No entity extraction, no
+# captioning, no table transcription: reading a folder makes no model call.
+# The PDF reader takes the text layer only, one chunk per page.
 # Edit this file in the deployment directory to change how files are read.
 parser:
   - format: markdown
@@ -11,6 +13,8 @@ parser:
     class: okg.substrate.library.extraction.parse.json_struct.JsonParser
   - format: yaml
     class: okg.substrate.library.extraction.parse.yaml_struct.YamlParser
+  - format: pdf
+    class: okg.substrate.library.extraction.parse.pdf_text.PdfTextParser
 chunker:
   - format: markdown
     class: okg.substrate.library.extraction.chunk.markdown_heading.MarkdownHeadingChunker

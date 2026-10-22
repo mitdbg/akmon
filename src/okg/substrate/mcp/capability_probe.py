@@ -320,7 +320,13 @@ class ServerCapabilities:
                     "maximum_limit": search_views.LIST_MAX_LIMIT,
                     "select_fields": list(search_views.LIST_FIELDS),
                     # grep's list (#3659): fixed rows; a select keeps some.
-                    "grep": {"row_fields": list(search_views.GREP_LIST_FIELDS)},
+                    # PACT read-names-list-3666: grep's default delivery
+                    # when a call names no view, 20 rows a page.
+                    "grep": {
+                        "row_fields": list(search_views.GREP_LIST_FIELDS),
+                        "default_limit": search_views.GREP_LIST_LIMIT,
+                        "default_view": True,
+                    },
                 },
                 "cards": {"default_limit": search_views.CARDS_LIMIT},
             },
@@ -502,6 +508,13 @@ _ROLLUPS_SQL = (
     "AND coalesce(metadata -> 'passage_rollup' ->> 'child_subtype', '') <> '' "
     "ORDER BY name"
 )
+
+
+def _reset_statement_timeout(conn: psycopg.Connection) -> None:
+    with conn.cursor() as cur:
+        cur.execute("RESET statement_timeout")
+
+
 def _resolve_pin(
     conn: psycopg.Connection,
     *,
@@ -542,9 +555,18 @@ def _resolve_pin(
                 status="published",
                 allow_default_branch_fallback=True,
             )
-        finally:
-            with conn.cursor() as cur:
-                cur.execute("RESET statement_timeout")
+        except Exception:
+            _reset_statement_timeout(conn)
+            raise
+        except BaseException:
+            # A stop signal (SystemExit) or Ctrl-C landed mid-query: the
+            # connection still has a command in flight, so RESET would raise
+            # "another command is already in progress" and replace the
+            # interrupt, turning exit 143 into exit 1. A connection left
+            # mid-command is not reused, so the session setting dies with it.
+            raise
+        else:
+            _reset_statement_timeout(conn)
     except psycopg.errors.QueryCanceled as exc:
         raise _ReadTimedOut("pin") from exc
     except psycopg.Error as exc:

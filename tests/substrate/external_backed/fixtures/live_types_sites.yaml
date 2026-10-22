@@ -1,0 +1,159 @@
+# Test fixture for tests/substrate/external_backed/test_live_types.py and the
+# live-graph tests: a neutral toy system as live types. `Site`, `System`
+# (declared node `system:example`) and a minimal `Item` as the far end of
+# `holds`. No real system is named here; the relation names and attributes are
+# made up.
+id: https://palimpzest.mit.edu/okg/tests/live_types_sites
+name: live_types_sites
+prefixes:
+  linkml: https://w3id.org/linkml/
+default_range: string
+imports:
+- linkml:types
+classes:
+  Site:
+    annotations:
+      archetype: entity
+      okg_live_relations:
+        example_get_site:
+          action: external.example.read
+          principal_mode: service
+          sample_policy: digest
+          retention_class: hot
+          deadline_seconds: 120
+          args:
+            site: {type: string, required: true, maxLength: 64, pattern: '^[A-Za-z0-9_-]{1,64}$'}
+        example_list_site_attributes:
+          action: external.example.read
+          principal_mode: service
+          sample_policy: digest
+          retention_class: hot
+          deadline_seconds: 120
+          args:
+            site: {type: string, required: true, maxLength: 64, pattern: '^[A-Za-z0-9_-]{1,64}$'}
+        example_get_site_usage_by_source:
+          action: external.example.read
+          principal_mode: service
+          sample_policy: digest
+          retention_class: hot
+          deadline_seconds: 120
+          args:
+            site: {type: string, required: true, maxLength: 64, pattern: '^[A-Za-z0-9_-]{1,64}$'}
+            source: {type: string, required: true, maxLength: 64, pattern: '^[A-Za-z0-9_-]{1,64}$'}
+            limit: {type: integer, default: 200, minimum: 1, maximum: 1000}
+        example_list_site_items:
+          action: external.example.read
+          principal_mode: service
+          sample_policy: digest
+          retention_class: hot
+          deadline_seconds: 120
+          args:
+            site: {type: string, required: true, maxLength: 64, pattern: '^[A-Za-z0-9_-]{1,64}$'}
+            limit: {type: integer, default: 200, minimum: 1, maximum: 1000}
+        example_get_link:
+          action: external.example.read
+          principal_mode: service
+          sample_policy: digest
+          retention_class: hot
+          deadline_seconds: 120
+          args:
+            source_site: {type: string, required: true, maxLength: 64, pattern: '^[A-Za-z0-9_-]{1,64}$'}
+            destination_site: {type: string, required: true, maxLength: 64, pattern: '^[A-Za-z0-9_-]{1,64}$'}
+      okg_live_type:
+        id: {prefix: site, from: [site]}
+        system: example
+        name_pattern: '^Z[0-3]_[A-Z]{2}_[A-Za-z0-9_-]+$'
+        mention_pattern: '\bZ[0-3]_[A-Z]{2}_[A-Za-z0-9_-]+\b'
+        fields:
+          static_total:
+            relation: example_get_site_usage_by_source
+            args: {site: $self.site, source: static}
+            column: total
+            type: number
+          static_used:
+            relation: example_get_site_usage_by_source
+            args: {site: $self.site, source: static}
+            column: used
+            type: number
+        open_fields: {relation: example_list_site_attributes, args: {site: $self.site}}
+        exists: {relation: example_get_site, args: {site: $self.site}}
+        edges:
+          holds:
+            relation: example_list_site_items
+            args: {site: $self.site, limit: 1000}
+            to: item
+          distance:
+            relation: example_get_link
+            args:
+              source_site: $self.site
+              destination_site: {value: $arg.to, required: true}
+            to: site
+  System:
+    annotations:
+      archetype: entity
+      okg_live_relations:
+        example_list_all_sites:
+          action: external.example.read
+          principal_mode: service
+          sample_policy: inline
+          retention_class: hot
+          deadline_seconds: 120
+          args:
+            limit: {type: integer, default: 200, minimum: 1, maximum: 1000}
+        example_list_sites:
+          action: external.example.read
+          principal_mode: service
+          sample_policy: inline
+          retention_class: hot
+          deadline_seconds: 120
+          args:
+            site_expression: {type: string, required: true, maxLength: 2048, pattern: '^[A-Za-z0-9_.=<>&|()*\\-]{1,2048}$'}
+            limit: {type: integer, default: 200, minimum: 1, maximum: 1000}
+        example_whoami:
+          action: external.example.read
+          principal_mode: service
+          sample_policy: inline
+          retention_class: hot
+          deadline_seconds: 120
+          args: {}
+        example_ping:
+          action: external.example.read
+          principal_mode: service
+          sample_policy: inline
+          retention_class: hot
+          deadline_seconds: 120
+          args: {}
+      okg_live_type:
+        id: {prefix: system, declared: [example]}
+        fields:
+          whoami: {relation: example_whoami, of: example}
+          ping: {relation: example_ping, of: example}
+        edges:
+          sites:
+            of: example
+            relation: example_list_all_sites
+            args: {limit: 1000}
+            to: site
+            member_fields: from_rows
+            member_columns: [site, kind, availability, availability_read, availability_write,
+                             availability_delete, deterministic, volatile, staging_area, id, owner,
+                             created_at, updated_at]
+            push_down:
+              relation: example_list_sites
+              arg: site_expression
+              member_columns: [site]
+              # Site attributes the system's expression grammar tests; any other
+              # condition is applied in memory after its field is fetched.
+              keys: [kind, tier, retired, region, zone, campus]
+              atoms:
+                eq: '{key}={value}'
+                in: '({key}={v1}|{key}={v2})'
+                node_id_eq: '{name}'
+              join: {and: '&', or: '|', and_not: '\'}
+              empty_error: ["site expression resulted in an empty set"]
+  Item:
+    annotations:
+      archetype: entity
+      okg_live_type:
+        id: {prefix: item, from: [scope, name]}
+        system: example

@@ -152,6 +152,34 @@ DEFAULT_CONNECT_TIMEOUT_SECONDS = 10
 IDLE_IN_TRANSACTION_TIMEOUT_ENV = "OKG_IDLE_IN_TRANSACTION_TIMEOUT_MS"
 
 
+# How often a Postgres backend that is running a statement checks whether its
+# client is still connected (issue #3861). Without it, a backend whose client
+# vanished (a worker that hard-exited with `os._exit`) keeps executing the
+# statement, and keeps any session advisory lock such as the publisher mutex,
+# until the statement ends on its own, up to the 900 s statement timeout. TCP
+# keepalives do not help: they only matter for an idle connection, and the
+# kernel closes the dead client's socket cleanly, so nothing is "unreachable".
+# With this setting the backend polls the socket while it runs, notices the
+# close, cancels the statement, and releases the lock within about one
+# interval. Needs PostgreSQL 14 or later; the repo requires 17. It costs one
+# socket poll per interval per running statement, so it is applied to every
+# okg session rather than to the worker alone: the worker's publisher takes
+# its connection from the shared pool, which only knows a DSN.
+#
+# `0` disables it (the server's own setting stays in force). A DSN or caller
+# `options` string that sets it wins, as it does for `search_path`.
+DEFAULT_CLIENT_CONNECTION_CHECK_INTERVAL_MS = 5000
+CLIENT_CONNECTION_CHECK_INTERVAL_ENV = "OKG_CLIENT_CONNECTION_CHECK_INTERVAL_MS"
+
+
+def client_connection_check_interval_ms() -> int:
+    """Resolve the client-connection check interval in ms (0 disables)."""
+    from_env = _non_negative_int_env(CLIENT_CONNECTION_CHECK_INTERVAL_ENV, None)
+    if from_env is not None:
+        return from_env
+    return DEFAULT_CLIENT_CONNECTION_CHECK_INTERVAL_MS
+
+
 def _non_negative_int_env(name: str, default: int | None) -> int | None:
     """Read a non-negative integer env knob, refusing a set-but-invalid value.
 
@@ -367,14 +395,24 @@ def connection_kwargs(
     session (a `statement_timeout`, say). They are APPENDED to the settings
     above rather than replacing them, so asking for one setting never drops
     the DSN's own options or the idle-in-transaction bound.
+
+    Every session also carries `client_connection_check_interval` (issue
+    #3861), so Postgres ends a running statement, and frees the advisory
+    locks the session holds, soon after its client process is gone.
     """
     kwargs: dict[str, Any] = dict(_KEEPALIVE_KWARGS)
     if connect_timeout is not None:
         kwargs["connect_timeout"] = connect_timeout
     timeout_ms = idle_in_transaction_timeout_ms(deployment=deployment)
+    check_interval_ms = client_connection_check_interval_ms()
     parts = [
         part for part in (
             SEARCH_PATH_OPTION,
+            # Before the DSN's options, so a DSN that sets it wins.
+            (
+                f"-c client_connection_check_interval={check_interval_ms}"
+                if check_interval_ms > 0 else ""
+            ),
             _dsn_options(dsn),
             (
                 f"-c idle_in_transaction_session_timeout={timeout_ms}"

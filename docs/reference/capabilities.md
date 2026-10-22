@@ -30,7 +30,7 @@ graph model, and publication checks.
 | Semantic search and embeddings | Requires configuration | A deployment declares vector sets; a backfill or the worker fills them. |
 | Incremental claim maintenance and conflict handling | Experimental | Runtime support is limited to an unchanged-state development fixture. |
 | General incremental recomputation | Not provided | Normal deployments use the complete publication path. Incremental reuse is not wired across arbitrary builders, views, rollups, and embeddings. |
-| Packaged release | Available | Each release attaches a Python wheel to its GitHub release and pushes container images and a Helm chart. Until the repository is public, reading them needs access to it. |
+| Packaged release | Available | Each release attaches a Python wheel to its GitHub release and pushes container images and a Helm chart. The repository is public at github.com/mitdbg/akmon. |
 | Hosted service | Not provided | You run AKMON yourself, against a PostgreSQL database you control. |
 
 “Available” means a tested path exists in this repository. It does not mean
@@ -44,9 +44,9 @@ evidence. Implemented families:
 
 | Family | Examples | Typical requirements |
 | --- | --- | --- |
-| Files and documents | Markdown, HTML, JSON, YAML, TOML, CSV, XLSX, DOCX, notebooks, PDF text and tables, LaTeX | Approved paths and format-specific settings |
+| Files and documents | Markdown, text, JSON and YAML documents, and PDF text (text layer only, one passage per page; no model call with the default settings), through `add-source`; CSV, JSON, JSON Lines and YAML as mapped records through `add-source --manifest`. HTML, TOML, XLSX, DOCX, notebooks, PDF tables, and LaTeX through a profile or a Python connector, not `add-source` | Approved paths and format-specific settings |
 | Git and code | Commit history, tracked files, symbols, imports, package manifests, interfaces, data flow, SARIF, test and profiling reports | Repository path, branch or revision scope, optional analysis tools |
-| Scholarly records | BibTeX, ORCID, DBLP, OpenAlex, Semantic Scholar, arXiv, OpenReview, INSPIRE, PDFs and drafts | Public identifiers, API settings, local paper paths, optional credentials |
+| Scholarly records | BibTeX, ORCID, DBLP, OpenAlex, Semantic Scholar, arXiv, OpenReview, INSPIRE | Public identifiers, API settings, local paper paths, optional credentials. Local paper drafts need a profile or a Python connector, not `add-source`; a folder of PDFs is read as documents by `add-source` (see the files row) |
 | Research operations | Experiments, benchmark output, cluster jobs, grants, talks, courses, CV and lab-webpage records | Profile or deployment-specific configuration |
 | Collaboration systems | GitHub issues and pull requests; Slack, Gmail, Outlook, Google Calendar, Apple Calendar, and Canvas through the `academic-researcher` profile | Credentials or a host/MCP connection route, plus explicit allowlists |
 | AKMON development history | PACT changes, agent sessions, test reports, CI results, security analysis, branch dispositions | Repository or artifact paths; mainly used by Workspace Graph deployments |
@@ -56,12 +56,29 @@ Not every family can be added with one command. `okg deployment source-types`
 lists the types `okg deployment add-source` adds: `local-folder` and `github`.
 A profile sets up others, and a packaged connector is added with
 `--registration`. Jira and Confluence readers exist only in the legacy
-`devops` and `docs-corpus` templates (`okg init --template <name>`), which
-read bundled sample files unless you point them at a live service.
+`devops` and `docs-corpus` templates (`okg init --template <name>`). Treat
+them as sample-only: the templates wire them to bundled sample files, and no
+profile or `add-source` route sets up a live instance.
+
+A folder source added with `add-source` reads Markdown, text, JSON, YAML and
+PDF text (plus images, when captioning is on). It reads a PDF's text layer
+only, one passage per page; a scanned PDF has none, and the preview warns about
+it. With the default `extractors.yaml` and embeddings off, reading PDFs makes no
+model call; captioning, table transcription and embeddings are the opt-ins that do. A matched file of another type, such as
+a Word file, becomes a record holding only its file name; the preview and the
+apply result warn about it. If no matched file can be read, `add-source`
+refuses.
 
 Most adapters support narrow fixture or local-file modes for development.
 Live service adapters require explicit account and scope configuration
 instead of scanning an entire account by default.
+
+Domain connectors live in companion repositories such as
+[archi-okg](https://github.com/archi-physics/archi-okg) (CERN); see its
+[quickstart](https://github.com/archi-physics/archi-okg/blob/main/docs/cern-team-quickstart.md)
+for the readers it adds and which need an account.
+The Jira reader above is the sample-only one; the archi-okg JIRA reader is
+separate.
 
 Use [Connect your data](../use/sources/index.md) for the source
 workflow. Built-in profile defaults are in [Choose a profile](../use/profiles/index.md).

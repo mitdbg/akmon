@@ -47,7 +47,7 @@ def _subparser(name: str):
 
 def test_the_argument_table_equals_the_registered_mcp_tools(monkeypatch):
     """A tool that gains, loses or renames an argument fails here."""
-    from okg.substrate.mcp.operators import OPERATOR_TOOLS
+    from okg.substrate.mcp.operators import COMPOSITION_TOOLS, OPERATOR_TOOLS
     from okg.substrate.mcp.server import build_server
     from okg.substrate.mcp.surface_budget import PROBE_DSN
 
@@ -60,19 +60,27 @@ def test_the_argument_table_equals_the_registered_mcp_tools(monkeypatch):
                 for field, info in tool.fn_metadata.arg_model.model_fields.items()
             }
             for name, tool in server._tool_manager._tools.items()
-            if name in OPERATOR_TOOLS
+            if name in OPERATOR_TOOLS and name not in COMPOSITION_TOOLS
         }
     finally:
         server._okg_pool.close()
         if server._okg_write_pool is not None:
             server._okg_write_pool.close()
 
-    assert set(ops.OPERATOR_ARGUMENTS) == set(OPERATORS) == set(OPERATOR_TOOLS)
+    # `run` (read-sets-run-3666) has no command yet; the shell composes
+    # with pipes.
+    assert set(ops.OPERATOR_ARGUMENTS) == set(OPERATORS) == (
+        set(OPERATOR_TOOLS) - set(COMPOSITION_TOOLS)
+    )
     assert set(registered) == set(OPERATORS)
     for operator in OPERATORS:
         table = ops.OPERATOR_ARGUMENTS[operator]
         assert len(table) == len(set(table)), operator
-        assert set(table) == registered[operator], operator
+        # An argument whose flag would be the command's own `--args`
+        # reaches the tool inside `--args` (expand's live-edge `args`).
+        only_in_args = set(ops.ARGS_OBJECT_ONLY.get(operator, ()))
+        assert not only_in_args & set(table), operator
+        assert set(table) | only_in_args == registered[operator], operator
 
 
 def test_the_search_methods_equal_the_mcp_tool_methods():
@@ -183,6 +191,23 @@ def test_args_takes_json_a_file_and_standard_input(tmp_path, monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(whole)))
     from_stdin = _arguments(["aggregate", "--deployment", "d", "--args", "-"])
     assert inline == from_file == from_stdin == whole
+
+
+def test_a_live_edge_s_args_reach_expand_inside_args_and_new_flags_parse():
+    """expand's `args` has no flag (it would be the command's `--args`);
+    filter takes `--predicate` and `--order-by`, aggregate `--predicate` (#3666)."""
+    assert _arguments([
+        "expand", "--deployment", "d", "site:Z2_XX_A", "--edge-type", "distance",
+        "--args", '{"args": {"to": "site:Z2_XX_B"}}',
+    ]) == {"input": "site:Z2_XX_A", "edge_type": "distance", "args": {"to": "site:Z2_XX_B"}}
+    predicate = {"op": "eq", "field": "attrs.tier", "value": "1"}
+    assert _arguments([
+        "filter", "--deployment", "d", "--input", '{"ref": "l1.x"}',
+        "--predicate", json.dumps(predicate), "--order-by=-attrs.size",
+    ]) == {"input": {"ref": "l1.x"}, "predicate": predicate, "order_by": "-attrs.size"}
+    assert _arguments([
+        "aggregate", "--deployment", "d", "--predicate", json.dumps(predicate),
+    ]) == {"predicate": predicate}
 
 
 def test_args_and_flags_combine_when_they_name_different_arguments():

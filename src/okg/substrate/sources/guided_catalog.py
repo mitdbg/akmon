@@ -149,8 +149,9 @@ LOCAL_FOLDER = SupportedSourceType(
     type_id="local-folder",
     title="Local folder of documents",
     summary=(
-        "Reads Markdown, text, JSON and YAML files under one folder and "
-        "makes each document and its sections searchable."
+        "Reads Markdown, text, JSON and YAML files under one folder, and "
+        "PDF text when include names PDF files, and makes each document and "
+        "its sections searchable."
     ),
     registration=ConnectorRegistration(
         connector_type="local-folder",
@@ -284,6 +285,15 @@ GITHUB = SupportedSourceType(
                     "description": "Also read issue and review comments.",
                     "default": False,
                 },
+                "commit_repo": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.-]*$",
+                    "description": (
+                        "Optional. Name of the git repository in your graph; "
+                        "with discussion on, links merged pull requests to "
+                        "their merge commits. Empty: no merge link."
+                    ),
+                },
             },
         },
         auth_modes=("keychain_token",),
@@ -294,8 +304,19 @@ GITHUB = SupportedSourceType(
                 {"subtype": "repo"},
                 {"subtype": "issue"},
                 {"subtype": "pull_request"},
+                {"subtype": "forge_comment"},
             ],
             "edges": [
+                {
+                    "src_subtype": "issue",
+                    "edge_type": "has_comment",
+                    "dst_subtype": "forge_comment",
+                },
+                {
+                    "src_subtype": "pull_request",
+                    "edge_type": "has_comment",
+                    "dst_subtype": "forge_comment",
+                },
                 {
                     "src_subtype": "repo",
                     "edge_type": "contains",

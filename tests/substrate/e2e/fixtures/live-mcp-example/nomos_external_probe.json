@@ -1,0 +1,36 @@
+{
+  "policy_bundle_id": "live-mcp-example.live-relations",
+  "policy_version": "1",
+  "default_effect": "deny",
+  "scope": {
+    "deployment": "live-mcp-example"
+  },
+  "rules": [
+    {
+      "rule_id": "allow_catalog_items_for_the_runtime_service",
+      "effect": "allow",
+      "priority": 100,
+      "actions": ["external.example.catalog.read"],
+      "subjects": ["service:okg-runtime"],
+      "match": {
+        "deployment": "live-mcp-example",
+        "subtype": "catalog_instance",
+        "relation": ["items", "item"]
+      },
+      "reason_code": "live_mcp_example.catalog_items_allowed"
+    },
+    {
+      "rule_id": "allow_store_locations_for_the_runtime_service",
+      "effect": "allow",
+      "priority": 100,
+      "actions": ["external.example.store.read"],
+      "subjects": ["service:okg-runtime"],
+      "match": {
+        "deployment": "live-mcp-example",
+        "subtype": "store_instance",
+        "relation": ["locations"]
+      },
+      "reason_code": "live_mcp_example.store_locations_allowed"
+    }
+  ]
+}

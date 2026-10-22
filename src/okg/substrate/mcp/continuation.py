@@ -4,6 +4,11 @@ The token body is readable but not forgeable.  It deliberately contains only
 snapshot and projection coordinates plus one-way authority evidence; raw Nomos
 subjects, identity claims, access context, and policy material never cross the
 MCP boundary.
+
+A reply prints a short handle for its token (`c1.<epoch>.<nonce>.<mac>`); this
+server process keeps the signed token the handle stands for (see "short
+handles" below). With `OKG_MCP_CONTINUATION_SIGNING_KEY` set, whole tokens are
+printed, so they outlive one process.
 """
 
 from __future__ import annotations
@@ -13,8 +18,12 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
+import threading
+import time
 import zlib
+from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any
 
@@ -37,6 +46,8 @@ class ContinuationTokenInvalid(SubstrateError, ValueError):
 
 MAX_ENCODED_TOKEN_CHARS = 16_384
 MAX_DECODED_TOKEN_BYTES = 65_536
+#: A signed token: the base64url body, one dot, the base64url signature.
+_TOKEN_FORM = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
 
 def _canonical(value: Any) -> bytes:
     return json.dumps(
@@ -227,7 +238,12 @@ def issue_continuation(
     *,
     cursor: Mapping[str, Any],
 ) -> str:
-    """Sign a deterministic cursor under an already-sanitized binding."""
+    """Sign a deterministic cursor under an already-sanitized binding.
+
+    Returns the handle a reply prints for it, or the whole token when the
+    signing key is set (tokens that outlive one process) or the token is
+    over `MAX_ENCODED_TOKEN_CHARS` (its caller withholds it, as before).
+    """
 
     body = {
         "v": _TOKEN_VERSION,
@@ -238,7 +254,138 @@ def issue_continuation(
     signature = _b64encode(
         hmac.new(_signing_key(), encoded.encode("ascii"), hashlib.sha256).digest()
     )
-    return f"{encoded}.{signature}"
+    token = f"{encoded}.{signature}"
+    if os.getenv(_ENV_SIGNING_KEY) or len(token) > MAX_ENCODED_TOKEN_CHARS:
+        return token
+    return _HANDLES.put(token)
+
+
+# ── short handles (lane ri, tokens) ──────────────────────────────────────
+#
+# A signed token restates its whole read context (binding digests, the
+# generation id, a sealed cursor): 500 to 950 characters. In nine lab runs 11
+# of 68 calls that passed one back passed a miscopied copy, and every one
+# failed; ids under 90 characters were copied exactly 26 of 26 times. A reply
+# therefore prints a handle, `c1.<epoch>.<nonce>.<mac>` (40 characters), and
+# this process keeps the signed token it stands for. The token is verified
+# against the whole read on every use, as before, so a handle is never worth
+# more than its token. The per-process key already ends every token at a
+# restart; the handles end with it.
+
+HANDLE_PREFIX = "c1."
+_HANDLE_FORM = re.compile(
+    r"c1\.([A-Za-z0-9_-]{8})\.([A-Za-z0-9_-]{11})\.([A-Za-z0-9_-]{16})"
+)
+_HANDLE_CONTEXT = b"okg-continuation-handle-v1"
+#: How long, and how many, signed tokens one server process keeps.
+HANDLE_TTL_SECONDS = 2 * 3600
+HANDLE_MAX_ENTRIES = 8192
+HANDLE_MAX_BYTES = 32 * 1024 * 1024
+
+
+def _handle_key() -> bytes:
+    return hmac.new(_signing_key(), _HANDLE_CONTEXT, hashlib.sha256).digest()
+
+
+def _handle_mac(epoch: str, nonce: str) -> str:
+    digest = hmac.new(
+        _handle_key(), f"{epoch}.{nonce}".encode("ascii"), hashlib.sha256,
+    ).digest()
+    return _b64encode(digest[:12])
+
+
+class _HandleStore:
+    """The signed tokens this process printed handles for: bounded by
+    count, bytes and age; the least recently used goes first."""
+
+    def __init__(self) -> None:
+        self.epoch = _b64encode(secrets.token_bytes(6))
+        self._lock = threading.Lock()
+        #: nonce -> (token, expires at, the signing key id it was put under)
+        self._tokens: OrderedDict[str, tuple[str, float, str]] = OrderedDict()
+        self._bytes = 0
+
+    def put(self, token: str) -> str:
+        # From the token itself, so the same read prints the same handle,
+        # as it printed the same token (a page read twice says the same).
+        nonce = _b64encode(hmac.new(
+            _handle_key(), b"nonce:" + token.encode("ascii"), hashlib.sha256,
+        ).digest()[:8])
+        now = time.monotonic()
+        with self._lock:
+            held = self._tokens.pop(nonce, None)
+            if held is not None:
+                self._bytes -= len(held[0])
+            self._tokens[nonce] = (token, now + HANDLE_TTL_SECONDS, signing_key_id())
+            self._bytes += len(token)
+            while self._tokens and (
+                len(self._tokens) > HANDLE_MAX_ENTRIES or self._bytes > HANDLE_MAX_BYTES
+                or next(iter(self._tokens.values()))[1] <= now
+            ):
+                _, (old, _, _) = self._tokens.popitem(last=False)
+                self._bytes -= len(old)
+        return f"{HANDLE_PREFIX}{self.epoch}.{nonce}.{_handle_mac(self.epoch, nonce)}"
+
+    def get(self, nonce: str) -> tuple[str, str] | None:
+        """`(token, key id)` for a held handle, or None."""
+        now = time.monotonic()
+        with self._lock:
+            entry = self._tokens.get(nonce)
+            if entry is None:
+                return None
+            token, expires, key_id = entry
+            if expires <= now:
+                del self._tokens[nonce]
+                self._bytes -= len(token)
+                return None
+            self._tokens.move_to_end(nonce)
+            return token, key_id
+
+
+_HANDLES = _HandleStore()
+
+
+def _expand_handle(handle: str) -> str:
+    """The signed token a handle stands for, or a typed refusal by reason:
+    `signature_invalid` (miscopied), `token_unknown` (another process, or
+    expired or evicted here), `signing_key_changed`."""
+    form = _HANDLE_FORM.fullmatch(handle)
+    if form is None:
+        raise _invalid("the continuation token is malformed", "malformed")
+    epoch, nonce, mac = form.groups()
+    store = _HANDLES
+    if hmac.compare_digest(mac, _handle_mac(epoch, nonce)):
+        found = store.get(nonce) if epoch == store.epoch else None
+        if found is None:
+            raise _invalid(
+                "this server no longer holds the continuation token: it "
+                "expired or was evicted, or another server process issued it",
+                "token_unknown",
+            )
+        return found[0]
+    if epoch != store.epoch:
+        raise _invalid(
+            "the continuation token was issued by another server process: "
+            "the server restarted, or the call reached another one",
+            "token_unknown",
+        )
+    found = store.get(nonce)
+    if found is not None and found[1] != signing_key_id():
+        raise _invalid(
+            "the continuation token was signed with a key this server no "
+            "longer holds: the server restarted or its signing key changed",
+            "signing_key_changed",
+        )
+    raise _invalid("the continuation token signature is invalid", "signature_invalid")
+
+
+def full_token(token: Any) -> Any:
+    """The signed token `token` stands for (itself when it is not a handle),
+    for a caller that measures or decodes the token's own text. A handle
+    this server does not hold is refused, as by `open_continuation`."""
+    if isinstance(token, str) and token.startswith(HANDLE_PREFIX):
+        return _expand_handle(token)
+    return token
 
 
 #: Which tool continues each token kind (PACT read-model-s6-page-next,
@@ -278,12 +425,30 @@ _NAMED_BINDING_FIELDS: tuple[tuple[str, str], ...] = (
 
 _REMEDY = "restart the read without a continuation token"
 
+#: The hint of a refusal whose token does not open: it was miscopied, cut
+#: short, or never a token (lane ri, tokens: 8 of 8 `signature_invalid`
+#: refusals in nine lab runs were real tokens with 1 to 5 characters
+#: changed, and 24 `next` values were made up). Said on every such refusal,
+#: so a caller learns the token is copied, never composed.
+OPAQUE_REMEDY = (
+    "pass the token exactly as the reply printed it after `next:` (a token "
+    "is opaque: never build, shorten or edit one), or restart the read "
+    "without it"
+)
+
+#: Reasons that mean the token itself is not one this server issued as
+#: sent: the caller can copy it again or restart. Every other reason is
+#: about the read the token belongs to, and keeps `_REMEDY`.
+OPAQUE_REASONS = frozenset({
+    "malformed", "signature_invalid", "payload_invalid", "version_invalid",
+})
+
 
 def _invalid(message: str, reason: str, **data: Any) -> ContinuationTokenInvalid:
     return ContinuationTokenInvalid(
         message,
         data={"reason": reason, **data},
-        fix_hint=_REMEDY,
+        fix_hint=OPAQUE_REMEDY if reason in OPAQUE_REASONS else _REMEDY,
     )
 
 
@@ -317,10 +482,18 @@ def open_continuation(token: Any) -> dict[str, Any]:
 
     The binding is NOT compared with a read context here: a caller routes
     by ``body["binding"]["kind"]``, and the operator it reaches compares the
-    whole binding in :func:`consume_continuation`.
+    whole binding in :func:`consume_continuation`. A handle is read as the
+    signed token it stands for.
     """
 
-    if not isinstance(token, str) or len(token) > MAX_ENCODED_TOKEN_CHARS or token.count(".") != 1:
+    token = full_token(token)
+    if (
+        not isinstance(token, str) or len(token) > MAX_ENCODED_TOKEN_CHARS
+        or _TOKEN_FORM.fullmatch(token) is None
+    ):
+        # Both parts are base64url: a value with any other character (a
+        # call written as JSON, `offset=100`, a record id, non-ASCII text,
+        # which `hmac.compare_digest` raises TypeError on) was never one.
         raise _invalid("the continuation token is malformed", "malformed")
     encoded, supplied_signature = token.split(".", 1)
     expected_signature = _b64encode(
@@ -560,6 +733,121 @@ def expand_shape_from_hops(hops: Any) -> dict[str, Any] | None:
         "direction": "out",
         "depth": 1,
     }
+
+
+def next_read_arguments(binding: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The read-shaping arguments a `next` token's read is rebuilt with.
+
+    Named as the tool that continues the token takes them, and built the
+    way that tool rebuilds them (`server._next_call` for inspect and expand,
+    `server._keyset_next_call` for filter and map), without the token. None
+    for a kind no tool continues, or a path token without its hops.
+    """
+    kind = binding.get("kind")
+    projection = binding.get("projection")
+    projection = projection if isinstance(projection, Mapping) else {}
+    if kind == "inspect_text":
+        target: dict[str, Any] = {"kind": "text", "node_id": projection.get("node_id")}
+        if projection.get("lines") is not None:
+            target["lines"] = projection["lines"]
+        if projection.get("matching") is not None:
+            target["matching"] = projection["matching"]
+            target["context"] = projection.get("context")
+        return {"target": target}
+    if kind == "inspect_text_batch":
+        return {"target": {"kind": "texts", "items": projection.get("items")}}
+    if kind == "inspect_node_batch":
+        return {
+            "target": {
+                "kind": "nodes", "node_ids": projection.get("node_ids"),
+                "ref": projection.get("ref"),
+            },
+            "select": projection.get("select"),
+        }
+    if kind == "inspect_subtype":
+        return {"target": {
+            "kind": "subtype", "subtype": binding.get("subtype"),
+            "detail": projection.get("detail"), "page_size": projection.get("page_size"),
+        }}
+    if kind == "expand_path":
+        shape = expand_shape_from_hops(projection.get("hops"))
+        if shape is None:
+            return None
+        return {
+            "input": projection.get("start_node"),
+            "target_subtype": projection.get("target_subtype"),
+            "limit": projection.get("limit"),
+            "select": projection.get("select"),
+            **shape,
+        }
+    if kind in ("filter_page", "map_page"):
+        return dict(projection)
+    return None
+
+
+#: The arguments beside `next` a tool reads as the token's own when they
+#: repeat it. Any other argument beside `next` stays the tool's refusal.
+_REPEATABLE_BESIDE_NEXT: dict[str, tuple[str, ...]] = {
+    "inspect": ("target", "select"),
+    "expand": (
+        "input", "path", "edge_type", "direction", "depth", "target_subtype",
+        "limit", "select",
+    ),
+    "filter": ("input", "predicate", "select"),
+    "map": ("input", "projection"),
+}
+
+
+def _same_read_value(sent: Any, read: Any) -> bool:
+    """Whether `sent` names exactly what the token reads as `read`.
+
+    An object the caller sent may leave out keys the read holds empty (an
+    inspect target names its kind and node, the signed read also says
+    `context: None`; a validated predicate may hold an empty list the
+    caller never wrote); every key it names must be equal. A node anchor
+    `{"node_id": x}` is the node id `x`.
+    """
+    if isinstance(sent, Mapping) and set(sent) == {"node_id"} and isinstance(read, str):
+        sent = sent["node_id"]
+    if isinstance(sent, Mapping) and isinstance(read, Mapping):
+        if any(key not in read for key in sent):
+            return False
+        if any(
+            key not in sent and read[key] not in (None, False, [], {})
+            for key in read
+        ):
+            return False
+        return all(_same_read_value(sent[key], read[key]) for key in sent)
+    return _canonical(sent) == _canonical(read)
+
+
+def repeated_read_arguments(
+    tool: str, arguments: Mapping[str, Any], binding: Mapping[str, Any],
+) -> list[str]:
+    """The arguments beside `next` that repeat what the token already reads.
+
+    An agent that passes the read's own `target` (or `input`, `path`, ...)
+    again beside a token it copied exactly is not asking for another read
+    (lane ri, tokens: 5 such calls were refused `next_with_read_arguments`).
+    These are read as `next` alone, with a note; an argument that names a
+    different read is not listed, and the tool still refuses it.
+    """
+    read = next_read_arguments(binding)
+    if read is None:
+        return []
+    names: list[str] = []
+    for name in _REPEATABLE_BESIDE_NEXT.get(tool, ()):
+        sent = arguments.get(name)
+        if sent is None or name not in read:
+            continue
+        if name == "target" and (
+            not isinstance(sent, Mapping) or "continuation_token" in sent
+            or sent.get("kind") != read["target"].get("kind")
+        ):
+            continue
+        if _same_read_value(sent, read[name]):
+            names.append(name)
+    return names
 
 
 #: Stands for the caller's own token in a retry a refusal names. The token

@@ -45,7 +45,7 @@ EXAMPLE_NAMES = frozenset({
     "Machine", "documents", "top_processes", "cpu_per_core",
     "index", "limit", "note",
     # The `kind: mcp` example: its relation and the tool's own argument names.
-    "datasets", "primary_ds_name", "detail",
+    "items", "name_pattern", "detail",
 })
 
 FENCE_RE = re.compile(r"```(yaml|json|sql)\n(.*?)```", re.DOTALL)

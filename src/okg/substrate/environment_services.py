@@ -364,6 +364,7 @@ def render_environment_services(
         environment.ui.host,
         "--port",
         str(environment.ui.port),
+        *_ui_auth_arguments(environment),
     ]
     mirror_command = [
         *worker_command,
@@ -516,6 +517,7 @@ def install_environment_services(
     plan: Mapping[str, Any],
 ) -> InstalledServiceFiles:
     """Atomically install rendered files and the secret environment file."""
+    require_ui_token_for_sensitive_deployment(environment)
     # Lock order is lifecycle first, then the shared activation snapshot.
     # Activation never acquires the lifecycle lock, so this has no reverse edge.
     with _environment_service_lifecycle_lock(environment):
@@ -749,6 +751,8 @@ def execute_environment_service_action(
     if action not in set(SERVICE_ACTIONS) - {"render"}:
         raise DeploymentConfigError(f"unsupported service action: {action}")
     _validate_service_plan(environment, plan)
+    if action in {"install", "start", "restart"}:
+        require_ui_token_for_sensitive_deployment(environment)
     if action in {"start", "restart"} and not plan.get("launchable"):
         release_status = plan.get("release_status") or {}
         raise DeploymentConfigError(
@@ -5455,7 +5459,27 @@ def _installed_historical_environment(
             raise DeploymentConfigError(
                 "installed historical UI arguments are invalid"
             ) from exc
-        ui = replace(ui, enabled=True, service=service_id, host=host, port=port)
+        # The predecessor's token variable comes from its installed command,
+        # exactly like host and port: a predecessor installed without one has
+        # none, whatever the current descriptor declares.
+        installed_token_env: str | None = None
+        if "--auth-token-env" in arguments:
+            try:
+                installed_token_env = arguments[
+                    arguments.index("--auth-token-env") + 1
+                ]
+            except IndexError as exc:
+                raise DeploymentConfigError(
+                    "installed historical UI arguments are invalid"
+                ) from exc
+        ui = replace(
+            ui,
+            enabled=True,
+            service=service_id,
+            host=host,
+            port=port,
+            auth_token_env=installed_token_env,
+        )
     historical_data_root = Path(str(pointer.get("data_root") or ""))
     if not historical_data_root.is_absolute():
         raise DeploymentConfigError("historical pointer data root is invalid")
@@ -5827,6 +5851,68 @@ def _legacy_service_receipt_definition_is_bound(
     )
 
 
+def require_ui_token_for_sensitive_deployment(
+    environment: DeploymentEnvironment,
+) -> None:
+    """Refuse to install or start a sensitive deployment's UI without a token.
+
+    The viz refuses to start unauthenticated for a deployment whose manifest
+    turns Nomos runtime enforcement on. Catching it before install or start
+    fails before any unit is written instead of after. Rendering, stopping,
+    logs, status and readiness never call this: they must keep working on an
+    environment that is misconfigured, so the operator can inspect and stop it.
+
+    The mode is read from the environment's own pinned deployment directory
+    (``environment.manifest.deployment_dir``), the directory the running UI's
+    launcher resolves, not from a lookup of the deployment name in the
+    operator's shell. A manifest that cannot be read or parsed refuses too:
+    the running UI would refuse it.
+    """
+    if not getattr(environment.ui, "enabled", True):
+        return
+    if getattr(environment.ui, "auth_token_env", None):
+        return
+    from okg.substrate.nomos.runtime_enforcement import (
+        NomosEnforcementConfigError,
+        NomosEnforcementResolutionError,
+        deployment_requires_read_auth,
+    )
+
+    try:
+        sensitive = deployment_requires_read_auth(
+            environment.graph_deployment_name,
+            deployment_dir=environment.manifest.deployment_dir,
+        )
+    except (NomosEnforcementConfigError, NomosEnforcementResolutionError) as exc:
+        raise DeploymentConfigError(
+            f"environment {environment.id!r}: cannot tell whether deployment "
+            f"{environment.graph_deployment_name!r} is sensitive ({exc}); its "
+            f"UI service {environment.ui.service!r} will not start without "
+            "ui.auth_token_env"
+        ) from exc
+    if sensitive:
+        raise DeploymentConfigError(
+            f"environment {environment.id!r}: deployment "
+            f"{environment.graph_deployment_name!r} is sensitive (Nomos runtime "
+            "enforcement is audit or enforce), so its UI service "
+            f"{environment.ui.service!r} must require a read token. Set "
+            "ui.auth_token_env to the NAME of a token variable and list "
+            "env:<NAME> under runtime.credential_refs for that UI service"
+        )
+
+
+def _ui_auth_arguments(environment: DeploymentEnvironment) -> tuple[str, ...]:
+    """``--auth-token-env NAME`` for the supervised viz, when the descriptor
+    names a token variable (``ui.auth_token_env``).
+
+    Only the variable NAME enters argv; the value reaches the service through
+    the env file's declared credential references. Used for both the installed
+    command and the argv the supervisor verifies, so they cannot drift.
+    """
+    name = getattr(environment.ui, "auth_token_env", None)
+    return ("--auth-token-env", name) if name else ()
+
+
 def _expected_service_arguments(
     environment: DeploymentEnvironment,
     service_id: str,
@@ -5851,6 +5937,7 @@ def _expected_service_arguments(
             environment.ui.host,
             "--port",
             str(environment.ui.port),
+            *_ui_auth_arguments(environment),
         )
     if (
         getattr(environment.runtime, "mirror_enabled", False)

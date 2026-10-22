@@ -94,6 +94,9 @@ def _cmd_metrics_qa_snapshot(
         return _emit_error(err, as_json=as_json)
 
     from okg.substrate.qa.metrics import snapshot
+    from okg.substrate.runtime_queue_health import (
+        DEPLOYMENT_READINESS_DELEGATED_RUNTIME_WORKFLOW_NAMES,
+    )
 
     try:
         ignored_job_kinds: set[str] = set()
@@ -106,6 +109,12 @@ def _cmd_metrics_qa_snapshot(
             deployment=deployment,
             generation_id=getattr(args, "generation", None),
             ignored_job_kinds=ignored_job_kinds,
+            # Same partition deployment readiness uses: the doctor and the
+            # source-sync workflows are checked by their own authorities, and
+            # a doctor run in flight is not ingest backlog (#3868).
+            ignored_workflow_names=set(
+                DEPLOYMENT_READINESS_DELEGATED_RUNTIME_WORKFLOW_NAMES
+            ),
         )
     except RuntimeError as exc:
         return _emit_error(

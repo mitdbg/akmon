@@ -171,6 +171,12 @@ def agent_presence(agent: str) -> Optional[str]:
     return None
 
 
+#: `AgentPlan.present` for Claude Code named with --agent while `claude` is not
+#: on PATH and ~/.claude.json does not exist yet: connect writes that file.
+CLAUDE_CODE_NAMED_WITHOUT_BINARY = (
+    "named with --agent; `claude` is not on PATH"
+)
+
 DESKTOP_APP_BINARY = "/Applications/Claude.app/Contents/MacOS/Claude"
 
 #: How `pgrep` finds a running Claude Desktop, per platform.
@@ -1331,6 +1337,10 @@ def run_connect(
     for agent in selected:
         writer = _writer(agent)
         present = agent_presence(agent)
+        if present is None and named and agent == "claude-code":
+            # The user named it, and the entry is a plain JSON key in
+            # ~/.claude.json: write it without `claude`, and say so.
+            present = CLAUDE_CODE_NAMED_WITHOUT_BINARY
         if present is None:
             plans.append(AgentPlan(agent=agent, config_path=writer.config_path()))
             continue
@@ -1554,6 +1564,12 @@ def _next_steps(plans: list[AgentPlan], deployment: str, *, dry_run: bool) -> li
         steps.append("quit Claude Desktop completely and restart it to load the server")
         if desktop.skills and desktop.skills.get("upload_step"):
             steps.append(desktop.skills["upload_step"])
+    if any(p.present == CLAUDE_CODE_NAMED_WITHOUT_BINARY for p in done):
+        steps.append(
+            "Claude Code: `claude` is not on PATH, so the server was written "
+            "to ~/.claude.json directly; install Claude Code before you start "
+            "that session"
+        )
     for plan in plans:
         if plan.status == "refused":
             steps.append(f"{AGENT_LABELS[plan.agent]}: {plan.reason}")

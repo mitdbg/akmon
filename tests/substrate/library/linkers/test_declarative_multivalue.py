@@ -147,7 +147,7 @@ def test_incremental_exact_lookup_matches_array_without_full_scan(
 
 # --- derive_from_path over list fields (issue #2921) -----------------------
 #
-# cms-kb published 8 physics-group hubs and 0 edges into them: its rule
+# example-kb published 8 physics-group hubs and 0 edges into them: its rule
 # captured a title root and looked it up in the hub's `title_roots` list, and
 # derive_from_path compared the capture to the whole list.
 

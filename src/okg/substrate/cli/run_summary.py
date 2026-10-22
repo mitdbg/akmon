@@ -146,6 +146,13 @@ STATUS_CLASSES: dict[str, str] = {
     "not_configured": OK,
     "not_triggered": OK,
     "warning": PROBLEM,
+    # db/index_reclaim.py post-publish index rebuild (summary key
+    # ``post_publish_index_rebuild``). Nothing needed rebuilding, or the
+    # rebuild finished: both are success. ``stopped`` (a rebuild that left
+    # work for the next publish) and ``error`` are not listed as ok, so a
+    # real problem still prints a warning.
+    "nothing_to_rebuild": OK,
+    "rebuilt": OK,
     # publisher.py miscellany.
     "active": OK,  # branch registration
     "exact": OK,  # repository provenance
@@ -751,6 +758,28 @@ def collect_run_warnings(
                     f"LLM invariant {row['name']}: " + ", ".join(counts),
                     inspect,
                 ))
+
+    # A rebuild that finished (or had nothing to do) can still leave an
+    # invalid index from an earlier interrupted build. That is not a failure
+    # of this publish, but it needs a person: name each drop command.
+    rebuild = out.get("post_publish_index_rebuild")
+    if isinstance(rebuild, Mapping):
+        leftovers = [
+            item for item in rebuild.get("leftover_invalid_indexes") or []
+            if isinstance(item, Mapping)
+        ]
+        if leftovers:
+            names = ", ".join(str(item.get("index")) for item in leftovers)
+            drops = " ".join(
+                str(item["drop_command"]) for item in leftovers
+                if item.get("drop_command")
+            )
+            warnings.append(_warning(
+                "invalid_index_left",
+                f"post_publish_index_rebuild: {len(leftovers)} invalid "
+                f"index(es) from an interrupted build remain: {names}",
+                f"drop each one in psql: {drops}" if drops else inspect,
+            ))
 
     found: list[str] = []
     for key, value in out.items():

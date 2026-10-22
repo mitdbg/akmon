@@ -10,11 +10,11 @@
 # Build (context = repo root):
 #   docker build -f docker/Dockerfile -t okg-mcp:0.1.0 .
 #
-# Run (CMS example, host-network so it reaches Postgres on localhost:5437;
+# Run (example, host-network so it reaches Postgres on localhost:5437;
 # replace the host paths with your own deployments dir + env file):
 #   docker run --rm --network host \
-#     -e CMS_DSN=postgres://postgres:okg@localhost:5437/cms \
-#     -e OKG_DEPLOYMENT=cms \
+#     -e EXAMPLE_DSN=postgres://postgres:okg@localhost:5437/example \
+#     -e OKG_DEPLOYMENT=example \
 #     -e OKG_MCP_PORT=8100 \
 #     -v /path/to/okg-deployments:/deployments:ro \
 #     -v /path/to/okg-env-file:/secrets/okg.env:ro \
@@ -23,16 +23,14 @@
 FROM python:3.14-slim
 
 # System deps:
-#   - build-essential + libkrb5-dev: build requests-kerberos (the `cern` extra)
-#     if no wheel is available for the target platform.
+#   - build-essential: compile native dependencies when no wheel exists for
+#     the target platform.
 #   - git: in-process git source adapters at runtime (pygit2 bundles libgit2
 #     in its manylinux wheel, so no apt libgit2 is needed).
 #   - curl: debugging (no HEALTHCHECK is defined; the MCP endpoint needs a
 #     protocol handshake, not a plain GET).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential \
-      libkrb5-dev \
-      krb5-user \
       git \
       curl \
       ca-certificates \
@@ -48,7 +46,7 @@ WORKDIR /app
 # the installed package carries no licence text.
 COPY pyproject.toml README.md LICENSE NOTICE* ./
 COPY src ./src
-RUN pip install --no-cache-dir ".[cern]"
+RUN pip install --no-cache-dir .
 
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

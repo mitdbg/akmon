@@ -2675,11 +2675,24 @@ def test_probe_sandbox_malformed_self_attestation_and_timeout_refuse(
     candidate = tmp_path / "candidate"
     candidate.mkdir()
     script = candidate / "probe.py"
+    # Cases that must refuse for a reason other than the clock get a generous
+    # wall-clock limit, so a loaded host cannot turn them into a timeout. Only
+    # the deliberately spinning probe below uses the short limit.
     launcher = _trusted_probe_launcher(
         signer=_signer(),
         limits=SandboxLimits(
+            timeout_seconds=60,
+            cpu_seconds=30,
+            memory_bytes=128 * 1024 * 1024,
+            output_bytes=4096,
+            process_count=4,
+        ),
+    )
+    timeout_launcher = _trusted_probe_launcher(
+        signer=_signer(),
+        limits=SandboxLimits(
             timeout_seconds=1,
-            cpu_seconds=2,
+            cpu_seconds=30,
             memory_bytes=128 * 1024 * 1024,
             output_bytes=4096,
             process_count=4,
@@ -2720,7 +2733,7 @@ def test_probe_sandbox_malformed_self_attestation_and_timeout_refuse(
         )
     script.write_text("while True: pass\n", encoding="utf-8")
     with pytest.raises(ProbeError, match="time limit"):
-        launcher.launch(
+        timeout_launcher.launch(
             candidate_artifact=candidate,
             command=(sys.executable, str(script)),
             input_payload={},

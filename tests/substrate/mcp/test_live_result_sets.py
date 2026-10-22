@@ -332,13 +332,17 @@ def test_the_reserve_counts_the_largest_block() -> None:
         assert _measure(live_result_sets.not_kept_block(reason)) < _measure(block)
 
 
-def test_the_published_live_call_schema_adds_only_retain() -> None:
+def test_the_published_live_call_schema_adds_only_retain_and_each() -> None:
     from okg.substrate.mcp.operator_models import LiveCall
 
     schema = LiveCall.model_json_schema()
     assert schema["properties"] == {
         "relation": {"type": "string"},
         "args": {"type": "object"},
+        "each": {"additionalProperties": {"anyOf": [
+            {"type": "array"},
+            {"additionalProperties": {"type": "string"}, "type": "object"},
+        ]}, "type": "object"},
         "retain": {"type": "boolean"},
     }
     assert schema["required"] == ["relation"]
@@ -584,20 +588,19 @@ def test_a_role_removed_from_the_claim_makes_the_id_unknown() -> None:
 # ============================================================ limits (store)
 
 
-def test_a_reader_keeps_two_sets_and_its_oldest_is_evicted() -> None:
+def test_a_reader_keeps_four_sets_and_its_oldest_is_evicted() -> None:
     store = live_result_sets.new_store()
-    first, second, third = (_commit(store, "reader-a") for _ in range(3))
+    first, *rest = (_commit(store, "reader-a") for _ in range(5))
     assert _reason(store, first, "reader-a") == "evicted"
-    assert {store.lookup(i, reader_key="reader-a").id for i in (second, third)} == {
-        second, third}
+    assert {store.lookup(i, reader_key="reader-a").id for i in rest} == set(rest)
 
 
-def test_a_principal_keeps_two_sets_across_its_reader_keys() -> None:
+def test_a_principal_keeps_four_sets_across_its_reader_keys() -> None:
     claim = {"provider_id": "sso", "issuer": "https://idp/", "external_subject": "bob"}
     store = live_result_sets.new_store()
-    keys = [continuation.reader_key({"note": str(i)}, claim, True) for i in range(3)]
+    keys = [continuation.reader_key({"note": str(i)}, claim, True) for i in range(5)]
     ids = [_commit(store, key, claim=claim, multi=True) for key in keys]
-    assert store.principal_count(continuation.principal_key(claim, True)) == 2
+    assert store.principal_count(continuation.principal_key(claim, True)) == 4
     assert _reason(store, ids[0], keys[0]) == "evicted"
 
 
@@ -608,7 +611,7 @@ def test_a_full_server_refuses_without_evicting_another_readers_set() -> None:
         store.mint(reader_key="late", binding={}, members=(), header_claim=None,
                    multi_user=False, payload=b"[]", payload_bytes=2, payload_rows=0)
     assert caught.value.data["reason"] == "server_references"
-    assert caught.value.data["limits"]["references_per_server"] == 8
+    assert caught.value.data["limits"]["references_per_server"] == 16
     for i, set_id in enumerate(held):
         assert store.lookup(set_id, reader_key=f"reader-{i}").id == set_id
 
@@ -632,9 +635,9 @@ def test_reservations_count_until_released() -> None:
     drafts = [
         store.mint(reader_key=f"r{i}", binding={}, members=(), header_claim=None,
                    multi_user=False, payload=b"[]", payload_bytes=2, payload_rows=0)
-        for i in range(8)
+        for i in range(live_result_sets.MAX_PER_SERVER)
     ]
-    assert store.pending_count() == 8 and store.count() == 0
+    assert store.pending_count() == 16 and store.count() == 0
     with pytest.raises(ResultReferenceCapacity):
         store.mint(reader_key="r9", binding={}, members=(), header_claim=None,
                    multi_user=False, payload=b"[]", payload_bytes=2, payload_rows=0)
@@ -750,8 +753,10 @@ def test_retained_rows_wrap_to_the_reported_digest_and_prefix(live_store, budget
     ({"op": "eq", "field": "name", "value": "x"}, "predicate"),
     ({"op": "eq", "field": "attrs.a.b", "value": "x"}, "predicate"),
     ({"op": "contains", "field": "attrs", "value": {"a": 1}}, "predicate"),
-    ({"op": "and", "clauses": [{"op": "eq", "field": "node_id", "value": "x"}]},
+    ({"op": "and", "clauses": [{"op": "eq", "field": "path", "value": "x"}]},
      "predicate"),
+    # contains is text inside one field, never containment on the whole attrs.
+    ({"op": "contains", "field": "attrs.a", "value": {"a": 1}}, "predicate"),
 ])
 def test_bare_nested_and_contains_predicates_refuse_by_name(predicate, argument) -> None:
     with pytest.raises(LiveResultPredicateUnsupported) as caught:
@@ -951,6 +956,57 @@ def _unfence(value: Any) -> Any:
     if isinstance(value, str) and "\n" in value:
         return value.split("\n")[1]
     return value
+
+
+#: A listing `/*/Run1*Beta-v1/*` of 1,420 items, and
+#: one size call per item totals their size.
+FAN_OUT_VALUES = [f"/Alpha{i:04d}/Run1-Beta-v1/KIND" for i in range(1_420)]
+#: One row per call, sized like the real per-dataset totals (tens of PB).
+FAN_OUT_SIZE = 10_150_662_000_000
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("fmt", ["json", "text"])
+def test_a_fan_out_over_1420_values_runs_keeps_every_row_and_sums_exactly(
+    world, fmt,
+) -> None:
+    """The reserve was sized from the envelope's `query`, which listed every
+    fanned-out value (about 67 B each): 1,420 values reserved 95,860 B and
+    the call was refused before it ran under a 60,000 B budget, although the
+    reply shows at most 20 rows. The reply now names the first values and
+    the count; the kept answer keeps every row, and the total over it is
+    exact."""
+    from tests.substrate.mcp._result_payload import payload, result_text
+
+    world["adapter"].rows = [{"name": "summary", "size": FAN_OUT_SIZE}]
+    budget = 60_000
+    result = _serve(world["mcp"], "expand", {
+        "input": {"node_id": world["hub"]}, "direction": "in",
+        "live": {"relation": "lrs_rows", "each": {"q": FAN_OUT_VALUES}},
+        "max_bytes": budget,
+    }, fmt)
+    text = result_text(result) if fmt == "text" else result.content[0].text
+    assert result.isError is False, text[:500]
+    assert len(text.encode("utf-8")) <= budget
+    assert "response_byte_budget_exceeded" not in text
+    assert len(world["adapter"].calls) == 1_420
+    (entry,) = world["store"]._entries.values()  # noqa: SLF001
+    assert entry.payload.row_count == 1_420
+    # The kept answer still knows every value it was asked for.
+    assert len(entry.payload.query["q"]) == 1_420
+    total = _ok(world["mcp"], "aggregate", {
+        "input": {"ref": entry.id}, "by": [], "metrics": ["count", "sum(attrs.size)"],
+    })
+    (group,) = total["groups"]
+    assert group["count"] == 1_420
+    assert group["sum(attrs.size)"] == 1_420 * FAN_OUT_SIZE
+    assert total["totals_cover"].startswith(
+        "1420 rows of lrs_rows(q=<1420 values>, size=10), one call per q (1420 values)",
+    ), total["totals_cover"]
+    if fmt == "json":
+        live = payload(result)["external_live"]
+        assert live["query"]["q"] == {"values": 1_420, "first": FAN_OUT_VALUES[:3]}
+        assert live["result_reference"]["rows"] == 1_420
 
 
 @pytest.mark.postgres
@@ -1363,7 +1419,8 @@ def test_served_values_are_wrapped_and_a_page_over_budget_is_cut(wide) -> None:
      "predicate"),
     ("filter", {"predicate": {"op": "contains", "field": "attrs", "value": {"kind": "b"}}},
      "predicate"),
-    ("filter", {"predicate": {}, "order_by": "attrs.size"}, "order_by"),
+    # order_by is served now (live_reader.order_rows); a nested path is not.
+    ("filter", {"predicate": {}, "order_by": "attrs.size.x"}, "order_by"),
     ("filter", {"predicate": {}, "retain": True}, "retain"),
     ("map", {"projection": ["node_id"]}, "projection"),
     ("map", {"projection": {"n": "attrs.a.b"}}, "projection"),
@@ -1519,10 +1576,17 @@ def test_a_read_projects_rewritten_keys_and_reports_them(world) -> None:
 
 
 @pytest.mark.postgres
-def test_two_principals_another_principals_id_answers_as_unknown(
+def test_two_principals_a_live_expand_is_refused_and_keeps_nothing(
     clean_runtime, okg_mcp_can_log_in, tmp_path, monkeypatch, live_store,
 ) -> None:
-    from tests.substrate.mcp._result_payload import result_text
+    """Per-user principals need access rules on, and a live call is refused
+    while they are on (issue #3923), so no principal can keep a live answer
+    here and there is no answer for another principal to ask for. That one
+    principal cannot read another's kept answer is proved on the store in
+    the hermetic store tests above, for example
+    `test_another_reader_and_a_never_issued_id_are_both_unknown`, and with
+    the rules off, by `authority`, in
+    `test_a_kept_set_of_one_reader_answers_as_unknown_to_another`."""
     from tests.substrate.mcp.test_principal_mapping import (
         MAPPING,
         PRINCIPAL_A,
@@ -1550,31 +1614,43 @@ def test_two_principals_another_principals_id_answers_as_unknown(
         mcp._okg_live_gate = CountingGate()
         expand = {"input": {"node_id": "node:public-docs"}, "direction": "out",
                   "live": {"relation": "lrs_rows", "args": {"q": "x"}, "retain": True}}
-        with request_headers({PRINCIPAL_HEADER: PRINCIPAL_B}):
-            ids = [
-                _ok(mcp, "expand", {**expand, "authority": {"note": str(i)}})
-                ["external_live"]["result_reference"]["id"]
-                for i in range(3)
-            ]
-            own = _ok(mcp, "map", {"input": {"ref": ids[2]}, "authority": {"note": "2"},
-                                   "limit": 2})
-        never = live_store.mint(reader_key="nobody", binding={}, members=(),
+        refusals = []
+        for header in (PRINCIPAL_B, PRINCIPAL_A):
+            with request_headers({PRINCIPAL_HEADER: header}):
+                refusals.append(_refused(mcp, "expand", expand))
+    assert [r["code"] for r in refusals] == ["live_refused_under_access_rules"] * 2
+    assert [r["data"]["reason"] for r in refusals] == ["access_rules_on"] * 2
+    assert live_store.count() == 0
+    assert len(adapter.calls) == 0
+
+
+@pytest.mark.postgres
+def test_a_kept_set_of_one_reader_answers_as_unknown_to_another(world) -> None:
+    """With access rules off, readers differ by their `authority` argument
+    (`continuation.reader_key`). Another reader's id answers exactly as an id
+    that was never minted does."""
+
+    from tests.substrate.mcp._result_payload import result_text
+
+    expand = {"input": {"node_id": world["hub"]}, "direction": "in",
+              "live": {"relation": "lrs_rows", "args": {"q": "x"}, "retain": True}}
+    set_id = _ok(world["mcp"], "expand", {**expand, "authority": {"note": "a"}})[
+        "external_live"]["result_reference"]["id"]
+    own = _ok(world["mcp"], "map", {"input": {"ref": set_id},
+                                    "authority": {"note": "a"}, "limit": 2})
+    never = world["store"].mint(reader_key="nobody", binding={}, members=(),
                                 header_claim=None, multi_user=False,
                                 payload=b"[]", payload_bytes=2, payload_rows=0)
-        live_store.release(never.id)
-        with request_headers({PRINCIPAL_HEADER: PRINCIPAL_A}):
-            stranger = _serve(mcp, "map", {"input": {"ref": ids[2]},
-                                           "authority": {"note": "2"}})
-            unknown = _serve(mcp, "map", {"input": {"ref": never.id},
-                                          "authority": {"note": "2"}})
+    world["store"].release(never.id)
+    stranger = _serve(world["mcp"], "map", {"input": {"ref": set_id},
+                                            "authority": {"note": "b"}})
+    unknown = _serve(world["mcp"], "map", {"input": {"ref": never.id},
+                                           "authority": {"note": "b"}})
     assert own["served_from"] == "retained_answer"
     assert stranger.isError and unknown.isError
-    assert result_text(stranger).replace(ids[2], "ID") == result_text(unknown).replace(
+    assert result_text(stranger).replace(set_id, "ID") == result_text(unknown).replace(
         never.id, "ID")
-    principals = {entry.principal_key for entry in live_store._entries.values()}  # noqa: SLF001
-    assert len(principals) == 1 and None not in principals
-    assert live_store.count() == 2
-    assert len(adapter.calls) == 3
+    assert len(world["adapter"].calls) == 1
 
 
 # ---------------------------------------------------------------- next (#3666, Live build 3)
@@ -1696,6 +1772,70 @@ def test_an_expired_or_lost_next_token_says_so_and_names_the_call_that_asks_agai
     assert lost["data"]["reason"] == "store_lost"
     assert "restarted" in lost["message"]
     assert len(world["adapter"].calls) == 1
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("mode,state", [("audit", True), ("enforce", True), ("unknown", None)])
+def test_next_on_a_kept_live_answer_is_refused_under_access_rules(world, mode, state) -> None:
+    from tests.substrate.mcp._result_payload import payload
+
+    token = payload(_cut_expand(world))["external_live"]["next"]
+    assert len(world["adapter"].calls) == 1
+    before = len(_samples(world["dsn"], world["hub"]))
+    world["mcp"]._okg_access_rules_state = lambda: state
+    try:
+        error = _refused(world["mcp"], "expand", {"next": token})
+    finally:
+        del world["mcp"]._okg_access_rules_state
+    assert error["code"] == "live_refused_under_access_rules"
+    assert error["data"]["reason"] == ("access_rules_on" if state else "access_rules_unknown")
+    assert len(world["adapter"].calls) == 1, "no second adapter call"
+    assert len(_samples(world["dsn"], world["hub"])) == before, "no new sample"
+
+
+#: One read of a kept live answer by its id, per tool that reads one.
+KEPT_READS: dict[str, dict[str, Any]] = {
+    "filter": {"predicate": {"op": "prefix", "field": "attrs.name", "value": "row-0"},
+               "limit": 5},
+    "map": {"limit": 5},
+    "aggregate": {"by": [], "metrics": ["count"]},
+}
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("tool", sorted(KEPT_READS))
+@pytest.mark.parametrize("mode,state", [("audit", True), ("enforce", True), ("unknown", None)])
+def test_a_kept_live_answer_is_not_read_once_access_rules_are_on(world, tool, mode, state) -> None:
+    """#3666 review M2. A set kept while the access rules were off is not
+    served by filter, map or aggregate once they are on (or cannot be told),
+    as `expand(next)` is not: refused by name, no row, no sample, no call."""
+    set_id = _retain(world)["result_reference"]["id"]
+    arguments = {"input": {"ref": set_id}, **KEPT_READS[tool]}
+    # Control: with the rules off, the same read is served from the set.
+    served = _ok(world["mcp"], tool, arguments)
+    assert served.get("items") or served.get("groups"), served
+    before = len(_samples(world["dsn"], world["hub"]))
+    world["mcp"]._okg_access_rules_state = lambda: state
+    try:
+        result = _serve(world["mcp"], tool, arguments)
+    finally:
+        del world["mcp"]._okg_access_rules_state
+    from tests.substrate.mcp._result_payload import payload
+
+    body = payload(result)
+    assert result.isError is True, str(body)[:600]
+    error = body["error"]
+    assert error["code"] == "live_refused_under_access_rules", error
+    assert error["data"]["reason"] == ("access_rules_on" if state else "access_rules_unknown")
+    assert error["data"]["tool_called"] == tool
+    assert not body.get("items") and not body.get("groups"), "no row served"
+    assert "row-0" not in json.dumps(body), "no kept row in the refusal"
+    assert len(world["adapter"].calls) == 1, "no adapter call"
+    assert len(_samples(world["dsn"], world["hub"])) == before, "no new sample"
+    # Rules off again: the set was not dropped and reads as before.
+    again = _ok(world["mcp"], tool, arguments)
+    assert again.get("items") == served.get("items")
+    assert again.get("groups") == served.get("groups")
 
 
 @pytest.mark.postgres

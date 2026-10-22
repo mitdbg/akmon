@@ -805,6 +805,9 @@ class DeploymentManifest:
     aliases: Path | None
     link_config: dict | None = None
     mcp_instructions: Path | None = None
+    # `citation_attr` (PACT read-names-list-3666): the record attribute a
+    # reader cites; `okg.substrate.mcp.citation_id` serves it on read rows.
+    citation_attr: str | None = None
     skills_dir: Path | None = None
     mcp_trace_path: Path | None = None
     audit_questions: Path | None = None
@@ -1270,6 +1273,7 @@ class DeploymentManifest:
             mcp_instructions=(
                 _resolve("mcp_instructions") or _resolve_surface_instructions()
             ),
+            citation_attr=_citation_attr(raw, manifest_path),
             skills_dir=_resolve("skills_dir"),
             mcp_trace_path=(
                 deployment_dir / raw["mcp_trace_path"]
@@ -1559,6 +1563,28 @@ def _resolve_postgres_dsn(raw: dict) -> str | None:
 
 
 _IDLE_IN_TRANSACTION_KEY = "idle_in_transaction_session_timeout_ms"
+
+
+_CITATION_ATTR_FORM = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
+
+
+def _citation_attr(raw: dict, manifest_path: Path) -> str | None:
+    """Read top-level ``citation_attr`` (PACT read-names-list-3666).
+
+    The name of the record attribute a reader cites. Absent or null means
+    none. Any other value that is not one attribute name refuses at load,
+    so a typo never reads as "no citation id"."""
+    value = raw.get("citation_attr")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not _CITATION_ATTR_FORM.match(value):
+        raise DeploymentConfigError(
+            f"deployment.yaml citation_attr must be one attribute name "
+            f"(letters, digits, _ . -), got {value!r}. Name the attribute "
+            f"a reader cites, e.g. `citation_attr: dsid`, or remove the key. "
+            f"(Manifest: {manifest_path})"
+        )
+    return value
 
 
 def _resolve_idle_in_transaction_timeout_ms(

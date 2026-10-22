@@ -382,7 +382,15 @@ async def test_the_read_tools_publish_far_fewer_tokens(lean, full):
     # Then 2,927 (+29, read-reply-size-3666): search's description says
     # "Read narrow first: ids and titles (select=[...] or a small limit),
     # then read the records that matter."
-    assert after == 2_927, after
+    # Then 2,973 (+46, read-search-caps-3666): search's description gains
+    # the within="record" sentence and its schema the `within` enum.
+    # Then 3,005 (+32, read-aggregate-variants-3666): aggregate's
+    # description names norm(match), words(match) and the capture group.
+    # Then 3,026 (+21, read-names-list-3666): search's description gains
+    # the grep names-list sentence.
+    # Then 3,108 (+82, read fixes): live `each`, kept-answer
+    # sum/min/max, and inspect text `matching`.
+    assert after == 3_108, after
     assert before - after >= 1_200, (before, after)
 
 
@@ -726,13 +734,18 @@ def test_nothing_is_offered_when_no_selected_name_is_a_row_field():
                                      "select": ["title", "dst"]})
     assert not any(r["rule"] == "select_renamed" for r in expand.adjusted)
     assert expand.select_retry is None
-    # A grep list row has no handle: `title` means nothing there, and the
-    # fixed-row refusal names the row's fields (a view call is not offered).
+    # A grep list row names its record by its handle (PACT
+    # read-names-list-3666): `title` is served as the handle there now. A
+    # name no grep list row holds is still refused with the row's fields (a
+    # view call is not offered).
     from okg.substrate.mcp.read_grammar import GrammarRefusal
 
+    listed = rewrite_call("search", {"query": "deploy", "method": "grep", "view": "list",
+                                     "select": ["node_id", "title"]})
+    assert any(r["rule"] == "select_renamed" for r in listed.adjusted)
     with pytest.raises(GrammarRefusal) as caught:
         rewrite_call("search", {"query": "deploy", "method": "grep", "view": "list",
-                                "select": ["node_id", "title"]})
+                                "select": ["node_id", "label"]})
     assert caught.value.code == "select_unknown_field"
     assert "matches" in caught.value.select_data["valid_fields"]
     assert caught.value.retry_arguments is None

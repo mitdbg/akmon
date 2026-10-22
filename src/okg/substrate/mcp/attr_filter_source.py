@@ -43,6 +43,7 @@ from psycopg.rows import dict_row
 
 from okg.substrate import declared_attr_indexes as dai
 from okg.substrate.errors import SubstrateError
+from okg.substrate.mcp.run_steps import names_run_values
 
 log = logging.getLogger(__name__)
 
@@ -176,6 +177,10 @@ def pushable_clauses(predicate: Any, declared: Mapping[str, str]) -> list[Pushab
             continue
         op = str(clause["op"])
         value = clause.get("values") if op in ("in", "between") else clause.get("value")
+        if op == "in" and names_run_values(value):
+            # A `run` step's value list (#3666) is a subquery, not values an
+            # index can look up; the exact condition decides it.
+            continue
         out.append(PushableClause(attr, value_type, op, value))
     return out
 

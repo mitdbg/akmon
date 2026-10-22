@@ -173,6 +173,35 @@ def test_admission_cause_shows_a_bare_reject_code(tmp_path: Path) -> None:
     assert guided_add._admission_cause(cause, registry) == cause
 
 
+def test_admission_cause_keeps_the_code_and_the_connector_reason(
+    tmp_path: Path,
+) -> None:
+    # #3927: a health rejection appends the connector's reason in brackets.
+    registry = tmp_path / "source_registry.yaml"
+    cause = (
+        "source admission rejected: source_health_not_healthy (the connector "
+        "reported endpoint_failed: harvest incomplete; no complete scope "
+        "claimed)"
+    )
+    assert guided_add._admission_cause(cause, registry) == cause
+
+
+def test_admission_cause_masks_a_secret_in_the_connector_reason(
+    tmp_path: Path,
+) -> None:
+    registry = tmp_path / "source_registry.yaml"
+    secret = "ghp_" + "A1b2C3d4" * 5
+    shown = guided_add._admission_cause(
+        "source admission rejected: source_health_not_healthy (the connector "
+        f"reported auth_failed: bad token {secret})",
+        registry,
+    )
+    assert secret not in shown
+    assert shown.startswith(
+        "source admission rejected: source_health_not_healthy ("
+    )
+
+
 # Fake values built at run time; the ids keep them out of test reports.
 @pytest.mark.parametrize("secret", [
     pytest.param("ghp_" + "A1b2C3d4" * 5, id="github-token-shape"),
@@ -1656,7 +1685,7 @@ def test_a_scan_that_stopped_early_plans_every_standard_reader(
     _write_empty_extractors(deployment)
     plan = _plan(deployment, settings={"root": str(_big_folder(tmp_path))})
     assert plan.preview["scope"]["files_matched_is_lower_bound"] is True
-    assert plan.reader_formats == ["markdown", "text", "json", "yaml"]
+    assert plan.reader_formats == ["markdown", "text", "json", "yaml", "pdf"]
     readers = next(d for d in plan.decisions if d["kind"] == "file_readers")
     assert "parser json" in readers["changes"]
 

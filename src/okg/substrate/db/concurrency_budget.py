@@ -247,6 +247,38 @@ _TERMS: dict[str, ConcurrencyTerm] = {
             ),
         ),
         ConcurrencyTerm(
+            name="live.upstream_per_binding",
+            default_width=8,
+            connections_per_worker=0,
+            counts_against_connections=False,
+            env_var="OKG_LIVE_UPSTREAM_PER_BINDING",
+            description=(
+                "Upstream calls in flight to ONE bound external system (one "
+                "endpoint), from every caller in the MCP process: a direct "
+                "live call, each value of a direct `each` fan-out, and each "
+                "value of a `run` live step share it. "
+                "Before it, every fan-out ran its own pool, so 8 calls in "
+                "flight could each fan out 8 more. Holds no database "
+                "connection: a slot is a thread waiting on somebody else's "
+                "system."
+            ),
+        ),
+        ConcurrencyTerm(
+            name="live.run_waits",
+            default_width=4,
+            connections_per_worker=0,
+            counts_against_connections=False,
+            env_var="OKG_LIVE_RUN_WAITS",
+            description=(
+                "`run` live steps waiting on their upstream calls. "
+                "A run prepares a live step on a call worker, waits "
+                "for its calls on this executor, and writes the call sample "
+                "on a call worker again, so a minute-long fan-out never holds "
+                "a call worker or a database connection while it waits. "
+                "These threads open no connection."
+            ),
+        ),
+        ConcurrencyTerm(
             name="views.recheck_judge",
             default_width=8,
             connections_per_worker=0,

@@ -35,7 +35,10 @@ Every agent's configuration says the same things: the command (`okg`, by its
 absolute path, which `command -v okg` prints; apps started from a desktop
 often do not see your shell's `PATH`), the arguments
 (`mcp-serve --deployment <name>`), and, only when needed, an environment
-variable or two.
+variable or two. The entries `okg agent connect` writes wrap that command in
+`agent-runtime-launch`, which builds a clean environment for the server and
+checks the agent's permissions before it runs `mcp-serve`. The server it
+starts is the one in the hand-written entry.
 
 ## Give the server its database login
 
@@ -49,8 +52,8 @@ It sets random passwords for the read-only account and the write account,
 proves each login, and records them in a file only you can read, under
 `~/.config/okg/role-secrets/`. It ends with `ok: True`. The server reads
 that file itself, so no password goes into any agent's configuration. A
-read-only server can read the file too, including the write password. For a database on another host, an administrator sets
-the passwords instead; see the
+read-only server can read the file too, including the write password. For a
+database on another host, an administrator sets the passwords instead; see the
 [Quickstart](../../start/quickstart.md#4-connect-your-agent), "A database on
 another host".
 
@@ -69,6 +72,12 @@ to use the graph well). If the check fails, it writes nothing and prints the
 fix. Start a new session in each agent afterwards; quit Claude Desktop before
 you connect it, then reopen it.
 
+- If Codex is not installed, connect can still report it as `connected` and
+  write its configuration file, because the install step may already have
+  created Codex's folder. Pass `--agent <your agent>`. If none of the
+  four is installed, install one first, or
+  use [Connect any other agent](#connect-any-other-agent) to write the entry
+  by hand.
 - `--agent <agent>` (repeatable) picks agents: `claude-code`,
   `claude-desktop`, `cursor` or `codex`. Without it, agents it cannot find
   are reported as `not found`.

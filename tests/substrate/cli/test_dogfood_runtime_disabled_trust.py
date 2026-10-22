@@ -1,15 +1,15 @@
 """A deployment that turns its runtime off on purpose is not "unavailable".
 
 PACT `trust-level-runtime-disabled` (issues #2987, #2502). A bundle-installed
-deployment such as cms-kb declares ``runtime: {enabled: false}`` and ingests
+deployment such as example-kb declares ``runtime: {enabled: false}`` and ingests
 by hand or by reconcile. On dev, ``okg dogfood status`` still demanded a
 runtime worker process and DBOS queue history for it, so ``trust_level`` read
 ``unavailable`` and every chat site showed a red health banner.
 
 Every test here drives the real status command (``_cmd_dogfood_status``, the
 function ``okg dogfood status --json`` runs) with the live probes stubbed to
-the shape lane A captured from the real cms-kb deployment on 2026-09-29
-(okg dev f5f7c81ca3, deployment ``lane-a-cmskb``). The runtime declaration is
+the shape lane A captured from the real example-kb deployment on 2026-09-29
+(okg dev f5f7c81ca3, deployment ``lane-a-examplekb``). The runtime declaration is
 read from a real ``deployment.yaml`` on disk.
 """
 from __future__ import annotations
@@ -31,9 +31,9 @@ from okg.substrate.chat.health_banner import (
 )
 from okg.substrate.cli import dogfood as dogfood_cli
 
-DEPLOYMENT = "lane-a-cmskb"
+DEPLOYMENT = "lane-a-examplekb"
 GENERATION_ID = (
-    "okg:lane-a-cmskb:branch:default:gen:20260928T030402054545Z:6de225750f0f"
+    "okg:lane-a-examplekb:branch:default:gen:20260928T030402054545Z:6de225750f0f"
 )
 
 # --- The captured shape (trimmed to the fields the status builder reads) ----

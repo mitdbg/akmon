@@ -1367,7 +1367,9 @@ def _body(token: str) -> dict:
     import json
     import zlib
 
-    body = token.split(".", 1)[0]
+    from okg.substrate.mcp.continuation import full_token
+
+    body = full_token(token).split(".", 1)[0]
     return json.loads(zlib.decompress(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))))
 
 
@@ -1452,9 +1454,11 @@ def test_enforce_continuations_list_every_record_once_in_order(
         status = render(page, tool="search").split("\n")
         assert " of 0+" not in status[0]
         if not page["results"]:
-            # An empty page only says the bound was reached, or ends the chain.
+            # An empty page only says how far the scan read (lane ri, tokens;
+            # "bound reached" when it does not say), or ends the chain.
             assert (
                 "bound reached, no records on this page" in status[0]
+                or " · no match in the " in status[0]
                 or number == len(pages) - 1
             )
         assert page["offset"] == seen
@@ -1478,7 +1482,11 @@ def test_an_offset_page_past_the_bound_continues_where_its_scan_stopped(
     deep = _grep(clean_runtime, deployment, PHRASE, subject=READER, limit=2, offset=4)
     assert deep["results"] == [] and deep["page_basis"] == "scan_bound_reached"
     text = render(deep, tool="search")
-    assert "bound reached, no records on this page" in text.split("\n")[0]
+    # Lane ri, tokens: the empty page says how far its scan read, never only
+    # "no records on this page", which agents read as no match.
+    read = deep["grep_searched"]["bound_read"]["rows"]
+    assert f"no match in the first {read:,} " in text.split("\n")[0]
+    assert ", more may follow" in text.split("\n")[0]
     # `search` takes no `next`: the ending names the argument the token goes
     # back as, so following the status line works.
     assert (

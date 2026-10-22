@@ -3,7 +3,7 @@
 okg resolves the idle-in-transaction bound from `OKG_IDLE_IN_TRANSACTION_TIMEOUT_MS`,
 then the deployment manifest key `postgres.idle_in_transaction_session_timeout_ms`,
 then the 5-minute default. Chronos's adapter factory used the bare default and
-ignored both, so a cms-kb re-ingest configured for two hours had its Chronos
+ignored both, so an example-kb re-ingest configured for two hours had its Chronos
 session killed after five minutes idle (SQLSTATE 25P03).
 
 Every assertion reads the value the SERVER applied (`SHOW
@@ -127,7 +127,7 @@ def test_chronos_session_honours_the_env_override(
     okg_migrated: str, clean_bound_config: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The value cms-kb runs with: two hours.
+    # The value example-kb runs with: two hours.
     monkeypatch.setenv(conn_mod.IDLE_IN_TRANSACTION_TIMEOUT_ENV, "7200000")
 
     assert _chronos_adapter_bound(okg_migrated) == "2h"

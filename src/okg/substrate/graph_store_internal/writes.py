@@ -3606,7 +3606,7 @@ class ChronosGraphWriteMixin:
             f"""
             SELECT edge_id, src, dst, edge_type, attrs
             FROM okg.graph_edges
-            WHERE src = ANY(:node_ids) OR dst = ANY(:node_ids)
+            WHERE (src = ANY(:node_ids) OR dst = ANY(:node_ids))
             {source_clause}
             """,
             {"node_ids": list(node_ids), "source": source},

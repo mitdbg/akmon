@@ -99,7 +99,7 @@ def test_a_changed_runbook_subject_is_caught() -> None:
     start = text.index(RECIPE_HEADING)
     section = text[start:]
     edited = text[:start] + section.replace(
-        "--subject subject:mcp_client", "--subject subject:cms-kb:reader", 1,
+        "--subject subject:mcp_client", "--subject subject:example-kb:reader", 1,
     )
     assert edited != text
     assert parse_runbook_recipe(edited) != documented_recipe()

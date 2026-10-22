@@ -44,7 +44,10 @@ from okg.substrate.errors import SubstrateError
 from okg.substrate.mcp.call_read_cache import call_read_cache
 from okg.substrate.mcp.excerpt_window import UNIT_WHOLE_CHARS
 import okg.substrate.mcp.result_references as result_references
+import okg.substrate.mcp.live_resolver as _live_resolver
 from okg.substrate.mcp.operator_models import as_mapping, refuse_substring_contains
+from okg.substrate.mcp.run_steps import note_payload as _note_run_payload
+from okg.substrate.mcp.run_steps import STEP_OPERATORS as _SET_TOOLS
 from okg.substrate.mcp.read_grammar import GrammarRefusal, render_call, rewrite_call
 from okg.substrate.mcp.result_text import (
     RESULT_FORMAT_META_KEY,
@@ -1843,7 +1846,51 @@ _RETRY_ARGUMENTS: dict[str, frozenset[str]] = {
         "input", "edge_type", "direction", "filter", "limit", "offset", "select",
     }),
     "aggregate": frozenset({"input", "by", "metrics", "limit", "offset"}),
+    # Only the grammar's own offer of a flat `kind`/`node_id` call moved into
+    # `target` (issue #3961); `_inspect_call_servable` checks it.
+    "inspect": frozenset({"target", "select", "generation_id"}),
 }
+
+
+def _inspect_call_servable(arguments: Mapping[str, Any]) -> bool:
+    """Whether an `inspect` call a refusal offers names a subject the read takes.
+
+    The target must be an object with a known `kind` and, for a record
+    read, a text `node_id`. A `select` is offered only where it names what
+    the kind selects from (a record's fields, the graph's blocks): the tool
+    body checks the names, and an offered call is never refused itself.
+    """
+    from okg.substrate.mcp.operator_models import (
+        INSPECT_KIND_ALIASES,
+        INSPECT_TARGET_KINDS,
+    )
+    from okg.substrate.mcp.tools import _GET_NODE_FIELDS, INSPECT_GRAPH_BLOCKS
+
+    target = arguments.get("target")
+    if not isinstance(target, Mapping):
+        return False
+    kind = target.get("kind")
+    if not isinstance(kind, str) or (
+        INSPECT_KIND_ALIASES.get(kind, kind) not in INSPECT_TARGET_KINDS
+    ):
+        return False
+    if kind in ("node", "text", "attr") and not (
+        isinstance(target.get("node_id"), str) and target["node_id"]
+        or isinstance(target.get("path"), str) and target["path"]
+    ):
+        return False
+    select = arguments.get("select")
+    if select is None:
+        return True
+    if not isinstance(select, list) or not select or not all(
+        isinstance(name, str) for name in select
+    ):
+        return False
+    if kind in ("node", "nodes"):
+        return set(select) <= set(_GET_NODE_FIELDS)
+    if kind == "graph":
+        return set(select) <= set(INSPECT_GRAPH_BLOCKS)
+    return False
 
 
 def _plain_group_keys(by: Any, metrics: Any, scope: Mapping[str, Any]) -> bool:
@@ -1938,7 +1985,7 @@ def _proven_servable(
                 or (field.startswith("attrs.") and len(field) > len("attrs."))
             ):
                 return False
-    elif arguments.get("select") is not None:
+    elif arguments.get("select") is not None and name != "inspect":
         # Every name must be a field this call's own rows have: the check
         # the tool body makes on `select` (step 3a).
         from okg.substrate.mcp.select_vocabulary import served_as_selected
@@ -2013,6 +2060,8 @@ def _proven_servable(
             isinstance(leaf.get("field"), str) and leaf["field"].startswith("date")
             for leaf in _condition_leaves(arguments.get("where"))
         )
+    if name == "inspect":
+        return _inspect_call_servable(arguments)
     conditions: list[Any]
     if name == "expand":
         start = arguments.get("input")
@@ -2089,11 +2138,14 @@ def _rewrite_operator_call(
     *, accepts: Callable[[str, dict[str, Any]], bool] | None = None,
     search_methods: frozenset[str] | None = None,
     access_rules_on: Callable[[], bool] | None = None,
+    restartable: Callable[[str, dict[str, Any]], bool] | None = None,
 ) -> tuple[Any, "_CallRewrite | None"]:
     """The call a read operator is given, and what the rewrite did.
 
     `search_methods` is the search methods this server serves, when known:
     a `select` note then never names a method the caller would be refused.
+    `restartable` says whether a refused call's own arguments without its
+    continuation token are taken (`_continuation_intake`).
 
     Only the read operators are rewritten. A refusal is carried, not raised:
     it is served where argument refusals are, after authorization.
@@ -2178,15 +2230,214 @@ def _rewrite_operator_call(
         }
         if len(json.dumps(candidate, default=str)) <= _RETRY_CALL_BYTES:
             select_retry = candidate
-    return rewritten.arguments, _CallRewrite(
-        adjusted=rewritten.adjusted, spellings=rewritten.spellings,
+    served, token_notes, token_refusal = _continuation_intake(
+        name, arguments, rewritten.arguments,
+        accepts=_restart_check(name, accepts, restartable),
+    )
+    if token_refusal is not None:
+        return arguments, _CallRewrite(refusal=token_refusal)
+    return served, _CallRewrite(
+        adjusted=(*rewritten.adjusted, *token_notes), spellings=rewritten.spellings,
         row_keys=rewritten.row_keys, select_retry=select_retry,
         sent_select=rewritten.sent_select,
         arguments=(
-            dict(rewritten.arguments)
-            if isinstance(rewritten.arguments, Mapping) else None
+            dict(served)
+            if isinstance(served, Mapping) else None
         ),
     )
+
+
+def _restart_check(
+    name: str,
+    accepts: Callable[[str, dict[str, Any]], bool] | None,
+    restartable: Callable[[str, dict[str, Any]], bool] | None,
+) -> Callable[[str, dict[str, Any]], bool] | None:
+    """What a restart offer must pass before a token refusal offers it.
+
+    The proof a retry offer needs (`accepts`, `_okg_takes_as_written`),
+    which also runs the checks the tool body makes on its arguments, so an
+    offered restart is never itself refused for them (lane ri, tokens: a
+    restart of `expand(order_by="date.created desc", ...)` was). The proof
+    covers no inspect call, and a path read's `path` and `depth`: those
+    are offered when the rewrite and the argument model take them
+    (`restartable`), the checks inspect and a path read make without a
+    read.
+    """
+    if accepts is None or restartable is None:
+        return accepts if accepts is not None else restartable
+
+    def check(tool: str, candidate: dict[str, Any]) -> bool:
+        if accepts(tool, candidate):
+            return True
+        unproven = tool == "inspect" or (
+            tool == "expand" and (candidate.get("path") is not None or "depth" in candidate)
+        )
+        return unproven and restartable(tool, candidate)
+
+    return check
+
+
+#: Tools whose `next` argument takes a signed continuation token.
+_NEXT_TOOLS = frozenset({"inspect", "expand", "filter", "map"})
+
+#: The argument a restarted read cannot do without, per tool: a restart
+#: offered without it would itself be refused.
+_RESTART_NEEDS: dict[str, tuple[str, ...]] = {
+    "inspect": ("target",),
+    "expand": ("input",),
+    "filter": ("input", "where", "predicate"),
+    "map": ("input", "where"),
+    "search": ("query",),
+}
+
+#: Token refusals a restart answers: the token does not open here. A token
+#: for another tool or kind keeps its own retry (`call expand(next=...)`).
+_RESTART_REASONS = frozenset({
+    "malformed", "signature_invalid", "payload_invalid", "version_invalid",
+    "signing_key_changed", "token_unknown",
+})
+
+
+def _continuation_intake(
+    name: str, sent: Any, arguments: Any,
+    *, accepts: Callable[[str, dict[str, Any]], bool] | None = None,
+) -> tuple[Any, tuple[dict[str, str], ...], SubstrateError | None]:
+    """Check a call's continuation token before anything else reads the call.
+
+    Lane ri, tokens: nine lab runs passed 96 tokens back; 40 were refused,
+    and 22 of those refusals named an argument beside `next` while the real
+    fault was the token (made up, or miscopied), so the retry the refusal
+    asked for failed again. Here, first:
+
+    - a `next` (inspect, expand, filter, map) or `continuation_token`
+      (search, expand, an inspect target) that does not open is refused by
+      its own reason, with the opaque-token hint and, when the caller's own
+      arguments form a read, the call that restarts it (`retry_call`, mode
+      `restart`);
+    - arguments beside a `next` that opens and that repeat what the token
+      already reads are read as `next` alone, with an `adjusted` note. An
+      argument naming a different read is left for the tool to refuse.
+
+    Pure on the arguments (the token check is a signature check). Returns
+    `(arguments, notes, refusal)`. A live answer's `next` (expand) is the
+    live page's to check.
+    """
+    from okg.substrate.mcp.continuation import (
+        ContinuationTokenInvalid,
+        open_continuation,
+        repeated_read_arguments,
+        route_next,
+    )
+
+    if not isinstance(arguments, Mapping):
+        return arguments, (), None
+    token = arguments.get("next")
+    if name in _NEXT_TOOLS and token is not None and not (
+        name == "expand" and _is_live_next(token)
+    ):
+        try:
+            binding = route_next(token, tool=name)
+        except ContinuationTokenInvalid as exc:
+            return arguments, (), _token_refusal(
+                name, exc, sent=sent, served=arguments, slot="next", accepts=accepts,
+            )
+        names = repeated_read_arguments(name, arguments, binding)
+        if not names:
+            return arguments, (), None
+        note = {
+            "rule": "next_repeats_read",
+            "sent": ", ".join(f"`{n}`" for n in names) + " beside `next`",
+            "served": "`next` alone, which already reads "
+            + ("it" if len(names) == 1 else "them"),
+        }
+        return {k: v for k, v in arguments.items() if k not in names}, (note,), None
+    slot: str | None = None
+    # Only grep pages issue search tokens: a token sent to search with
+    # another method keeps that method's own refusal (`continuation_token_
+    # not_applicable`), and one sent with no method is read as grep only
+    # when it opens (`read_continuation_method`).
+    takes_token = name == "expand" or (name == "search" and arguments.get("method") == "grep")
+    if takes_token and arguments.get("continuation_token") is not None:
+        slot, token = "continuation_token", arguments["continuation_token"]
+    elif name == "inspect":
+        target = arguments.get("target")
+        if isinstance(target, Mapping) and target.get("continuation_token") is not None:
+            slot, token = "target.continuation_token", target["continuation_token"]
+    if slot is None:
+        return arguments, (), None
+    try:
+        open_continuation(token)
+    except ContinuationTokenInvalid as exc:
+        return arguments, (), _token_refusal(
+            name, exc, sent=sent, served=arguments, slot=slot, accepts=accepts,
+        )
+    return arguments, (), None
+
+
+def _without_token(arguments: Mapping[str, Any], slot: str) -> dict[str, Any]:
+    """`arguments` without the token in `slot` and without `authority`."""
+    out = {k: v for k, v in arguments.items() if k not in ("authority", "next")}
+    if slot == "continuation_token":
+        out.pop("continuation_token", None)
+        out.pop("offset", None)
+    elif slot == "target.continuation_token" and isinstance(out.get("target"), Mapping):
+        out["target"] = {
+            k: v for k, v in out["target"].items() if k != "continuation_token"
+        }
+    return out
+
+
+def _token_refusal(
+    name: str, exc: SubstrateError, *, sent: Any, served: Mapping[str, Any],
+    slot: str, accepts: Callable[[str, dict[str, Any]], bool] | None,
+) -> SubstrateError:
+    """`exc` with the call that restarts the read, when there is one.
+
+    The restart is the caller's own call without the token: as sent, or
+    else as the rewrite read it, whichever the server takes as written. A
+    call that names no read (`inspect(next="x")`) gets no restart: the hint
+    says to copy the token, or to start the read without one.
+    """
+    from okg.substrate.mcp.continuation import OPAQUE_REASONS
+    from okg.substrate.mcp.read_grammar import render_call
+
+    data = getattr(exc, "data", None)
+    reason = data.get("reason") if isinstance(data, dict) else None
+    if reason not in _RESTART_REASONS:
+        return exc
+    needs = _RESTART_NEEDS.get(name, ())
+    copy_hint = (
+        "pass the token exactly as the reply printed it after `next:` (a "
+        "token is opaque: never build, shorten or edit one)"
+    )
+    for source in (sent, served):
+        if not isinstance(source, Mapping):
+            continue
+        candidate = _without_token(source, slot)
+        if not any(candidate.get(key) is not None for key in needs):
+            continue
+        if accepts is not None and not accepts(name, candidate):
+            continue
+        repeat = ["authority"] if "authority" in source else []
+        call = {
+            "tool": name, "mode": "restart", "arguments": candidate,
+            **({"repeat": repeat} if repeat else {}),
+        }
+        if len(json.dumps(call, default=str)) > _RETRY_CALL_BYTES:
+            continue
+        spelled = render_call(name, candidate)
+        if repeat:
+            spelled += ", with the same authority"
+        restart = (
+            f"restart the read: {spelled}" if len(spelled) <= _RETRY_CALL_CHARS
+            else "restart the read with the call in retry_call"
+        )
+        exc.fix_hint = (
+            f"{copy_hint}, or {restart}" if reason in OPAQUE_REASONS else restart
+        )
+        exc.retry_call = call
+        return exc
+    return exc
 
 
 _UNSET = object()
@@ -2351,6 +2602,28 @@ class _RawResultFastMCP(FastMCP):
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         context = self.get_context()
         tool = self._tool_manager.get_tool(name)
+        handler = getattr(self, "_okg_run_handler", None)
+        if name == "run" and tool is not None and handler is not None:
+            # `run` (#3666): its steps are dispatched through this server's
+            # own `call_tool`, each as a call of its own.
+            return await handler(self, arguments)
+        resolved = None
+        if (
+            tool is not None and name in _live_resolver.RESOLVED_TOOLS
+            and getattr(self, "_okg_live_types", None) is not None
+        ):
+            # A read of a live type (#3666, live-graph-rucio-sites): resolved
+            # here, after the rewrite, the tool-name gate and validation, and
+            # before the tool body, in run's three phases (no call worker or
+            # connection held while the upstream system answers). A call that
+            # reaches no live type passes through unchanged.
+            outcome = await _live_resolver.resolve(self, name, arguments)
+            if isinstance(outcome, dict):
+                # The tool body's own argument refusal, from the shared
+                # pre-check, before any upstream call.
+                return outcome
+            if outcome is not None:
+                arguments, resolved = outcome
         if tool is not None and not tool.is_async:
             # The same `Tool.run` (argument validation, context injection, the
             # ToolError wrapping callers unwrap), on a per-call copy whose
@@ -2361,6 +2634,12 @@ class _RawResultFastMCP(FastMCP):
                 return await self._okg_run_blocking(sync_fn, **kwargs)
 
             tool = tool.model_copy(update={"fn": offloaded, "is_async": True})
+            if resolved is not None:
+                # The rows reach the tool body's own draft scope through a
+                # context variable (B4'): `run_sync_in_request_context` copies
+                # the context into the worker.
+                with _live_resolver.handoff_scope(resolved):
+                    return await tool.run(arguments, context=context, convert_result=False)
             return await tool.run(arguments, context=context, convert_result=False)
         return await self._tool_manager.call_tool(
             name, arguments, context=context, convert_result=False,
@@ -2874,6 +3153,23 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
         except Exception:  # noqa: BLE001 - any refusal of the candidate means no offer.
             return False
 
+    def _okg_restartable(self, name: str, arguments: dict[str, Any]) -> bool:
+        """Whether a refused call's own arguments, without its token, pass
+        the rewrite, the declared-argument check and the argument model.
+
+        What a restart offer needs (lane ri, tokens): the call is the
+        caller's own, refused only for its token, so it is offered when the
+        checks that need no read take it; `_okg_takes_as_written` is for a
+        corrected call, and proves too little for inspect and path reads.
+        """
+        try:
+            rewritten = rewrite_call(name, arguments)
+            self._refuse_unknown_operator_arguments(name, rewritten.arguments)
+            self._validate_operator_arguments(name, rewritten.arguments)
+        except Exception:  # noqa: BLE001 - any refusal of the restart means no offer.
+            return False
+        return True
+
     def _refuse_query_under_access_rules(self, name: str) -> None:
         """Refuse `query` plainly where access rules are on (issue #3666).
 
@@ -2942,6 +3238,19 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
         name: str,
         arguments: dict[str, Any],
     ) -> Any:
+        """One call: a read call naming a set (``$r7``) or asking ``retain``
+        goes through the set hook (issue #3666), which serves it through
+        ``_okg_call_tool_plain``; every other call goes there directly."""
+        hook = getattr(self, "_okg_sets_hook", None)
+        if hook is not None and name in _SET_TOOLS:
+            return await hook(self, name, arguments, self._okg_call_tool_plain)
+        return await self._okg_call_tool_plain(name, arguments)
+
+    async def _okg_call_tool_plain(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> Any:
         """Dispatch one call and serve its result once, in the call's format.
 
         The format comes from the request ``_meta`` key ``okg/result_format``
@@ -2965,6 +3274,7 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
             name, arguments, accepts=self._okg_takes_as_written,
             search_methods=frozenset(available()) if callable(available) else None,
             access_rules_on=self._okg_access_rules_on,
+            restartable=self._okg_restartable,
         )
         token = _CALL_REWRITE.set(rewrite)
         try:
@@ -2976,7 +3286,12 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
             )
             # Result references a read drafts are committed only at the served
             # point below (`commit_served`); the scope releases the rest.
-            with result_context(context), result_references.serve_scope():
+            # A live read's resolved rows are held for the whole MCP call, so
+            # a second entry (the bare-select retry) calls nothing (R4').
+            with (
+                result_context(context), result_references.serve_scope(),
+                _live_resolver.holder_scope(),
+            ):
                 return await self._okg_call_and_serve(name, arguments)
         finally:
             _CALL_REWRITE.reset(token)
@@ -3168,7 +3483,10 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
             served = self._okg_serve_result(name, arguments, result)
             # Inside the try: a capacity refusal at commit is served as a
             # typed refusal like any other raised error.
-            result_references.commit_served(served)
+            committed = result_references.commit_served(served)
+            # A grown live set replaces the one it grew from only now that
+            # it is stored (#3666, N6).
+            _live_resolver.after_commit(committed)
             pending = _PENDING_IMAGES.get()
             # A returned refusal is served with isError set
             # (`_okg_serve_result`), so this is exactly a successful call.
@@ -3292,7 +3610,8 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
             # served as the model's own JSON dump, as the SDK would have.
             result = result.model_dump(mode="json", by_alias=True)
         if isinstance(result, CallToolResult):
-            if name in OPERATOR_TOOLS:
+            if name in OPERATOR_TOOLS and name != "run":
+                # `run` (#3666) serves its steps' own served results, joined.
                 raise ToolResultShapeChanged(
                     f"{name} returned a prebuilt CallToolResult where the raw "
                     "operator dictionary was expected",
@@ -3324,6 +3643,8 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
                 return result
             return tool.fn_metadata.convert_result(result)
         payload = result
+        # A step of `run` (#3666): its raw reply, for the steps after it.
+        _note_run_payload(payload)
         tool = self._tool_manager.get_tool(name)
         metadata = getattr(tool, "fn_metadata", None)
         output_model = getattr(metadata, "output_model", None)
@@ -3507,9 +3828,29 @@ def bound_read_tool(
         # from a list's omitted100. Resolve once before measuring or rerunning;
         # explicit invalid values are still validated by the producer.
         if operator_name == "search" and arguments.get("limit") is None:
-            from okg.substrate.mcp.search_views import default_search_limit
+            from okg.substrate.mcp.search_arguments import continuation_kind
+            from okg.substrate.mcp.search_views import (
+                default_search_limit,
+                implied_search_view,
+            )
 
-            limit = default_search_limit(arguments.get("view"))
+            # PACT read-names-list-3666: the view the tool body will serve
+            # (a grep call naming no view is the names list), on the method
+            # it will run (a grep page's token sent without one is grep; an
+            # explicit other method with such a token is refused by the body,
+            # so the limit resolved here is never served).
+            search_method = arguments.get("method") or "lexical"
+            if (
+                search_method == "lexical"
+                and arguments.get("continuation_token") is not None
+                and continuation_kind(arguments["continuation_token"]) == "grep_page"
+            ):
+                search_method = "grep"
+            search_view = implied_search_view(
+                arguments.get("view"), method=search_method,
+                within=arguments.get("within"), arguments=arguments,
+            )
+            limit = default_search_limit(search_view, search_method)
             arguments["limit"] = limit
             call_arguments["limit"] = limit
             bound.arguments["limit"] = limit
@@ -3539,6 +3880,15 @@ def bound_read_tool(
                     _signed_next_budget(operator_name, arguments["next"])
                     if operator_name == "inspect" else None
                 )
+                if signed is None:
+                    # The token first (lane ri, tokens): a token that does
+                    # not open is refused by its own reason, never as an
+                    # argument beside `next`, so the retry asked for is not
+                    # refused again. The server already checked it
+                    # (`_continuation_intake`); a direct call is checked here.
+                    from okg.substrate.mcp.continuation import route_next
+
+                    route_next(arguments["next"], tool=operator_name)
                 if signed is None or not _valid_page_size(given, deployment_ceiling_bytes):
                     return _next_budget_refusal(
                         operator_name, arguments["next"], given=given,
@@ -3664,6 +4014,19 @@ def bound_read_tool(
         prepared: PreparedLiveStep | None = None
         if live_step is not None and call_arguments.get("live") is not None:
             prepared = live_step(call_arguments)
+            from okg.substrate.mcp.run_steps import keep_live_prepared
+
+            if keep_live_prepared(prepared):
+                # A `run` live step (#3666, lane ri): this call checked the
+                # caller, the surface and the arguments and resolved the
+                # relation; the run makes the upstream calls itself, off
+                # the call workers. No graph step, no adapter here.
+                return {
+                    "status": "ok",
+                    "operator_name": operator_name,
+                    "run_live_prepared": True,
+                    "pinned_generation_id": prepared.generation_id,
+                }
             bound.arguments["live"] = None
             call_arguments["live"] = None
             if (
@@ -3886,7 +4249,24 @@ def bound_read_tool(
                 ))
         try:
             with result_references.draft_scope() as drafts:
+                # A live read resolved at the asynchronous layer (#3666,
+                # live-graph-rucio-sites, B4'): its rows seed this scope's
+                # memo, which the kept-set reader checks first, so the body
+                # and every byte-fitting rerun read them with no upstream
+                # call. The keep rule (D8) mints the kept set here, in this
+                # scope (`live_resolver.seed_call_memo`).
+                # Asked first, so a stored read binds no arguments for it.
+                if outermost and _live_resolver.has_handoff(operator_name):
+                    _live_resolver.seed_call_memo(
+                        operator_name,
+                        signature.bind_partial(*args, **kwargs).arguments,
+                    )
                 result = bounded(*args, **kwargs)
+                if outermost:
+                    # A reply the byte budget cut is kept now (R5) or
+                    # refused at capacity (N7); the reply starts with the
+                    # live line (spec 5).
+                    result = _live_resolver.finish_reply(operator_name, result)
                 raised = _MAX_BYTES_RAISED.get()
                 if raised is not None and isinstance(result, dict):
                     # On a refusal too, so a budget the caller did not ask
@@ -5313,7 +5693,261 @@ def _retry_without(
     return retry
 
 
+#: The widest total a count field can render (12 digits), for the size test
+#: only; no served value is ever this number.
+_WIDEST_TOTAL = 999_999_999_999
+
+#: The `notes` entry a search lookup adds only when its count is exact
+#: (`completeness="exact"`, server.py `_search_attrs_lookup`). Shared so the
+#: size test builds the same bytes the producer does.
+COUNT_EXACT_NOTE: dict[str, str] = {
+    "count": "exact",
+    "how": (
+        "every condition of this call is decided in SQL, so "
+        "one COUNT over the whole set gave the total"
+    ),
+}
+
+#: Set by `note_count_may_vary` while a read is being fitted: the call ran a
+#: bounded COUNT (row cap and time budget), so its total can come out exact,
+#: a lower bound or unknown. Pages whose count is fixed by the read itself
+#: (aggregate, result-reference reads, semantic and lexical search) never set
+#: it and are sized as they are. So is grep: its own timed count
+#: (grep_search.py `count_grep_matches`) has other count fields
+#: (`count_basis_reasons`, `scan_cap`, basis `timed_out`, a proof-dependent
+#: retrieval basis) that the forms here do not model.
+_COUNT_MAY_VARY: ContextVar[Optional[list[bool]]] = ContextVar(
+    "okg_count_may_vary", default=None,
+)
+
+
+def note_count_may_vary() -> None:
+    """Called by the bounded COUNT: this call's total has several outcomes."""
+    box = _COUNT_MAY_VARY.get()
+    if box is not None:
+        box[0] = True
+
+
+def _page_has_more(page: dict[str, Any]) -> bool:
+    """Whether the page points at rows past it (the only pages whose count
+    is a COUNT query that can time out). A page that holds the whole rest of
+    the set gets its exact total without counting, so it has one form."""
+    next_offset = page.get("next_offset")
+    return (
+        page.get("truncated") is True
+        or (isinstance(next_offset, int) and not isinstance(next_offset, bool))
+        or bool(page.get("continuation_token"))
+    )
+
+
+def _count_variants_apply(operator_name: str, page: Any) -> bool:
+    """Whether `_count_variants` has forms for this page (see there)."""
+    return (
+        operator_name in _PAGE_ROW_KEYS
+        and isinstance(page, dict)
+        and page.get("error") is None
+        and page.get("status") not in {"refused", "error"}
+        and "total_count" in page
+        and any(isinstance(page.get(key), list) for key in _PAGE_ROW_KEYS[operator_name])
+        and _page_has_more(page)
+    )
+
+
+def _count_variants(
+    operator_name: str, page: Any, *, exact_note: bool = False,
+) -> list[dict[str, Any]]:
+    """The forms a page's total count can take, as copies for sizing only.
+
+    The COUNT runs under a time budget and a row cap, so one request can be
+    served with any of these, and each renders different bytes:
+
+    * exact: `total_count`, basis `exact`, `retrieval_exhaustive` True
+      (coverage.retrieval `exhaustive`), no `coverage.selection.size`, and
+      the search lookup's exact-only `notes` entry (`COUNT_EXACT_NOTE`) when
+      the page has it or the call asked for `completeness="exact"`;
+    * lower bound: basis `lower_bound` (`N+`, retrieval `bounded`),
+      `selection.size` null;
+    * unknown: no total, basis `unknown`, `selection.size` null, retrieval
+      `unknown`;
+    * unknown and timed out: the same plus `total_count_reason:
+      count_not_computed_in_time` (its notice and the "retrieval exact for
+      these rows, more not counted" fact).
+
+    Each copy gets its coverage block rebuilt by `with_read_coverage`, from
+    the page's own selection unit and basis. Empty for a page the rule does
+    not apply to: not a count-bearing operator, an error or refused page, no
+    row list, no `total_count`, or a page with no rows past it (one form).
+    """
+    from okg.substrate.mcp.envelope import with_read_coverage
+
+    if not _count_variants_apply(operator_name, page):
+        return []
+    own_notes = page.get("notes")
+    own_notes = own_notes if isinstance(own_notes, list) else []
+    has_note = any(
+        isinstance(note, dict) and note.get("count") == "exact" for note in own_notes
+    )
+    other_notes = [
+        note for note in own_notes
+        if not (isinstance(note, dict) and note.get("count") == "exact")
+    ]
+
+    def form(basis: str, total: int | None, *, exhaustive: bool = False,
+             reason: bool = False) -> dict[str, Any]:
+        out = dict(page)
+        out["total_count"] = total
+        out["total_count_basis"] = basis
+        out.pop("total_count_reason", None)
+        out.pop("retrieval_exhaustive", None)
+        if exhaustive:
+            out["retrieval_exhaustive"] = True
+        if reason:
+            out["total_count_reason"] = "count_not_computed_in_time"
+        notes = list(other_notes)
+        # The server adds the note only for an exact, SQL-decided count with
+        # a cursor (server.py `_search_attrs_lookup`); a page that stopped at
+        # the paging cap never has one. `sql_exact` is not on the page, so a
+        # `completeness="exact"` call is sized with it otherwise (a few
+        # bytes over where the lookup was not SQL-decided).
+        if exhaustive and (has_note or (exact_note and not page.get("pagination_capped"))):
+            notes.append(dict(COUNT_EXACT_NOTE))
+        if notes:
+            out["notes"] = notes
+        else:
+            out.pop("notes", None)
+        coverage = out.get("coverage")
+        if isinstance(coverage, dict):
+            coverage = dict(coverage)
+            coverage.pop("retrieval", None)
+            selection = coverage.get("selection")
+            if isinstance(selection, dict):
+                selection = dict(selection)
+                selection.pop("size", None)
+                if basis != "exact":
+                    # An exact size is `total_count` itself, so it is
+                    # omitted; any other count says `size: null`.
+                    selection["size"] = None
+                coverage["selection"] = selection
+            out["coverage"] = coverage
+        if out.get("operator_name") is None:
+            out["operator_name"] = operator_name
+            return {k: v for k, v in with_read_coverage(out).items() if k != "operator_name"}
+        return with_read_coverage(out)
+
+    return [
+        form("exact", _WIDEST_TOTAL, exhaustive=True),
+        form("lower_bound", _WIDEST_TOTAL),
+        form("unknown", None),
+        form("unknown", None, reason=True),
+    ]
+
+
+def _placeholder(value: Any) -> Any:
+    """`value` with the same keys and nesting and empty leaves."""
+    if isinstance(value, dict):
+        return {key: _placeholder(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_placeholder(item) for item in value]
+    if isinstance(value, str):
+        return ""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return 0
+    # Booleans stay: a row flag (hidden, redacted, dropped) can decide how a
+    # row is shown, and a bool costs nothing to keep.
+    return value
+
+
+def _count_stable(
+    operator_name: str,
+    measure: Callable[[dict[str, Any]], int],
+    *,
+    may_vary: Callable[[], bool] = lambda: True,
+    exact_note: bool = False,
+) -> Callable[[dict[str, Any]], int]:
+    """`measure`, as the largest size any count outcome gives the same rows.
+
+    The size test must not depend on whether the count finished, or the same
+    request returns a row more or fewer (and a different `next_offset`) from
+    run to run. The size of a page is the largest of its own and of every
+    count form built on its rows (`_count_variants`), so every outcome's page
+    sizes to the same number. Only pages whose count can vary get this
+    (`may_vary`: the call ran a bounded COUNT, see `note_count_may_vary`).
+
+    Rendering five full pages per size test is five times the cost, so the
+    extra is measured on a stand-in instead: the same page with each row
+    replaced by an empty row of the same shape. The count fact, the coverage
+    block and the notices depend on the NUMBER of rows (a lower bound equal to
+    the rows shown reads "more follow"; the span reads "1-N"), not on what is
+    in them, so `extra(N)` is the same for the stand-in and the real page, and
+    `size = measure(page) + extra`. The extra is kept per call, keyed on the
+    page with its rows removed (every other field, so the key covers whatever
+    the extra can depend on) plus each list's row count and first row's keys.
+    `test_the_fast_stable_size_is_the_full_five_render_max` holds this to the
+    five-render maximum. Only the size test sees this; the page served keeps
+    its own count.
+    """
+    extras: dict[Any, int] = {}
+    keys = _PAGE_ROW_KEYS.get(operator_name, ())
+
+    def shape_of(rows: Any) -> Any:
+        if not isinstance(rows, list):
+            return None
+        first = rows[0] if rows else None
+        return len(rows), tuple(sorted(first)) if isinstance(first, dict) else None
+
+    def key_of(page: dict[str, Any]) -> Any:
+        rest = {k: v for k, v in page.items() if k not in keys}
+        try:
+            return (
+                tuple(shape_of(page.get(k)) for k in keys),
+                json.dumps(rest, sort_keys=True, default=repr),
+            )
+        except (TypeError, ValueError):
+            # Keys of mixed types cannot be sorted, and `default=` does not
+            # apply to keys. A call never fails because of the memo: no key,
+            # no memo.
+            return None
+
+    def compute(page: dict[str, Any]) -> int:
+        stand = dict(page)
+        for name in keys:
+            if isinstance(page.get(name), list):
+                stand[name] = [_placeholder(row) for row in page[name]]
+        own = measure(stand)
+        return max([0, *(
+            measure(v) - own
+            for v in _count_variants(operator_name, stand, exact_note=exact_note)
+        )])
+
+    def extra_for(page: dict[str, Any]) -> int:
+        key = key_of(page)
+        if key is None:
+            return compute(page)
+        if key not in extras:
+            extras[key] = compute(page)
+        return extras[key]
+
+    def stable(page: dict[str, Any]) -> int:
+        size = measure(page)
+        if not may_vary() or not _count_variants_apply(operator_name, page):
+            return size
+        return size + extra_for(page)
+
+    return stable
+
+
 def _fit_to_budget(
+    operator_name: str, fn: Callable[..., dict[str, Any]], **kw: Any,
+) -> dict[str, Any]:
+    """`_fit_to_budget_run`, with the count-may-vary flag for this call."""
+    token = _COUNT_MAY_VARY.set([False])
+    try:
+        return _fit_to_budget_run(operator_name, fn, **kw)
+    finally:
+        _COUNT_MAY_VARY.reset(token)
+
+
+def _fit_to_budget_run(
     operator_name: str,
     fn: Callable[..., dict[str, Any]],
     *,
@@ -5365,6 +5999,13 @@ def _fit_to_budget(
     `measure` is the served size, plus the live reserve when a live call
     will follow.
     """
+    # The count's outcome must not move the cut (PACT mcp-byte-fit-count-stable).
+    may_vary_box = _COUNT_MAY_VARY.get() or [False]
+    measure = _count_stable(
+        operator_name, measure,
+        may_vary=lambda: may_vary_box[0],
+        exact_note=arguments.get("completeness") == "exact",
+    )
     initial = fn(*bound.args, **bound.kwargs)
     initial_bytes = measure(initial)
     if initial_bytes <= budget:

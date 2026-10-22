@@ -2882,6 +2882,9 @@ _MATERIALIZE_INSTRUMENTATION: dict[str, int] = {
     "parallel_hash_unavailable": 0,
     # Issue 2941 fix 2: merged rows whose hash came from the pre-lock cache.
     "prelock_hash_reused": 0,
+    # Issue 3864: statements the full-scan carry-forward ran (one per batch of
+    # staged pages; see CARRY_FORWARD_BATCH_ROWS).
+    "carry_batches": 0,
 }
 
 
@@ -2895,6 +2898,7 @@ def _reset_materialize_instrumentation() -> None:
         parallel_hash_stages=0,
         parallel_hash_unavailable=0,
         prelock_hash_reused=0,
+        carry_batches=0,
     )
 
 
@@ -3365,7 +3369,8 @@ def _materialize_view_kind(
 
     INCREMENTAL CARRY-FORWARD (the chosen design to avoid the publish-latency
     regression): when ``previous_generation`` has a snapshot, this carries forward
-    the prior generation's snapshot rows VERBATIM (one INSERT...SELECT, no
+    the prior generation's snapshot rows VERBATIM (INSERT...SELECT, batched on
+    the full-scan path by issue 3864, no
     ``raw || overlay`` recompute, no GIN-heavy re-merge) for every target whose raw
     is UNCHANGED (``raw_attrs`` JSONB-equal to the prior snapshot) AND whose overlay
     is UNCHANGED, and re-merges (the expensive path) ONLY the changed + new targets.
@@ -3649,6 +3654,7 @@ def _materialize_view_kind(
             reserved=reserved,
             new_raw_temp=temp,
             id_col=("node_id" if is_node else "edge_id"),
+            staged_rows=staged,
         )
         _MATERIALIZE_INSTRUMENTATION["carried_rows"] += carried
         not_carried = (
@@ -3880,6 +3886,14 @@ def prior_snapshot_coverage(
     return coverage
 
 
+# Issue 3864: staged rows one full-scan carry-forward statement reads. Each
+# staged row costs a few primary-key probes (prior snapshot, version store,
+# the foreign-key check on insert); the lane SG Krama copy measured about
+# 0.1 ms per carried row, so a batch stays seconds-long, far inside the 900 s
+# publisher statement timeout, even on a slow laptop disk.
+CARRY_FORWARD_BATCH_ROWS = 50_000
+
+
 def _carry_forward_unchanged_rows(
     conn: psycopg.Connection,
     *,
@@ -3890,11 +3904,19 @@ def _carry_forward_unchanged_rows(
     reserved: list[str],
     new_raw_temp: str,
     id_col: str,
+    staged_rows: int | None = None,
+    batch_rows: int | None = None,
 ) -> int:
     """Copy prior-snapshot rows VERBATIM into ``generation`` for every target
     whose raw is UNCHANGED (the NEW raw's ``attrs`` for the target equals the prior
     snapshot's ``raw_attrs``) AND whose overlay is UNCHANGED (same fingerprint of
     (attr_key, value_hash) over the current vs prior overlay).
+
+    Issue 3864: the work runs as one statement per batch of the staged table's
+    pages (about ``batch_rows`` staged rows each, default
+    ``CARRY_FORWARD_BATCH_ROWS``), so no single statement scales with the
+    whole graph. ``staged_rows`` is the staged row count when the caller
+    already knows it; otherwise it is counted here.
 
     No chronos merge, no ``raw || overlay`` recompute -- the carried
     ``attrs``/``raw_attrs`` are byte-identical to what a full re-materialize would
@@ -3909,6 +3931,9 @@ def _carry_forward_unchanged_rows(
     set-based fingerprint diff) instead of joining per-target fingerprints into
     this statement; see the comment below for the measured plan it replaces.
     """
+    batch = CARRY_FORWARD_BATCH_ROWS if batch_rows is None else int(batch_rows)
+    if batch < 1:
+        raise ValueError("carry-forward batch_rows must be positive")
     # Lane SG stall fix: the overlay comparison is computed ONCE, set-based, as
     # the ids whose fingerprint differs between the two generations (the same
     # FULL OUTER JOIN the dirty-driven path uses), then excluded with a hashed
@@ -3944,6 +3969,34 @@ def _carry_forward_unchanged_rows(
     # snapshot to the version store guarantees the version row; a missing one
     # yields NULL, IS TRUE is false, and the row is not carried, as the join
     # did.
+    #
+    # Issue 3864: one statement over the whole stage scaled with the graph,
+    # not the change. On okg-workspace (6.78 million snapshot rows) it ran
+    # past the 900 s publisher statement timeout while its join spilled to
+    # disk; the cycle rolled back and the retry took the same full-scan path,
+    # so no generation could publish. Each statement below reads one range of
+    # the staged table's pages (a TID range scan) and probes the prior
+    # snapshot and the version store by primary key per staged row, so its
+    # cost is bounded by the batch. The batches partition the stage, every
+    # carried row comes from exactly one batch, and ON CONFLICT DO NOTHING
+    # keeps a rerun inside the transaction harmless: the same rows as one
+    # statement. They all run inside the caller's transaction, so readers
+    # still see the generation's snapshot all at once or not at all.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pg_relation_size(%s::regclass) "
+            "/ current_setting('block_size')::bigint",
+            (new_raw_temp,),
+        )
+        # At least one batch: the last batch is open-ended, so even a size
+        # that reads as zero still scans the whole stage once.
+        pages = max(1, int(cur.fetchone()[0]))
+        if staged_rows is None:
+            cur.execute(f"SELECT count(*) FROM {new_raw_temp}")
+            staged_rows = int(cur.fetchone()[0])
+    # Rows sit evenly on the pages of a freshly filled stage, so this many
+    # pages hold about ``batch`` rows; never fewer than one page.
+    pages_per_batch = max(1, (pages * batch) // max(int(staged_rows), 1))
     sql = f"""
       INSERT INTO {ATTRIBUTE_EFFECTIVE_VIEW_TABLE}
         (target_kind, target_id, generation_id, namespace, subtype, src, dst,
@@ -3951,12 +4004,35 @@ def _carry_forward_unchanged_rows(
       SELECT p.target_kind, p.target_id, %(gen)s, p.namespace, p.subtype,
              p.src, p.dst, p.edge_type, p.overlay_count,
              p.raw_text_hash, p.attrs_hash
-        FROM {ATTRIBUTE_EFFECTIVE_VIEW_TABLE} p
-        JOIN {new_raw_temp} nr
-          ON nr.{id_col}::text = p.target_id
-       WHERE p.generation_id = %(pgen)s
-         AND p.namespace = %(ns)s
-         AND p.target_kind = %(tk)s
+        FROM {new_raw_temp} nr
+        -- A LATERAL lookup with LIMIT 1 cannot be flattened into a join, so
+        -- the plan is fixed: for each staged row of the batch, one probe of
+        -- the snapshot's primary key. As a plain join the planner hashed the
+        -- whole prior snapshot once per batch (measured on a 250,000-row
+        -- synthetic copy), which would make every batch O(graph) again.
+        -- ``generation_id || ''`` keeps the generation test out of every
+        -- index: when the prior generation is missing from the statistics
+        -- (just published) the planner estimates it at one row and probed
+        -- with the per-kind (generation_id, namespace, subtype, target_id)
+        -- index instead, whose target_id test reads the whole prior
+        -- generation's entries once per staged row (on a 250,000-row
+        -- synthetic copy with stale statistics the first batch was still
+        -- running after 5 minutes). With it, the only
+        -- usable index is the primary key on (target_kind, target_id), which
+        -- holds one row per retained generation of the target.
+        CROSS JOIN LATERAL (
+          SELECT pv.target_kind, pv.target_id, pv.namespace, pv.subtype,
+                 pv.src, pv.dst, pv.edge_type, pv.overlay_count,
+                 pv.raw_text_hash, pv.attrs_hash
+            FROM {ATTRIBUTE_EFFECTIVE_VIEW_TABLE} pv
+           WHERE pv.target_kind = %(tk)s
+             AND pv.target_id = nr.{id_col}::text
+             AND pv.generation_id || '' = %(pgen)s
+             AND pv.namespace = %(ns)s
+           LIMIT 1
+        ) p
+       WHERE nr.ctid >= %(lo)s::tid
+         {{upper}}
          AND p.target_id <> ALL(%(overlay_changed)s::text[])
          -- schema-interval-narrow-split: the prior snapshot row's payload
          -- lives in the version store (composite FK). presence-means-overlay:
@@ -3973,18 +4049,50 @@ def _carry_forward_unchanged_rows(
          )) IS TRUE
       ON CONFLICT (target_kind, target_id, generation_id, namespace) DO NOTHING
     """
+    bounded_sql = sql.replace("{upper}", "AND nr.ctid < %(hi)s::tid")
+    # The last batch has no upper bound, so a row past the measured size is
+    # still read rather than silently left behind.
+    last_sql = sql.replace("{upper}", "")
+    params: dict[str, Any] = {
+        "gen": generation,
+        "pgen": previous_generation,
+        "ns": namespace,
+        "tk": target_kind,
+        "overlay_changed": sorted(overlay_changed),
+    }
+    carried = 0
+    batches = 0
     with conn.cursor() as cur:
-        cur.execute(
-            sql,
-            {
-                "gen": generation,
-                "pgen": previous_generation,
-                "ns": namespace,
-                "tk": target_kind,
-                "overlay_changed": sorted(overlay_changed),
-            },
+        for lo in range(0, pages, pages_per_batch):
+            hi = lo + pages_per_batch
+            params["lo"] = f"({lo},0)"
+            # prepare=False: psycopg prepares a statement after its fifth
+            # run, and PostgreSQL then switches a prepared statement to a
+            # generic plan, where the overlay id array is a parameter and
+            # ``<> ALL`` is no longer hashed: on a 1,000,000-row synthetic
+            # copy every batch from the eleventh on ran 13 s instead of 2 s,
+            # and that cost grows with the number of overlay ids. Unprepared,
+            # each batch is planned with its own values.
+            if hi < pages:
+                params["hi"] = f"({hi},0)"
+                cur.execute(bounded_sql, params, prepare=False)
+            else:
+                params.pop("hi", None)
+                cur.execute(last_sql, params, prepare=False)
+            carried += int(cur.rowcount or 0)
+            batches += 1
+    _MATERIALIZE_INSTRUMENTATION["carry_batches"] += batches
+    if batches > 1:
+        logger.info(
+            "effective attribute view: carried %d %s rows forward in %d "
+            "statements (%d staged rows, %d pages per statement)",
+            carried,
+            target_kind,
+            batches,
+            int(staged_rows),
+            pages_per_batch,
         )
-        return cur.rowcount
+    return carried
 
 
 def _overlay_changed_ids(

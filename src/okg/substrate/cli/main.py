@@ -3808,11 +3808,31 @@ def _cmd_ingest(args: argparse.Namespace, *, as_json: bool) -> int:
     failure_rows, failure_lines = _ingest_enricher_failure_lines(
         report, deployment, command_exit_code=1 if outcome.any_failed else 0,
     )
+    from okg.substrate.ingest.failure_followup import (
+        REPORT_KEY as OTHER_SOURCES_KEY,
+        other_sources_after_failure,
+        text_lines,
+    )
+
     if isinstance(report, dict):
         report["enricher_failures"] = failure_rows
+        # #3927: the failed source's line names one source; say what became
+        # of the others. Built here, in the in-process path, where `report`
+        # covers every selected source. The queued path above reports one
+        # batch at a time and does not carry this note.
+        others = other_sources_after_failure(
+            deployment=deployment,
+            completeness=report.get("completeness"),
+            publishes=report.get("publishes"),
+            inline_flag=bool(getattr(args, "inline", False)),
+        )
+        if others is not None:
+            report[OTHER_SOURCES_KEY] = others
     _emit_ok(report, as_json=as_json)
     if not as_json:
         for line in failure_lines:
+            print(line)
+        for line in text_lines(report):
             print(line)
     return 1 if outcome.any_failed else 0
 
@@ -12353,6 +12373,16 @@ def _add_scaffold_arguments(p: argparse.ArgumentParser) -> None:
             "runs no schema migration or publish."
         ),
     )
+    p.add_argument(
+        "--verbose",
+        action="store_true",
+        help=(
+            "Print everything the install did: every file written, the "
+            "module composition, the first-publish proof, and each warning, "
+            "instead of the short summary. `--json` prints the same "
+            "detail as one JSON document."
+        ),
+    )
 
 
 def _build_install_parser(sub: argparse._SubParsersAction) -> None:
@@ -13190,6 +13220,14 @@ def _pact_v5_reroute(rest: list[str]) -> list[str] | None:
             # parser a --format it does not define, and argparse would exit 2
             # on the exact command the agent instructions mandate.
             return None
+    if rest[:2] == ["evidence", "attach"] and len(rest) > 2 and all(
+        token in {"-h", "--help"} for token in rest[2:]
+    ):
+        # No change id, so no manifest says which parser applies. v5 is the
+        # default, and the legacy v4 help (`<change> <target> --ref ...`)
+        # misled readers into a form that fails on a v5 change. A v4 change
+        # still gets its own help from `evidence attach <id> --help`.
+        return list(rest)
     root = Path(".")
     for index, token in enumerate(rest[1:], start=1):
         if token == "--root" and index + 1 < len(rest):

@@ -347,3 +347,11 @@ def test_only_okg_tools_are_rendered_and_a_bad_marker_names_its_tool() -> None:
         publish_surface_descriptions(
             mcp, session_tools={"search"}, kinds=(), live=False, example_subtype="x",
         )
+
+
+def test_run_live_term_needs_live_and_the_run_switch_on() -> None:
+    text = "A[[if run_live tool:expand]] B[[/if]][[if live tool:expand]] C[[/if]]."
+    served = {"tools": {"expand"}}
+    assert _render(text, live=True, **served) == "A B C."
+    assert _render(text, live=True, run_live=False, **served) == "A C."
+    assert _render(text, live=False, run_live=True, **served) == "A."

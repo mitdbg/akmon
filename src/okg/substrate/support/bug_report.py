@@ -165,8 +165,16 @@ def redact_text(
     repo_root: Path | None = None,
     deployment_dir: Path | None = None,
     home_dir: Path | None = None,
+    secret_forms: bool = False,
 ) -> tuple[str, tuple[str, ...]]:
     """Redact paths, remotes, DSNs, and token-looking values.
+
+    ``secret_forms=True`` also masks signed-URL values, Cookie/Set-Cookie and
+    Authorization headers, ``auth=`` and ``*TOKEN=`` assignments. The report
+    path that posts to GitHub sets it. The default stays off because the
+    github, github_actions, pact and git-history sources store this function's
+    output as graph content, and turning it on there masks about 2% of repo
+    files (see the follow-up issue); it is not changed in this PR.
 
     Known OKG roots are replaced with semantic placeholders before the
     generic absolute-path pass runs, preserving useful repo-relative
@@ -216,6 +224,17 @@ def redact_text(
         out, count = pattern.subn(replacement, out)
         if count:
             redactions.append(marker)
+
+    # Signed-URL values, Cookie/Authorization headers, auth= and *TOKEN= forms
+    # use the source-health masker (opt-in, see the docstring).
+    if secret_forms:
+        # Local import: the `okg.substrate.sources` package pulls in the
+        # registry and psycopg, and the clean source-sync status owner must
+        # stay importable without them (tests/architecture).
+        from okg.substrate.sources.redaction import redact_secret_forms
+
+        out, form_markers = redact_secret_forms(out)
+        redactions.extend(form_markers)
 
     return out, tuple(sorted(set(redactions)))
 
@@ -298,6 +317,7 @@ def build_bug_report_preview(
         issue_title,
         repo_root=repo_root,
         deployment_dir=manifest.deployment_dir,
+        secret_forms=True,
     )
     redactions = tuple(sorted(set(redactions) | set(title_redactions)))
     body = _render_markdown(
@@ -312,6 +332,7 @@ def build_bug_report_preview(
         body,
         repo_root=repo_root,
         deployment_dir=manifest.deployment_dir,
+        secret_forms=True,
     )
     redactions = tuple(sorted(set(redactions) | set(body_redactions)))
     leakage_check = _check_for_leaks(
@@ -347,6 +368,18 @@ def create_github_issue(
     command_timeout_seconds: int = 30,
 ) -> dict[str, Any]:
     """Create the previewed GitHub issue through `gh issue create`."""
+
+    final_check = _check_for_leaks(
+        "\n".join([preview.title, preview.body, *preview.labels]),
+        repo_root=None,
+        deployment_dir=None,
+    )
+    if not final_check["ok"]:
+        raise _github_error(
+            "GitHub issue not created: the report still holds a secret-looking value",
+            data=final_check,
+            fix_hint="regenerate the preview and inspect the reported patterns",
+        )
 
     runner = command_runner or _run_command
     body_path: str | None = None
@@ -390,8 +423,8 @@ def create_github_issue(
             fix_hint="retry after checking GitHub CLI connectivity",
         )
     if result.returncode != 0:
-        stderr, _ = redact_text(result.stderr)
-        stdout, _ = redact_text(result.stdout)
+        stderr, _ = redact_text(result.stderr, secret_forms=True)
+        stdout, _ = redact_text(result.stdout, secret_forms=True)
         raise _github_error(
             "GitHub issue creation failed",
             data={
@@ -702,6 +735,7 @@ def _sanitize_value(
                 v,
                 repo_root=repo_root,
                 deployment_dir=deployment_dir,
+                secret_forms=True,
             )
             redactions.update(markers)
             return sanitized
@@ -1013,6 +1047,13 @@ def _check_for_leaks(
     for name, pattern in patterns:
         if pattern.search(body):
             findings.append({"kind": name, "value": "<pattern>"})
+    # A form the masker would still change is an unmasked secret value.
+    # Local import for the same reason as in redact_text.
+    from okg.substrate.sources.redaction import redact_secret_forms
+
+    _masked, unmasked_forms = redact_secret_forms(body)
+    for name in unmasked_forms:
+        findings.append({"kind": name, "value": "<pattern>"})
     return {"ok": not findings, "findings": findings}
 
 

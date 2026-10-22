@@ -95,6 +95,12 @@ ARG_TYPES: Mapping[str, type] = {
     "boolean": bool,
 }
 
+#: Longest `description` a relation may declare. `inspect` prints it beside
+#: the arguments for every declared relation (a deployment may declare
+#: dozens on one subtype), so it is a sentence or two -- what the relation answers
+#: and what not to read into it -- never a manual.
+MAX_DESCRIPTION_CHARS = 400
+
 #: Relation and argument names. The same grammar the rest of the catalog uses
 #: for declared tokens, so a relation name is always a legal dict key, a legal
 #: JSON-Schema property and a legal cache-key component.
@@ -237,6 +243,11 @@ class LiveRelation:
     sample_policy: str = "metadata"
     retention_class: str = "warm"
     deadline_seconds: float = 10.0
+    #: Operator text `inspect` shows beside the arguments: what the relation
+    #: answers and what not to read into it (a quota figure
+    #: ranked as capacity because nothing said it is an allocation). At most
+    #: :data:`MAX_DESCRIPTION_CHARS`; absent is the normal case.
+    description: str | None = None
 
     def published(self) -> dict[str, Any]:
         """The block `inspect` publishes for this relation.
@@ -247,9 +258,14 @@ class LiveRelation:
 
         A SUBSET of :meth:`to_metadata`. `principal_mode` and
         `deadline_seconds` are operator facts, not things a caller can act
-        on, so they are stored but not advertised.
+        on, so they are stored but not advertised. `description` is
+        advertised only when declared.
         """
         return {
+            **(
+                {"description": self.description}
+                if self.description is not None else {}
+            ),
             "action": self.action,
             "args": {arg.name: arg.published() for arg in self.args},
             "sample_policy": self.sample_policy,
@@ -379,6 +395,13 @@ class LiveRelation:
             sample_policy=str(body.get("sample_policy") or "metadata"),
             retention_class=str(body.get("retention_class") or "warm"),
             deadline_seconds=float(body["deadline_seconds"]),
+            # The same refusal the parser makes, on the stored copy: a
+            # catalog written by other code must not publish an unbounded
+            # or non-text description.
+            description=_description(
+                body.get("description"), subtype=subtype, relation=name,
+                where=" (stored in the catalog)",
+            ),
         )
 
 
@@ -575,13 +598,52 @@ def parse_live_relations(
             sample_policy=sample_policy,
             retention_class=retention_class,
             deadline_seconds=float(deadline),
+            description=_description(
+                body.get("description"), subtype=subtype, relation=name,
+                where=where,
+            ),
         )
     return relations
 
 
+def _description(
+    value: Any, *, subtype: str, relation: str, where: str,
+) -> str | None:
+    """A declared `description`: absent, or text of at most
+    :data:`MAX_DESCRIPTION_CHARS` characters. Anything else is refused by
+    name rather than published cut or coerced."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise LiveRelationInvalid(
+            f"subtype {subtype!r} live relation {relation!r} declares a "
+            f"`description` that is not non-empty text (got "
+            f"{type(value).__name__}).{where}",
+            data={"subtype": subtype, "relation": relation,
+                  "field": "description"},
+            fix_hint="write `description:` as one or two plain sentences",
+        )
+    text = value.strip()
+    if len(text) > MAX_DESCRIPTION_CHARS:
+        raise LiveRelationInvalid(
+            f"subtype {subtype!r} live relation {relation!r} declares a "
+            f"`description` of {len(text)} characters; at most "
+            f"{MAX_DESCRIPTION_CHARS} are allowed, because `inspect` prints "
+            f"it for every declared relation.{where}",
+            data={"subtype": subtype, "relation": relation,
+                  "field": "description", "length": len(text),
+                  "limit": MAX_DESCRIPTION_CHARS},
+            fix_hint=(
+                f"shorten `description` to at most {MAX_DESCRIPTION_CHARS} "
+                f"characters"
+            ),
+        )
+    return text
+
+
 _RELATION_KEYS = frozenset({
     "action", "args", "principal_mode", "sample_policy", "retention_class",
-    "deadline_seconds",
+    "deadline_seconds", "description",
 })
 
 _ARG_KEYS = frozenset({

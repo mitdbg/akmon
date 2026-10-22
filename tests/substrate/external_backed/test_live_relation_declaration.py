@@ -177,6 +177,79 @@ def test_an_unknown_relation_key_is_refused_by_name() -> None:
     with pytest.raises(LiveRelationInvalid) as exc:
         _parse(hits={**HITS, "timeout": 5})
     assert "timeout" in str(exc.value)
+    # `description` is now accepted; its neighbours are not.
+    for key in ("descriptions", "doc", "help"):
+        with pytest.raises(LiveRelationInvalid) as exc:
+            _parse(hits={**HITS, "description": "ok", key: "x"})
+        assert key in str(exc.value)
+
+
+# ── description: operator text `inspect` shows (item 7) ─────
+
+#: What a deployment would say on example_list_site_attributes.
+QUOTA_TEXT = (
+    "Site attributes. quota is the space the system may fill (an "
+    "allocation), not the site's capacity; for capacity call "
+    "example_get_site_usage and read source `static`."
+)
+
+
+def test_a_description_is_published_by_inspect_and_round_trips() -> None:
+    import json
+
+    from okg.substrate.external_backed.live_relations import LiveRelation
+
+    hits = _parse(hits={**HITS, "description": f"  {QUOTA_TEXT}\n"})["hits"]
+    assert hits.description == QUOTA_TEXT, "trimmed, otherwise verbatim"
+    assert hits.published()["description"] == QUOTA_TEXT
+    stored = json.loads(json.dumps(hits.to_metadata()))
+    rebuilt = LiveRelation.from_metadata("hits", "search_index", stored)
+    assert rebuilt == hits
+    assert rebuilt.published()["description"] == QUOTA_TEXT
+
+
+def test_no_description_publishes_no_key() -> None:
+    """Absent stays absent: the published block of every existing
+    declaration is unchanged."""
+    published = _parse()["hits"].published()
+    assert "description" not in published
+    assert set(published) == {"action", "args", "sample_policy", "retention_class"}
+
+
+def test_a_description_of_exactly_the_limit_is_accepted() -> None:
+    from okg.substrate.external_backed.live_relations import MAX_DESCRIPTION_CHARS
+
+    text = "x" * MAX_DESCRIPTION_CHARS
+    assert _parse(hits={**HITS, "description": text})["hits"].description == text
+
+
+@pytest.mark.parametrize(
+    "value, why",
+    [
+        pytest.param("x" * 401, "401 characters", id="too-long"),
+        pytest.param(["quota", "is an allocation"], "list", id="list"),
+        pytest.param(42, "int", id="number"),
+        pytest.param({"text": "x"}, "dict", id="mapping"),
+        pytest.param("   ", "str", id="blank"),
+    ],
+)
+def test_a_bad_description_is_refused_at_load(value, why: str) -> None:
+    with pytest.raises(LiveRelationInvalid) as exc:
+        _parse(hits={**HITS, "description": value})
+    assert "description" in str(exc.value)
+    assert why in str(exc.value)
+    assert exc.value.data["relation"] == "hits"
+
+
+def test_a_stored_overlong_description_is_refused_when_rebuilt() -> None:
+    """A catalog composed by other code cannot publish an unbounded text."""
+    from okg.substrate.external_backed.live_relations import LiveRelation
+
+    stored = _parse()["hits"].to_metadata()
+    stored["description"] = "y" * 500
+    with pytest.raises(LiveRelationInvalid) as exc:
+        LiveRelation.from_metadata("hits", "search_index", stored)
+    assert "stored in the catalog" in str(exc.value)
 
 
 # ── the argument model ────────────────────────────────────────────────

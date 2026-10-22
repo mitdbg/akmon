@@ -255,6 +255,40 @@ def test_named_agent_that_is_absent_is_not_found_and_exits_1(
     assert not (world.home / ".codex").exists()
 
 
+def test_named_claude_code_without_the_binary_writes_claude_json_and_says_so(
+    world: World, capsys,
+) -> None:
+    """`okg install` tells the user to run `--agent claude-code`. With no
+    `claude` on PATH and no ~/.claude.json yet, that must still connect by
+    writing the file, and the output must say what to do next."""
+    assert not (world.home / ".claude.json").exists()
+
+    rc, report = world.connect("--agent", "claude-code", capsys=capsys)
+
+    assert rc == 0, report
+    row = _agents(report)["claude-code"]
+    assert row["status"] == "connected"
+    assert row["method"] == "file"
+    stored = json.loads((world.home / ".claude.json").read_text())
+    assert f"okg-{DEPLOYMENT}" in stored["mcpServers"]
+    steps = " ".join(report["next_steps"])
+    assert "`claude` is not on PATH" in steps
+    assert "install Claude Code" in steps
+    assert "no agent was connected" not in steps
+
+
+def test_unnamed_connect_still_skips_claude_code_without_the_binary(
+    world: World, capsys,
+) -> None:
+    world.cursor_config()
+
+    rc, report = world.connect(capsys=capsys)
+
+    assert rc == 0, report
+    assert _agents(report)["claude-code"]["status"] == "not found"
+    assert not (world.home / ".claude.json").exists()
+
+
 def test_dry_run_writes_nothing_and_prints_each_entry(world: World, capsys) -> None:
     world.claude_code_config({"keep": True})
     world.cursor_config()
@@ -2050,8 +2084,8 @@ def test_install_before_role_passwords_reports_a_next_step_not_a_failure(
 def test_install_prints_the_role_password_step_once(
     world: World, capsys, monkeypatch,
 ) -> None:
-    """Human output: the waiting line and each agent line appear once, and
-    the next steps name the role-password command."""
+    """Human output: one line names the installed agent that waits for the
+    role passwords, and the next steps name the role-password command."""
     world.cursor_config()
     world.probe_result = connect.ProbeResult(
         ok=False, code="mcp_role_cannot_login",
@@ -2062,10 +2096,12 @@ def test_install_prints_the_role_password_step_once(
 
     assert rc == 0, out.err[-3000:]
     lines = (out.out + out.err).splitlines()
-    waiting = [line for line in lines if "waits for the database roles" in line]
+    waiting = [line for line in lines if "for the database roles" in line]
     assert len(waiting) == 1, waiting
-    agent_lines = [line for line in lines if " is not connected (" in line]
-    assert agent_lines and len(agent_lines) == len(set(agent_lines)), agent_lines
+    assert waiting[0].strip().startswith("Cursor waits for the database roles")
+    # No line may repeat.
+    printed = [line for line in lines if line.strip()]
+    assert len(printed) == len(set(printed)), printed
     assert "status: failed" not in out.out + out.err
     assert any(
         line.strip().endswith("okg db role-passwords --apply --deployment teamgraph")

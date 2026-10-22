@@ -1,0 +1,862 @@
+{
+ "source": "Synthetic replay, same shape as a recorded three-call chain: a listing of 142 items matching one pattern, a size read once per item, and the sum over the kept answer. The numbers are made up.",
+ "pattern": "/Beta*/Run1-v1/RAW",
+ "items": 142,
+ "total_bytes": 1216783012389891,
+ "listing": [
+  "/Beta000/Run1-v1/RAW",
+  "/Beta001/Run1-v1/RAW",
+  "/Beta002/Run1-v1/RAW",
+  "/Beta003/Run1-v1/RAW",
+  "/Beta004/Run1-v1/RAW",
+  "/Beta005/Run1-v1/RAW",
+  "/Beta006/Run1-v1/RAW",
+  "/Beta007/Run1-v1/RAW",
+  "/Beta008/Run1-v1/RAW",
+  "/Beta009/Run1-v1/RAW",
+  "/Beta010/Run1-v1/RAW",
+  "/Beta011/Run1-v1/RAW",
+  "/Beta012/Run1-v1/RAW",
+  "/Beta013/Run1-v1/RAW",
+  "/Beta014/Run1-v1/RAW",
+  "/Beta015/Run1-v1/RAW",
+  "/Beta016/Run1-v1/RAW",
+  "/Beta017/Run1-v1/RAW",
+  "/Beta018/Run1-v1/RAW",
+  "/Beta019/Run1-v1/RAW",
+  "/Beta020/Run1-v1/RAW",
+  "/Beta021/Run1-v1/RAW",
+  "/Beta022/Run1-v1/RAW",
+  "/Beta023/Run1-v1/RAW",
+  "/Beta024/Run1-v1/RAW",
+  "/Beta025/Run1-v1/RAW",
+  "/Beta026/Run1-v1/RAW",
+  "/Beta027/Run1-v1/RAW",
+  "/Beta028/Run1-v1/RAW",
+  "/Beta029/Run1-v1/RAW",
+  "/Beta030/Run1-v1/RAW",
+  "/Beta031/Run1-v1/RAW",
+  "/Beta032/Run1-v1/RAW",
+  "/Beta033/Run1-v1/RAW",
+  "/Beta034/Run1-v1/RAW",
+  "/Beta035/Run1-v1/RAW",
+  "/Beta036/Run1-v1/RAW",
+  "/Beta037/Run1-v1/RAW",
+  "/Beta038/Run1-v1/RAW",
+  "/Beta039/Run1-v1/RAW",
+  "/Beta040/Run1-v1/RAW",
+  "/Beta041/Run1-v1/RAW",
+  "/Beta042/Run1-v1/RAW",
+  "/Beta043/Run1-v1/RAW",
+  "/Beta044/Run1-v1/RAW",
+  "/Beta045/Run1-v1/RAW",
+  "/Beta046/Run1-v1/RAW",
+  "/Beta047/Run1-v1/RAW",
+  "/Beta048/Run1-v1/RAW",
+  "/Beta049/Run1-v1/RAW",
+  "/Beta050/Run1-v1/RAW",
+  "/Beta051/Run1-v1/RAW",
+  "/Beta052/Run1-v1/RAW",
+  "/Beta053/Run1-v1/RAW",
+  "/Beta054/Run1-v1/RAW",
+  "/Beta055/Run1-v1/RAW",
+  "/Beta056/Run1-v1/RAW",
+  "/Beta057/Run1-v1/RAW",
+  "/Beta058/Run1-v1/RAW",
+  "/Beta059/Run1-v1/RAW",
+  "/Beta060/Run1-v1/RAW",
+  "/Beta061/Run1-v1/RAW",
+  "/Beta062/Run1-v1/RAW",
+  "/Beta063/Run1-v1/RAW",
+  "/Beta064/Run1-v1/RAW",
+  "/Beta065/Run1-v1/RAW",
+  "/Beta066/Run1-v1/RAW",
+  "/Beta067/Run1-v1/RAW",
+  "/Beta068/Run1-v1/RAW",
+  "/Beta069/Run1-v1/RAW",
+  "/Beta070/Run1-v1/RAW",
+  "/Beta071/Run1-v1/RAW",
+  "/Beta072/Run1-v1/RAW",
+  "/Beta073/Run1-v1/RAW",
+  "/Beta074/Run1-v1/RAW",
+  "/Beta075/Run1-v1/RAW",
+  "/Beta076/Run1-v1/RAW",
+  "/Beta077/Run1-v1/RAW",
+  "/Beta078/Run1-v1/RAW",
+  "/Beta079/Run1-v1/RAW",
+  "/Beta080/Run1-v1/RAW",
+  "/Beta081/Run1-v1/RAW",
+  "/Beta082/Run1-v1/RAW",
+  "/Beta083/Run1-v1/RAW",
+  "/Beta084/Run1-v1/RAW",
+  "/Beta085/Run1-v1/RAW",
+  "/Beta086/Run1-v1/RAW",
+  "/Beta087/Run1-v1/RAW",
+  "/Beta088/Run1-v1/RAW",
+  "/Beta089/Run1-v1/RAW",
+  "/Beta090/Run1-v1/RAW",
+  "/Beta091/Run1-v1/RAW",
+  "/Beta092/Run1-v1/RAW",
+  "/Beta093/Run1-v1/RAW",
+  "/Beta094/Run1-v1/RAW",
+  "/Beta095/Run1-v1/RAW",
+  "/Beta096/Run1-v1/RAW",
+  "/Beta097/Run1-v1/RAW",
+  "/Beta098/Run1-v1/RAW",
+  "/Beta099/Run1-v1/RAW",
+  "/Beta100/Run1-v1/RAW",
+  "/Beta101/Run1-v1/RAW",
+  "/Beta102/Run1-v1/RAW",
+  "/Beta103/Run1-v1/RAW",
+  "/Beta104/Run1-v1/RAW",
+  "/Beta105/Run1-v1/RAW",
+  "/Beta106/Run1-v1/RAW",
+  "/Beta107/Run1-v1/RAW",
+  "/Beta108/Run1-v1/RAW",
+  "/Beta109/Run1-v1/RAW",
+  "/Beta110/Run1-v1/RAW",
+  "/Beta111/Run1-v1/RAW",
+  "/Beta112/Run1-v1/RAW",
+  "/Beta113/Run1-v1/RAW",
+  "/Beta114/Run1-v1/RAW",
+  "/Beta115/Run1-v1/RAW",
+  "/Beta116/Run1-v1/RAW",
+  "/Beta117/Run1-v1/RAW",
+  "/Beta118/Run1-v1/RAW",
+  "/Beta119/Run1-v1/RAW",
+  "/Beta120/Run1-v1/RAW",
+  "/Beta121/Run1-v1/RAW",
+  "/Beta122/Run1-v1/RAW",
+  "/Beta123/Run1-v1/RAW",
+  "/Beta124/Run1-v1/RAW",
+  "/Beta125/Run1-v1/RAW",
+  "/Beta126/Run1-v1/RAW",
+  "/Beta127/Run1-v1/RAW",
+  "/Beta128/Run1-v1/RAW",
+  "/Beta129/Run1-v1/RAW",
+  "/Beta130/Run1-v1/RAW",
+  "/Beta131/Run1-v1/RAW",
+  "/Beta132/Run1-v1/RAW",
+  "/Beta133/Run1-v1/RAW",
+  "/Beta134/Run1-v1/RAW",
+  "/Beta135/Run1-v1/RAW",
+  "/Beta136/Run1-v1/RAW",
+  "/Beta137/Run1-v1/RAW",
+  "/Beta138/Run1-v1/RAW",
+  "/Beta139/Run1-v1/RAW",
+  "/Beta140/Run1-v1/RAW",
+  "/Beta141/Run1-v1/RAW"
+ ],
+ "rows": [
+  {
+   "item": "/Beta000/Run1-v1/RAW",
+   "file_size": 100000000000,
+   "num_file": 50
+  },
+  {
+   "item": "/Beta001/Run1-v1/RAW",
+   "file_size": 223000000031,
+   "num_file": 87
+  },
+  {
+   "item": "/Beta002/Run1-v1/RAW",
+   "file_size": 346000000088,
+   "num_file": 124
+  },
+  {
+   "item": "/Beta003/Run1-v1/RAW",
+   "file_size": 469000000171,
+   "num_file": 161
+  },
+  {
+   "item": "/Beta004/Run1-v1/RAW",
+   "file_size": 592000000280,
+   "num_file": 198
+  },
+  {
+   "item": "/Beta005/Run1-v1/RAW",
+   "file_size": 715000000415,
+   "num_file": 235
+  },
+  {
+   "item": "/Beta006/Run1-v1/RAW",
+   "file_size": 838000000576,
+   "num_file": 272
+  },
+  {
+   "item": "/Beta007/Run1-v1/RAW",
+   "file_size": 940000000714,
+   "num_file": 309
+  },
+  {
+   "item": "/Beta008/Run1-v1/RAW",
+   "file_size": 1063000000927,
+   "num_file": 346
+  },
+  {
+   "item": "/Beta009/Run1-v1/RAW",
+   "file_size": 1186000001166,
+   "num_file": 383
+  },
+  {
+   "item": "/Beta010/Run1-v1/RAW",
+   "file_size": 1309000001431,
+   "num_file": 420
+  },
+  {
+   "item": "/Beta011/Run1-v1/RAW",
+   "file_size": 1432000001722,
+   "num_file": 457
+  },
+  {
+   "item": "/Beta012/Run1-v1/RAW",
+   "file_size": 1555000002039,
+   "num_file": 494
+  },
+  {
+   "item": "/Beta013/Run1-v1/RAW",
+   "file_size": 1678000002382,
+   "num_file": 531
+  },
+  {
+   "item": "/Beta014/Run1-v1/RAW",
+   "file_size": 1780000002702,
+   "num_file": 568
+  },
+  {
+   "item": "/Beta015/Run1-v1/RAW",
+   "file_size": 1903000003097,
+   "num_file": 605
+  },
+  {
+   "item": "/Beta016/Run1-v1/RAW",
+   "file_size": 2026000003518,
+   "num_file": 642
+  },
+  {
+   "item": "/Beta017/Run1-v1/RAW",
+   "file_size": 2149000003965,
+   "num_file": 679
+  },
+  {
+   "item": "/Beta018/Run1-v1/RAW",
+   "file_size": 2272000004438,
+   "num_file": 716
+  },
+  {
+   "item": "/Beta019/Run1-v1/RAW",
+   "file_size": 2395000004937,
+   "num_file": 753
+  },
+  {
+   "item": "/Beta020/Run1-v1/RAW",
+   "file_size": 2518000005462,
+   "num_file": 790
+  },
+  {
+   "item": "/Beta021/Run1-v1/RAW",
+   "file_size": 2620000005964,
+   "num_file": 827
+  },
+  {
+   "item": "/Beta022/Run1-v1/RAW",
+   "file_size": 2743000006541,
+   "num_file": 864
+  },
+  {
+   "item": "/Beta023/Run1-v1/RAW",
+   "file_size": 2866000007144,
+   "num_file": 901
+  },
+  {
+   "item": "/Beta024/Run1-v1/RAW",
+   "file_size": 2989000007773,
+   "num_file": 938
+  },
+  {
+   "item": "/Beta025/Run1-v1/RAW",
+   "file_size": 3112000008428,
+   "num_file": 975
+  },
+  {
+   "item": "/Beta026/Run1-v1/RAW",
+   "file_size": 3235000009109,
+   "num_file": 1012
+  },
+  {
+   "item": "/Beta027/Run1-v1/RAW",
+   "file_size": 3358000009816,
+   "num_file": 1049
+  },
+  {
+   "item": "/Beta028/Run1-v1/RAW",
+   "file_size": 3460000010500,
+   "num_file": 1086
+  },
+  {
+   "item": "/Beta029/Run1-v1/RAW",
+   "file_size": 3583000011259,
+   "num_file": 1123
+  },
+  {
+   "item": "/Beta030/Run1-v1/RAW",
+   "file_size": 3706000012044,
+   "num_file": 1160
+  },
+  {
+   "item": "/Beta031/Run1-v1/RAW",
+   "file_size": 3829000012855,
+   "num_file": 1197
+  },
+  {
+   "item": "/Beta032/Run1-v1/RAW",
+   "file_size": 3952000013692,
+   "num_file": 1234
+  },
+  {
+   "item": "/Beta033/Run1-v1/RAW",
+   "file_size": 4075000014555,
+   "num_file": 1271
+  },
+  {
+   "item": "/Beta034/Run1-v1/RAW",
+   "file_size": 4198000015444,
+   "num_file": 1308
+  },
+  {
+   "item": "/Beta035/Run1-v1/RAW",
+   "file_size": 4300000016310,
+   "num_file": 1345
+  },
+  {
+   "item": "/Beta036/Run1-v1/RAW",
+   "file_size": 4423000017251,
+   "num_file": 1382
+  },
+  {
+   "item": "/Beta037/Run1-v1/RAW",
+   "file_size": 4546000018218,
+   "num_file": 1419
+  },
+  {
+   "item": "/Beta038/Run1-v1/RAW",
+   "file_size": 4669000019211,
+   "num_file": 1456
+  },
+  {
+   "item": "/Beta039/Run1-v1/RAW",
+   "file_size": 4792000020230,
+   "num_file": 1493
+  },
+  {
+   "item": "/Beta040/Run1-v1/RAW",
+   "file_size": 4915000021275,
+   "num_file": 1530
+  },
+  {
+   "item": "/Beta041/Run1-v1/RAW",
+   "file_size": 5038000022346,
+   "num_file": 1567
+  },
+  {
+   "item": "/Beta042/Run1-v1/RAW",
+   "file_size": 5140000023394,
+   "num_file": 1604
+  },
+  {
+   "item": "/Beta043/Run1-v1/RAW",
+   "file_size": 5263000024517,
+   "num_file": 1641
+  },
+  {
+   "item": "/Beta044/Run1-v1/RAW",
+   "file_size": 5386000025666,
+   "num_file": 1678
+  },
+  {
+   "item": "/Beta045/Run1-v1/RAW",
+   "file_size": 5509000026841,
+   "num_file": 1715
+  },
+  {
+   "item": "/Beta046/Run1-v1/RAW",
+   "file_size": 5632000028042,
+   "num_file": 1752
+  },
+  {
+   "item": "/Beta047/Run1-v1/RAW",
+   "file_size": 5755000029269,
+   "num_file": 1789
+  },
+  {
+   "item": "/Beta048/Run1-v1/RAW",
+   "file_size": 5878000030522,
+   "num_file": 1826
+  },
+  {
+   "item": "/Beta049/Run1-v1/RAW",
+   "file_size": 5980000031752,
+   "num_file": 1863
+  },
+  {
+   "item": "/Beta050/Run1-v1/RAW",
+   "file_size": 6103000033057,
+   "num_file": 1900
+  },
+  {
+   "item": "/Beta051/Run1-v1/RAW",
+   "file_size": 6226000034388,
+   "num_file": 1937
+  },
+  {
+   "item": "/Beta052/Run1-v1/RAW",
+   "file_size": 6349000035745,
+   "num_file": 1974
+  },
+  {
+   "item": "/Beta053/Run1-v1/RAW",
+   "file_size": 6472000037128,
+   "num_file": 2011
+  },
+  {
+   "item": "/Beta054/Run1-v1/RAW",
+   "file_size": 6595000038537,
+   "num_file": 2048
+  },
+  {
+   "item": "/Beta055/Run1-v1/RAW",
+   "file_size": 6718000039972,
+   "num_file": 2085
+  },
+  {
+   "item": "/Beta056/Run1-v1/RAW",
+   "file_size": 6820000041384,
+   "num_file": 2122
+  },
+  {
+   "item": "/Beta057/Run1-v1/RAW",
+   "file_size": 6943000042871,
+   "num_file": 2159
+  },
+  {
+   "item": "/Beta058/Run1-v1/RAW",
+   "file_size": 7066000044384,
+   "num_file": 2196
+  },
+  {
+   "item": "/Beta059/Run1-v1/RAW",
+   "file_size": 7189000045923,
+   "num_file": 2233
+  },
+  {
+   "item": "/Beta060/Run1-v1/RAW",
+   "file_size": 7312000047488,
+   "num_file": 2270
+  },
+  {
+   "item": "/Beta061/Run1-v1/RAW",
+   "file_size": 7435000049079,
+   "num_file": 2307
+  },
+  {
+   "item": "/Beta062/Run1-v1/RAW",
+   "file_size": 7558000050696,
+   "num_file": 2344
+  },
+  {
+   "item": "/Beta063/Run1-v1/RAW",
+   "file_size": 7660000052290,
+   "num_file": 2381
+  },
+  {
+   "item": "/Beta064/Run1-v1/RAW",
+   "file_size": 7783000053959,
+   "num_file": 2418
+  },
+  {
+   "item": "/Beta065/Run1-v1/RAW",
+   "file_size": 7906000055654,
+   "num_file": 2455
+  },
+  {
+   "item": "/Beta066/Run1-v1/RAW",
+   "file_size": 8029000057375,
+   "num_file": 2492
+  },
+  {
+   "item": "/Beta067/Run1-v1/RAW",
+   "file_size": 8152000059122,
+   "num_file": 2529
+  },
+  {
+   "item": "/Beta068/Run1-v1/RAW",
+   "file_size": 8275000060895,
+   "num_file": 2566
+  },
+  {
+   "item": "/Beta069/Run1-v1/RAW",
+   "file_size": 8398000062694,
+   "num_file": 2603
+  },
+  {
+   "item": "/Beta070/Run1-v1/RAW",
+   "file_size": 8500000064470,
+   "num_file": 2640
+  },
+  {
+   "item": "/Beta071/Run1-v1/RAW",
+   "file_size": 8623000066321,
+   "num_file": 2677
+  },
+  {
+   "item": "/Beta072/Run1-v1/RAW",
+   "file_size": 8746000068198,
+   "num_file": 2714
+  },
+  {
+   "item": "/Beta073/Run1-v1/RAW",
+   "file_size": 8869000070101,
+   "num_file": 2751
+  },
+  {
+   "item": "/Beta074/Run1-v1/RAW",
+   "file_size": 8992000072030,
+   "num_file": 2788
+  },
+  {
+   "item": "/Beta075/Run1-v1/RAW",
+   "file_size": 9115000073985,
+   "num_file": 2825
+  },
+  {
+   "item": "/Beta076/Run1-v1/RAW",
+   "file_size": 9238000075966,
+   "num_file": 2862
+  },
+  {
+   "item": "/Beta077/Run1-v1/RAW",
+   "file_size": 9340000077924,
+   "num_file": 2899
+  },
+  {
+   "item": "/Beta078/Run1-v1/RAW",
+   "file_size": 9463000079957,
+   "num_file": 2936
+  },
+  {
+   "item": "/Beta079/Run1-v1/RAW",
+   "file_size": 9586000082016,
+   "num_file": 2973
+  },
+  {
+   "item": "/Beta080/Run1-v1/RAW",
+   "file_size": 9709000084101,
+   "num_file": 3010
+  },
+  {
+   "item": "/Beta081/Run1-v1/RAW",
+   "file_size": 9832000086212,
+   "num_file": 3047
+  },
+  {
+   "item": "/Beta082/Run1-v1/RAW",
+   "file_size": 9955000088349,
+   "num_file": 3084
+  },
+  {
+   "item": "/Beta083/Run1-v1/RAW",
+   "file_size": 10078000090512,
+   "num_file": 3121
+  },
+  {
+   "item": "/Beta084/Run1-v1/RAW",
+   "file_size": 10180000092652,
+   "num_file": 3158
+  },
+  {
+   "item": "/Beta085/Run1-v1/RAW",
+   "file_size": 10303000094867,
+   "num_file": 3195
+  },
+  {
+   "item": "/Beta086/Run1-v1/RAW",
+   "file_size": 10426000097108,
+   "num_file": 3232
+  },
+  {
+   "item": "/Beta087/Run1-v1/RAW",
+   "file_size": 10549000099375,
+   "num_file": 3269
+  },
+  {
+   "item": "/Beta088/Run1-v1/RAW",
+   "file_size": 10672000101668,
+   "num_file": 3306
+  },
+  {
+   "item": "/Beta089/Run1-v1/RAW",
+   "file_size": 10795000103987,
+   "num_file": 3343
+  },
+  {
+   "item": "/Beta090/Run1-v1/RAW",
+   "file_size": 10918000106332,
+   "num_file": 3380
+  },
+  {
+   "item": "/Beta091/Run1-v1/RAW",
+   "file_size": 11020000108654,
+   "num_file": 3417
+  },
+  {
+   "item": "/Beta092/Run1-v1/RAW",
+   "file_size": 11143000111051,
+   "num_file": 3454
+  },
+  {
+   "item": "/Beta093/Run1-v1/RAW",
+   "file_size": 11266000113474,
+   "num_file": 3491
+  },
+  {
+   "item": "/Beta094/Run1-v1/RAW",
+   "file_size": 11389000115923,
+   "num_file": 3528
+  },
+  {
+   "item": "/Beta095/Run1-v1/RAW",
+   "file_size": 11512000118398,
+   "num_file": 65
+  },
+  {
+   "item": "/Beta096/Run1-v1/RAW",
+   "file_size": 11635000120899,
+   "num_file": 102
+  },
+  {
+   "item": "/Beta097/Run1-v1/RAW",
+   "file_size": 11758000123426,
+   "num_file": 139
+  },
+  {
+   "item": "/Beta098/Run1-v1/RAW",
+   "file_size": 11860000125930,
+   "num_file": 176
+  },
+  {
+   "item": "/Beta099/Run1-v1/RAW",
+   "file_size": 11983000128509,
+   "num_file": 213
+  },
+  {
+   "item": "/Beta100/Run1-v1/RAW",
+   "file_size": 12106000131114,
+   "num_file": 250
+  },
+  {
+   "item": "/Beta101/Run1-v1/RAW",
+   "file_size": 12229000133745,
+   "num_file": 287
+  },
+  {
+   "item": "/Beta102/Run1-v1/RAW",
+   "file_size": 12352000136402,
+   "num_file": 324
+  },
+  {
+   "item": "/Beta103/Run1-v1/RAW",
+   "file_size": 12475000139085,
+   "num_file": 361
+  },
+  {
+   "item": "/Beta104/Run1-v1/RAW",
+   "file_size": 12598000141794,
+   "num_file": 398
+  },
+  {
+   "item": "/Beta105/Run1-v1/RAW",
+   "file_size": 12700000144480,
+   "num_file": 435
+  },
+  {
+   "item": "/Beta106/Run1-v1/RAW",
+   "file_size": 12823000147241,
+   "num_file": 472
+  },
+  {
+   "item": "/Beta107/Run1-v1/RAW",
+   "file_size": 12946000150028,
+   "num_file": 509
+  },
+  {
+   "item": "/Beta108/Run1-v1/RAW",
+   "file_size": 13069000152841,
+   "num_file": 546
+  },
+  {
+   "item": "/Beta109/Run1-v1/RAW",
+   "file_size": 13192000155680,
+   "num_file": 583
+  },
+  {
+   "item": "/Beta110/Run1-v1/RAW",
+   "file_size": 13315000158545,
+   "num_file": 620
+  },
+  {
+   "item": "/Beta111/Run1-v1/RAW",
+   "file_size": 13438000161436,
+   "num_file": 657
+  },
+  {
+   "item": "/Beta112/Run1-v1/RAW",
+   "file_size": 13540000164304,
+   "num_file": 694
+  },
+  {
+   "item": "/Beta113/Run1-v1/RAW",
+   "file_size": 13663000167247,
+   "num_file": 731
+  },
+  {
+   "item": "/Beta114/Run1-v1/RAW",
+   "file_size": 13786000170216,
+   "num_file": 768
+  },
+  {
+   "item": "/Beta115/Run1-v1/RAW",
+   "file_size": 13909000173211,
+   "num_file": 805
+  },
+  {
+   "item": "/Beta116/Run1-v1/RAW",
+   "file_size": 14032000176232,
+   "num_file": 842
+  },
+  {
+   "item": "/Beta117/Run1-v1/RAW",
+   "file_size": 14155000179279,
+   "num_file": 879
+  },
+  {
+   "item": "/Beta118/Run1-v1/RAW",
+   "file_size": 14278000182352,
+   "num_file": 916
+  },
+  {
+   "item": "/Beta119/Run1-v1/RAW",
+   "file_size": 14380000185402,
+   "num_file": 953
+  },
+  {
+   "item": "/Beta120/Run1-v1/RAW",
+   "file_size": 14503000188527,
+   "num_file": 990
+  },
+  {
+   "item": "/Beta121/Run1-v1/RAW",
+   "file_size": 14626000191678,
+   "num_file": 1027
+  },
+  {
+   "item": "/Beta122/Run1-v1/RAW",
+   "file_size": 14749000194855,
+   "num_file": 1064
+  },
+  {
+   "item": "/Beta123/Run1-v1/RAW",
+   "file_size": 14872000198058,
+   "num_file": 1101
+  },
+  {
+   "item": "/Beta124/Run1-v1/RAW",
+   "file_size": 14995000201287,
+   "num_file": 1138
+  },
+  {
+   "item": "/Beta125/Run1-v1/RAW",
+   "file_size": 15118000204542,
+   "num_file": 1175
+  },
+  {
+   "item": "/Beta126/Run1-v1/RAW",
+   "file_size": 15220000207774,
+   "num_file": 1212
+  },
+  {
+   "item": "/Beta127/Run1-v1/RAW",
+   "file_size": 15343000211081,
+   "num_file": 1249
+  },
+  {
+   "item": "/Beta128/Run1-v1/RAW",
+   "file_size": 15466000214414,
+   "num_file": 1286
+  },
+  {
+   "item": "/Beta129/Run1-v1/RAW",
+   "file_size": 15589000217773,
+   "num_file": 1323
+  },
+  {
+   "item": "/Beta130/Run1-v1/RAW",
+   "file_size": 15712000221158,
+   "num_file": 1360
+  },
+  {
+   "item": "/Beta131/Run1-v1/RAW",
+   "file_size": 15835000224569,
+   "num_file": 1397
+  },
+  {
+   "item": "/Beta132/Run1-v1/RAW",
+   "file_size": 15958000228006,
+   "num_file": 1434
+  },
+  {
+   "item": "/Beta133/Run1-v1/RAW",
+   "file_size": 16060000231420,
+   "num_file": 1471
+  },
+  {
+   "item": "/Beta134/Run1-v1/RAW",
+   "file_size": 16183000234909,
+   "num_file": 1508
+  },
+  {
+   "item": "/Beta135/Run1-v1/RAW",
+   "file_size": 16306000238424,
+   "num_file": 1545
+  },
+  {
+   "item": "/Beta136/Run1-v1/RAW",
+   "file_size": 16429000241965,
+   "num_file": 1582
+  },
+  {
+   "item": "/Beta137/Run1-v1/RAW",
+   "file_size": 16552000245532,
+   "num_file": 1619
+  },
+  {
+   "item": "/Beta138/Run1-v1/RAW",
+   "file_size": 16675000249125,
+   "num_file": 1656
+  },
+  {
+   "item": "/Beta139/Run1-v1/RAW",
+   "file_size": 16798000252744,
+   "num_file": 1693
+  },
+  {
+   "item": "/Beta140/Run1-v1/RAW",
+   "file_size": 16900000256340,
+   "num_file": 1730
+  },
+  {
+   "item": "/Beta141/Run1-v1/RAW",
+   "file_size": 17023000260011,
+   "num_file": 1767
+  }
+ ]
+}

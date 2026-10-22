@@ -806,7 +806,7 @@ def test_bootstrap_draft_writes_the_packaged_file_readers(
     assert rc == 0
     checks = {c["name"]: c for c in _json_out(capsys)["verification"]["checks"]}
     assert checks["extractors"]["summary"] == {
-        "parser_count": 4, "chunker_count": 2, "ner_route_count": 0,
+        "parser_count": 5, "chunker_count": 2, "ner_route_count": 0,
     }
 
 

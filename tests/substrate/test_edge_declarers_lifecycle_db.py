@@ -1290,3 +1290,47 @@ def test_a_node_delete_waits_for_a_ranking_change(clean_runtime: str) -> None:
         assert _calls(store) == ([], [])
     finally:
         store.close()
+
+
+def test_incident_edge_lookup_for_a_node_delete_keeps_only_the_deleting_sources_edges(
+    clean_runtime: str,
+) -> None:
+    """Issue 2383: the source filter applied to the dst side of the lookup
+    only, so another source's edge that starts at the deleted node entered
+    the touched-edge set. Both directions must be filtered by source."""
+    from okg.substrate.graph_store import ChronosGraphStore
+
+    other = "other-source"
+    store = _store(clean_runtime)
+    try:
+        store.apply_facts(
+            [_node("sym:a"), _node("sym:b"), _node("sym:c")],
+            source=STRUCTURE, strict_endpoints=False,
+        )
+        store.apply_facts(
+            [_edge("sym:a", "sym:b", "own-out"), _edge("sym:c", "sym:a", "own-in")],
+            source=STRUCTURE, strict_endpoints=False,
+        )
+        store.apply_facts(
+            [_edge("sym:a", "sym:c", "foreign-out"),
+             _edge("sym:b", "sym:a", "foreign-in")],
+            source=other, strict_endpoints=False,
+        )
+        by_source = {
+            (row["source"], row["src"], row["dst"]): int(row["edge_id"])
+            for row in store.query(
+                "SELECT edge_id, source, src, dst FROM okg.graph_edges "
+                "WHERE edge_type = 'calls'",
+            )
+        }
+        assert len(by_source) == 4, by_source
+        rows = ChronosGraphStore._incident_edges_for_node_deletes(
+            store, store.checkout("default"), [{"node_id": "sym:a"}],
+            source=STRUCTURE,
+        )
+        assert sorted(int(r["edge_id"]) for r in rows) == sorted([
+            by_source[(STRUCTURE, "sym:a", "sym:b")],
+            by_source[(STRUCTURE, "sym:c", "sym:a")],
+        ])
+    finally:
+        store.close()

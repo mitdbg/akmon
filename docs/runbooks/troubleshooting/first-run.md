@@ -30,6 +30,26 @@ surface, the cause, and the fix.
   only that volume is left, `up` starts an empty database instead; the same
   setting reaches the old data.
 
+## 0b. `podman run` stops with `crun: join keyctl: Disk quota exceeded`
+
+- **Signature:** starting the database container with rootless podman fails
+  with `OCI runtime error: crun: join keyctl ...: Disk quota exceeded`.
+- **Cause:** on a shared login node, each running container uses one kernel
+  key, and your user has reached its key limit (see `/proc/key-users`). The
+  database image is not at fault.
+- **Fix (podman only):** turn the kernel key off for every container you run.
+  In `~/.config/containers/containers.conf`, add:
+
+  ```toml
+  [containers]
+  keyring = false
+  ```
+
+  Then run `podman run` again. (`--annotation run.oci.keyring=false` on the
+  command line does not help.) Removing containers you no longer need frees
+  keys too, and an administrator can raise the kernel limit
+  `kernel.keys.maxkeys`.
+
 ## 1. Manifest fails to resolve: `points at a missing path`
 
 ```
@@ -238,6 +258,12 @@ publish_code: <cause>  publish_error: ...  fix_hint: <the publish's own repair>
 - **Not the fix:** `okg deployment up`. It upgrades a published deployment;
   here it stops at `backup`, and its `publish_recovery` field names the
   command above.
+- **After `okg install --force` over an existing database**, the install
+  exits 1 at `ingest` with `catalog_manifest_drifted`: the final publish was
+  refused because the database still holds the old claimed files, and
+  `okg status` shows what was published. Claim the new files, then publish:
+  `okg catalog ownership claim --deployment <deployment>`, then
+  `okg run --once --deployment <deployment> --apply`.
 
 ## 7. Search denied: `nomos.default_deny` on `graph.read.cli_search`
 

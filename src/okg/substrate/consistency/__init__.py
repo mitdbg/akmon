@@ -71,6 +71,7 @@ from .reuse_scheduler import (
     run_reuse_pass,
 )
 from .transform_gate import TransformConsistencyGate
+from .stored_live_nodes_gate import StoredLiveNodesGate
 
 __all__ = [
     "CHECK_KINDS",
@@ -79,6 +80,7 @@ __all__ = [
     "CLAIM_STATE_FULL_REASON",
     "CLAIM_STATE_SURFACE_BINDINGS",
     "TransformConsistencyGate",
+    "StoredLiveNodesGate",
     "CandidateCoverageReport",
     "CommitBeforeFixedPoint",
     "FALLBACK_CAUSES",

@@ -76,6 +76,7 @@ from okg.substrate.mcp.handle_fields import (
     _parse_date,
 )
 from okg.substrate.mcp.operator_sql import DATE_WINDOW_OP
+from okg.substrate.mcp.run_steps import run_time_left_ms
 from okg.substrate.mcp.response_bounds import DateCallOverBudget, InvalidOperatorArguments
 
 __all__ = [
@@ -959,7 +960,11 @@ class DateBudget:
         now = self._clock()
         if self._paused_at is not None:
             now -= min(now - self._paused_at, self._allowance)
-        return int((self._deadline - now) * 1000)
+        own = int((self._deadline - now) * 1000)
+        # Inside a `run` step (#3666) no date statement outlives the run's
+        # budget: what is left of it caps this one.
+        run_left = run_time_left_ms()
+        return own if run_left is None else min(own, run_left)
 
     def pause(self, allowance_ms: int) -> None:
         """Stop charging the budget: what runs until :meth:`resume` is

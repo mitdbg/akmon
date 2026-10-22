@@ -551,6 +551,7 @@ def test_the_production_server_holds_its_launch_contract_over_the_wire(
     assert observed["notifications"] == 1
     assert observed["wide_tools"] == {
         "inspect", "search", "aggregate", "expand", "filter", "map", "query",
+        "run",
     }
 
     # 2. The byte contract still wraps the newly exposed tool.

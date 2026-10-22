@@ -1187,6 +1187,27 @@ def _run_ingest_inner(options: IngestOptions) -> IngestRunResult:
     return IngestRunResult(report=report, any_failed=any_failed)
 
 
+def _admission_rejection_error(reason: str, source_health: Any) -> str:
+    """The `error` text of a source the admission gate rejected (#3927).
+
+    A run rejected as `source_health_not_healthy` carries the connector's own
+    account of why (`ConnectorHealth.reason`, redacted by `as_dict`). The text
+    states it, so a reader does not have to open the JSON report to learn it.
+    Other rejection reasons keep the bare code.
+    """
+    message = f"source admission rejected: {reason}"
+    if reason != "source_health_not_healthy" or source_health is None:
+        return message
+    health = source_health.as_dict()
+    said = health.get("reason")
+    if said:
+        return f"{message} (the connector reported {health['status']}: {said})"
+    return (
+        f"{message} (the connector reported {health['status']} "
+        "and gave no reason)"
+    )
+
+
 def _elapsed_ms(started: float) -> float:
     return round(max(0.0, (time.perf_counter() - started) * 1000), 3)
 
@@ -2291,7 +2312,9 @@ def _run_source(
                 "name": name,
                 "status": "FAIL",
                 "stage": "admission_finalize",
-                "error": f"source admission rejected: {reason}",
+                "error": _admission_rejection_error(
+                    reason, getattr(result, "source_health", None),
+                ),
                 "nodes_appended": result.nodes_appended,
                 "edges_appended": result.edges_appended,
                 "retract_n": result.retractions_node,

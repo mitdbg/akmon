@@ -16,6 +16,7 @@ releases (or closes the session holding) its mutex on every failure path.
 from __future__ import annotations
 
 import ast
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Any
@@ -404,3 +405,88 @@ def test_publisher_normal_release_keeps_the_connection(okg_migrated: str) -> Non
         pub._release_dbos_publish_lock(conn, (classid, objid))
         assert not conn.closed
         assert _key_is_free(okg_migrated, classid, objid)
+
+
+# ---------------------------------------------------------------------------
+# Issue #3861: a client that hard-exits mid-statement frees its session lock.
+# ---------------------------------------------------------------------------
+
+_HARD_EXIT_CLIENT = """
+import os, sys, threading
+import psycopg
+from okg.substrate.db.connection import connection_kwargs
+
+dsn = os.environ["PROBE_DSN"]
+conn = psycopg.connect(dsn, autocommit=True, **connection_kwargs(dsn=dsn))
+conn.execute("SELECT pg_advisory_lock(%s, %s)", (int(sys.argv[1]), int(sys.argv[2])))
+print("locked", flush=True)
+# The worker's hard exit: os._exit, no connection close, mid-statement.
+threading.Timer(2.0, lambda: os._exit(7)).start()
+conn.execute("SELECT pg_sleep(40)")
+"""
+
+
+def _run_hard_exit_client(
+    dsn: str, objid: int, check_interval_ms: str,
+) -> subprocess.Popen[str]:
+    import os
+    import sys
+
+    env = dict(os.environ)
+    env["PROBE_DSN"] = dsn
+    env["OKG_CLIENT_CONNECTION_CHECK_INTERVAL_MS"] = check_interval_ms
+    proc = subprocess.Popen(
+        [sys.executable, "-c", _HARD_EXIT_CLIENT, str(_INCIDENT_CLASSID), str(objid)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, env=env, start_new_session=True,
+    )
+    assert proc.stdout is not None
+    assert proc.stdout.readline().strip() == "locked"
+    return proc
+
+
+def _wait_until_free(dsn: str, objid: int, seconds: float) -> bool:
+    import time
+
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if _key_is_free(dsn, _INCIDENT_CLASSID, objid):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+@pytest.mark.postgres
+def test_hard_exited_client_frees_its_session_lock_within_seconds(
+    okg_migrated: str,
+) -> None:
+    objid = _fresh_objid()
+    proc = _run_hard_exit_client(okg_migrated, objid, "")  # default interval
+    try:
+        assert proc.wait(timeout=15) == 7
+        # The statement would run 40 s; with the check interval the backend
+        # notices the closed socket and ends it (default 5 s).
+        assert _wait_until_free(okg_migrated, objid, 15.0)
+    finally:
+        proc.kill()
+
+
+@pytest.mark.postgres
+def test_without_the_check_interval_a_hard_exited_client_keeps_its_lock(
+    okg_migrated: str,
+) -> None:
+    """Negative control: the setting, not luck, frees the lock above."""
+    objid = _fresh_objid()
+    proc = _run_hard_exit_client(okg_migrated, objid, "0")  # disabled
+    try:
+        assert proc.wait(timeout=15) == 7
+        assert not _wait_until_free(okg_migrated, objid, 12.0)
+    finally:
+        proc.kill()
+        with psycopg.connect(okg_migrated, autocommit=True, connect_timeout=5) as c:
+            c.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_locks "
+                "WHERE locktype = 'advisory' AND classid::bigint = %s AND objid::bigint = %s "
+                "AND granted",
+                (_INCIDENT_CLASSID, objid),
+            )

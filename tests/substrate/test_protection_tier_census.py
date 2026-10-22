@@ -6,9 +6,10 @@ from __future__ import annotations
 import psycopg
 import pytest
 from psycopg import sql
+from psycopg.rows import dict_row
 
+from okg.substrate.db.cold_history import resolve_open_interval_value
 from okg.substrate.deployment_protection_census import (
-    POSTGRES_OPEN_INTERVAL_SENTINEL,
     generate_protection_census,
 )
 
@@ -150,7 +151,8 @@ def test_chronos_interval_tables_measure_cold_fraction(census_conn) -> None:
 
 def test_cold_fraction_counts_closed_non_deleted_rows(census_conn) -> None:
     """Seed an interval table and verify closed non-deleted rows."""
-    sentinel = POSTGRES_OPEN_INTERVAL_SENTINEL
+    with census_conn.cursor(row_factory=dict_row) as dict_cur:
+        sentinel = resolve_open_interval_value(dict_cur)
     with census_conn.cursor() as cur:
         cur.execute(
             "DROP TABLE IF EXISTS public._chronos_b_interval_census_probe"

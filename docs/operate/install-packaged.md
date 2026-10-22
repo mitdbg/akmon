@@ -9,16 +9,23 @@ owner: documentation
 ---
 # Install from a wheel or a release directory
 
-Most people should [install OKG from source](install.md). This page is for
-two other cases: you have an OKG wheel, or a producer built a release
-directory and handed it to you.
+Most people should follow the [Quickstart](../start/quickstart.md), which
+installs a released version. This page is for two other cases: you have an
+OKG wheel, or a producer built a release directory and handed it to you.
 
 ## Install from a wheel
 
 Each OKG release attaches its wheel, `okg-<version>-py3-none-any.whl`, to its
-[GitHub release](https://github.com/mitdbg/akmon/releases). Until the
-repository is public, reading it needs access to the repository. To build one yourself from a source checkout
-instead (see [Install OKG](install.md) for getting the checkout):
+[GitHub release](https://github.com/mitdbg/akmon/releases). Download it from
+the release page, for example:
+
+```bash
+export AKMON_VERSION=0.3.0
+curl -fLO "https://github.com/mitdbg/akmon/releases/download/v${AKMON_VERSION}/okg-${AKMON_VERSION}-py3-none-any.whl"
+```
+
+Or build one yourself from a source checkout instead (see
+[Install OKG](install.md) for getting the checkout):
 
 ```bash
 uv build --wheel
@@ -35,6 +42,8 @@ python3.12 -m venv ~/okg-venv
 
 Then follow [Install OKG](install.md) from step 2, using this environment's
 `okg`. The database in step 2 comes from the checkout's `ops/pg` directory.
+Without a checkout, start the published database image with the `docker run`
+command in [Quickstart step 1](../start/quickstart.md#1-get-akmon-and-start-the-database).
 
 To upgrade later, install the newer wheel into the same environment and run
 `okg up <name>`; see

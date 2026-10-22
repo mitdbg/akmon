@@ -543,7 +543,7 @@ def ranked_chunk_sql(
             SELECT node_id, subtype, attrs, text_hash, source,
                    source_record_id, source_revision,
                    {order_sql} AS score
-              FROM {node_segment}
+              FROM {node_segment} n
              WHERE deleted = FALSE
                AND live_lo <= %(bp)s AND %(bp)s < live_hi
                AND attrs ? 'text'

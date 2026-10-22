@@ -420,7 +420,7 @@ def test_a_grep_match_in_a_passage_reports_the_line_a_range_read_returns(
         })
         rows = {row["node_id"]: row for row in listed["results"]}
         assert set(rows) == {FILE, GAPPED}, listed["results"]
-        cards = await _json(client, "search", {"query": MARKER, "method": "grep"})
+        cards = await _json(client, "search", {"query": MARKER, "method": "grep", "view": "cards"})
         windows = {row["node_id"]: row["match_windows"] for row in cards["results"]}
         for doc_id, row in rows.items():
             first = row["first_match"]
@@ -472,7 +472,8 @@ def test_a_match_in_a_records_own_text_reports_a_line_that_reads_back_or_says_wh
         assert _joined(page) == OWN_LINE + "\n"
         # Failure case: the own text's line 3 is another line of the record.
         assert _joined(await _json(client, "inspect", _target(OWNED, [[3, 3]]))) == "intro three\n"
-        cards = await _json(client, "search", {"query": "ownneedle", "method": "grep"})
+        cards = await _json(client, "search", {"query": "ownneedle", "method": "grep",
+                                               "view": "cards"})
         own, passage = cards["results"][0]["match_windows"]
         assert (own["line"], passage["line"]) == (5, 5)
         assert "line_basis" not in own and "line_basis" not in passage
@@ -487,7 +488,8 @@ def test_a_match_in_a_records_own_text_reports_a_line_that_reads_back_or_says_wh
         text = await _text(client, "search", {
             "query": "soloneedle", "method": "grep", "view": "list",
         })
-        assert "first line 3 · " in text and "line counted in its own text" in text
+        # read-names-list-3666: the basis is said beside the line.
+        assert "first own-text line 3 · " in text
 
     _drive(clean_runtime, deployment, body)
 

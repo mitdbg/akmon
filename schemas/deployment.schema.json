@@ -45,6 +45,7 @@
         "images": {},
         "instructions": {},
         "live_bindings": {},
+        "live_types": {},
         "projections": {},
         "response_bytes": {},
         "served": {}
@@ -150,6 +151,14 @@
         }
       },
       "additionalProperties": false
+    },
+    "citation_attr": {
+      "description": "The record attribute a reader cites (for example a benchmark document id); search rows and inspect node and text reads name it.",
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$"
     },
     "code_drift": {
       "description": "Code-drift check policy: mode (track_base or pinned), and for track_base an optional base_ref and max_commits_behind.",

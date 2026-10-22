@@ -577,6 +577,7 @@ def test_valid_bearer_token_lists_full_operator_surface(monkeypatch):
         "inspect",
         "map",
         "query",
+        "run",
         "search",
     }
 
