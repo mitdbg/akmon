@@ -3144,9 +3144,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE SELECT ON TABLES FROM okg_mcp;
 --     `GRANT SELECT ON ALL TABLES IN SCHEMA okg TO okg_mcp` catch-up that
 --     fought the REVOKE above — whichever script ran last decided whether the
 --     MCP role could read raw fact tables, source blobs and watermarks.
---   * The lazily-created relations (`okg.attribute_effective_view_intervals`,
---     `okg.attribute_versions`,
---     `okg.v_generation_interval_stab`) need no hand-written existence guard.
+--   * A lazily-created relation (`okg.v_generation_interval_stab`) needs no
+--     hand-written existence guard.
 --     The applier grants a registry row only when its relation exists and
 --     re-applies on the next install, which is the same "grant WHEN PRESENT"
 --     behaviour the guarded DO-block gave, expressed once.
@@ -3200,56 +3199,6 @@ $okg_mcp_rw_default_privs$;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA okg TO okg_mcp;
 ALTER DEFAULT PRIVILEGES IN SCHEMA okg GRANT EXECUTE ON FUNCTIONS TO okg_mcp;
 
--- Transition functions mutate Publisher integrity authority and are therefore
--- not read-pool APIs.  Keep this deny-list immediately after the broad read
--- function grant; migration 0014 and the runtime schema ensure repeat it after
--- function creation because default privileges are materialized at CREATE.
-DO $okg_mcp_attribute_transition_denies$
-BEGIN
-  IF to_regprocedure(
-    'okg.begin_attribute_integrity_transition(text,text,text)'
-  ) IS NOT NULL THEN
-    REVOKE ALL ON FUNCTION
-      okg.begin_attribute_integrity_transition(TEXT, TEXT, TEXT),
-      okg.attribute_integrity_transition_matches(TEXT, TEXT, TEXT),
-      okg.finish_attribute_integrity_transition(TEXT, TEXT, TEXT),
-      okg.abort_attribute_integrity_transition(TEXT, TEXT, TEXT)
-      FROM okg_mcp;
-  END IF;
-  IF to_regprocedure(
-    'okg.register_attribute_integrity_scope(text,text,text)'
-  ) IS NOT NULL THEN
-    REVOKE ALL ON FUNCTION
-      okg.register_attribute_integrity_scope(TEXT, TEXT, TEXT),
-      okg.mark_attribute_integrity_scope_dirty(TEXT, TEXT, TEXT, TEXT),
-      okg.finalize_attribute_integrity_receipt(
-        TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, BIGINT, TEXT,
-        BIGINT, BIGINT, BIGINT, BIGINT, INTEGER, TEXT, TEXT,
-        NUMERIC, NUMERIC, NUMERIC, NUMERIC, TEXT, BIGINT
-      )
-      FROM okg_mcp;
-    -- app_rw is not a transition/finalizer principal either
-    -- (harden-attribute-integrity-authority): reassert after any broad
-    -- grant replay.
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_rw') THEN
-      REVOKE ALL ON FUNCTION
-        okg.begin_attribute_integrity_transition(TEXT, TEXT, TEXT),
-        okg.attribute_integrity_transition_matches(TEXT, TEXT, TEXT),
-        okg.finish_attribute_integrity_transition(TEXT, TEXT, TEXT),
-        okg.abort_attribute_integrity_transition(TEXT, TEXT, TEXT),
-        okg.register_attribute_integrity_scope(TEXT, TEXT, TEXT),
-        okg.mark_attribute_integrity_scope_dirty(TEXT, TEXT, TEXT, TEXT),
-        okg.finalize_attribute_integrity_receipt(
-          TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, BIGINT, TEXT,
-          BIGINT, BIGINT, BIGINT, BIGINT, INTEGER, TEXT, TEXT,
-          NUMERIC, NUMERIC, NUMERIC, NUMERIC, TEXT, BIGINT
-        )
-        FROM app_rw;
-    END IF;
-  END IF;
-END
-$okg_mcp_attribute_transition_denies$;
-
 -- The writes the read pool legitimately performs -- per-call audit logging
 -- (mcp_call_log / mcp_trace_events), bounded unified telemetry rows for MCP
 -- spans, and the two Nomos read-time authorization audit tables -- are
@@ -3281,6 +3230,42 @@ $okg_mcp_attribute_transition_denies$;
 -- is guarded and skips.
 
 -- ---------------------------------------------------------------------
+-- Relations the Chronos pattern grant must never reach.
+-- ---------------------------------------------------------------------
+-- The waiting-edge table (okg.graph_edge_deferrals, pact
+-- cross-source-endpoint-wedge) is Chronos-registered, so its physical tables
+-- match the `public._chronos%` pattern below. No read role may see it: record
+-- ids can carry sensitive names and no read operator serves it. This function
+-- names its physical tables (current and every schema version) so both the
+-- applier and the drift check carve them out of the pattern. Dynamic SQL
+-- because the Chronos registry tables are created lazily and may not exist
+-- when this file is first loaded.
+CREATE OR REPLACE FUNCTION okg.grant_withheld_relations()
+RETURNS SETOF text
+LANGUAGE plpgsql
+STABLE
+AS $okg_grant_withheld_relations$
+BEGIN
+  IF to_regclass('public._chronos_branch_tables') IS NOT NULL THEN
+    RETURN QUERY EXECUTE
+      'SELECT ''public.'' || physical_table '
+      'FROM public._chronos_branch_tables '
+      'WHERE table_name = ''okg.graph_edge_deferrals''';
+  END IF;
+  IF to_regclass('public._chronos_branch_table_schema_versions') IS NOT NULL THEN
+    RETURN QUERY EXECUTE
+      'SELECT ''public.'' || physical_table '
+      'FROM public._chronos_branch_table_schema_versions '
+      'WHERE table_name = ''okg.graph_edge_deferrals''';
+  END IF;
+END
+$okg_grant_withheld_relations$;
+
+COMMENT ON FUNCTION okg.grant_withheld_relations() IS
+  'Physical relations of okg.graph_edge_deferrals: excluded from the Chronos '
+  'pattern grant and from the drift check, and revoked from the read roles.';
+
+-- ---------------------------------------------------------------------
 -- The applier.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION okg.apply_grant_registry()
@@ -3298,12 +3283,16 @@ DECLARE
   denied      boolean;
   last_error  text;
   queue_ready boolean := to_regclass('okg.pending_grants') IS NOT NULL;
+  withheld    text[] := '{}'::text[];
+  withheld_rel text;
 BEGIN
   IF to_regclass('okg.grant_registry') IS NULL THEN
     -- A database that has not taken 0027 yet. Nothing to apply; the next
     -- migrate installs the table and re-runs this file.
     RETURN 0;
   END IF;
+
+  withheld := ARRAY(SELECT okg.grant_withheld_relations());
 
   -- Statements are COLLECTED first and applied through one handler below.
   -- Two reasons, both learned the hard way:
@@ -3366,6 +3355,7 @@ BEGIN
           JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = split_part(entry.relation, '.', 1)
            AND c.relname LIKE split_part(entry.relation, '.', 2) ESCAPE '\'
+           AND NOT ((n.nspname || '.' || c.relname) = ANY (withheld))
            AND (
              (entry.object_kind = 'SEQUENCE' AND c.relkind = 'S')
              OR (entry.object_kind = 'TABLE'
@@ -3391,6 +3381,18 @@ BEGIN
       stmts := stmts || format(
         'GRANT %s ON %s %s TO %I',
         entry.privileges, entry.object_kind, target, entry.role_name
+      );
+    END IF;
+  END LOOP;
+
+  -- A withheld relation (the waiting-edge table) loses any read grant an
+  -- earlier pass or the Chronos catch-up made.
+  FOREACH withheld_rel IN ARRAY withheld LOOP
+    IF to_regclass(withheld_rel) IS NOT NULL
+       AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'okg_mcp')
+    THEN
+      stmts := stmts || format(
+        'REVOKE ALL ON TABLE %s FROM okg_mcp', to_regclass(withheld_rel)::text
       );
     END IF;
   END LOOP;
@@ -3536,6 +3538,12 @@ AS $okg_grant_registry_drift$
     UNION ALL
     SELECT 'okg_external_action_api'::text
   ),
+  -- The waiting-edge table's physicals: matched by no pattern, so a read
+  -- grant on one is an unregistered grant, and its absence is not a missing
+  -- one.
+  withheld AS (
+    SELECT w FROM okg.grant_withheld_relations() AS w
+  ),
   -- Relations in scope. TimescaleDB internal chunk relations are excluded:
   -- they are not directly queryable and inherit their hypertable's ACL.
   scoped AS (
@@ -3615,7 +3623,8 @@ AS $okg_grant_registry_drift$
          OR (g.is_pattern
              AND split_part(g.relation, '.', 1) = split_part(s.qualified, '.', 1)
              AND split_part(s.qualified, '.', 2)
-                 LIKE split_part(g.relation, '.', 2) ESCAPE '\')
+                 LIKE split_part(g.relation, '.', 2) ESCAPE '\'
+             AND s.qualified <> ALL (ARRAY(SELECT w FROM withheld)))
        )
   )
   SELECT 'unregistered_view'::text,
@@ -3652,7 +3661,8 @@ AS $okg_grant_registry_drift$
           OR (g.is_pattern
               AND split_part(g.relation, '.', 1) = split_part(d.qualified, '.', 1)
               AND split_part(d.qualified, '.', 2)
-                  LIKE split_part(g.relation, '.', 2) ESCAPE '\')
+                  LIKE split_part(g.relation, '.', 2) ESCAPE '\'
+              AND d.qualified <> ALL (ARRAY(SELECT w FROM withheld)))
         )
    )
 
@@ -3676,7 +3686,8 @@ AS $okg_grant_registry_drift$
           OR (g.is_pattern
               AND split_part(g.relation, '.', 1) = split_part(e.qualified, '.', 1)
               AND split_part(e.qualified, '.', 2)
-                  LIKE split_part(g.relation, '.', 2) ESCAPE '\')
+                  LIKE split_part(g.relation, '.', 2) ESCAPE '\'
+              AND e.qualified <> ALL (ARRAY(SELECT w FROM withheld)))
         )
    )
 
@@ -4481,20 +4492,14 @@ BEGIN
     ('grant:okg_mcp:okg.attribute_effective_attrs',
      'okg.attribute_effective_attrs', 'TABLE', 'okg_mcp', 'SELECT',
      'attr operator pushdown'),
-    ('grant:okg_mcp:okg.attribute_effective_view',
-     'okg.attribute_effective_view', 'TABLE', 'okg_mcp', 'SELECT',
-     'attr operator pushdown'),
-    -- ivm-effective-attribute-view + schema-interval-narrow-split +
-    -- schema-attr-filter-index. These four are created lazily at first
-    -- publish, not by the migration schema, so the applier grants them only
-    -- once they exist. Until then the reader falls back to the per-generation
-    -- snapshot (tests/substrate/
-    -- test_effective_attribute_view_interval_readers.py).
-    ('grant:okg_mcp:okg.attribute_effective_view_intervals',
-     'okg.attribute_effective_view_intervals', 'TABLE', 'okg_mcp', 'SELECT',
-     'interval reader; created at first publish'),
-    ('grant:okg_mcp:okg.attribute_versions', 'okg.attribute_versions', 'TABLE',
-     'okg_mcp', 'SELECT', 'version store behind interval/snapshot readers'),
+    -- storage redesign S2: the graph read path checks the overlay marker
+    -- of the pinned generation and reads the overlay ranges.
+    ('grant:okg_mcp:okg.attribute_overlay_generations',
+     'okg.attribute_overlay_generations', 'TABLE', 'okg_mcp', 'SELECT',
+     'overlay materialization marker'),
+    ('grant:okg_mcp:okg.attribute_overlay_ranges',
+     'okg.attribute_overlay_ranges', 'TABLE', 'okg_mcp', 'SELECT',
+     'overlay validity ranges'),
     -- okg#3112 step 2: the expression-index filter path reads each declared
     -- index's readiness (state, digest, drift flag) before it narrows by it.
     ('grant:okg_mcp:okg.declared_attr_indexes', 'okg.declared_attr_indexes',
@@ -4507,15 +4512,6 @@ BEGIN
     ('grant:okg_mcp:okg.v_generation_interval_stab',
      'okg.v_generation_interval_stab', 'TABLE', 'okg_mcp', 'SELECT',
      'D2: the TEXT-ref-keyed view REPLACES a grant on generation_ordinals'),
-    -- Integrity state/receipts are read-only proof metadata. The backend-bound
-    -- transition table stays out: it is publisher authority, not a read
-    -- surface, and role_split.sql revokes it explicitly.
-    ('grant:okg_mcp:okg.attribute_effective_integrity_state',
-     'okg.attribute_effective_integrity_state', 'TABLE', 'okg_mcp', 'SELECT',
-     'read-only integrity proof metadata'),
-    ('grant:okg_mcp:okg.attribute_effective_integrity_receipts',
-     'okg.attribute_effective_integrity_receipts', 'TABLE', 'okg_mcp',
-     'SELECT', 'read-only integrity proof metadata'),
     ('grant:okg_mcp:okg.nomos_policy_bundles', 'okg.nomos_policy_bundles',
      'TABLE', 'okg_mcp', 'SELECT', 'read-time authorization'),
     -- PACT lane-h-nomos-read-class-sql: the reader's view decides every
@@ -4870,15 +4866,6 @@ $external_action_semantic_function_owner$;
 -- cannot recreate their default ACLs after migration 0030 hardens them.
 DO $external_action_unrelated_security_definer_acl$
 BEGIN
-  IF to_regprocedure('okg.mark_attribute_effective_integrity_dirty()') IS NOT NULL THEN
-    EXECUTE 'REVOKE ALL ON FUNCTION okg.mark_attribute_effective_integrity_dirty() FROM PUBLIC';
-  END IF;
-  IF to_regprocedure('okg.mark_attribute_effective_integrity_dirty_rows()') IS NOT NULL THEN
-    EXECUTE 'REVOKE ALL ON FUNCTION okg.mark_attribute_effective_integrity_dirty_rows() FROM PUBLIC';
-  END IF;
-  IF to_regprocedure('okg.mark_attribute_effective_integrity_dirty_update()') IS NOT NULL THEN
-    EXECUTE 'REVOKE ALL ON FUNCTION okg.mark_attribute_effective_integrity_dirty_update() FROM PUBLIC';
-  END IF;
   IF to_regprocedure('okg.require_chronos_checkout(text)') IS NOT NULL THEN
     EXECUTE 'REVOKE ALL ON FUNCTION okg.require_chronos_checkout(text) FROM PUBLIC';
   END IF;

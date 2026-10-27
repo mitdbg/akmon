@@ -131,8 +131,18 @@ BUILTIN_TOOL_PROFILES: Mapping[str, tuple[str, ...]] = {
 #: (`tests/substrate/test_no_unconsumed_manifest_fields.py`) matches only
 #: top-level NAMES, and the string `mcp` occurs throughout `src/okg/`, so it
 #: cannot detect a misspelled key NESTED under `mcp:`. These sets do that.
-_MCP_BLOCK_KEYS = frozenset({"tool_profiles", "default_tool_profile", "dataset_card"})
+_MCP_BLOCK_KEYS = frozenset({
+    "tool_profiles", "default_tool_profile", "dataset_card", "doc_text_nodes",
+    "file_nodes", "commit_nodes",
+})
 _PROFILE_KEYS = frozenset({"tools", "description"})
+#: The boolean `mcp:` keys that override the registry scan for a node-id
+#: family (issues #4052, #4064), with what each says the deployment holds.
+_NODE_OVERRIDE_KEYS: Mapping[str, str] = {
+    "doc_text_nodes": "file-text doc: nodes",
+    "file_nodes": "file: nodes",
+    "commit_nodes": "commit: nodes",
+}
 
 
 @dataclass(frozen=True)
@@ -153,6 +163,14 @@ class ToolProfileConfig:
     #: `mcp.dataset_card` (PACT dataset-card-switch): False turns the dataset
     #: card off, so the server neither gathers nor serves it. Absent is on.
     dataset_card: bool = True
+    #: `mcp.doc_text_nodes` (issue #4052): true or false overrides the scan of
+    #: the source registry for a file-text (`doc:`) source; absent is None, so
+    #: the scan decides.
+    doc_text_nodes: bool | None = None
+    #: `mcp.file_nodes` and `mcp.commit_nodes` (issue #4064): the same override
+    #: for `file:<repo>:<path>` and `commit:<repo>:<sha>` nodes.
+    file_nodes: bool | None = None
+    commit_nodes: bool | None = None
 
     @property
     def declared_names(self) -> tuple[str, ...]:
@@ -272,9 +290,23 @@ def parse_tool_profile_config(
                 "leave the key out to keep it on"
             ),
         )
+    node_overrides: dict[str, bool | None] = {}
+    for key, what in _NODE_OVERRIDE_KEYS.items():
+        flag = raw.get(key)
+        if flag is not None and not isinstance(flag, bool):
+            raise ToolProfileConfigInvalid(
+                f"deployment.yaml `mcp.{key}` must be true or false; got "
+                f"{flag!r}.{where}",
+                fix_hint=(
+                    f"write `{key}: true` if the deployment holds {what} "
+                    "from a custom source module, `false` if not, or "
+                    "leave the key out to infer it from the source registry"
+                ),
+            )
+        node_overrides[key] = flag
     return ToolProfileConfig(
         profiles=profiles, default_tool_profile=default_profile,
-        dataset_card=dataset_card,
+        dataset_card=dataset_card, **node_overrides,
     )
 
 

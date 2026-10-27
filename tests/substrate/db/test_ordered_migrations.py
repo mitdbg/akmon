@@ -179,6 +179,16 @@ def test_current_known_migrations_are_byte_identical() -> None:
         # stay, and a skipped drop would keep upgraded databases apart from
         # fresh installs. 0042 is reserved by another lane.
         ("0043_attr_index_teardown", False),
+        # 0044 only CREATEs the overlay marker and ranges tables and backfills
+        # markers (PACT lane-s-storage-redesign-s2).
+        ("0044_attribute_overlay_generations", False),
+        # 0045 only COMMENTs on the operational-outcome table and is the
+        # publisher's outcome cutover (PACT publisher-starvation-4039).
+        ("0045_publisher_operational_outcomes", False),
+        # 0046 DROPs the three attribute copies and the integrity receipt
+        # tables (PACT lane-s-storage-drop-copies). Not destructive by
+        # decision 304 (D4), as 0043: derived rows, RESTRICT drops.
+        ("0046_attribute_copies_teardown", False),
     ]
 
     # Anti-tamper on the shipped static destructive migration file.

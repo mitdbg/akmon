@@ -17,8 +17,8 @@ server shared over the network. Below, `<name>` is the deployment's name.
 ## How it works
 
 `okg mcp-serve --deployment <name>` is an MCP server for one deployment. It
-offers seven read tools: `inspect`, `search`, `expand`, `filter`, `map`,
-`aggregate` and `query`. It is read-only unless started with
+offers eight read tools: `inspect`, `search`, `expand`, `filter`, `map`,
+`aggregate`, `query` and `run`. It is read-only unless started with
 `--allow-writes`, and it logs in to the database with its own read-only
 account.
 
@@ -65,7 +65,7 @@ For Claude Code, Claude Desktop, Cursor and Codex:
 okg agent connect --deployment <name>
 ```
 
-It starts the server once to check that it lists the seven tools, then adds
+It starts the server once to check that it lists the eight tools, then adds
 an entry named `okg-<name>` to each of those agents it finds on this
 machine, and installs the bundled skills (instructions that teach the agent
 to use the graph well). If the check fails, it writes nothing and prints the
@@ -161,7 +161,7 @@ cd -
 ```
 
 It prints `['inspect', 'search', 'expand', 'filter', 'map', 'aggregate',
-'query']`. An empty `[]` means the server did not start; run
+'query', 'run']`. An empty `[]` means the server did not start; run
 `okg mcp-serve --deployment <name>` on its own to see why. Then, in a new
 agent session, ask which tools the `okg-<name>` server offers.
 

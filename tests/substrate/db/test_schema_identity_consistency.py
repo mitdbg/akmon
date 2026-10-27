@@ -613,12 +613,21 @@ def test_mcp_reads_generation_ordinals_through_the_text_ref_view(
 
 
 def test_mcp_server_reads_the_view_not_the_ordinal_table() -> None:
-    """The MCP interval reader was switched to the TEXT-ref-keyed view."""
-    source = (
-        REPO_ROOT / "src" / "okg" / "substrate" / "mcp" / "server.py"
-    ).read_text(encoding="utf-8")
-    assert "FROM okg.generation_ordinals" not in source
-    assert "okg.v_generation_interval_stab" in source
+    """The MCP interval readers use the TEXT-ref-keyed view, never the table.
+
+    The graph-only read path moved the interval read out of server.py, so the
+    whole MCP package is checked.
+    """
+    mcp_dir = REPO_ROOT / "src" / "okg" / "substrate" / "mcp"
+    sources = {
+        str(path.relative_to(mcp_dir)): path.read_text(encoding="utf-8")
+        for path in sorted(mcp_dir.rglob("*.py"))
+    }
+    assert not [
+        name for name, text in sources.items()
+        if "okg.generation_ordinals" in text
+    ]
+    assert any("okg.v_generation_interval_stab" in text for text in sources.values())
 
 
 def test_ir_binding_dedupe_sentinel_cannot_be_forged(clean_runtime: str) -> None:

@@ -1587,7 +1587,9 @@ def _add_source_sync_hold(
         if not getattr(entry, "legacy", False)
     }
     try:
-        hold = source_sync_hold(dsn=dsn, deployment=deployment, sources=sources)
+        hold = source_sync_hold(
+            dsn=dsn, deployment=deployment, sources=sources, registry=registry,
+        )
     except Exception as exc:  # noqa: BLE001 - reported as an error, not raised.
         report["ok"] = False
         report["errors"].append({
@@ -1603,6 +1605,10 @@ def _add_source_sync_hold(
         "code": "source_sync_held",
         "checkpoint_id": hold["checkpoint_id"],
         "not_admitted_since_block": hold["not_admitted_since_block"],
+        "source_classes": hold.get("source_classes", []),
+        "automatic_retirement_applies": hold.get(
+            "automatic_retirement_applies", False,
+        ),
         "error": source_sync_hold_line(hold),
         "fix_hint": hold["escape_hatch_command"],
     })
@@ -3787,7 +3793,11 @@ def _cmd_doctor(args: argparse.Namespace, *, as_json: bool) -> int:
                 (
                     "publisher_workflow_health",
                     check_publisher_workflow_health,
-                    {},
+                    {
+                        "yield_bound_seconds": (
+                            manifest.publisher.max_source_sync_yield_seconds
+                        ),
+                    },
                 ),
                 (
                     "source_sync_workflow_health",
@@ -3861,6 +3871,31 @@ def _cmd_doctor(args: argparse.Namespace, *, as_json: bool) -> int:
                         "message": str(e),
                     }
                 )
+
+            # PACT publisher-starvation-4039: source-sync rows waiting or
+            # running past the publisher's yield bound. A warning; fatal when
+            # the branch has no published generation, where the publisher
+            # yields without bound. A failed probe is an error, never green.
+            from okg.substrate.runtime.publisher_health_workflow_liveness import (
+                check_source_sync_stuck,
+            )
+
+            stuck = check_source_sync_stuck(
+                deployment=deployment_name,
+                dsn=dsn,
+                bound_seconds=manifest.publisher.max_source_sync_yield_seconds,
+            )
+            report["source_sync_stuck"] = stuck.to_dict()
+            stuck_entry = {
+                "code": stuck.code,
+                "message": stuck.message,
+                "check": "source_sync_stuck",
+            }
+            if not stuck.ok:
+                report["ok"] = False
+                report["errors"].append(stuck_entry)
+            elif stuck.severity == "warning":
+                report.setdefault("warnings", []).append(stuck_entry)
 
             # Lens-putback backlog probe (deepen-dbos-integration
             # Phase 0). Three-zone reporting: healthy / warn / runaway.
@@ -5365,6 +5400,71 @@ def _doctor_pending_grants(
     return 0 if not findings else 1
 
 
+def _doctor_deferred_edges(
+    args: argparse.Namespace,
+    *,
+    as_json: bool,
+) -> int:
+    """`okg doctor --check deferred-edges` -- edges waiting for another source.
+
+    Pinned by cross-source-endpoint-wedge req.observable. A cross-source edge
+    whose endpoint is missing, a placeholder, or of a subtype its clause
+    does not accept waits in `okg.graph_edge_deferrals` instead of failing a
+    run or blocking a publish. Waiting is not a fault, but waiting forever is
+    a wrong id: the check warns once the oldest edge is older than
+    `consistency.deferred_edge_warn_after` (default 24 hours). It reports
+    counts by producer, edge type, endpoint subtype and state, the oldest
+    `deferred_at`. It withholds record ids (they can carry sensitive names);
+    `okg runtime deferred-edges` lists a bounded sample. An old edge is a
+    warning, not a failure: the check exits 0.
+    """
+    from okg.substrate.db.connection import connect as db_connect
+    from okg.substrate.graph_store_internal.edge_deferrals import (
+        DEFAULT_WARN_AFTER_SECONDS,
+        deferred_edges_report,
+    )
+
+    _load_main_helpers()
+    try:
+        dsn = _resolve_dsn(args)
+    except SubstrateError as exc:
+        return _emit_error(exc, as_json=as_json)
+    deployment = getattr(args, "deployment", None) or "default"
+    warn_after = DEFAULT_WARN_AFTER_SECONDS
+    if getattr(args, "deployment", None):
+        from okg.substrate.deployments import find_deployment_dir
+        from okg.substrate.publisher.deployment_stack import (
+            load_deferral_policy,
+        )
+
+        deployment_dir = find_deployment_dir(args.deployment)
+        if deployment_dir is not None:
+            warn_after = load_deferral_policy(deployment_dir).warn_after_seconds
+    with db_connect(dsn, autocommit=True) as conn:
+        report = deferred_edges_report(conn, warn_after_seconds=warn_after)
+    # The ids are operator-only and stay with `okg runtime deferred-edges`.
+    report.pop("sample", None)
+    report.pop("sample_note", None)
+    # Waiting is not a fault, so an old edge is a warning, not a failure.
+    payload = {
+        "check": "deferred_edges",
+        "deployment": deployment,
+        "ok": True,
+        **report,
+        "warnings": (
+            ["oldest_waiting_edge_past_warning_age"] if report["warn"] else []
+        ),
+        "fix_hint": (
+            "the oldest waiting edge is past the warning age: check that the "
+            "source that owns the missing records has run, and that the "
+            "waiting edges' id prefix is right; `okg runtime deferred-edges` "
+            "lists a bounded sample of ids"
+        ) if report["warn"] else None,
+    }
+    _emit_ok(payload, as_json=as_json)
+    return 0
+
+
 def _grant_registry_drift_findings(conn: Any) -> list[dict[str, object]]:
     """Grant-surface drift rows, or [] when the registry is not installed."""
     reg = conn.execute(
@@ -6523,6 +6623,16 @@ def _build_doctor_registry(args: argparse.Namespace):
         ),
     )
     registry.register(
+        "deferred-edges",
+        _doctor_check_handler(_doctor_deferred_edges),
+        help=(
+            "report cross-source edges waiting for another source's record "
+            "by producer, edge type, endpoint subtype and state, and warn "
+            "when the oldest is past consistency.deferred_edge_warn_after "
+            "(per cross-source-endpoint-wedge)"
+        ),
+    )
+    registry.register(
         "grant-registry-drift",
         _doctor_check_handler(_doctor_grant_registry_drift),
         help=(
@@ -6637,6 +6747,7 @@ __all__ = [
     "_doctor_post_publish_projection",
     "_pending_grant_findings",
     "_doctor_pending_grants",
+    "_doctor_deferred_edges",
     "_grant_registry_drift_findings",
     "_doctor_grant_registry_drift",
     "_derived_admission_findings",

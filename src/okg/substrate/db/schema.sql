@@ -194,23 +194,9 @@ CREATE TABLE IF NOT EXISTS okg.workflow_operational_outcomes (
   )
 );
 
--- Durable, predecessor-bound journal for crash-safe derived-state recovery.
-CREATE TABLE IF NOT EXISTS okg.effective_attribute_recovery_attempts (
-  classification_binding_digest TEXT PRIMARY KEY,
-  deployment_name TEXT NOT NULL,
-  branch_name TEXT NOT NULL,
-  predecessor_generation_id TEXT NOT NULL,
-  expected_classification JSONB NOT NULL,
-  stage TEXT NOT NULL CHECK (
-    stage IN ('classified', 'snapshot_committed', 'interval_committed', 'prepared')
-  ),
-  authorization_payload JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-ALTER TABLE okg.effective_attribute_recovery_attempts
-  ADD COLUMN IF NOT EXISTS consumed_by_generation_id TEXT,
-  ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ;
+-- Migration 0045 (publisher-starvation-4039).
+COMMENT ON TABLE okg.workflow_operational_outcomes IS
+  'Typed outcome of a successful participant workflow: okg_embed_batch, okg_source_sync and (migration 0045) okg_publisher_cycle. A publisher cycle that skipped is outcome skipped with details.reason and details.subject.';
 
 -- ========== Per-database owner stamp (P0 #419 prevent-recurrence) ==========
 -- Exactly ONE active owner identity per physical database. The publish path
@@ -7808,6 +7794,44 @@ CREATE INDEX IF NOT EXISTS idx_attribute_effective_attrs_target
 CREATE INDEX IF NOT EXISTS idx_attribute_effective_attrs_observation
   ON okg.attribute_effective_attrs (observation_id);
 
+-- PACT lane-s-storage-redesign-s2: one marker row per generation and namespace
+-- whose overlays were materialized (also with zero overlays), and the overlay
+-- rows as validity ranges over branch ordinals. Same DDL as
+-- attributes._SCHEMA_STATEMENTS and migration 0044.
+CREATE TABLE IF NOT EXISTS okg.attribute_overlay_generations (
+  generation_id TEXT NOT NULL,
+  namespace TEXT NOT NULL,
+  previous_generation_id TEXT,
+  overlay_rows BIGINT NOT NULL,
+  chronos_branch_id TEXT,
+  ordinal BIGINT,
+  ranges_synced BOOLEAN NOT NULL DEFAULT FALSE,
+  source TEXT NOT NULL CHECK (source IN ('materializer', 'backfill')),
+  materialized_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (generation_id, namespace)
+);
+CREATE INDEX IF NOT EXISTS idx_attribute_overlay_generations_branch
+  ON okg.attribute_overlay_generations (chronos_branch_id, ordinal);
+CREATE TABLE IF NOT EXISTS okg.attribute_overlay_ranges (
+  chronos_branch_id TEXT NOT NULL,
+  target_kind TEXT NOT NULL CHECK (target_kind IN ('node', 'edge')),
+  target_id TEXT NOT NULL,
+  namespace TEXT NOT NULL,
+  attr_key TEXT NOT NULL,
+  from_ord BIGINT NOT NULL,
+  to_ord BIGINT NOT NULL,
+  observation_id TEXT NOT NULL,
+  value JSONB NOT NULL,
+  value_hash TEXT NOT NULL,
+  PRIMARY KEY (chronos_branch_id, target_kind, target_id, namespace, attr_key, from_ord),
+  CHECK (from_ord < to_ord)
+);
+CREATE INDEX IF NOT EXISTS idx_attribute_overlay_ranges_key
+  ON okg.attribute_overlay_ranges
+  (chronos_branch_id, target_kind, namespace, attr_key, from_ord, target_id);
+CREATE INDEX IF NOT EXISTS idx_attribute_overlay_ranges_open
+  ON okg.attribute_overlay_ranges (chronos_branch_id, namespace)
+  WHERE to_ord = 9223372036854775807;
 -- schema-interval-narrow-split (req.sigma-pinned): the ONE in-database content
 -- hash site. okg.jsonb_canonical_text renders a stored jsonb value
 -- deterministically (keys sorted under COLLATE "C", numerics trim_scale'd so
@@ -7872,72 +7896,6 @@ AS $fn$
             ELSE okg.jsonb_canonical_text(raw_attrs) END,
     'UTF8'))
 $fn$;
-
--- schema-interval-narrow-split (req.split-shape): the insert-once
--- content-addressed payload store. Interval and snapshot rows reference it via
--- a composite FK ON DELETE RESTRICT; presence-means-overlay raw_attrs NULL
--- semantics live here (NULL means raw == attrs; never DEFAULT '{}').
-CREATE TABLE IF NOT EXISTS okg.attribute_versions (
-  target_kind TEXT NOT NULL
-    CHECK (target_kind IN ('node', 'edge')),
-  target_id TEXT NOT NULL,
-  attrs_hash BYTEA NOT NULL,
-  attrs JSONB NOT NULL,
-  raw_attrs JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (target_kind, target_id, attrs_hash)
-);
-
--- scale-operator-attr-reads / req.effective-attrs-view (Layer 2): a per-generation
--- MATERIALIZED snapshot of EFFECTIVE node/edge attrs (raw graph attrs merged with
--- the accepted overlay above) carrying exploded stable columns. The MCP attr
--- operators (aggregate/filter/map over attrs.<key>) filter/group/aggregate over
--- this table IN SQL (index scan) so a large subtype -- e.g. okg-ci test_case,
--- hundreds of thousands of rows -- no longer trips the bounded Python overlay cap.
--- DERIVED downstream of attribute_effective_attrs; generation_id is the opaque
--- okg:...:gen:... TEXT string (NOT bigint). Mirrors attributes.py _SCHEMA_STATEMENTS.
--- schema-interval-narrow-split: the row carries attrs_hash (LAST column so
--- migrated deployments converge to the fresh column order); the jsonb payload
--- lives once in okg.attribute_versions.
-CREATE TABLE IF NOT EXISTS okg.attribute_effective_view (
-  target_kind TEXT NOT NULL CHECK (target_kind IN ('node', 'edge')),
-  target_id TEXT NOT NULL,
-  generation_id TEXT NOT NULL,
-  namespace TEXT NOT NULL DEFAULT 'default',
-  subtype TEXT,
-  src TEXT,
-  dst TEXT,
-  edge_type TEXT,
-  overlay_count INT NOT NULL DEFAULT 0,
-  raw_text_hash TEXT,
-  materialized_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  attrs_hash BYTEA NOT NULL,
-  PRIMARY KEY (target_kind, target_id, generation_id, namespace),
-  CONSTRAINT attribute_effective_view_version_fkey
-    FOREIGN KEY (target_kind, target_id, attrs_hash)
-    REFERENCES okg.attribute_versions (target_kind, target_id, attrs_hash)
-    ON DELETE RESTRICT
-);
-
--- Do NOT add an `ALTER TABLE ... ADD COLUMN IF NOT EXISTS attrs` here to make
--- a legacy database converge. `attrs`/`raw_attrs` deliberately no longer live
--- on this table -- 0020_interval_narrow_split moved them to the
--- content-addressed version store and DROPS both columns from an upgraded
--- table, leaving only `attrs_hash`. Re-adding them in this file would fight
--- that migration on every run and reinstate the wide rows the split exists to
--- remove. (Written down because the natural fix for a legacy `column "attrs"
--- does not exist` abort during migrate is exactly that ALTER, and here it is
--- the wrong one: the index that used to raise it is gone from this file.)
-
-CREATE INDEX IF NOT EXISTS attribute_effective_view_node_subtype_idx
-  ON okg.attribute_effective_view
-  (generation_id, namespace, subtype, target_id)
-  WHERE target_kind = 'node';
-
-CREATE INDEX IF NOT EXISTS attribute_effective_view_edge_type_idx
-  ON okg.attribute_effective_view
-  (generation_id, namespace, edge_type, target_id)
-  WHERE target_kind = 'edge';
 
 -- Roles (app_rw, app_ro, catalog_admin) are created by
 -- ops/pg/initdb/00-extensions.sql on fresh compose bring-up, and
@@ -8031,15 +7989,6 @@ GRANT SELECT, INSERT ON
   -- app_rw publisher connection; the discovery source stages them (also app_rw
   -- where reader and writer share a role). SELECT + INSERT covers both.
   okg.visual_crop_blobs
-TO app_rw;
--- scale-operator-attr-reads / req.effective-attrs-view (Layer 2): the attr
--- operators read this table on the app_rw MCP pool; the publisher INSERTs the
--- per-generation snapshot; delete_generation DELETEs it in lockstep with the
--- checkpoint (the snapshot is keyed by generation_id and dies with that
--- generation, so it is not covered by the DELETE-absence note above; DELETE
--- here is safe and required to avoid unbounded snapshot growth).
-GRANT SELECT, INSERT, DELETE ON
-  okg.attribute_effective_view
 TO app_rw;
 -- link_retry: the Publisher INSERTs resolver misses; alias landing marks them
 -- ready, and the Publisher DELETEs exact receipts only after publication. The
@@ -15414,15 +15363,6 @@ BEGIN
     EXECUTE 'REVOKE ALL ON FUNCTION okg.external_action_restore_lifecycle_gate() FROM PUBLIC';
   END IF;
 
-  IF to_regprocedure('okg.mark_attribute_effective_integrity_dirty()') IS NOT NULL THEN
-    EXECUTE 'REVOKE ALL ON FUNCTION okg.mark_attribute_effective_integrity_dirty() FROM PUBLIC';
-  END IF;
-  IF to_regprocedure('okg.mark_attribute_effective_integrity_dirty_rows()') IS NOT NULL THEN
-    EXECUTE 'REVOKE ALL ON FUNCTION okg.mark_attribute_effective_integrity_dirty_rows() FROM PUBLIC';
-  END IF;
-  IF to_regprocedure('okg.mark_attribute_effective_integrity_dirty_update()') IS NOT NULL THEN
-    EXECUTE 'REVOKE ALL ON FUNCTION okg.mark_attribute_effective_integrity_dirty_update() FROM PUBLIC';
-  END IF;
   IF to_regprocedure('okg.require_chronos_checkout(text)') IS NOT NULL THEN
     EXECUTE 'REVOKE ALL ON FUNCTION okg.require_chronos_checkout(text) FROM PUBLIC';
   END IF;

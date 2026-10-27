@@ -179,27 +179,6 @@ UNRESOLVED_TARGET_EXEMPTIONS: tuple[UnresolvedExemption, ...] = (
             "DERIVED_RELATION_SCHEMA = 'okg_derived'."
         ),
     ),
-    UnresolvedExemption(
-        path="src/okg/substrate/attributes.py",
-        symbol="_materialize_view_kind",
-        resolves_to="okg",
-        reason=(
-            "the CREATE UNLOGGED TABLE name comes from "
-            "_unlogged_stage_table_name(conn, target_kind), which returns "
-            "f'okg._eff_stage_{target_kind}_{backend_pid}_{hex}'."
-        ),
-    ),
-    UnresolvedExemption(
-        path="src/okg/substrate/attributes.py",
-        symbol="prepare_prelock_attribute_hash_cache",
-        resolves_to="okg",
-        reason=(
-            "issue 2941 fix 2: the pre-lock hash stage is written "
-            "f'CREATE UNLOGGED TABLE okg.{stage_name} ...' with the schema "
-            "literal; only the session-unique name from "
-            "_unlogged_stage_table_name is built at runtime."
-        ),
-    ),
 )
 
 

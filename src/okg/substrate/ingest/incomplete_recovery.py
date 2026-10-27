@@ -9,10 +9,14 @@ path.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from okg.substrate.errors import SubstrateError
+
+log = logging.getLogger(__name__)
 
 
 BLOCKED_INGEST_REASON = "ingest_source_incomplete"
@@ -24,6 +28,29 @@ FROZEN = "frozen"
 #: is rewritten as published — but it no longer demands an exact repair
 #: contract, so the deployment's other workflows can run again.
 SUPERSEDED = "superseded"
+
+#: How one source of a recovery contract stands against today's registry.
+CLASS_REMOVED = "removed"
+CLASS_RENAMED = "renamed"
+CLASS_REBOUND = "rebound"
+CLASS_PRESENT = "present"
+#: A source in one of these classes can never be repaired by a retry.
+RETIRABLE_CLASSES = frozenset({CLASS_REMOVED, CLASS_RENAMED})
+#: The contract fields that make a registered source ``rebound`` when they
+#: differ from today's registry entry. ``run_mode`` is not one: it is a
+#: choice of the run (poll or event scope against a full run), not registry
+#: state, so a retry with the recorded mode can succeed and that difference
+#: keeps the ordinary mismatch refusal.
+REBOUND_FIELDS = (
+    "catalog_fingerprint",
+    "binding_fingerprint",
+    "admission_contract",
+)
+#: The reason and actors recorded when a contract is retired because its
+#: required sources are gone (PACT recovery-contract-removed-sources).
+CONTRACT_RETIRED_REASON = "contract_sources_removed"
+MIGRATE_ACTOR = "okg migrate"
+WORKER_ACTOR = "okg runtime worker"
 
 
 def staged_source_redrive_state(
@@ -353,6 +380,8 @@ def require_exact_repair_contract(
     deployment: str,
     checkpoint_id: str,
     source_profiles: Mapping[str, str | None] | None = None,
+    registry: Mapping[str, Any] | None = None,
+    active_producer_ids: Callable[[Sequence[str]], set[str]] | None = None,
 ) -> None:
     """Refuse repair before source execution unless authority is identical.
 
@@ -369,6 +398,13 @@ def require_exact_repair_contract(
     `okg runtime supersede-checkpoint` (see
     :func:`supersede_incomplete_checkpoint`) when a source cannot be made to
     pass. Without the second, one unfixable source wedges every workflow.
+
+    ``registry`` is the source registry the caller resolved (name to entry).
+    Given it, a contract that names a source the registry no longer holds
+    (removed or renamed), or holds with a changed binding (rebound), can
+    never be matched by a retry. That is refused
+    ``incomplete_recovery_contract_unsatisfiable`` and says what changed,
+    instead of the mismatch refusal that invites a retry.
     """
     from okg.substrate.publish_recovery import _supersede_command
 
@@ -387,6 +423,23 @@ def require_exact_repair_contract(
         return
     expected_sources = _contract_sources(expected_contract)
     actual_sources = _contract_sources(actual_contract)
+    if registry is not None:
+        classes = classify_contract_sources(
+            contract=expected_contract,
+            registry=registry,
+            actual_contract=actual_contract,
+            active_producer_ids=_safe_active_ids(
+                active_producer_ids, expected_contract,
+            ),
+        )
+        if any(item["class"] != CLASS_PRESENT for item in classes):
+            raise _unsatisfiable_refusal(
+                expected=expected,
+                classes=classes,
+                actual_sources=actual_sources,
+                deployment=deployment,
+                checkpoint_id=checkpoint_id,
+            )
     if expected_sources != actual_sources:
         what_changed = (
             f"the blocked checkpoint {checkpoint_id} requires the next run to "
@@ -449,14 +502,258 @@ def require_exact_repair_contract(
     )
 
 
+def _safe_active_ids(
+    lookup: Callable[[Sequence[str]], set[str]] | None,
+    contract: Sequence[Mapping[str, Any]],
+) -> set[str] | None:
+    """Ownership ids with an active producer profile, or None if unread."""
+    if lookup is None:
+        return None
+    ids = sorted({
+        str(item["ownership_id"]) for item in contract if item.get("ownership_id")
+    })
+    try:
+        return set(lookup(ids))
+    except Exception as exc:  # noqa: BLE001 - evidence only; never a verdict
+        log.warning(
+            "could not read okg.producer_profiles for the recovery contract "
+            "classification: %s: %s", type(exc).__name__, exc,
+        )
+        return None
+
+
+def active_producer_ids(
+    *,
+    dsn: str,
+    deployment: str,
+    ids: Sequence[str],
+    connect_timeout: int = 10,
+) -> set[str]:
+    """The given ids that hold an active ``okg.producer_profiles`` row."""
+    from okg.substrate.db.connection import connect as db_connect
+
+    if not ids:
+        return set()
+    with db_connect(dsn, connect_timeout=connect_timeout, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            return _active_producer_ids_on(cur, deployment, ids)
+
+
+def _active_producer_ids_on(cur: Any, deployment: str, ids: Sequence[str]) -> set[str]:
+    cur.execute(
+        """
+        SELECT DISTINCT producer_id
+          FROM okg.producer_profiles
+         WHERE deployment_name = %s
+           AND status = 'active'
+           AND producer_id = ANY(%s)
+        """,
+        (deployment, list(ids)),
+    )
+    return {str(producer_id) for (producer_id,) in cur.fetchall()}
+
+
+def _registry_facts(entry: Any) -> dict[str, Any]:
+    """What a registry entry alone says about a contract source."""
+    from okg.substrate.admission import stable_idempotency_key
+
+    return {
+        "admission_contract": entry.admission_contract,
+        "catalog_fingerprint": stable_idempotency_key(entry.raw),
+    }
+
+
+def classify_contract_sources(
+    *,
+    contract: Sequence[Mapping[str, Any]],
+    registry: Mapping[str, Any],
+    actual_contract: Sequence[Mapping[str, Any]] = (),
+    active_producer_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Put each source of a recovery contract in one class (issue: removed sources).
+
+    ``registry`` is the source registry the caller resolved (name to entry);
+    okg stores none in the database. ``actual_contract`` is the contract the
+    current run would record (its selected sources), which carries the
+    binding fingerprint only a run can resolve; a source the run did not
+    select is compared on the two fields the registry alone gives
+    (``catalog_fingerprint`` and ``admission_contract``). The run mode is
+    never compared: it is the run's choice, not registry state.
+    ``active_producer_ids`` are the ownership ids that hold an active
+    ``okg.producer_profiles`` row; each row records whether its id does, as
+    evidence for the reader (``None`` when it was not read).
+
+    Classes: ``removed`` (the name is gone, and its ownership id is held by
+    no current source or by more than one), ``renamed`` (the name is gone and
+    exactly one current source, not itself in the contract, holds the
+    ownership id), ``rebound`` (the name is present but its registry entry
+    or binding changed; ``changed_fields`` names each field), and
+    ``present``.
+    """
+    contract_names = {str(item.get("source")) for item in contract}
+    holders: dict[str, list[str]] = {}
+    for name, entry in registry.items():
+        holders.setdefault(str(entry.ownership_id), []).append(str(name))
+    actual = {str(item.get("source")): dict(item) for item in actual_contract}
+    rows: list[dict[str, Any]] = []
+    for want in contract:
+        name = str(want.get("source"))
+        ownership_id = want.get("ownership_id")
+        row: dict[str, Any] = {"source": name, "ownership_id": ownership_id}
+        if active_producer_ids is not None:
+            row["active_producer_profile"] = (
+                str(ownership_id) in active_producer_ids if ownership_id else False
+            )
+        if name not in registry:
+            held = holders.get(str(ownership_id), []) if ownership_id else []
+            if len(held) == 1 and held[0] not in contract_names:
+                row.update({"class": CLASS_RENAMED, "renamed_to": held[0]})
+            else:
+                row["class"] = CLASS_REMOVED
+            rows.append(row)
+            continue
+        if name in actual:
+            current = dict(actual[name])
+        else:
+            current = _registry_facts(registry[name])
+        changed = [
+            field for field in REBOUND_FIELDS
+            if field in want and field in current and want[field] != current[field]
+        ]
+        if changed:
+            row.update({"class": CLASS_REBOUND, "changed_fields": changed})
+        else:
+            row["class"] = CLASS_PRESENT
+        rows.append(row)
+    return rows
+
+
+def retirement_class_condition(
+    classes: Sequence[Mapping[str, Any]],
+    required_sources: Sequence[str],
+) -> tuple[bool, str | None]:
+    """Whether every required source is removed or renamed (R1, condition 1).
+
+    Returns ``(ok, reason)``; ``reason`` is ``no_required_sources``,
+    ``required_source_rebound`` or ``required_source_present`` when not ok.
+    A contract with no required source is never retired by class: nothing
+    says which source it was holding.
+    """
+    required = [str(name) for name in required_sources]
+    if not required:
+        return False, "no_required_sources"
+    by_name = {str(item["source"]): item for item in classes}
+    kinds = {
+        by_name[name]["class"] if name in by_name else CLASS_PRESENT
+        for name in required
+    }
+    if kinds <= RETIRABLE_CLASSES:
+        return True, None
+    if CLASS_PRESENT in kinds:
+        return False, "required_source_present"
+    return False, "required_source_rebound"
+
+
+def _describe_class(item: Mapping[str, Any]) -> str:
+    name = item["source"]
+    if item["class"] == CLASS_REMOVED:
+        return f"{name} was removed from the source registry"
+    if item["class"] == CLASS_RENAMED:
+        return (
+            f"{name} was renamed to {item.get('renamed_to')} "
+            "(same ownership id)"
+        )
+    if item["class"] == CLASS_REBOUND:
+        return (
+            f"{name} is still registered but its "
+            f"{', '.join(item.get('changed_fields') or ())} changed"
+        )
+    return f"{name} is unchanged"
+
+
+def _migrate_command(deployment: str) -> str:
+    from okg.substrate.support.user_hints import okg_prefix
+
+    return f"{okg_prefix()} migrate --deployment {deployment} --apply"
+
+
+def _unsatisfiable_refusal(
+    *,
+    expected: Mapping[str, Any],
+    classes: Sequence[Mapping[str, Any]],
+    actual_sources: Sequence[str],
+    deployment: str,
+    checkpoint_id: str,
+) -> SubstrateError:
+    from okg.substrate.publish_recovery import _supersede_command
+
+    expected_contract = list(expected.get("source_contract") or ())
+    expected_sources = _contract_sources(expected_contract)
+    broken = [item for item in classes if item["class"] != CLASS_PRESENT]
+    required = list(expected.get("required_sources") or ())
+    retirable, _why = retirement_class_condition(classes, required)
+    escape_hatch = _supersede_command(deployment, apply=False)
+    migrate_command = _migrate_command(deployment)
+    changes = "; ".join(_describe_class(item) for item in broken)
+    hint = (
+        "retrying with the same selection cannot succeed: the blocked "
+        f"checkpoint {checkpoint_id} requires sources that no longer match "
+        "the registry. "
+    )
+    if retirable:
+        hint += (
+            "Every source it is holding back is gone, so its repair "
+            "requirement can be retired automatically: restart "
+            f"`okg runtime worker`, or run {migrate_command}. Both retire it "
+            "only when the deployment and okg repositories are committed, the checkpoint "
+            "belongs to this deployment, and no unfinished undo or kept "
+            "rerun blocks publishing; otherwise they report which. "
+        )
+    hint += (
+        "To retire it yourself, run the dry run first: "
+        f"{escape_hatch}. It changes nothing and shows which repair "
+        "requirement it would retire. Then run the same command again with "
+        "--apply, and with --reason replaced by what was actually done; the "
+        "reason is recorded, and an applied supersede cannot be undone. "
+        "Superseding deletes nothing: the checkpoint stays blocked and is "
+        "never published"
+    )
+    return SubstrateError(
+        "incomplete checkpoint recovery can never match the current source "
+        f"registry: the blocked checkpoint {checkpoint_id} requires "
+        f"{_name_list(expected_sources)}, but {changes}",
+        data={
+            "reason": "incomplete_recovery_contract_unsatisfiable",
+            "deployment": deployment,
+            "latest_checkpoint_id": checkpoint_id,
+            "source_classes": [dict(item) for item in classes],
+            "unsatisfiable_sources": [item["source"] for item in broken],
+            "required_sources": required,
+            "expected_sources": expected_sources,
+            "actual_sources": list(actual_sources),
+            "automatic_retirement_applies": retirable,
+            "escape_hatch_command": escape_hatch,
+            **({"migrate_command": migrate_command} if retirable else {}),
+        },
+        fix_hint=hint,
+    )
+
+
 def source_sync_hold(
     *,
     dsn: str,
     deployment: str,
     sources: Mapping[str, str],
     connect_timeout: int = 10,
+    registry: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """What a `repair_required` checkpoint is holding back, or None (#3342).
+
+    ``registry`` (name to entry, the caller's resolved source registry) adds
+    ``source_classes`` -- each contract source as removed, renamed, rebound
+    or present -- and ``automatic_retirement_applies``: whether every source
+    the checkpoint holds back is gone, so ``okg migrate --deployment`` or a
+    worker start retires it (subject to the checks they run). No ingest runs.
 
     While the latest checkpoint is blocked with a repair requirement,
     `run_ingest` refuses every publishing source-sync run that does not
@@ -548,7 +845,32 @@ def source_sync_hold(
         _contract_sources(recovery.get("source_contract") or ()) if recovery else []
     )
     since = {name: sources[name] in admitted for name in sorted(sources)}
+    classification: dict[str, Any] = {}
+    if registry is not None and recovery:
+        contract = list(recovery.get("source_contract") or ())
+        classes = classify_contract_sources(
+            contract=contract,
+            registry=registry,
+            active_producer_ids=_safe_active_ids(
+                lambda ids: active_producer_ids(
+                    dsn=dsn,
+                    deployment=deployment,
+                    ids=ids,
+                    connect_timeout=connect_timeout,
+                ),
+                contract,
+            ),
+        )
+        applies, _why = retirement_class_condition(
+            classes, recovery.get("required_sources") or (),
+        )
+        classification = {
+            "source_classes": classes,
+            "automatic_retirement_applies": applies,
+        }
     return {
+        **classification,
+        "deployment": deployment,
         "checkpoint_id": str(checkpoint_id),
         "blocked_at": blocked_at.isoformat() if blocked_at is not None else None,
         "legacy_receipt": legacy,
@@ -588,7 +910,28 @@ def source_sync_hold_line(hold: Mapping[str, Any]) -> str:
         )
     stalled = hold.get("not_admitted_since_block") or []
     since = f" (since {hold['blocked_at']})" if hold.get("blocked_at") else ""
-    return (
+    changed = [
+        item for item in hold.get("source_classes") or ()
+        if item.get("class") != CLASS_PRESENT
+    ]
+    what_changed = ""
+    if changed:
+        what_changed = (
+            " A retry cannot succeed: "
+            + "; ".join(_describe_class(item) for item in changed)
+            + "."
+        )
+        if hold.get("automatic_retirement_applies"):
+            what_changed += (
+                " Every source it holds back is gone, so restarting `okg "
+                "runtime worker` or running "
+                + _migrate_command(str(hold.get("deployment") or "<deployment>"))
+                + " retires it (when the repositories are committed and no "
+                "unfinished undo blocks publishing). A worker that started "
+                "before the source was removed or renamed does not see the "
+                "change: restart it."
+            )
+    line = (
         f"source sync is held by blocked checkpoint {hold['checkpoint_id']}"
         f"{since}: {refused} before it starts, and records no admission"
         + (
@@ -602,6 +945,7 @@ def source_sync_hold_line(hold: Mapping[str, Any]) -> str:
         )
         + way_out
     )
+    return line + what_changed
 
 
 def _contract_sources(contract: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -671,6 +1015,8 @@ def resume_before_source_writes(
         dict[str, Any],
     ],
     source_profiles: Mapping[str, str | None] | None = None,
+    registry: Mapping[str, Any] | None = None,
+    active_producer_ids: Callable[[Sequence[str]], set[str]] | None = None,
 ) -> dict[str, Any]:
     """Resolve or promote an incomplete receipt before ordinary source work."""
     authority = recovery_from_redrive_state(
@@ -697,6 +1043,8 @@ def resume_before_source_writes(
             deployment=deployment,
             checkpoint_id=str(redrive_state["latest_checkpoint_id"]),
             source_profiles=source_profiles,
+            registry=registry,
+            active_producer_ids=active_producer_ids,
         )
         return {
             "authority": authority,
@@ -836,6 +1184,7 @@ def supersede_incomplete_checkpoint(
     actor: str = "operator",
     checkpoint_id: str | None = None,
     apply: bool = False,
+    record: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Retire an incomplete checkpoint's recovery authority, with a reason.
 
@@ -1000,6 +1349,13 @@ def supersede_incomplete_checkpoint(
                         "superseded_at": superseded_at,
                         "superseded_by": actor,
                         "supersede_reason": reason,
+                        # What an automatic retirement read, so an auditor
+                        # can see the decision's inputs (absent for an
+                        # operator supersede).
+                        **(
+                            {"contract_retirement": dict(record)}
+                            if record else {}
+                        ),
                     }),
                 },
             )
@@ -1034,3 +1390,513 @@ def _json_dumps(payload: Mapping[str, Any]) -> str:
     import json
 
     return json.dumps(dict(payload), sort_keys=True, default=str)
+
+
+# --- Retiring a contract whose required sources are gone -------------------
+#
+# PACT recovery-contract-removed-sources. A `repair_required` checkpoint
+# holds the deployment until its failed sources repair. When every one of
+# those sources has been removed or renamed, nothing can repair them and the
+# hold only wedges the deployment, so `okg migrate --deployment` and `okg
+# runtime worker` start retire it through the operator supersede, under the
+# conditions in :func:`retire_removed_source_contract`.
+
+_UNSET: Any = object()
+_RACE_REASONS = frozenset({
+    "incomplete_recovery_already_superseded",
+    "incomplete_recovery_nothing_to_supersede",
+    "incomplete_recovery_supersede_checkpoint_drift",
+    "incomplete_recovery_supersede_state_drift",
+})
+REPORT_KIND = "removed_source_contract"
+
+
+def registry_fingerprint(registry: Mapping[str, Any]) -> str:
+    """sha256 over the resolved registry's names, ownership ids and bindings."""
+    import hashlib
+    import json
+
+    from okg.substrate.ingest.adapter_factory import (
+        source_adapter_binding_fingerprint,
+    )
+
+    rows = sorted(
+        [
+            str(name),
+            str(entry.ownership_id),
+            source_adapter_binding_fingerprint(entry),
+        ]
+        for name, entry in registry.items()
+    )
+    return hashlib.sha256(
+        json.dumps(rows, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _committed_deployment_revision(
+    deployment_dir: Path | str,
+) -> tuple[str | None, str | None]:
+    """``(revision, None)`` for a committed manifest, else ``(None, why)``."""
+    from okg.substrate.publisher.repository_provenance import (
+        tracking_repository_provenance,
+    )
+
+    try:
+        provenance = tracking_repository_provenance(Path(deployment_dir))
+    except Exception as exc:  # noqa: BLE001 - reported as the reason, not hidden
+        repository = (getattr(exc, "data", None) or {}).get("repository")
+        where = f" (repository {repository})" if repository else ""
+        return None, f"{type(exc).__name__}: {exc}{where}"
+    if provenance.status in {"exact", "distribution"}:
+        return str(provenance.deployment_revision), None
+    return None, f"repository provenance is {provenance.status}"
+
+
+def _read_latest_checkpoints(
+    dsn: str,
+    deployment: str,
+) -> tuple[
+    tuple[str, dict[str, Any]] | None,
+    tuple[str, dict[str, Any]] | None,
+]:
+    """``(own, foreign)`` latest default-branch checkpoints, from direct reads.
+
+    ``own`` is the deployment's latest (the one every run reads). ``foreign``
+    is read only when the deployment has none: the latest checkpoint
+    recorded under another deployment name, as a copied database holds.
+    """
+    from okg.substrate.db.connection import connect as db_connect
+    from okg.substrate.ingest.run_base import EXCLUDE_RUN_BASE_SQL
+
+    with db_connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT to_regclass('public._chronos_branch_interval_checkpoints')"
+        )
+        if cur.fetchone()[0] is None:
+            return None, None
+        cur.execute(
+            f"""
+            SELECT checkpoint_id, metadata::jsonb
+              FROM public._chronos_branch_interval_checkpoints
+             WHERE metadata::jsonb->>'deployment_name' = %(deployment)s
+               AND COALESCE(metadata::jsonb->>'branch', 'default') = 'default'
+               AND {EXCLUDE_RUN_BASE_SQL}
+             ORDER BY created_at DESC, checkpoint_id DESC
+             LIMIT 1
+            """,
+            {"deployment": deployment},
+        )
+        row = cur.fetchone()
+        if row is not None:
+            return (str(row[0]), dict(row[1] or {})), None
+        cur.execute(
+            f"""
+            SELECT checkpoint_id, metadata::jsonb
+              FROM public._chronos_branch_interval_checkpoints
+             WHERE metadata::jsonb->>'deployment_name' IS NOT NULL
+               AND metadata::jsonb->>'deployment_name' <> %(deployment)s
+               AND COALESCE(metadata::jsonb->>'branch', 'default') = 'default'
+               AND {EXCLUDE_RUN_BASE_SQL}
+             ORDER BY created_at DESC, checkpoint_id DESC
+             LIMIT 1
+            """,
+            {"deployment": deployment},
+        )
+        row = cur.fetchone()
+        return None, ((str(row[0]), dict(row[1] or {})) if row else None)
+
+
+def _repair_required_recovery(
+    checkpoint_id: str,
+    metadata: Mapping[str, Any],
+    *,
+    deployment: str,
+) -> dict[str, Any] | None:
+    """The checkpoint's recovery object if it is `repair_required`, else None."""
+    blocked_reason = metadata.get("blocked_reason") or {}
+    state = {
+        "latest_checkpoint_id": checkpoint_id,
+        "latest_checkpoint_status": metadata.get("status"),
+        "latest_blocked_reason": (
+            blocked_reason.get("reason")
+            if isinstance(blocked_reason, Mapping) else None
+        ),
+        "latest_blocked_receipt": (
+            dict(blocked_reason) if isinstance(blocked_reason, Mapping) else {}
+        ),
+    }
+    try:
+        recovery = recovery_from_redrive_state(state, deployment=deployment)
+    except SubstrateError as exc:
+        if exc.data.get("reason") != "incomplete_recovery_authority_missing":
+            raise
+        return None  # a legacy receipt has its own fix; not this retirement
+    if recovery is None or recovery.get("state") != REPAIR_REQUIRED:
+        return None
+    return recovery
+
+
+def _publish_block_now(dsn: str, deployment: str) -> dict[str, Any] | None:
+    """The publisher's own guard, read now; runs in progress are transient."""
+    from okg.substrate.db.connection import connect as db_connect
+    from okg.substrate.ingest.run_base import publish_block
+
+    with db_connect(dsn, autocommit=True) as conn:
+        return publish_block(conn, deployment=deployment, include_in_progress=False)
+
+
+def _step_that_clears(
+    block: Mapping[str, Any],
+    classes: Sequence[Mapping[str, Any]],
+    deployment: str,
+) -> list[str]:
+    """The commands that clear a publish block, per blocked source."""
+    from okg.substrate.support.user_hints import okg_prefix
+
+    prefix = okg_prefix()
+    code = block.get("code")
+    if code == "source_run_undo_unfinished":
+        return [f"{prefix} runtime finish-undo --deployment {deployment} --apply"]
+    # A publish block names a source by its ownership id (the runner's
+    # source), a contract by its registry name; a removed source matches by
+    # either. A renamed source's ownership id now belongs to the live source
+    # under its new name, so `retire-source` would delete that source's
+    # records: it reruns under the new name instead.
+    removed = {
+        str(value)
+        for item in classes
+        if item["class"] == CLASS_REMOVED
+        for value in (item["source"], item.get("ownership_id"))
+        if value
+    }
+    renamed_to = {
+        str(value): str(item["renamed_to"])
+        for item in classes
+        if item["class"] == CLASS_RENAMED
+        for value in (item["source"], item.get("ownership_id"))
+        if value
+    }
+    steps: list[str] = []
+    for source in block.get("sources") or ():
+        if source in renamed_to:
+            steps.append(
+                f"{prefix} ingest --deployment {deployment} "
+                f"--include {renamed_to[source]}"
+            )
+        elif source in removed:
+            steps.append(
+                f"{prefix} remediate retire-source --source {source} "
+                f"--deployment-name {deployment}"
+            )
+        else:
+            steps.append(
+                f"{prefix} ingest --deployment {deployment} --include {source}"
+            )
+    return steps
+
+
+def retire_removed_source_contract(
+    *,
+    dsn: str,
+    deployment: str,
+    load_registry: Callable[[], tuple[Mapping[str, Any], Path | str]],
+    actor: str,
+    apply: bool = True,
+) -> dict[str, Any] | None:
+    """Retire a `repair_required` contract whose required sources are gone.
+
+    Returns None when the deployment holds no such contract. Otherwise one
+    report (``kind: removed_source_contract``) whose ``status`` is
+    ``retired``, ``would_retire`` (``apply=False``), ``retired_by_other`` or
+    ``not_retired`` with a ``reason``. Retires once, through
+    :func:`supersede_incomplete_checkpoint`, only when:
+
+    1. every source in the contract's ``required_sources`` is ``removed`` or
+       ``renamed`` against the resolved registry, and that registry's
+       deployment manifest is committed;
+    2. the checkpoint's recorded deployment name is ``deployment`` (else
+       ``incomplete_recovery_deployment_renamed``: the unfinished-undo guard
+       filters by that name, so a copy under another name would hide the
+       original's unfinished undo);
+    3. the publisher's own guard (``publish_block``) returns nothing (else
+       ``incomplete_recovery_publish_blocked``: a source kept with
+       ``finish-undo --accept-current`` stays ``source_rerun_required`` and a
+       removed source never reruns).
+
+    ``actor`` names the caller (``okg migrate`` or ``okg runtime worker``).
+    The supersede's compare-and-swap decides a race: the loser re-reads and
+    reports ``retired_by_other`` instead of failing.
+    """
+    own, foreign = _read_latest_checkpoints(dsn, deployment)
+    base: dict[str, Any] = {
+        "kind": REPORT_KIND,
+        "deployment": deployment,
+        "actor": actor,
+        "applied": False,
+    }
+    if own is None:
+        if foreign is None:
+            return None
+        checkpoint_id, metadata = foreign
+        recorded = metadata.get("deployment_name")
+        if _repair_required_recovery(
+            checkpoint_id, metadata, deployment=str(recorded),
+        ) is None:
+            return None
+        return _renamed_report(base, checkpoint_id, deployment, recorded)
+    checkpoint_id, metadata = own
+    recovery = _repair_required_recovery(
+        checkpoint_id, metadata, deployment=deployment,
+    )
+    if recovery is None:
+        return None
+    # `own` was selected by `metadata.deployment_name == deployment`, so the
+    # name needs no second check here. What catches a copy under another name
+    # is the `foreign` branch above, and at publish time the publisher guard's
+    # name scope (`pending_undos` and `rerun_required` filter by name).
+    base["checkpoint_id"] = checkpoint_id
+    required = [str(name) for name in recovery.get("required_sources") or ()]
+    base["required_sources"] = required
+    try:
+        registry, deployment_dir = load_registry()
+    except Exception as exc:  # noqa: BLE001 - reported with its type and text
+        unloaded = (
+            "the source registry could not be loaded, so the contract "
+            "was not classified"
+        )
+        return {
+            **base,
+            "status": "not_retired",
+            "reason": "registry_unavailable",
+            "error": f"{type(exc).__name__}: {exc}",
+            "message": unloaded,
+        }
+    contract = list(recovery.get("source_contract") or ())
+    classes = classify_contract_sources(
+        contract=contract,
+        registry=registry,
+        active_producer_ids=_safe_active_ids(
+            lambda ids: active_producer_ids(
+                dsn=dsn, deployment=deployment, ids=ids,
+            ),
+            contract,
+        ),
+    )
+    base["source_classes"] = classes
+    ok, why = retirement_class_condition(classes, required)
+    if not ok:
+        kept = (
+            "a source the checkpoint holds back still exists (or is only "
+            "rebound), so its repair requirement is kept; repair it, or "
+            "supersede with a reason"
+        )
+        nothing_held = "the checkpoint names no required source"
+        return {
+            **base,
+            "status": "not_retired",
+            "reason": why,
+            "message": nothing_held if why == "no_required_sources" else kept,
+        }
+    revision, problem = _committed_deployment_revision(deployment_dir)
+    if revision is None:
+        uncommitted = (
+            "a repository the registry is read from (the deployment's, or "
+            "the okg checkout's) has uncommitted changes, so the registry "
+            "does not authorize a retirement; the detail names the "
+            "repository. Commit it and run again"
+        )
+        return {
+            **base,
+            "status": "not_retired",
+            "reason": "manifest_uncommitted",
+            "detail": problem,
+            "message": uncommitted,
+        }
+    block = _publish_block_now(dsn, deployment)
+    if block is not None:
+        steps = _step_that_clears(block, classes, deployment)
+        blocked_text = (
+            f"publishing is blocked ({block['code']}), so retiring the "
+            "repair requirement would only move the wedge into the "
+            "publisher; clear it first with: " + "; ".join(steps)
+        )
+        return {
+            **base,
+            "status": "not_retired",
+            "reason": "incomplete_recovery_publish_blocked",
+            "publish_block": block["code"],
+            "sources": list(block.get("sources") or ()),
+            "clears_with": steps,
+            "message": blocked_text,
+        }
+    names = sorted(required)
+    reason = f"{CONTRACT_RETIRED_REASON}: {', '.join(names)}"
+    record = {
+        "reason": CONTRACT_RETIRED_REASON,
+        "sources": names,
+        "source_classes": [dict(item) for item in classes],
+        "registry_fingerprint": registry_fingerprint(registry),
+        "deployment_revision": revision,
+    }
+    if not apply:
+        return {**base, "status": "would_retire", "retire_reason": reason}
+    try:
+        superseded = supersede_incomplete_checkpoint(
+            dsn=dsn,
+            deployment=deployment,
+            reason=reason,
+            actor=actor,
+            checkpoint_id=checkpoint_id,
+            apply=True,
+            record=record,
+        )
+    except SubstrateError as exc:
+        code = exc.data.get("reason")
+        if code not in _RACE_REASONS:
+            raise
+        return _lost_race_report(dsn, deployment, base, str(code))
+    log.warning(
+        "retired the repair contract of blocked checkpoint %s (deployment %s, "
+        "actor %s): its required sources %s were removed or renamed",
+        checkpoint_id, deployment, actor, ", ".join(names),
+    )
+    return {
+        **base,
+        "status": "retired",
+        "applied": True,
+        "retire_reason": reason,
+        "superseded_at": superseded.get("superseded_at"),
+        "registry_fingerprint": record["registry_fingerprint"],
+        "deployment_revision": revision,
+    }
+
+
+def _renamed_report(
+    base: Mapping[str, Any],
+    checkpoint_id: str,
+    deployment: str,
+    recorded: Any,
+) -> dict[str, Any]:
+    text = (
+        f"checkpoint {checkpoint_id} was recorded for deployment "
+        f"{recorded!r}, not {deployment!r}. The unfinished-undo guard "
+        "filters by deployment name, so this deployment cannot see that "
+        "deployment's unfinished undo and nothing is retired. Run the "
+        f"command against {recorded!r}, or supersede by hand after "
+        "checking its unfinished undos"
+    )
+    return {
+        **base,
+        "checkpoint_id": checkpoint_id,
+        "status": "not_retired",
+        "reason": "incomplete_recovery_deployment_renamed",
+        "recorded_deployment": recorded,
+        "message": text,
+    }
+
+
+def _lost_race_report(
+    dsn: str,
+    deployment: str,
+    base: Mapping[str, Any],
+    code: str,
+) -> dict[str, Any]:
+    """Re-read after a lost compare-and-swap and say who won."""
+    own, _foreign = _read_latest_checkpoints(dsn, deployment)
+    blocked = (own[1].get("blocked_reason") or {}) if own else {}
+    recovery = blocked.get("recovery") if isinstance(blocked, Mapping) else None
+    if isinstance(recovery, Mapping) and recovery.get("state") == SUPERSEDED:
+        log.info(
+            "repair contract of checkpoint %s was already retired by %s at %s",
+            base.get("checkpoint_id"),
+            recovery.get("superseded_by"),
+            recovery.get("superseded_at"),
+        )
+        won = (
+            f"retired by {recovery.get('superseded_by')} at "
+            f"{recovery.get('superseded_at')}"
+        )
+        return {
+            **base,
+            "status": "retired_by_other",
+            "retired_by": recovery.get("superseded_by"),
+            "retired_at": recovery.get("superseded_at"),
+            "retire_reason": recovery.get("supersede_reason"),
+            "message": won,
+        }
+    moved = (
+        "the checkpoint changed while it was being retired; the next "
+        "migrate or worker start tries again"
+    )
+    return {**base, "status": "not_retired", "reason": code, "message": moved}
+
+
+def retire_removed_source_contract_for_deployment(
+    *,
+    dsn: str,
+    deployment: str,
+    actor: str,
+    manifest: Any = None,
+    repo_root_override: Any = _UNSET,
+    apply: bool = True,
+) -> dict[str, Any] | None:
+    """:func:`retire_removed_source_contract` with the deployment's own registry.
+
+    ``manifest`` and ``repo_root_override`` are what a caller that already
+    resolved the deployment holds (worker start); without them they are
+    resolved here, as ``okg ingest`` does.
+    """
+
+    def load() -> tuple[Mapping[str, Any], Path | str]:
+        from okg.substrate.deployments import resolve_deployment
+        from okg.substrate.deployments.sync_root import (
+            require_usable_source_configuration_authority,
+        )
+        from okg.substrate.sources.registry import load_source_registry_admission
+
+        resolved = manifest if manifest is not None else resolve_deployment(deployment)
+        override = repo_root_override
+        if override is _UNSET:
+            override = require_usable_source_configuration_authority(
+                resolved.sync_root, command=f"{actor} source contract retirement",
+            )
+        admission = load_source_registry_admission(
+            resolved.source_registry, repo_root_override=override,
+        )
+        return admission.entries, resolved.deployment_dir
+
+    return retire_removed_source_contract(
+        dsn=dsn, deployment=deployment, load_registry=load, actor=actor, apply=apply,
+    )
+
+
+def removed_source_contract_candidate(
+    *,
+    dsn: str,
+    deployment: str,
+) -> dict[str, Any] | None:
+    """A `repair_required` contract found without a deployment, or None.
+
+    `okg migrate` without ``--deployment`` loads no source registry, so it
+    cannot classify; it names the deployment to pass and retires nothing.
+    """
+    own, _foreign = _read_latest_checkpoints(dsn, deployment)
+    if own is None:
+        return None
+    recovery = _repair_required_recovery(own[0], own[1], deployment=deployment)
+    if recovery is None:
+        return None
+    held = (
+        "a repair requirement is held; migrate without --deployment loads "
+        "no source registry and retires nothing. Run: "
+        + _migrate_command(deployment)
+    )
+    return {
+        "kind": REPORT_KIND,
+        "deployment": deployment,
+        "checkpoint_id": own[0],
+        "status": "candidate",
+        "applied": False,
+        "required_sources": list(recovery.get("required_sources") or ()),
+        "message": held,
+    }

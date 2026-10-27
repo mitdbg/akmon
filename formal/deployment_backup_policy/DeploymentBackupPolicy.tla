@@ -16,7 +16,6 @@ EffectFailures == {
     "catalog_changed",
     "nomos_changed",
     "smoke_source_unversioned",
-    "read_model_not_rebuildable",
     "external_effect"
 }
 
@@ -33,7 +32,7 @@ KnownPhysicalEffects == {
 \* A failure here means no archive can make the mutation safe.
 RefusedEffects == {
     "target_revision_unpinned", "planner_untrusted", "plan_unreadable",
-    "smoke_source_unversioned", "read_model_not_rebuildable"
+    "smoke_source_unversioned"
 }
 
 RecoveryFailures == {

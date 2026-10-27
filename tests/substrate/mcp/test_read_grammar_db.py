@@ -2921,7 +2921,9 @@ def test_a_retained_page_cut_by_bytes_continues_by_a_published_map_input(tools):
     delivered = reference["next_offset"]
     assert isinstance(delivered, int) and delivered > 0, reference
     first = [row["node_id"] for row in page["results"]]
-    assert "input" in published["map"] and "input" not in published["filter"]
+    # map.input is published (read-live-handles also publishes filter.input
+    # for handles, so filter is no longer asserted to lack it).
+    assert "input" in published["map"]
     call = {"input": {"ref": reference["id"]}, "offset": delivered}
     assert set(call) <= published["map"]
     reply = _json(tools, "map", call)

@@ -748,21 +748,21 @@ def test_list_reads_the_pinned_generation_and_effective_overlay(served):
         materialize_effective_attributes_for_generation,
         record_attribute_observation,
     )
+    from okg.substrate.graph_store import ChronosGraphStore
     from okg.substrate.mcp import open_session
 
     first = served.json(query=TERM, view="list", limit=5)
     generation = first["pinned_generation_id"]
     with psycopg.connect(served.dsn, autocommit=True) as conn:
         session = open_session(conn, deployment_name=served.deployment)
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT v.target_id FROM okg.attribute_effective_view AS view
-                JOIN okg.attribute_versions AS v USING (target_kind, target_id, attrs_hash)
-                WHERE view.generation_id = %s AND view.target_kind = 'node'
-                AND v.attrs @> '{"path":"docs/004.md"}'::jsonb LIMIT 1""",
-                (session.generation_id,),
-            )
-            target = cur.fetchone()[0]
+        # The node is found in the graph rows at the pin.
+        [found] = ChronosGraphStore.from_connection(
+            conn, ensure_schema=False,
+        ).checkout_generation(session.generation_id).query(
+            "SELECT node_id FROM okg.graph_nodes "
+            "WHERE attrs @> '{\"path\":\"docs/004.md\"}'::jsonb ORDER BY node_id LIMIT 1", {},
+        )
+        target = str(found["node_id"] if isinstance(found, dict) else found[0])
         record_attribute_observation(
             conn, target_kind="node", target_id=target, generation_id=session.generation_id,
             attr_key="opened_at", value="2026-04-03T11:00:00-04:00", producer="test:list-overlay",

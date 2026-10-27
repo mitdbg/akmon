@@ -1,17 +1,18 @@
-"""The candidate set drives the MCP filter page; interval completeness is cached.
+"""The candidate set drives the MCP filter page.
 
-PACT lane-h-mcp-filter-index-driven. Two claims, each checked against a real
-publish on a disposable PostgreSQL:
+PACT lane-h-mcp-filter-index-driven, checked against a real publish on a
+disposable PostgreSQL. Parity: the index-driven page returns exactly what
+the unindexed scan returns for the same predicate: same rows, same order,
+same truncation. The reference is produced by the SAME production function
+under ``OKG_ATTR_FILTER_INDEX=off``, which narrows nothing.
 
-* Parity. The index-driven page (base relation narrowed to the candidate set
-  UNION overlay-touched targets before the overlay lateral) returns exactly
-  what the unindexed scan returns for the same predicate: same rows, same
-  order, same truncation. The reference is produced by the SAME production
-  function under ``OKG_ATTR_FILTER_INDEX=off``, which narrows nothing: the
-  query shape every unnarrowed predicate already uses.
-* Cache. A passed interval completeness check is remembered only for the
-  branch-head generation; a new generation, a republish, an older pin, and a
-  failed check all recount.
+Since PACT lane-s-storage-cutover every page reads the graph rows ids first
+(S2 design 2.3): the candidate set narrows the graph-id branch, and targets
+with an overlay on a predicate key come from the overlay-id branch. The
+graph page reads the subtype's predicate flat (``graph_read.
+planning_predicate``), so a compound predicate narrows under a subtype
+scope too. The materialized path's interval completeness cache is gone with
+that path.
 
 okg#3112 step 2 (PACT lane-h-3112-step2-reader): the file runs under every
 accepted ``OKG_ATTR_FILTER_INDEX`` mode. The fixture builds the declared
@@ -38,7 +39,6 @@ from okg.substrate.attributes import (
     materialize_effective_attributes_for_generation,
     record_attribute_observation,
 )
-from okg.substrate.errors import SubstrateError
 from okg.substrate.graph_store import ChronosGraphStore
 from okg.substrate.library.sources.base import EdgeFact, NodeFact
 from okg.substrate.mcp import attr_filter_source as afs
@@ -47,11 +47,20 @@ from okg.substrate.publisher import Publisher
 from tests.pytest.catalog_fixture_builders import SubtypeSpec, seed_catalog
 from tests.pytest.catalog_fixture_builders import bind_test_catalog_writer  # noqa: E402
 
-
 pytestmark = pytest.mark.postgres
 
 _PAGE_MARK = "page_limit"
-_COUNT_MARK = "AS interval_payload_rows"
+
+
+@pytest.fixture(autouse=True)
+def ids_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every page here is read ids first. The graph page reads a small
+    scope merged instead, with no candidate set (``graph_read.small_scope``,
+    a cost choice with the same rows); these tests are about where the
+    declared indexes narrow, which only the ids-first form shows."""
+    from okg.substrate.mcp import graph_read
+
+    monkeypatch.setattr(graph_read, "small_scope", lambda *_a, **_k: None)
 
 
 def _row_attrs(index: int) -> dict[str, Any]:
@@ -190,13 +199,16 @@ def published(clean_runtime: str) -> Iterator[tuple[str, str, str]]:
         _overlay(conn, generation, _target(8, suffix), "rank", 6)
         # Flips a declared bool against the index.
         _overlay(conn, generation, _target(11, suffix), "active", True)
-        # Moves one edge's label into a value attr_index has never seen.
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT target_id FROM okg.attribute_effective_view_intervals "
-                "WHERE target_kind = 'edge' ORDER BY target_id LIMIT 1"
-            )
-            edge_id = cur.fetchone()[0]
+        # Moves one edge's label into a value attr_index has never seen
+        # (the first edge id in text order, read from the graph rows).
+        rows = ChronosGraphStore.from_connection(
+            conn, ensure_schema=False,
+        ).checkout_generation(generation).query(
+            "SELECT edge_id::text AS edge_id FROM okg.graph_edges "
+            "ORDER BY edge_id::text LIMIT 1", {},
+        )
+        first = rows[0]
+        edge_id = str(first["edge_id"] if isinstance(first, dict) else first[0])
         record_attribute_observation(
             conn,
             target_kind="edge",
@@ -209,11 +221,50 @@ def published(clean_runtime: str) -> Iterator[tuple[str, str, str]]:
         materialize_effective_attributes_for_generation(
             conn, generation_id=generation
         )
-    yield clean_runtime, generation, suffix
+    try:
+        yield clean_runtime, generation, suffix
+    finally:
+        close_filter_servers()
 
 
 def _mode() -> str:
     return afs.filter_index_mode()
+
+
+_SERVERS: dict[str, Any] = {}
+
+
+def _server_for(dsn: str) -> Any:
+    """One MCP server per test and database, built on first use.
+
+    The index mode is read on every call (`afs.filter_index_mode`), so a test
+    that flips `OKG_ATTR_FILTER_INDEX` between reads needs no new server.
+    """
+    if dsn not in _SERVERS:
+        _SERVERS[dsn] = server_mod.build_server(dsn=dsn)
+    return _SERVERS[dsn]
+
+
+def close_filter_servers() -> None:
+    """Close and forget every server `_run_filter` built.
+
+    The `published` fixture calls this in its teardown, so every test that
+    reads through `_run_filter` (this file and test_graph_parity_db.py) closes
+    its servers; none outlives the database `clean_runtime` recreates.
+    """
+    servers = list(_SERVERS.values())
+    _SERVERS.clear()
+    for mcp in servers:
+        mcp._okg_pool.close()
+        if mcp._okg_write_pool:
+            mcp._okg_write_pool.close()
+
+
+@pytest.fixture(autouse=True)
+def _close_filter_servers() -> Iterator[None]:
+    # Also covers a test here that reads without the `published` fixture.
+    yield
+    close_filter_servers()
 
 
 def _run_filter(
@@ -246,21 +297,16 @@ def _run_filter(
             # 4b; before it, the reference stubbed the attr_index planner and
             # the expression candidate planner to narrow nothing).
             patch.setenv(afs.SWITCH_ENV, "off")
-        mcp = server_mod.build_server(dsn=dsn)
-        try:
-            result = mcp._tool_manager._tools["filter"].fn(
-                input=scope,
-                predicate=predicate,
-                generation_id=generation,
-                limit=limit,
-                offset=offset,
-                select=[id_field, "attrs"],
-                order_by=order_by,
-            )
-        finally:
-            mcp._okg_pool.close()
-            if mcp._okg_write_pool:
-                mcp._okg_write_pool.close()
+        mcp = _server_for(dsn)
+        result = mcp._tool_manager._tools["filter"].fn(
+            input=scope,
+            predicate=predicate,
+            generation_id=generation,
+            limit=limit,
+            offset=offset,
+            select=[id_field, "attrs"],
+            order_by=order_by,
+        )
     assert "error" not in result, result
     return result, statements
 
@@ -275,9 +321,16 @@ def _answer(result: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def _narrowed(statements: list[tuple[str, Any]]) -> bool:
-    assert len(statements) == 1, statements
-    sql = statements[0][0]
-    return "AND target_id IN (" in sql and "OFFSET 0) AS effective_page_base" in sql
+    """The graph-id branch of the page is narrowed by a candidate set: the
+    ordered node page joins the candidate ids, any other tests ``IN``
+    (``graph_read.id_stream_branches``). A two-phase page (an undeclared
+    equality, S2 design 2.4) sends no single page statement; it is read with
+    no candidate set."""
+    assert len(statements) <= 1, statements
+    return any(
+        "candidate_ids(target_id)" in sql or "graph_rows.target_id IN (" in sql
+        for sql, _params in statements
+    )
 
 
 def _expression_narrowed(statements: list[tuple[str, Any]]) -> bool:
@@ -307,8 +360,10 @@ _EQ = "eq"
 
 # Scopes. The filter tool ANDs a subtype/edge_type scope onto the predicate,
 # which nests a caller's own `and` one level down; the candidate planner
-# takes only TOP-LEVEL conjuncts (mcp/attr_filter_source.py), so a compound
-# predicate is narrowed only when the scope adds no clause.
+# takes only TOP-LEVEL conjuncts (mcp/attr_filter_source.py). The graph page
+# plans with plain nested `and` clauses spliced to the top (S2,
+# graph_read.planning_predicate), so a compound predicate narrows under a
+# subtype scope too.
 _DOCS: dict[str, Any] = {"kind": "nodes", "subtype": "doc"}
 _NODES: dict[str, Any] = {"kind": "nodes"}
 _EDGES: dict[str, Any] = {"kind": "edges"}
@@ -346,9 +401,9 @@ _PARITY_CASES: list[tuple[str, dict[str, Any], dict[str, Any], bool]] = [
     ("overlay-moved-into", _DOCS, {"op": _EQ, "field": "attrs.path", "value": "overlaid.py"}, True),
     ("overlay-added-key", _DOCS, {"op": _EQ, "field": "attrs.rank", "value": 6}, True),
     ("overlay-bool-flip", _DOCS, {"op": _EQ, "field": "attrs.active", "value": True}, True),
-    ("conjunction-under-scope", _DOCS, _CONJ, False),
+    ("conjunction-under-scope", _DOCS, _CONJ, True),
     ("conjunction", _NODES, _CONJ, True),
-    ("and-with-not-residual-under-scope", _DOCS, _AND_NOT, False),
+    ("and-with-not-residual-under-scope", _DOCS, _AND_NOT, True),
     ("and-with-not-residual", _NODES, _AND_NOT, True),
     (
         "or-residual",
@@ -374,7 +429,7 @@ _PARITY_CASES: list[tuple[str, dict[str, Any], dict[str, Any], bool]] = [
     ("num-skips-string-row", _DOCS, {"op": _EQ, "field": "attrs.rank", "value": 3}, True),
     ("zero-match", _DOCS, {"op": _EQ, "field": "attrs.path", "value": "does-not-exist"}, True),
     ("undeclared", _DOCS, {"op": _EQ, "field": "attrs.owner", "value": "alice"}, False),
-    ("undeclared-and-declared-under-scope", _DOCS, _MIXED, False),
+    ("undeclared-and-declared-under-scope", _DOCS, _MIXED, True),
     ("undeclared-and-declared", _NODES, _MIXED, True),
     (
         "in-list",
@@ -426,7 +481,7 @@ def test_index_driven_page_matches_scan_path(
     )
     assert _answer(indexed) == _answer(scanned), label
     assert _narrowed(indexed_sql) is _expect_narrowed(label, pushed, scope), label
-    assert "okg.attr_index" not in indexed_sql[0][0], label
+    assert all("okg.attr_index" not in sql for sql, _p in indexed_sql), label
     if _mode() == "expression":
         assert _expression_narrowed(indexed_sql) is _expect_expression_narrowed(
             pushed, scope
@@ -486,7 +541,7 @@ def test_edges_are_answered_by_the_exact_predicate_and_equal_off(
             )
             assert _answer(got) == _answer(off), (label, mode)
             assert not _narrowed(got_sql), (label, mode)
-            assert "okg.attr_index" not in got_sql[0][0], (label, mode)
+            assert all("okg.attr_index" not in sql for sql, _p in got_sql), (label, mode)
             assert got.get("notes") == [
                 {"pushdown": "not_covered", "attrs": [{"attr": attr, "reason": "kind_not_indexed"}]}
             ], (label, mode, got.get("notes"))
@@ -600,12 +655,12 @@ def test_the_expression_index_drives_the_page_plan(
     plan never reads okg.attr_index, and the overlay lateral runs only for
     candidates.
 
-    The predicate matches nothing, so the only candidate is the one target
-    whose ``path`` was overlaid after publish (the graph-table index cannot
-    see overlays, so every overlay-touched target stays a candidate for the
-    exact predicate to decide). With the narrowing, the overlay aggregate over
-    attribute_effective_attrs executes once. Without it, it executes once per
-    pinned doc row (30 here; 527k on the graph that motivated this change).
+    The predicate matches nothing. The one target whose ``path`` was
+    overlaid after publish comes from the overlay-id branch, which tests its
+    overlaid value; the graph-id branch reads the empty declared candidate
+    set. So the overlay merge over attribute_effective_attrs never runs.
+    Without the narrowing the graph-id branch reads every pinned doc row
+    (30 here; 527k on the graph that motivated this change).
     """
     dsn, generation, _suffix = published
     result, statements = _run_filter(
@@ -630,74 +685,25 @@ def test_the_expression_index_drives_the_page_plan(
     nodes = list(_plan_nodes(plan))
     dump = json.dumps(plan)
     assert not [n for n in nodes if n.get("Relation Name") == "attr_index"], dump
-    # The fenced base subquery hands the lateral only the candidates. (On 30
-    # unanalyzed rows Postgres may hash-join a scan of the pinned rows with the
-    # candidate set; at scale it probes the pinned rows per candidate -- the
-    # bench EXPLAIN in this change's evidence shows that shape.)
-    base_rows = sum(
-        int(n.get("Actual Rows") or 0) * int(n.get("Actual Loops") or 0)
-        for n in nodes
-        if n.get("Alias") == "effective_page_base"
-    )
-    lateral_runs = sum(
-        int(n.get("Actual Loops") or 0)
-        for n in nodes
-        if n.get("Relation Name") == "attribute_effective_attrs"
-        and n.get("Alias") != "overlay_target"
-    )
-    assert base_rows == 1, "the base passed non-candidate rows on: " + dump
-    assert lateral_runs == 1, "the overlay lateral ran for non-candidates: " + dump
+    # Ids first (S2 design 2.3): the overlay merge runs once per fetched id.
+    # Here no id is fetched: the declared candidate set is empty, and the
+    # overlay-id branch tests the one key's overlaid value ("overlaid.py")
+    # itself. The overlay table's reads in the two id branches are aliased
+    # `o` (EXPLAIN names the second `o_1`); every other read of it is the
+    # merge, which never runs. (Without the narrowing the graph-id branch
+    # would scan every doc row.)
+    overlay_reads = [n for n in nodes
+                     if n.get("Relation Name") == "attribute_effective_attrs"]
 
+    def in_id_branch(node: dict[str, Any]) -> bool:
+        alias = str(node.get("Alias"))
+        return alias == "o" or alias.startswith("o_")
 
-def test_default_order_streams_candidates_in_id_order(
-    published: tuple[str, str, str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A default-ordered page gets its candidates in target_id order.
-
-    That order lets the lateral nested loop feed the LIMIT directly, so a
-    broad match does not pay the overlay lateral for every candidate before a
-    sort (the 500k-node bench measured 1.96 s without it vs 0.27 s with it).
-    Any other order_by leaves the candidates unordered: sorting them would be
-    wasted work under the outer sort.
-    """
-    dsn, generation, _suffix = published
-    predicate = {"op": _EQ, "field": "attrs.active", "value": True}
-    _r, default_sql = _run_filter(
-        dsn, generation, predicate, monkeypatch=monkeypatch, scan_only=False
-    )
-    _r, attr_sql = _run_filter(
-        dsn,
-        generation,
-        predicate,
-        monkeypatch=monkeypatch,
-        scan_only=False,
-        order_by="attrs.path",
-    )
-    if not _expect_narrowed("order", True):
-        assert not _narrowed(default_sql) and not _narrowed(attr_sql)
-        return
-    assert _narrowed(default_sql) and _narrowed(attr_sql)
-    assert " ORDER BY target_id OFFSET 0) AS effective_page_base" in default_sql[0][0]
-    assert " ORDER BY target_id OFFSET 0)" not in attr_sql[0][0]
-
-
-# ---------------------------------------------------------------- cache ----
-
-
-def _count_runs(
-    monkeypatch: pytest.MonkeyPatch,
-) -> list[str]:
-    runs: list[str] = []
-    real_execute = psycopg.Cursor.execute
-
-    def capture(self, query, params=None, **kwargs):
-        if _COUNT_MARK in str(query):
-            runs.append(str(params))
-        return real_execute(self, query, params, **kwargs)
-
-    monkeypatch.setattr(psycopg.Cursor, "execute", capture)
-    return runs
+    merges = [n for n in overlay_reads if not in_id_branch(n)]
+    assert [n for n in overlay_reads if in_id_branch(n)], dump
+    assert merges, "the plan has no overlay merge: " + dump
+    assert sum(int(n.get("Actual Loops") or 0) for n in merges) == 0, (
+        "the overlay merge ran for non-candidates: " + dump)
 
 
 def _filter_once(mcp: Any, generation: str) -> dict[str, Any]:
@@ -718,196 +724,18 @@ def _close(mcp: Any) -> None:
         mcp._okg_write_pool.close()
 
 
-def _republish(dsn: str, suffix: str, index: int) -> str:
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        _apply(
-            conn,
-            [
-                NodeFact(
-                    _target(index, suffix),
-                    "doc",
-                    _row_attrs(index),
-                    {"id": _target(index, suffix)},
-                    {"v": 1},
-                )
-            ],
-        )
-    return _publish(dsn)
-
-
-def test_completeness_cached_for_head_and_missed_by_new_generation(
-    published: tuple[str, str, str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    dsn, first, suffix = published
-    runs = _count_runs(monkeypatch)
-    mcp = server_mod.build_server(dsn=dsn)
-    try:
-        _filter_once(mcp, first)
-        assert len(runs) == 1, "first call must count exactly once"
-        _filter_once(mcp, first)
-        assert len(runs) == 1, "the head's passed check must be reused"
-
-        # A republish of the same deployment mints a new generation id.
-        second = _republish(dsn, suffix, 40)
-        assert second != first
-        _filter_once(mcp, second)
-        assert len(runs) == 2, "a new generation must recount"
-        _filter_once(mcp, second)
-        assert len(runs) == 2
-
-        # The first generation is no longer the head: every read recounts.
-        # (Each filter call checks twice -- readiness, then the page source --
-        # so two calls are four counts, exactly as before this change.)
-        _filter_once(mcp, first)
-        _filter_once(mcp, first)
-        assert len(runs) == 6, "a non-head pin must never be served from cache"
-    finally:
-        _close(mcp)
-
-
-def test_completeness_failure_is_not_cached(
-    published: tuple[str, str, str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    dsn, generation, suffix = published
-    victim = _target(2, suffix)
-    with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute(
-            "CREATE TEMP TABLE IF NOT EXISTS saved_interval AS "
-            "SELECT * FROM okg.attribute_effective_view_intervals "
-            "WHERE target_kind = 'node' AND target_id = %s",
-            (victim,),
-        )
-        cur.execute(
-            "SELECT count(*) FROM saved_interval",
-        )
-        assert cur.fetchone()[0] >= 1
-        cur.execute(
-            "DELETE FROM okg.attribute_effective_view_intervals "
-            "WHERE target_kind = 'node' AND target_id = %s",
-            (victim,),
-        )
-        runs = _count_runs(monkeypatch)
-        mcp = server_mod.build_server(dsn=dsn)
-        try:
-            for attempt in (1, 2):
-                with pytest.raises(SubstrateError) as refused:
-                    _filter_once(mcp, generation)
-                assert "incomplete interval stab rows" in str(refused.value)
-                assert len(runs) == attempt, "a refusal must not be cached"
-            cur.execute(
-                "INSERT INTO okg.attribute_effective_view_intervals "
-                "SELECT * FROM saved_interval"
-            )
-            _filter_once(mcp, generation)
-            assert len(runs) == 3, "the repaired pin counts once more"
-            _filter_once(mcp, generation)
-            assert len(runs) == 3, "and only then is the pass reused"
-        finally:
-            _close(mcp)
-
-
-def test_completeness_pass_expires_and_later_damage_is_refused(
-    published: tuple[str, str, str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A cached pass lives _INTERVAL_COMPLETE_CACHE_TTL_S, then recounts.
-
-    Damage to the head's own interval rows after a successful call is served
-    from cache only until the lifetime passes; the next call refuses.
-    """
-    dsn, generation, suffix = published
-    victim = _target(2, suffix)
-    now = [1000.0]
-    monkeypatch.setattr(server_mod, "_interval_complete_cache_clock", lambda: now[0])
-    runs = _count_runs(monkeypatch)
-    mcp = server_mod.build_server(dsn=dsn)
-    with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
-        try:
-            _filter_once(mcp, generation)
-            assert len(runs) == 1
-            cur.execute(
-                "CREATE TEMP TABLE saved_interval AS "
-                "SELECT * FROM okg.attribute_effective_view_intervals "
-                "WHERE target_kind = 'node' AND target_id = %s",
-                (victim,),
-            )
-            cur.execute(
-                "DELETE FROM okg.attribute_effective_view_intervals "
-                "WHERE target_kind = 'node' AND target_id = %s",
-                (victim,),
-            )
-            now[0] += server_mod._INTERVAL_COMPLETE_CACHE_TTL_S - 1
-            _filter_once(mcp, generation)
-            assert len(runs) == 1, "inside the lifetime the pass is reused"
-            now[0] += 2
-            with pytest.raises(SubstrateError) as refused:
-                _filter_once(mcp, generation)
-            assert "incomplete interval stab rows" in str(refused.value)
-            assert len(runs) == 2, "an expired pass must recount"
-            with pytest.raises(SubstrateError):
-                _filter_once(mcp, generation)
-            assert len(runs) == 3, "and the refusal is not cached"
-        finally:
-            cur.execute(
-                "INSERT INTO okg.attribute_effective_view_intervals "
-                "SELECT * FROM saved_interval"
-            )
-            _close(mcp)
-
-
-def test_completeness_cache_is_per_database(
+def test_a_pin_past_the_old_attribute_retention_window_is_served(
     published: tuple[str, str, str],
 ) -> None:
-    """The key carries the database identity and the head, not only the id."""
-    dsn, generation, _suffix = published
-    mcp = server_mod.build_server(dsn=dsn)
-    try:
-        key_fn = mcp._okg_interval_complete_cache_key
-        with psycopg.connect(dsn) as conn:
-            key = key_fn(
-                conn,
-                generation=generation,
-                target_kind="node",
-                branch_id="b",
-                ordinal=3,
-                head_ordinal=3,
-                expected_count=30,
-            )
-            assert key is not None
-            assert conn.info.dbname in key and conn.info.port in key
-            assert (
-                key_fn(
-                    conn,
-                    generation=generation,
-                    target_kind="node",
-                    branch_id="b",
-                    ordinal=3,
-                    head_ordinal=4,
-                    expected_count=30,
-                )
-                is None
-            )
-    finally:
-        _close(mcp)
+    """Issue #2621 and S2 design 5.3: each publish prunes closed attribute
+    intervals of the materialized copy older than its retention window, so
+    the materialized read refused a filter pinned to the first generation
+    after two attribute changes. Every read now takes the graph rows at the
+    pin plus that generation's overlays (PACT lane-s-storage-cutover), so
+    that pin is served with its own values, as the newer pins are.
 
-
-def test_a_pin_past_attribute_retention_is_refused_as_retention(
-    published: tuple[str, str, str],
-) -> None:
-    """Issue #2621: each publish prunes closed attribute intervals older than
-    the newest EFFECTIVE_VIEW_RETENTION_GENERATIONS (2) generations, and no
-    typed reader recomputes them. A filter pinned to the first generation
-    after two attribute changes used to be refused with the operator's
-    backfill advice ("run the one-time interval backfill ... before enabling
-    OKG_IVM_INTERVAL_VIEW"), which sends an agent the wrong way. It is now
-    refused as retention, with the reads that still serve that generation.
-    The head keeps its plain read and the in-window pin still reads."""
-    from okg.substrate.attributes import EFFECTIVE_VIEW_RETENTION_GENERATIONS
-
-    if EFFECTIVE_VIEW_RETENTION_GENERATIONS != 2:
-        pytest.skip("three publishes reach past the window only when it is 2")
+    Failure case: target 2's path moved in the second generation, so the
+    same filter at the newer pins no longer returns it."""
     dsn, first, suffix = published
     target = _target(2, suffix)
 
@@ -923,18 +751,8 @@ def test_a_pin_past_attribute_retention_is_refused_as_retention(
     third = change("moved02b.py")
     mcp = server_mod.build_server(dsn=dsn)
     try:
-        with pytest.raises(SubstrateError) as refused:
-            _filter_once(mcp, first)
-        error = refused.value
-        assert "older than the newest 2 generations" in error.message
-        assert "backfill" not in (error.fix_hint or "")
-        assert "omit generation_id" in error.fix_hint
-        assert "inspect(target={kind:'node'" in error.fix_hint
-        assert "with this same generation_id" in error.fix_hint
-        assert error.data["retention_generations"] == 2
-        assert error.data["ordinal"] < error.data["retained_from_ordinal"]
-        # Inside the window and at the head, the same read is served.
-        _filter_once(mcp, second)
-        _filter_once(mcp, third)
+        assert [row["node_id"] for row in _filter_once(mcp, first)["items"]] == [target]
+        assert _filter_once(mcp, second)["items"] == []
+        assert _filter_once(mcp, third)["items"] == []
     finally:
         _close(mcp)

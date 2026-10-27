@@ -102,12 +102,33 @@ def _read(corpus: dict[str, Any], monkeypatch: pytest.MonkeyPatch, mode: str,
     return result
 
 
+@pytest.fixture(autouse=True)
+def ids_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every page here is read ids first. The graph page reads a small
+    scope merged instead, with no candidate set (``graph_read.small_scope``,
+    a cost choice with the same rows); these tests are about where the
+    declared indexes narrow, which only the ids-first form shows."""
+    from okg.substrate.mcp import graph_read
+
+    monkeypatch.setattr(graph_read, "small_scope", lambda *_a, **_k: None)
+
+
+def _page(corpus: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capture: "Capture",
+          mode: str, predicate: dict[str, Any], **kw: Any) -> tuple[dict[str, Any], str]:
+    """The page of ``predicate`` and its page statement."""
+    result = _read(corpus, monkeypatch, mode, predicate, **kw)
+    return result, capture.last()
+
+
 def _by_expression(statement: str) -> bool:
-    return "AND target_id IN (" in statement and "g.live_lo <= %(dai_bp)s" in statement
+    """The graph-id branch is narrowed by the declared expression probe."""
+    return "g.live_lo <= %(dai_bp)s" in statement
 
 
 def _narrowed(statement: str) -> bool:
-    return "AND target_id IN (" in statement
+    """The graph-id branch is narrowed by any candidate set: the ordered
+    node page joins the candidate ids (``graph_read.id_stream_branches``)."""
+    return "candidate_ids(target_id)" in statement or "graph_rows.target_id IN (" in statement
 
 
 def _sql(dsn: str, statement: str, params: tuple[Any, ...] = ()) -> None:
@@ -173,14 +194,13 @@ def test_default_returns_the_off_page_for_every_probe_shape_through_the_expressi
     narrowed = refused = 0
     for pred in filters:
         off = c.answer(_read(corpus, monkeypatch, "off", pred))
-        result = _read(corpus, monkeypatch, DEFAULT, pred)
+        result, statement = _page(corpus, monkeypatch, capture, DEFAULT, pred)
         assert c.answer(result) == off, pred
         if "error" in off:
             # Issue #3666 (2c): a bound the read check cannot read as an
             # instant is refused in both modes (it was an empty page).
             refused += 1
             continue
-        statement = capture.last()
         if _by_expression(statement):
             narrowed += 1
             assert "notes" not in result, (pred, result["notes"])
@@ -238,9 +258,6 @@ _NOT_READY: list[tuple[str, str, Callable[[str], tuple[str, tuple[Any, ...]]]]] 
     ("declaration_changed", "digest",
      lambda name: ("UPDATE okg.declared_attr_indexes SET definition_digest = 'sha256:other' "
                    "WHERE index_name = %s", (name,))),
-    ("view_graph_drift", "drift",
-     lambda name: ("UPDATE okg.declared_attr_indexes SET drift = true WHERE index_name = %s",
-                   (name,))),
     ("index_missing", "dropped",
      lambda name: (f'DROP INDEX public."{name}"', ())),
 ]
@@ -256,8 +273,8 @@ def test_a_not_ready_attribute_is_answered_by_the_exact_predicate_and_named(
     alone = c._mcp("t_text", "lt", "b")
     mixed = {"op": "and", "clauses": [c._mcp("t_text", "lt", "b"), c._mcp("t_num", "gt", 0.1)]}
     capture = Capture(monkeypatch)
-    _read(corpus, monkeypatch, DEFAULT, alone)
-    assert _by_expression(capture.last())
+    _result, statement = _page(corpus, monkeypatch, capture, DEFAULT, alone)
+    assert _by_expression(statement)
     _sql(dsn, *mutate(dai.index_name("node", "t_text", "text")))
 
     off = c.answer(_read(corpus, monkeypatch, "off", alone))
@@ -266,19 +283,19 @@ def test_a_not_ready_attribute_is_answered_by_the_exact_predicate_and_named(
     seen: dict[str, Any] = {}
     for mode in (DEFAULT, "expression"):
         # Alone: failure case, no other candidate set narrows t_text.
-        result = _read(corpus, monkeypatch, mode, alone)
+        result, statement = _page(corpus, monkeypatch, capture, mode, alone)
         assert c.answer(result) == off, mode
-        assert not _narrowed(capture.last()), (mode, capture.last())
+        assert not _narrowed(statement), (mode, statement)
         assert result.get("notes") == [_not_covered(("t_text", reason))], (mode, result)
-        alone_seen = (result.get("notes"), capture.last())
+        alone_seen = (result.get("notes"), statement)
 
         # Next to a ready attribute: t_num still narrows through its
         # expression index; t_text is named.
-        result = _read(corpus, monkeypatch, mode, mixed)
+        result, statement = _page(corpus, monkeypatch, capture, mode, mixed)
         assert c.answer(result) == off_mixed, mode
-        assert _by_expression(capture.last()), mode
+        assert _by_expression(statement), mode
         assert result.get("notes") == [_not_covered(("t_text", reason))], (mode, result)
-        seen[mode] = (alone_seen, result.get("notes"), capture.last())
+        seen[mode] = (alone_seen, result.get("notes"), statement)
     assert seen[DEFAULT] == seen["expression"]
     capture.assert_no_attr_index()
 
@@ -304,11 +321,11 @@ def test_several_not_ready_attributes_are_each_named_and_a_ready_one_narrows(
     expected = [_not_covered(("t_text", "index_failed"), ("t_bool", "index_building"))]
     before = []
     for mode in (DEFAULT, "expression"):
-        result = _read(corpus, monkeypatch, mode, pred)
+        result, statement = _page(corpus, monkeypatch, capture, mode, pred)
         assert c.answer(result) == off, mode
-        assert _by_expression(capture.last()), mode
+        assert _by_expression(statement), mode
         assert result.get("notes") == expected, (mode, result.get("notes"))
-        before.append((c.answer(result), capture.last()))
+        before.append((c.answer(result), statement))
     capture.assert_no_attr_index()
     # The tables are gone: a read never depended on them.
     with psycopg.connect(dsn, autocommit=True) as conn:
@@ -318,7 +335,7 @@ def test_several_not_ready_attributes_are_each_named_and_a_ready_one_narrows(
     assert gone == (None, None), gone
     del capture.everything[:]
     for mode in (DEFAULT, "expression"):
-        result = _read(corpus, monkeypatch, mode, pred)
+        result, statement = _page(corpus, monkeypatch, capture, mode, pred)
         assert result.get("notes") == expected, mode
-        assert (c.answer(result), capture.last()) in before, mode
+        assert (c.answer(result), statement) in before, mode
     capture.assert_no_attr_index()

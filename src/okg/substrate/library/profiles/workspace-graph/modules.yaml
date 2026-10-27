@@ -7,6 +7,10 @@ modules:
   - compute_env
   - code_graph
   - extraction
+  # Declares no types: it admits the one edge `code_text` writes between a
+  # document and the file it was read from, so turning that source on does
+  # not block the publish.
+  - doc_snapshot
   - reasoning
   - ci
   - quality_evidence

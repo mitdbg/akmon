@@ -1459,7 +1459,7 @@ def _stage_category_for_frame(name: str) -> tuple[str, str]:
             "other view time",
         }
         or "native_views" in normalized
-        or "attribute_effective_view" in normalized
+        or "attribute_overlay" in normalized
         or "effective_attributes" in normalized
         or "view_derived" in normalized
         or "view_cite" in normalized

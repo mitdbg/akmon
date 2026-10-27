@@ -238,27 +238,27 @@ def _structured_document(document: Any):
     return behaviour
 
 
-#: rucio-mcp 0.1.0's `rucio_get_did` answers with one object, not a list.
-RUCIO_DID = {
+#: A get-by-name tool (`example_get_item`) answers with one object, not a list.
+EXAMPLE_ITEM = {
     "status": "ok",
-    "data": {"scope": "cms", "name": "/P/Q/RAW", "type": "DATASET", "bytes": 7},
+    "data": {"scope": "demo", "name": "/P/Q/RAW", "type": "DATASET", "bytes": 7},
 }
 
 
 def test_a_structured_object_at_a_rows_path_is_one_row():
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", _structured_document(RUCIO_DID))
+        fake.tool("datasets", _structured_document(EXAMPLE_ITEM))
         got = _call(_runner(mcp_config(fake.url, rows_path="data")))
 
-    assert got == [RUCIO_DID["data"]]
+    assert got == [EXAMPLE_ITEM["data"]]
 
 
 @pytest.mark.parametrize(
     "document",
     [
-        pytest.param({"result": [{"rse": "T1"}, {"rse": "T2"}]},
+        pytest.param({"result": [{"unit": "T1"}, {"unit": "T2"}]},
                      id="fastmcp-typed-list-wrapper"),
-        pytest.param(RUCIO_DID["data"], id="one-object"),
+        pytest.param(EXAMPLE_ITEM["data"], id="one-object"),
     ],
 )
 def test_a_structured_object_at_the_root_is_refused_naming_rows_path(document):
@@ -279,10 +279,10 @@ def test_a_structured_object_at_the_root_is_refused_naming_rows_path(document):
     "behaviour",
     [
         pytest.param(_structured_document(
-            {"data": {"items": [{"rse": "T1"}, {"rse": "T2"}]}}),
+            {"data": {"items": [{"unit": "T1"}, {"unit": "T2"}]}}),
             id="structured"),
         pytest.param(json_text(
-            {"data": {"items": [{"rse": "T1"}, {"rse": "T2"}]}}),
+            {"data": {"items": [{"unit": "T1"}, {"unit": "T2"}]}}),
             id="one-text-block"),
     ],
 )
@@ -306,15 +306,15 @@ def test_an_empty_object_at_a_named_path_is_no_rows():
 
 def test_max_rows_with_an_object_result_is_the_one_row():
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", _structured_document(RUCIO_DID))
+        fake.tool("datasets", _structured_document(EXAMPLE_ITEM))
         got = _call(_runner(mcp_config(fake.url, rows_path="data", max_rows=1)))
 
-    assert got == [RUCIO_DID["data"]]
+    assert got == [EXAMPLE_ITEM["data"]]
 
 
 def test_row_fields_project_an_object_row_and_a_missing_field_is_unusable():
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", _structured_document(RUCIO_DID))
+        fake.tool("datasets", _structured_document(EXAMPLE_ITEM))
         got = _call(_runner(mcp_config(
             fake.url, rows_path="data", row_fields=["scope", "name"],
         )))
@@ -322,7 +322,7 @@ def test_row_fields_project_an_object_row_and_a_missing_field_is_unusable():
             fake.url, rows_path="data", row_fields=["scope", "site"],
         )))
 
-    assert got == [{"scope": "cms", "name": "/P/Q/RAW"}]
+    assert got == [{"scope": "demo", "name": "/P/Q/RAW"}]
     assert error.failure == "result_unusable"
     assert "`site`" in error.excerpt
 
@@ -344,10 +344,10 @@ def test_an_object_row_carrying_the_token_is_refused_and_not_repeated(
 def test_a_single_json_text_object_at_a_rows_path_is_one_row():
     """The text path reads `rows_path` the same way as structured content."""
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", json_text(RUCIO_DID))
+        fake.tool("datasets", json_text(EXAMPLE_ITEM))
         got = _call(_runner(mcp_config(fake.url, rows_path="data")))
 
-    assert got == [RUCIO_DID["data"]]
+    assert got == [EXAMPLE_ITEM["data"]]
 
 
 @pytest.mark.parametrize(
@@ -382,7 +382,7 @@ def test_a_structured_object_too_deep_to_shape_is_still_refused():
 
 
 def test_a_structured_list_at_a_rows_path_is_still_the_rows():
-    rows = [{"rse": "T1"}, {"rse": "T2"}]
+    rows = [{"unit": "T1"}, {"unit": "T2"}]
     with FakeMcpUpstream() as fake:
         fake.tool("datasets", _structured_document({"data": rows}))
         got = _call(_runner(mcp_config(fake.url, rows_path="data")))
@@ -392,18 +392,18 @@ def test_a_structured_list_at_a_rows_path_is_still_the_rows():
 
 def test_rows_come_from_a_single_json_text_block():
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", json_text({"rows": [{"rse": "T2_US_MIT"}]}))
+        fake.tool("datasets", json_text({"rows": [{"unit": "U2_AA_ONE"}]}))
         got = _call(_runner(mcp_config(fake.url)))
 
-    assert got == [{"rse": "T2_US_MIT"}]
+    assert got == [{"unit": "U2_AA_ONE"}]
 
 
 def test_a_root_rows_path_reads_a_top_level_json_array():
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", json_text([{"rse": "T1"}, {"rse": "T2"}]))
+        fake.tool("datasets", json_text([{"unit": "T1"}, {"unit": "T2"}]))
         got = _call(_runner(mcp_config(fake.url, rows_path=".")))
 
-    assert got == [{"rse": "T1"}, {"rse": "T2"}]
+    assert got == [{"unit": "T1"}, {"unit": "T2"}]
 
 
 @pytest.mark.parametrize(
@@ -439,9 +439,9 @@ def test_an_unusable_result_is_result_unusable(behaviour, rows_path, why):
 
 
 def test_one_json_object_per_text_block_is_one_row_each_in_order():
-    """Decision `dbsrows A`: a FastMCP tool returning `-> Any` sends a list
-    as one text block per item and no structuredContent, as Archi's DBS
-    server does. Each block is one row, in the order sent."""
+    """A FastMCP tool returning `-> Any` sends a list
+    as one text block per item and no structuredContent, as some servers
+    do. Each block is one row, in the order sent."""
     blocks = [json.dumps({"dataset": f"/P{i}/Q/RAW", "n": i}) for i in range(4)]
     with FakeMcpUpstream() as fake:
         fake.tool("datasets", text_blocks(*blocks))
@@ -500,13 +500,13 @@ def test_the_byte_cap_holds_for_one_block_per_row_replies():
 
 
 def test_row_fields_select_and_a_missing_field_is_unusable():
-    rows = [{"rse": "T1", "kind": "disk", "noise": "x" * 50}]
+    rows = [{"unit": "T1", "kind": "disk", "noise": "x" * 50}]
     with FakeMcpUpstream() as fake:
         fake.tool("datasets", structured(rows))
-        got = _call(_runner(mcp_config(fake.url, row_fields=["rse", "kind"])))
-        error = _failure(_runner(mcp_config(fake.url, row_fields=["rse", "site"])))
+        got = _call(_runner(mcp_config(fake.url, row_fields=["unit", "kind"])))
+        error = _failure(_runner(mcp_config(fake.url, row_fields=["unit", "site"])))
 
-    assert got == [{"rse": "T1", "kind": "disk"}]
+    assert got == [{"unit": "T1", "kind": "disk"}]
     assert error.failure == "result_unusable"
     assert "`site`" in error.excerpt
 
@@ -519,8 +519,8 @@ def test_max_rows_cuts_by_count():
     assert got == [{"n": i} for i in range(4)]
 
 
-def _rucio_list(rows: list, truncated: Any) -> dict:
-    """rucio-mcp's list shape (`_ok_items`): the rows under `items` and the
+def _listing_reply(rows: list, truncated: Any) -> dict:
+    """A list tool's reply shape: the rows under `items` and the
     tool's own cut flag beside them."""
     return {"status": "ok", "count": len(rows), "truncated": truncated,
             "items": rows}
@@ -534,14 +534,14 @@ def _rucio_list(rows: list, truncated: Any) -> dict:
     ],
 )
 def test_a_reply_marked_truncated_beside_its_rows_comes_back_marked_cut(behaviour):
-    """R7 shape (nemotron35s g002 a1 call 3): rucio-mcp stopped at its
+    """R7 shape: a list tool stopped at its
     `limit` of 200 and said `truncated: true`; the adapter returned the 200
     rows as if whole. Now the rows come back marked, with the count sent."""
     from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
 
-    rows = [{"rse": f"T2_X_{i}"} for i in range(7)]
+    rows = [{"unit": f"U2_X_{i}"} for i in range(7)]
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", behaviour(_rucio_list(rows, True)))
+        fake.tool("datasets", behaviour(_listing_reply(rows, True)))
         got = _call(_runner(mcp_config(fake.url, rows_path="items")))
 
     assert isinstance(got, UpstreamCutRows)
@@ -552,9 +552,9 @@ def test_a_reply_marked_truncated_beside_its_rows_comes_back_marked_cut(behaviou
 def test_a_reply_marked_whole_is_a_plain_list(flag):
     from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
 
-    rows = [{"rse": "T1_A"}]
+    rows = [{"unit": "U1_A"}]
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", _structured_document(_rucio_list(rows, flag)))
+        fake.tool("datasets", _structured_document(_listing_reply(rows, flag)))
         got = _call(_runner(mcp_config(fake.url, rows_path="items")))
 
     assert got == rows and not isinstance(got, UpstreamCutRows)
@@ -565,7 +565,7 @@ def test_the_cut_counts_the_rows_sent_before_max_rows_cuts_them():
 
     rows = [{"n": i} for i in range(9)]
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", _structured_document(_rucio_list(rows, True)))
+        fake.tool("datasets", _structured_document(_listing_reply(rows, True)))
         got = _call(_runner(mcp_config(fake.url, rows_path="items", max_rows=4)))
 
     assert isinstance(got, UpstreamCutRows)
@@ -576,7 +576,7 @@ def test_the_cut_counts_the_rows_sent_before_max_rows_cuts_them():
 def test_a_truncated_flag_that_is_not_a_boolean_is_unusable(flag):
     """Must-fail partner: "are these all the rows?" is never guessed."""
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", _structured_document(_rucio_list([{"a": 1}], flag)))
+        fake.tool("datasets", _structured_document(_listing_reply([{"a": 1}], flag)))
         error = _failure(_runner(mcp_config(fake.url, rows_path="items")))
 
     assert error.failure == "result_unusable", error.excerpt
@@ -598,23 +598,23 @@ def test_a_truncated_key_that_is_not_beside_the_rows_is_row_data():
 
 def test_an_is_error_result_is_upstream_unavailable_with_a_bounded_excerpt():
     """A 2 MB exception text, as Lane CM measured, comes back as 256 chars."""
-    text = "Traceback: dbs exploded " + "z" * (2 * MIB)
+    text = "Traceback: backend exploded " + "z" * (2 * MIB)
     with FakeMcpUpstream() as fake:
         fake.tool("datasets", text_blocks(text, is_error=True))
         error = _failure(_runner(mcp_config(fake.url)))
         closes = fake.wait_for_closes(1)
 
     assert error.failure == "upstream_unavailable"
-    assert error.excerpt.startswith("Traceback: dbs exploded")
+    assert error.excerpt.startswith("Traceback: backend exploded")
     assert len(error.excerpt) <= 256
     assert closes == 1
 
 
-#: Rucio's `list_rses` reply for an expression that selects no RSE, verbatim
-#: as lane X2's live server returned it for `type=TAPE`.
-RUCIO_EMPTY_SET = (
-    "Error executing tool rucio_list_rses: Provided RSE expression is "
-    "considered invalid.\nDetails: RSE Expression resulted in an empty set."
+#: A list tool's reply for an expression that selects no unit, in the
+#: wording a live server returned for one.
+EMPTY_SET = (
+    "Error executing tool example_list_units: Provided unit expression is "
+    "considered invalid.\nDetails: Unit expression resulted in an empty set."
 )
 
 
@@ -623,7 +623,7 @@ def test_an_is_error_empty_set_reply_is_its_own_outcome_not_unavailable():
     `upstream_empty_result` with the server's own message, never
     `upstream_unavailable`, which sends the caller looking for an outage."""
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", text_blocks(RUCIO_EMPTY_SET, is_error=True))
+        fake.tool("datasets", text_blocks(EMPTY_SET, is_error=True))
         error = _failure(_runner(mcp_config(fake.url)))
 
     assert error.failure == "upstream_empty_result"
@@ -636,13 +636,30 @@ def test_an_is_error_reply_without_the_empty_marker_stays_unavailable():
     its failure, so the new outcome cannot swallow a real error."""
     with FakeMcpUpstream() as fake:
         fake.tool("datasets", text_blocks(
-            "Error executing tool: DBSError Code:114 wrong pattern",
+            "Error executing tool: ExampleError Code:114 wrong pattern",
             is_error=True,
         ))
         error = _failure(_runner(mcp_config(fake.url)))
 
     assert error.failure == "upstream_unavailable"
     assert "Code:114" in error.excerpt
+
+
+def test_a_crash_that_mentions_an_empty_set_stays_a_failure():
+    """Review M1 (lane ri, E1): "empty set" anywhere in the error text read
+    as "matched nothing", so a server crash such as `KeyError: 'pop from an
+    empty set'` would be served as a clean 0 rows. Only the whole phrase
+    "resulted in an empty set" is an empty match."""
+    with FakeMcpUpstream() as fake:
+        fake.tool("datasets", text_blocks(
+            "Error executing tool example_list_units: Traceback (most recent call "
+            "last):\n  File \"server.py\", line 88\nKeyError: 'pop from an empty set'",
+            is_error=True,
+        ))
+        error = _failure(_runner(mcp_config(fake.url)))
+
+    assert error.failure == "upstream_unavailable"
+    assert "pop from an empty set" in error.excerpt
 
 
 def test_an_empty_set_inside_a_successful_result_is_data_not_a_failure():
@@ -655,52 +672,52 @@ def test_an_empty_set_inside_a_successful_result_is_data_not_a_failure():
     assert got == [{"note": "an empty set is fine"}]
 
 
-#: Rucio's "what you named is not there" replies, verbatim as rucio-mcp sent
-#: them in the CompOps runs (x2-cokg-*, x2-csw-okg-*; lane ri livelabels).
-#: R1: nemotron35s q015 a2 call 3 (a name sent without its leading "/").
-RUCIO_DID_NOT_FOUND = (
-    "Error executing tool rucio_get_did: Data identifier not found.\n"
-    "Details: Data identifier 'cms:ADD-monojet_N-2_MD-10000_TuneCP5_13p6TeV-"
-    "pythia8/Run3Summer23MiniAODv4-130X_mcRun3_2023_realistic_v15-v4/"
-    "MINIAODSIM' not found"
+#: "What you named is not there" replies, shaped as a live list/get server
+#: sent them in recorded runs.
+#: R1 (a name sent without its leading "/").
+ITEM_NOT_FOUND = (
+    "Error executing tool example_get_item: Item not found.\n"
+    "Details: Item 'demo:alpha-sample_N-2_MD-10000_T5-"
+    "gen8/Campaign3-130X_v15-v4/"
+    "FORMATA' not found"
 )
-#: R2: nemotron35s q018 a1 call 2.
-RUCIO_DID_RULES_NOT_FOUND = (
-    "Error executing tool rucio_list_did_rules: Data identifier not found.\n"
-    "Details: Data identifier 'cms:ChargedHiggs_HplusTB_HplusToTB_M-5000_"
-    "13TeV_amcatnlo_pythia8/RunIISummer16NanoAODv4-PUMoriond17_Nano14Dec2018_"
-    "102X_mcRun2_asymptotic_v6-v1/NANOAODSIM' not found"
+#: R2.
+ITEM_RECORDS_NOT_FOUND = (
+    "Error executing tool example_list_item_records: Item not found.\n"
+    "Details: Item 'demo:beta-sample_M-5000_"
+    "13x_gen8/Campaign2-Reprocess17_"
+    "102X_asymptotic_v6-v1/FORMATB' not found"
 )
-#: R4: sol61 c006 a1 call 8 (R5, c007, is the same text with c128171c...).
-RUCIO_RULE_NOT_FOUND = (
-    "Error executing tool rucio_get_replication_rule: No replication rule "
-    "found.\nDetails: No rule with the id 3fe781fc37294eafb22c0c9eb9a584d6 "
+#: R4 (R5 is the same text with c128171c...).
+RECORD_NOT_FOUND = (
+    "Error executing tool example_get_record: No record "
+    "found.\nDetails: No record with the id 3fe781fc37294eafb22c0c9eb9a584d6 "
     "found"
 )
-RUCIO_RSE_NOT_FOUND = (
-    "Error executing tool rucio_list_rse_attributes: RSE does not exist.\n"
-    "Details: RSE 'T3_US_FNALPC' cannot be found in vo 'def'"
+UNIT_NOT_FOUND = (
+    "Error executing tool example_list_unit_attributes: Unit does not exist.\n"
+    "Details: Unit 'U3_BB_LAB' cannot be found in group 'def'"
 )
-RUCIO_SCOPE_NOT_FOUND = (
-    "Error executing tool rucio_list_scopes_for_account: Scope does not "
-    "exist.\nDetails: no scopes found for account ID 'pdmv_group'"
+SCOPE_NOT_FOUND = (
+    "Error executing tool example_list_scopes_for_account: Scope does not "
+    "exist.\nDetails: no scopes found for account ID 'demo_group'"
 )
 #: A real outage from the same runs: it must keep `upstream_unavailable`.
-RUCIO_READ_TIMEOUT = (
-    "Error executing tool rucio_list_dids: HTTPConnectionPool("
-    "host='cms-rucio.cern.ch', port=80): Read timed out. (read timeout=110)"
+READ_TIMEOUT = (
+    "Error executing tool example_list_items: HTTPConnectionPool("
+    "host='upstream.example.test', port=80): Read timed out. (read timeout=110)"
 )
 
 
 @pytest.mark.parametrize(
     "text, words",
     [
-        pytest.param(RUCIO_DID_NOT_FOUND, "ADD-monojet", id="R1-did"),
-        pytest.param(RUCIO_DID_RULES_NOT_FOUND, "ChargedHiggs", id="R2-did-rules"),
-        pytest.param(RUCIO_RULE_NOT_FOUND, "3fe781fc37294eafb22c0c9eb9a584d6",
+        pytest.param(ITEM_NOT_FOUND, "alpha-sample", id="R1-item"),
+        pytest.param(ITEM_RECORDS_NOT_FOUND, "beta-sample", id="R2-item-records"),
+        pytest.param(RECORD_NOT_FOUND, "3fe781fc37294eafb22c0c9eb9a584d6",
                      id="R4-rule"),
-        pytest.param(RUCIO_RSE_NOT_FOUND, "T3_US_FNALPC", id="rse"),
-        pytest.param(RUCIO_SCOPE_NOT_FOUND, "pdmv_group", id="scope"),
+        pytest.param(UNIT_NOT_FOUND, "U3_BB_LAB", id="unit"),
+        pytest.param(SCOPE_NOT_FOUND, "demo_group", id="scope"),
     ],
 )
 def test_a_not_found_reply_is_its_own_outcome_not_unavailable(text, words):
@@ -720,12 +737,12 @@ def test_a_not_found_reply_is_its_own_outcome_not_unavailable(text, words):
 @pytest.mark.parametrize(
     "text",
     [
-        pytest.param(RUCIO_READ_TIMEOUT, id="read-timeout"),
-        pytest.param("Error executing tool rucio_list_dids: Response ended "
+        pytest.param(READ_TIMEOUT, id="read-timeout"),
+        pytest.param("Error executing tool example_list_items: Response ended "
                      "prematurely", id="ended-early"),
         # "not found" past the first sentence is not the error's summary: a
         # credential problem stays an upstream failure.
-        pytest.param("Error executing tool rucio_whoami: Cannot authenticate."
+        pytest.param("Error executing tool example_whoami: Cannot authenticate."
                      "\nDetails: x509 proxy file not found", id="auth"),
     ],
 )
@@ -741,7 +758,7 @@ def test_an_outage_reply_stays_unavailable_even_with_not_found_later(text):
 def test_not_found_inside_a_successful_result_is_data_not_a_failure():
     """Only an `isError` result is classified; the same words in a normal
     reply are row text."""
-    rows = [{"note": "Data identifier not found", "state": "No rule found"}]
+    rows = [{"note": "Item not found", "state": "No record found"}]
     with FakeMcpUpstream() as fake:
         fake.tool("datasets", structured(rows))
         got = _call(_runner(mcp_config(fake.url)))
@@ -749,32 +766,32 @@ def test_not_found_inside_a_successful_result_is_data_not_a_failure():
     assert got == rows
 
 
-#: Rucio's reply to an RSE expression it cannot parse, verbatim from the r36d
-#: records (new g002 t2 call 6 `T1_*_Tape`; base g002 t3 call 6 `*Tape*`).
-RUCIO_RSE_EXPRESSION_INVALID = (
-    "Error executing tool rucio_list_rses: Provided RSE expression is "
-    "considered invalid.\nDetails: Expression does not comply to RSE "
-    "Expression syntax"
+#: A tool's reply to a unit expression it cannot parse, as recorded
+#: in earlier runs.
+UNIT_EXPRESSION_INVALID = (
+    "Error executing tool example_list_units: Provided unit expression is "
+    "considered invalid.\nDetails: Expression does not comply to unit "
+    "expression syntax"
 )
-#: The same first sentence, but the expression parsed and selects no RSE
-#: (r36d `type=TAPE`, `cms_type=real&rse...`): a real empty result.
-RUCIO_RSE_EXPRESSION_EMPTY = (
-    "Error executing tool rucio_list_rses: Provided RSE expression is "
-    "considered invalid.\nDetails: RSE Expression resulted in an empty set."
+#: The same first sentence, but the expression parsed and selects no unit
+#: (for example a filter that matches nothing): a real empty result.
+UNIT_EXPRESSION_EMPTY = (
+    "Error executing tool example_list_units: Provided unit expression is "
+    "considered invalid.\nDetails: Unit expression resulted in an empty set."
 )
 #: A call whose arguments break the tool's schema.
-RUCIO_SCHEMA_MISMATCH = (
-    "Error executing tool rucio_list_rses: 1 validation error for "
-    "call[rucio_list_rses]\nlimit\n  Input should be a valid integer"
+SCHEMA_MISMATCH = (
+    "Error executing tool example_list_units: 1 validation error for "
+    "call[example_list_units]\nlimit\n  Input should be a valid integer"
 )
 
 
 @pytest.mark.parametrize(
     "text, words",
     [
-        pytest.param(RUCIO_RSE_EXPRESSION_INVALID, "does not comply",
-                     id="rse-syntax"),
-        pytest.param(RUCIO_SCHEMA_MISMATCH, "validation error", id="schema"),
+        pytest.param(UNIT_EXPRESSION_INVALID, "does not comply",
+                     id="unit-syntax"),
+        pytest.param(SCHEMA_MISMATCH, "validation error", id="schema"),
         pytest.param("Error executing tool x: Object does not match schema.",
                      "does not match schema", id="does-not-match-schema"),
     ],
@@ -796,7 +813,7 @@ def test_an_expression_that_parses_and_selects_nothing_stays_empty():
     """Must-fail partner: a real empty set keeps `upstream_empty_result`,
     even behind the same "considered invalid" first sentence."""
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", text_blocks(RUCIO_RSE_EXPRESSION_EMPTY,
+        fake.tool("datasets", text_blocks(UNIT_EXPRESSION_EMPTY,
                                           is_error=True))
         error = _failure(_runner(mcp_config(fake.url)))
 
@@ -806,9 +823,9 @@ def test_an_expression_that_parses_and_selects_nothing_stays_empty():
 @pytest.mark.parametrize(
     "text",
     [
-        pytest.param(RUCIO_READ_TIMEOUT, id="read-timeout"),
+        pytest.param(READ_TIMEOUT, id="read-timeout"),
         # "invalid" past the first sentence is not the error's summary.
-        pytest.param("Error executing tool rucio_whoami: Cannot authenticate."
+        pytest.param("Error executing tool example_whoami: Cannot authenticate."
                      "\nDetails: x509 proxy is invalid", id="auth"),
     ],
 )
@@ -823,7 +840,7 @@ def test_an_outage_reply_stays_unavailable_even_with_invalid_later(text):
 
 def test_invalid_inside_a_successful_result_is_data_not_a_failure():
     """Only an `isError` result is classified."""
-    rows = [{"note": "Provided RSE expression is considered invalid"}]
+    rows = [{"note": "Provided unit expression is considered invalid"}]
     with FakeMcpUpstream() as fake:
         fake.tool("datasets", structured(rows))
         got = _call(_runner(mcp_config(fake.url)))
@@ -907,7 +924,7 @@ def test_a_deadline_shorter_than_the_tool_is_a_timeout_and_the_session_closes():
 
 
 def test_a_server_silent_on_initialize_times_out_naming_initialize():
-    """Lane X2's DBS hang, reproduced: a server that runs tool calls one at a
+    """A slow backend's hang, reproduced: a server that runs tool calls one at a
     time answers not even `initialize` while another client's call runs. The
     deadline is unchanged; the report says which step never got an answer,
     and that no tool call was sent."""
@@ -1847,7 +1864,7 @@ def test_a_2_mb_is_error_text_is_served_as_a_bounded_excerpt(
     graph, monkeypatch, tmp_path,
 ):
     dsn, hub = graph
-    text = "dbs: query failed " + "q" * (2 * MIB)
+    text = "backend: query failed " + "q" * (2 * MIB)
     with FakeMcpUpstream() as fake:
         fake.tool("datasets", text_blocks(text, is_error=True))
         server = build(dsn, mcp_binding(fake.url), monkeypatch=monkeypatch,
@@ -1858,7 +1875,7 @@ def test_a_2_mb_is_error_text_is_served_as_a_bounded_excerpt(
     block = live_block(out)
     assert block["state"] == "error"
     assert block["error"]["failure"] == "upstream_unavailable"
-    assert "dbs: query failed" in block["error"]["excerpt"]
+    assert "backend: query failed" in block["error"]["excerpt"]
     assert len(json.dumps(block["error"])) <= 1024
     assert out["served"] <= BUDGET
     assert text_out["served"] <= BUDGET
@@ -1868,25 +1885,27 @@ def test_a_2_mb_is_error_text_is_served_as_a_bounded_excerpt(
 @pytest.mark.parametrize(
     "text, words",
     [
-        pytest.param(RUCIO_DID_NOT_FOUND, "Data identifier not found", id="R1"),
-        pytest.param(RUCIO_DID_RULES_NOT_FOUND, "Data identifier not found",
+        pytest.param(ITEM_NOT_FOUND, "Item not found", id="R1"),
+        pytest.param(ITEM_RECORDS_NOT_FOUND, "Item not found",
                      id="R2"),
-        pytest.param(RUCIO_RULE_NOT_FOUND,
-                     "No rule with the id 3fe781fc37294eafb22c0c9eb9a584d6",
+        pytest.param(RECORD_NOT_FOUND,
+                     "No record with the id 3fe781fc37294eafb22c0c9eb9a584d6",
                      id="R4"),
-        pytest.param(RUCIO_RULE_NOT_FOUND.replace(
+        pytest.param(RECORD_NOT_FOUND.replace(
             "3fe781fc37294eafb22c0c9eb9a584d6",
             "c128171c36b343fb88dc9fa965b5a1f2"),
-            "No rule with the id c128171c36b343fb88dc9fa965b5a1f2", id="R5"),
+            "No record with the id c128171c36b343fb88dc9fa965b5a1f2", id="R5"),
     ],
 )
 def test_the_reply_a_model_reads_says_not_found_not_an_outage(
     graph, monkeypatch, tmp_path, text, words,
 ):
-    """Replay of the recorded CompOps replies through `expand(live=...)`,
+    """Replay of the recorded replies through `expand(live=...)`,
     in the plain-text form a model reads. Before: `failure:
     upstream_unavailable` and "refused the connection or returned an error
-    status" above the not-found excerpt."""
+    status" above the not-found excerpt. Then `upstream_not_found` as an
+    error. Now (PACT live-nothing-answers, lane ri review M2): "not found" is
+    the system's answer, 0 rows with its own words, and the call is `ok`."""
     dsn, hub = graph
     with FakeMcpUpstream() as fake:
         fake.tool("datasets", text_blocks(text, is_error=True))
@@ -1894,31 +1913,33 @@ def test_the_reply_a_model_reads_says_not_found_not_an_outage(
                        tmp_path=tmp_path)
         reply = drive(server, hub, text=True)["text"]
 
-    assert "failure: upstream_not_found" in reply, reply
-    assert "not an outage" in reply
+    assert reply.startswith("expand ok "), reply
+    assert "found nothing named so" in reply, reply
     assert words in reply
     assert "refused the connection" not in reply
     assert "upstream_unavailable" not in reply
     rows = _samples(dsn)
-    assert len(rows) == 1 and rows[0]["status"] == "error"
+    assert len(rows) == 1 and rows[0]["status"] == "ok"
 
 
 @pytest.mark.postgres
 @pytest.mark.parametrize(
     "text, label",
     [
-        pytest.param(RUCIO_RSE_EXPRESSION_INVALID, "upstream_rejected_arguments",
+        pytest.param(UNIT_EXPRESSION_INVALID, "upstream_rejected_arguments",
                      id="syntax-rejected"),
-        pytest.param(RUCIO_RSE_EXPRESSION_EMPTY, "upstream_empty_result",
+        pytest.param(UNIT_EXPRESSION_EMPTY, "upstream_empty_result",
                      id="empty-set-stays-empty"),
     ],
 )
 def test_the_reply_a_model_reads_names_a_rejected_argument(
     graph, monkeypatch, tmp_path, text, label,
 ):
-    """Replay of the r36d RSE-expression replies through `expand(live=...)`
+    """Replay of recorded unit-expression replies through `expand(live=...)`
     in the text a model reads. Before: the syntax error read `failure:
-    upstream_unavailable` "refused the connection"."""
+    upstream_unavailable` "refused the connection". Now (PACT
+    live-nothing-answers): a rejected argument is a failed live read, named
+    first on the status line; an empty set is the system's answer, 0 rows."""
     dsn, hub = graph
     with FakeMcpUpstream() as fake:
         fake.tool("datasets", text_blocks(text, is_error=True))
@@ -1926,19 +1947,22 @@ def test_the_reply_a_model_reads_names_a_rejected_argument(
                        tmp_path=tmp_path)
         reply = drive(server, hub, text=True)["text"]
 
-    assert f"failure: {label}" in reply, reply
     assert "refused the connection" not in reply
+    rows = _samples(dsn)
     if label == "upstream_rejected_arguments":
+        assert reply.startswith(f"expand error {label} "), reply
         assert "rejected these arguments as invalid" in reply
         assert "not an outage" in reply
-        assert "does not comply to RSE Expression syntax" in reply
+        assert "does not comply to unit expression syntax" in reply
         assert "matched nothing" not in reply
+        assert len(rows) == 1 and rows[0]["status"] == "error"
     else:
+        assert reply.startswith("expand ok "), reply
         assert "matched nothing" in reply
+        assert "resulted in an empty set" in reply
         assert "rejected these arguments" not in reply
+        assert len(rows) == 1 and rows[0]["status"] == "ok"
     assert "upstream_unavailable" not in reply
-    rows = _samples(dsn)
-    assert len(rows) == 1 and rows[0]["status"] == "error"
 
 
 @pytest.mark.postgres
@@ -1951,16 +1975,16 @@ def test_a_reply_the_tool_cut_says_so_and_the_raised_limit_call_runs(
     more -- and that call, made as written, is served whole."""
     from mcp import types
 
-    def rucio_like(args):
+    def listing_like(args):
         limit = int(args["limit"])
-        rows = [{"rse": f"T2_X_{i}"} for i in range(min(limit, 7))]
+        rows = [{"unit": f"U2_X_{i}"} for i in range(min(limit, 7))]
         return types.CallToolResult(
-            content=[], structuredContent=_rucio_list(rows, limit < 7),
+            content=[], structuredContent=_listing_reply(rows, limit < 7),
         )
 
     dsn, hub = graph
     with FakeMcpUpstream() as fake:
-        fake.tool("datasets", rucio_like)
+        fake.tool("datasets", listing_like)
         server = build(dsn, mcp_binding(fake.url, rows_path="items"),
                        monkeypatch=monkeypatch, tmp_path=tmp_path)
         cut = drive(server, hub, args={"name": "x", "limit": 3}, text=True)["text"]

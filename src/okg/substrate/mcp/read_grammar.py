@@ -122,6 +122,24 @@ MORE_NOT_LISTED = "more_not_listed"
 _LIVE_REF_PREFIX = "l1."
 
 
+def _calc_fields(condition: Any, depth: int = 0) -> list[str]:
+    """The `calc.<name>` fields a `where` names (as a key or as `field`)."""
+    found: list[str] = []
+    if depth > MAX_CONDITION_DEPTH:
+        return found
+    if isinstance(condition, list):
+        for item in condition:
+            found.extend(_calc_fields(item, depth + 1))
+    elif isinstance(condition, Mapping):
+        for key, value in condition.items():
+            if isinstance(key, str) and key.startswith("calc."):
+                found.append(key)
+            if key == "field" and isinstance(value, str) and value.startswith("calc."):
+                found.append(value)
+            found.extend(_calc_fields(value, depth + 1))
+    return found
+
+
 def _is_live_ref(ref: Any) -> bool:
     return isinstance(ref, str) and ref.startswith(_LIVE_REF_PREFIX)
 
@@ -152,6 +170,11 @@ _TEXT_ELSEWHERE = (
 _SPELLED_CHARS = 400
 
 
+#: A metric label of a live aggregate: a groups handle's column.
+_GROUP_METRIC = re.compile(r"(?:sum|min|max)\((?:attrs\.[^()]+|calc\.[a-z][a-z0-9_]{0,31})\)")
+#: A computed column of a map's handle (PACT read-map-compute).
+_CALC_COLUMN = re.compile(r"calc\.[a-z][a-z0-9_]{0,31}")
+
 @dataclass(frozen=True)
 class Fields:
     """The field names a condition may read, for one kind of set.
@@ -172,6 +195,10 @@ class Fields:
     #: links has none: a date there is an attribute, `date.attrs.<name>`.
     date_meanings: bool = True
     tool: str = ""
+    #: A live handle may hold an aggregate's groups: its columns `count`,
+    #: `rank` and the metric labels (`sum(attrs.x)`) are fields too; the
+    #: reader refuses them by name on a set of rows (PACT read-live-handles).
+    group_columns: bool = False
 
     @staticmethod
     def is_date(key: str) -> bool:
@@ -181,6 +208,11 @@ class Fields:
         if key in self.names or key in self.aliases:
             return True
         if key.startswith("attrs.") and len(key) > len("attrs."):
+            return True
+        if self.group_columns and (
+            key in ("count", "rank") or _GROUP_METRIC.fullmatch(key) is not None
+            or _CALC_COLUMN.fullmatch(key) is not None
+        ):
             return True
         if not (self.dates and self.is_date(key)):
             return False
@@ -250,7 +282,7 @@ EDGE_FIELDS = Fields(
 #: Live typed rows (`{node_id, subtype, attrs, live}`) also have the two
 #: record columns; the reader refuses them by name on raw rows
 #: (`live_reader.check_record_columns`).
-LIVE_FIELDS = Fields(names=frozenset({"node_id", "subtype"}))
+LIVE_FIELDS = Fields(names=frozenset({"node_id", "subtype"}), group_columns=True)
 #: The stable fields search's `where` reads (`search_where`), under the names
 #: it already accepts; it keeps both spellings itself, and compares dates.
 SEARCH_FIELDS = Fields(
@@ -297,6 +329,9 @@ class GrammarRefusal(ValueError):
         #: refusal's `unknown_fields` and `valid_fields`.
         self.code: Optional[str] = None
         self.select_data: Optional[dict[str, Any]] = None
+        #: A named reason the refusal's data carries (`handle_as_condition`,
+        #: PACT read-live-handles), under the argument check's own code.
+        self.reason: Optional[str] = None
         #: The words served instead of `fix_hint`, and with no call, where
         #: the deployment's access rules refuse every call the hint names
         #: (an `aggregate` count under audit or enforce).
@@ -2863,6 +2898,63 @@ def _onto_end(condition: Any, near: str) -> Optional[Any]:
     return None
 
 
+def _holds_handle(condition: Any) -> bool:
+    """Whether a condition names a handle id where a condition goes: the
+    whole condition, a clause of `and`/`or`/`not` (short or long form), or
+    `{"ref": id}` there. A value list `{"ref", "field"}` is a value, not a
+    condition, and a field's value is never read as one."""
+    from okg.substrate.mcp.result_references import is_handle_id
+
+    pending = [condition]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, str):
+            if is_handle_id(node):
+                return True
+            continue
+        if not isinstance(node, Mapping):
+            continue
+        if set(node) == {"ref"} and is_handle_id(node.get("ref")):
+            return True
+        for key in ("and", "or", "clauses"):
+            if isinstance(node.get(key), list):
+                pending.extend(node[key])
+        for key in ("not", "clause"):
+            if isinstance(node.get(key), (Mapping, str)):
+                pending.append(node[key])
+    return False
+
+
+def _holds_value_list(condition: Any) -> bool:
+    """Whether a condition holds a value list from a handle anywhere."""
+    from okg.substrate.mcp.result_references import is_handle_id
+
+    pending = [condition]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, list):
+            pending.extend(node)
+        elif isinstance(node, Mapping):
+            if set(node) == {"ref", "field"} and is_handle_id(node.get("ref")):
+                return True
+            pending.extend(node.values())
+    return False
+
+
+def _handle_as_condition(tool: str, argument: str) -> GrammarRefusal:
+    refusal = GrammarRefusal(
+        f"{tool}: a handle names a set to read, not a condition; inside "
+        f"`{argument}` it would match no record and read as 0 rows",
+        fix_hint=(
+            f"read the handle as the input: {tool}(input=\"<handle>\", where=...); "
+            'inside run, name a step\'s set with "$n"'
+        ),
+        fields=(argument,),
+    )
+    refusal.reason = "handle_as_condition"
+    return refusal
+
+
 class _Rewrite:
     """The working state of one call's rewrite."""
 
@@ -3415,7 +3507,88 @@ class _Rewrite:
                 self.args["target"] = {**target, "items": items}
                 self.adjusted += notes
 
+    # -- handles (PACT read-live-handles, 3.3, N6, N7) ----------------------
+
+    def handles(self) -> None:
+        """Where a handle id may go, before anything else reads the call.
+
+        A string `input` that is a handle (bare, a JSON string of one, or the
+        JSON text of `{"ref": id}`; `string_input_shape`) becomes
+        `input={"ref": id}`, here, before the live resolver reads the call.
+        A `where` that is only a handle is read as `input`, with a note. A
+        handle inside a compound condition, or as a scope's `filter`, is
+        refused by name (`handle_as_condition`): it would match no stored
+        record and read as "0 of 0". A value list from a handle is read
+        only over a live handle (lead decision Q3).
+        """
+        from okg.substrate.mcp.result_references import is_handle_id, string_input_shape
+
+        tool = self.tool
+        scope = self.args.get("input")
+        if isinstance(scope, str):
+            shape, named = string_input_shape(scope)
+            if shape == "handle":
+                self.args["input"] = {"ref": named}
+            elif shape == "text" and tool in ("filter", "map"):
+                shown = scope if len(scope) <= 80 else scope[:80] + "…"
+                raise GrammarRefusal(
+                    f"{tool}: a string `input` names a handle (the l1... or r1... id a "
+                    f"reply printed); {shown!r} is not one",
+                    fix_hint=(
+                        f"pass input=\"<handle>\", or name the set with "
+                        f"{tool}(where={{...}})"
+                    ),
+                    fields=("input",),
+                )
+        where = self.args.get("where")
+        named = None
+        if isinstance(where, str) and is_handle_id(where):
+            named, sent = where.strip(), "where"
+        elif (
+            isinstance(where, Mapping) and set(where) == {"ref"}
+            and is_handle_id(where.get("ref"))
+        ):
+            named, sent = str(where["ref"]).strip(), "where.ref"
+        if named is not None:
+            if self.args.get("input") is not None:
+                raise _handle_as_condition(tool, "where")
+            self.args.pop("where")
+            self.args["input"] = {"ref": named}
+            self.adjusted.append({
+                "rule": "kept_answer_ref_as_input",
+                "sent": sent,
+                "served": "input.ref",
+            })
+        for argument in ("where", "predicate"):
+            if _holds_handle(self.args.get(argument)):
+                raise _handle_as_condition(tool, argument)
+        scope = self.args.get("input")
+        if isinstance(scope, Mapping) and _holds_handle(scope.get("filter")):
+            raise _handle_as_condition(tool, "input.filter")
+        conditions = [self.args.get("where"), self.args.get("predicate")]
+        if isinstance(scope, Mapping):
+            conditions.append(scope.get("filter"))
+        live_input = (
+            isinstance(scope, Mapping) and set(scope) == {"ref"} and _is_live_ref(scope.get("ref"))
+        )
+        if not live_input and any(_holds_value_list(c) for c in conditions):
+            refusal = GrammarRefusal(
+                f"{tool}: values from a handle are read over a live handle only: "
+                "on a first read of a live type the conditions run before any "
+                "handle can be read, and values from a handle in a stored "
+                "condition come with stored handles",
+                fix_hint=(
+                    f"read the set first, then {tool}(input=\"<its handle>\", "
+                    'where={"attrs.<x>": {"op": "in", "values": {"ref": "<l1...>", '
+                    '"field": "attrs.<x>"}}})'
+                ),
+                fields=("where",),
+            )
+            refusal.reason = "values_from_handle_need_handle_input"
+            raise refusal
+
     def filter(self) -> None:
+        self.handles()
         self.default_scope(predicate=True)
         self.lift("input", ("select", "max_bytes"))
         self.lower_argument("predicate")
@@ -3452,11 +3625,14 @@ class _Rewrite:
         self.args["input"] = scope
         self.args["predicate"] = where
 
-    def _where_into_scope(self, *, kind_optional: bool) -> None:
-        """`map` and `aggregate`: a top-level `where` is the scope's `filter`."""
+    def _where_into_scope(self, *, kind_optional: bool, live_predicate: bool = False) -> None:
+        """`map` and `aggregate`: a top-level `where` is the scope's `filter`.
+
+        `live_predicate` (`map` with `compute`, PACT read-map-compute M5): a
+        `where` beside a kept live answer narrows it, as on `aggregate`."""
         tool = self.tool
         self.lower_scope_filter()
-        if tool == "aggregate":
+        if tool == "aggregate" or live_predicate:
             self.lower_argument("predicate")
         given, where = self.take_where()
         if not given:
@@ -3468,7 +3644,7 @@ class _Rewrite:
             isinstance(scope, Mapping) and set(scope) == {"ref"}
             and _is_live_ref(scope["ref"])
         )
-        if live_ref and tool != "aggregate":
+        if live_ref and tool != "aggregate" and not live_predicate:
             # `map` is a projection of a set; a condition beside a kept live
             # answer goes to `filter`, which takes `select` as well.
             raise GrammarRefusal(
@@ -3534,9 +3710,13 @@ class _Rewrite:
         self.args["input"] = scope
 
     def map(self) -> None:
+        self.handles()
         self.default_scope()
         self.lift("input", ("select", "max_bytes"))
-        self._where_into_scope(kind_optional=False)
+        computing = self.args.get("compute") is not None
+        if computing:
+            self.compute_refusals()
+        self._where_into_scope(kind_optional=False, live_predicate=computing)
         if "select" not in self.args:
             return
         select = self.args.pop("select")
@@ -3572,10 +3752,45 @@ class _Rewrite:
         self.spellings.append(("select", "projection"))
         self.args["projection"] = select
 
+    def compute_refusals(self) -> None:
+        """`map(compute=...)`'s refusals that need no set (PACT
+        read-map-compute 6.1): each names the call to send instead."""
+        if "projection" in self.sent:
+            raise GrammarRefusal(
+                "map: `compute` adds columns and `projection` renames them; "
+                "send one of the two",
+                fix_hint=(
+                    'name the printed columns with select=[...] beside compute, '
+                    'or write a rename as compute={"<alias>": "<field>"}'
+                ),
+                fields=("compute", "projection"),
+            )
+        if self.args.get("order_by") is not None:
+            raise GrammarRefusal(
+                "map keeps its input's order; `order_by` is filter's",
+                fix_hint=(
+                    'send map without order_by, then filter(input="<the handle '
+                    f'map printed>", order_by={json.dumps(self.args.get("order_by"))})'
+                ),
+                fields=("order_by",),
+            )
+        named = _calc_fields(self.args.get("where"))
+        if named:
+            raise GrammarRefusal(
+                f"map: `where` narrows the input before computing, so it cannot "
+                f"test {named[0]}",
+                fix_hint=(
+                    'send map without that condition, then filter(input="<the '
+                    f'handle map printed>", where={{"{named[0]}": ...}})'
+                ),
+                fields=("where",),
+            )
+
     def aggregate(self) -> None:
+        self.handles()
         self.kept_ref_from_where()
         self.default_scope()
-        self.lift("input", ("max_bytes",))
+        self.lift("input", ("max_bytes", "order_by"))
         self._where_into_scope(kind_optional=True)
         self.group_keys()
 

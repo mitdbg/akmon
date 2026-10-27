@@ -510,6 +510,25 @@ def test_retire_refuses_while_an_owned_surface_remains(
     assert caught.value.data["remaining"] == ["preset"]
 
 
+def test_retire_counts_an_unmigrated_connection_as_present(
+    tmp_path: Path, mcp_token: str,
+) -> None:
+    """#3960: an earlier release's `okg-<d>` connection is still ours.
+
+    Fails on dev, which looks only for the current id and would write a
+    receipt saying "absent" while the old connection still serves tools.
+    """
+    _inputs, instance, _plan, _readback = _reconciled(tmp_path)
+    instance.models.clear()
+    instance.prompts.clear()
+    assert [
+        (e.get("info") or {}).get("id") for e in instance.tool_servers
+    ] == ["okg-fixture"]
+    with pytest.raises(ChatLifecycleSurfaceRemains) as caught:
+        _retire(instance, mcp_server_id="okg_fixture")
+    assert caught.value.data["remaining"] == ["connection"]
+
+
 def test_retire_refuses_an_instance_it_could_not_read(
     tmp_path: Path, mcp_token: str,
 ) -> None:

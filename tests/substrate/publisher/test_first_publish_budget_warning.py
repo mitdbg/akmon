@@ -311,10 +311,10 @@ def test_cycle_warns_after_count_before_cold_stages(clean_runtime, monkeypatch):
     # Require successful execution before comparing order: an absent or failed
     # stage must not vacuously satisfy this assertion. Extraction uses the real
     # regex stage; the fixture deliberately enables the real console rollup and
-    # requests effective-view materialization, without stubbing publish work.
+    # requests the overlay materialization, without stubbing publish work.
     required_stages = {
         "extractor", "gates", "attribute_effective_attrs_materialize",
-        "attribute_effective_view_materialize", "console_count_rollup",
+        "console_count_rollup",
     }
     # `timeline` records stage ENTRY, so the ordering assertion above only
     # proves the warning followed the count stage starting. Require the count

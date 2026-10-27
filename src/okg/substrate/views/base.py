@@ -204,6 +204,10 @@ class ViewMaterializer:
     # lineage gap where an edge-derived view never re-materialized.
     reads_subtypes: tuple[str, ...] = ()
     reads_edge_types: tuple[str, ...] = ()
+    # Inputs read from outside the graph (``publish_time``, ``source_runs``,
+    # ``live:<relation>``). The publisher rebuilds a view that declares any,
+    # on every published generation; see PACT view-output-carry-forward-3981.
+    external_inputs: tuple[str, ...] = ()
     # Populated only after canonical typed-asset resolution. Native publication
     # refuses every materializer missing this exact digest-bound identity/token.
     asset_id: Optional[str] = None

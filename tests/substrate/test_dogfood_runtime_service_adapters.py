@@ -65,7 +65,7 @@ def test_dogfood_service_render_launchd_adapter(capsys) -> None:
     assert "<string>worker</string>" in payload["content"]
     assert "<string>okg-workspace</string>" in payload["content"]
     assert "<string>${OKG_DSN}</string>" in payload["content"]
-    assert "<key>OKG_IVM_INTERVAL_VIEW</key>" in payload["content"]
+    assert "OKG_IVM_INTERVAL_VIEW" not in payload["content"]
     plist = plistlib.loads(payload["content"].encode())
     assert (
         plist["EnvironmentVariables"]["OKG_IVM_CONSOLE_COUNT_ROLLUP"] == "1"
@@ -458,7 +458,7 @@ def test_dogfood_service_render_docker_compose_includes_dedicated_postgres(
     assert "- ../..:/workspace" in payload["content"]
     assert "context: ./ops/pg" not in payload["content"]
     assert "- .:/workspace" not in payload["content"]
-    assert 'OKG_IVM_INTERVAL_VIEW: "1"' in payload["content"]
+    assert "OKG_IVM_INTERVAL_VIEW" not in payload["content"]
     assert 'OKG_IVM_CONSOLE_COUNT_ROLLUP: "1"' in payload["content"]
     assert "stop_grace_period: 120s" in payload["content"]
     assert "name: okg-okg-workspace-dogfood-postgres-data" in payload["content"]

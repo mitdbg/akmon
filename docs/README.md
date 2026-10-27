@@ -101,6 +101,7 @@ The [glossary](reference/glossary.md) defines the rest.
 | Credentials and access boundaries | [Security](reference/security.md) |
 | Status fields and metrics | [Observability](reference/observability.md) |
 | Tables and keys | [Database schema](reference/database-schema.md) |
+| Native view registry keys and reuse | [Native views](reference/views.md) |
 | Terms | [Glossary](reference/glossary.md) |
 
 ## Develop AKMON

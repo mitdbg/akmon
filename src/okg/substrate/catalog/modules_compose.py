@@ -776,6 +776,10 @@ def compose_catalog(
     # reading as "no title" on every record.
     _validate_catalog_field_annotations(composed)
 
+    # Identifier fields are checked on the composed metadata, so a field a
+    # deployment file adds to a library type is held to the same rule.
+    _validate_identifier_declarations(composed)
+
     # Issue #3666: a linker route's `on_miss` writes endpoint rows of a
     # catalog subtype holding only a key (and a scope); refuse one whose
     # subtype is missing or requires attributes the endpoint cannot fill.
@@ -986,6 +990,52 @@ def _split_subtypes_field(value: Any) -> list[str]:
     if not s:
         return []
     return [tok.strip() for tok in s.split(",") if tok.strip()]
+
+
+def _validate_identifier_fields(
+    subtype: str, identifier_fields: list[str], text_fields: list[str],
+) -> None:
+    """Refuse an `okg_identifier_fields` entry that search could never read.
+
+    `text` is the stamped rollup (and `okg_producer_text` its reserved copy),
+    not a source field; an `okg_*` name is the platform's own attribute. A
+    field that is not also in `okg_searchable_text_fields` is not part of the
+    stored text, which the exact-id read searches, so declaring it would be a
+    silent no-op."""
+    from okg.substrate.searchable_text import PRODUCER_TEXT_ATTR
+
+    reserved = [
+        field for field in identifier_fields
+        if field == "text" or field == PRODUCER_TEXT_ATTR or field.startswith("okg_")
+    ]
+    if reserved:
+        raise ValueError(
+            f"{subtype}: okg_identifier_fields {reserved} cannot name `text` "
+            "or an `okg_*` attribute; declare the attribute that HOLDS the "
+            "identifier."
+        )
+    orphans = [field for field in identifier_fields if field not in text_fields]
+    if orphans:
+        raise ValueError(
+            f"{subtype}: okg_identifier_fields {orphans} not also declared in "
+            "okg_searchable_text_fields. Search finds a record by its stored "
+            "text; an identifier that is not part of the text is never read."
+        )
+
+
+def _validate_identifier_declarations(composed: ComposedCatalog) -> None:
+    """Check every composed subtype's `identifier_fields` once all modules and
+    deployment files are laid over, so a field a deployment file adds to a
+    library type is held to the rule of `_validate_identifier_fields`."""
+    for subtype in sorted(composed.subtype_metadata):
+        metadata = composed.subtype_metadata[subtype]
+        fields = metadata.get("identifier_fields")
+        if fields:
+            _validate_identifier_fields(
+                subtype,
+                [str(field) for field in fields],
+                [str(field) for field in metadata.get("searchable_text_fields") or []],
+            )
 
 
 def _parse_filterable_annotation(
@@ -1438,6 +1488,20 @@ def _extract_subtypes(
             composed.subtype_metadata.setdefault(subtype, {})[
                 "alias_fields"
             ] = alias_fields
+        # PACT search-exact-id-variants-3959: `okg_identifier_fields` names the
+        # attributes that hold a record's identifier (one value, a
+        # comma-joined string, or a JSON list of strings). Search lists a
+        # record whose declared value equals an id-shaped query first, and
+        # one whose value differs only in separators or case after it. The
+        # candidate read goes through `attrs.text`, so a declared field must
+        # also be a searchable text field: otherwise nothing is ever found.
+        identifier_fields = _split_subtypes_field(
+            annotations.get("okg_identifier_fields"),
+        )
+        if identifier_fields:
+            composed.subtype_metadata.setdefault(subtype, {})[
+                "identifier_fields"
+            ] = identifier_fields
         # `add-delta-proportional-substrate-work` (2026-05-12):
         # capture the subtype's declared volatile fields — attrs
         # keys that are observation-time stamps (not content). The
@@ -1543,6 +1607,7 @@ _OVERLAY_LIST_KEYS = frozenset({
     "searchable_text_fields",
     "searchable_text_path_fields",
     "alias_fields",
+    "identifier_fields",
     "volatile_fields",
 })
 # Every other key (`archetype`, `evidence_kind`, `passage_rollup`,

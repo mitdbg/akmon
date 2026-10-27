@@ -181,7 +181,6 @@ STATUS_CLASSES: dict[str, str] = {
 # an unknown value fails closed).
 STATUS_SOURCE_MODULES = (
     "admission.py",
-    "attribute_integrity.py",
     "catalog/invariants_llm.py",
     "cli/main.py",
     "consistency/*.py",

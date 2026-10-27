@@ -19,6 +19,34 @@ from okg.substrate.cli.dogfood import (
 
 
 @pytest.fixture(autouse=True)
+def _judged_as_dogfood(monkeypatch):
+    """These are dogfood-contract cases (#3958).
+
+    Most of them point the status at a bare temporary directory with no
+    manifest, which the resolver judges as `standard`. Without a manifest the
+    deployment is treated as declaring dogfood; a test that writes its own
+    manifest gets the real resolver.
+    """
+    import okg.substrate.cli.dogfood as dogfood_cli
+
+    real = dogfood_cli._deployment_readiness_profile
+
+    def _resolve(deployment_dir: Path) -> dict:
+        if (deployment_dir / "deployment.yaml").exists():
+            return real(deployment_dir)
+        return {
+            "name": "dogfood",
+            "source": "declared",
+            "manifest_value": "dogfood",
+            "environment_policy": None,
+            "problem": None,
+            "composed": False,
+        }
+
+    monkeypatch.setattr(dogfood_cli, "_deployment_readiness_profile", _resolve)
+
+
+@pytest.fixture(autouse=True)
 def _ready_deployment_apply(monkeypatch):
     """Keep legacy dogfood tests focused on their explicitly mocked gate."""
     monkeypatch.setattr(
@@ -741,6 +769,8 @@ def test_dogfood_status_blocks_on_nomos_active_state_mismatch(
         "name: okg-workspace\n"
         "postgres:\n"
         "  dsn: ${OKG_DSN}\n"
+        "readiness:\n"
+        "  profile: dogfood\n"
         "nomos:\n"
         "  runtime_enforcement: enforce\n",
         encoding="utf-8",

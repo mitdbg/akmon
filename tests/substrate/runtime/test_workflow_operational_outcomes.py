@@ -45,6 +45,9 @@ class _Result:
     def fetchall(self):
         return self.rows
 
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
 
 class _Conn:
     def __init__(self, migration, rows):
@@ -60,6 +63,10 @@ class _Conn:
     def execute(self, query, _params=()):
         if "schema_migrations" in query:
             return _Result(self.migration)
+        if "min(registered_at)" in query:
+            # The publisher's first registered outcome (cutover), a minute
+            # ago: older than every row the cases below build.
+            return _Result([(datetime.now(timezone.utc) - timedelta(minutes=1),)])
         return _Result(self.rows)
 
 

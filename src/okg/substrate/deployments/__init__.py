@@ -578,7 +578,11 @@ _PUBLISHER_KEYS = frozenset({
     "lock_hold_headroom_factor",
     "allow_raised_statement_timeout",
     "first_publish_warning_budget",
+    "max_source_sync_yield_seconds",
 })
+# The default for `publisher.max_source_sync_yield_seconds` (D10): ten
+# minutes, matching a sync's wait for a running publisher.
+DEFAULT_MAX_SOURCE_SYNC_YIELD_SECONDS = 600.0
 # The only keys `publisher.first_publish_warning_budget` accepts; the printed
 # schema closes that block from this constant.
 _PUBLISHER_WARNING_BUDGET_KEYS = frozenset({"node_count", "edge_count"})
@@ -618,6 +622,7 @@ class PublisherConfig:
     allow_raised_statement_timeout_source: str = "compatibility_default"
     first_publish_warning_budget: FirstPublishWarningBudget | None = None
     first_publish_warning_budget_source: str = "undeclared"
+    max_source_sync_yield_seconds: float = DEFAULT_MAX_SOURCE_SYNC_YIELD_SECONDS
 
     @property
     def hard_statement_timeout_ms(self) -> int:
@@ -727,6 +732,16 @@ def _publisher_config_from_manifest(
         exclusive=False,
         manifest_path=manifest_path,
     )
+    yield_bound_seconds = _publisher_number(
+        block.get(
+            "max_source_sync_yield_seconds",
+            DEFAULT_MAX_SOURCE_SYNC_YIELD_SECONDS,
+        ),
+        field_name="max_source_sync_yield_seconds",
+        minimum=0.0,
+        exclusive=False,
+        manifest_path=manifest_path,
+    )
     raised_declared = "allow_raised_statement_timeout" in block
     allow_raised = block.get("allow_raised_statement_timeout", False)
     if not isinstance(allow_raised, bool):
@@ -788,6 +803,7 @@ def _publisher_config_from_manifest(
         ),
         first_publish_warning_budget=warning,
         first_publish_warning_budget_source=warning_source,
+        max_source_sync_yield_seconds=yield_bound_seconds,
     )
 
 

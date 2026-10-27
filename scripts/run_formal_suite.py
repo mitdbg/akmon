@@ -168,6 +168,11 @@ CHECKERS: tuple[CheckerSpec, ...] = (
     # split out. Budget is the registry default, as for the sibling
     # deployment models.
     CheckerSpec("check_formal_deployment_backup_policy.py", "tlc",
+                # Non-vacuity: the partition invariant must refute a model that
+                # declassifies external_effect (was a TLC pytest no per-PR lane
+                # could run).
+                witnesses=(("--witness-id", "declassify-external-effect",
+                            "--expect-counterexample"),),
                 smoke_is_full_model=True),
     # The full 18-safety/59-reachability/31-mutation aggregate measured 307.3s
     # locally. Existing per-PR formal QA already consumes ~1000s of its 25m
@@ -476,7 +481,7 @@ DIRECT_COUNTEREXAMPLES: tuple[DirectCounterexample, ...] = (
         "formal/althea/AltheaOptimizerMutatesBaseEdgeCounterexample.cfg",
         "BaseEdgeAttrsPreserved",
     ),
-    # Wave 9 (strengthen-formal-models): the attribute_effective_view drift
+    # Wave 9 (strengthen-formal-models): the attribute read-model drift
     # invariant is load-bearing -- a MaintainView that marks the view fresh
     # without copying `effective` serves a stale view as current, refuting
     # ViewMatchesEffectiveWhenFresh via a reachable multi-step trace (the

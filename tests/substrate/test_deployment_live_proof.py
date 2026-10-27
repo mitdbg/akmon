@@ -76,19 +76,31 @@ def _authorities() -> dict[str, dict]:
     }
 
 
-def _receipt(tmp_path: Path) -> Path:
+def _predecessor() -> dict:
+    """The record ``okg up``'s preflight writes before it mutates anything."""
+    return {
+        "schema": "okg.deployment_predecessor_generation.v1",
+        "deployment": "okg-ci",
+        "status": "published",
+        "generation_id": "gen-predecessor",
+        "checkpoint_counts": {"node_count": 9, "edge_count": 1},
+        "pinned_counts": {"node_count": 2, "edge_count": 1},
+    }
+
+
+_ABSENT = object()
+
+
+def _receipt(tmp_path: Path, predecessor: object = None) -> Path:
+    preflight: dict = {"phase": "preflight", "ok": True}
+    if predecessor is None:
+        predecessor = _predecessor()
+    if predecessor is not _ABSENT:
+        preflight["predecessor_generation"] = predecessor
     state = tmp_path / "state.json"
     state.write_text(json.dumps({
         "completed": True,
-        "phase_results": [{
-            "phase": "preflight",
-            "ok": True,
-            "attribute_recovery_classification": {
-                "generation_id": "gen-predecessor",
-                "checkpoint_counts": {"node": 9, "edge": 1},
-                "pinned_counts": {"node": 2, "edge": 1},
-            },
-        }],
+        "phase_results": [preflight],
     }))
     receipt = tmp_path / "operation.json"
     receipt.write_text(json.dumps({
@@ -199,6 +211,49 @@ def test_live_proof_rejects_missing_defaulted_and_cross_bound_authority(
     assert proof["ok"] is False
     assert failure in proof["failures"]
     assert all(row["status"] == "fail" for row in proof["evidence"])
+
+
+@pytest.mark.parametrize(
+    ("predecessor", "failure_code"),
+    [
+        # An upgrade whose preflight recorded no predecessor at all.
+        (_ABSENT, "generations.predecessor_unrecorded"),
+        # The preflight could not read the database: no generation id.
+        (
+            {
+                "schema": "okg.deployment_predecessor_generation.v1",
+                "deployment": "okg-ci",
+                "status": "unavailable",
+                "error": {"type": "OperationalError", "message": "refused"},
+            },
+            None,
+        ),
+        # A generation id but no pinned counts.
+        ({**_predecessor(), "pinned_counts": None}, None),
+    ],
+)
+def test_live_proof_fails_closed_without_a_recorded_predecessor(
+    tmp_path: Path, predecessor: object, failure_code: str | None,
+) -> None:
+    """okg#3112 S3: the predecessor comes from preflight's own record.
+
+    The old source, the effective-attribute recovery classification, went
+    with the attribute copies. A missing or unreadable record must fail
+    ``predecessor_bound``, never read as a proven predecessor.
+    """
+    proof = collect_live_deployment_proof(
+        deployment="okg-ci",
+        profile="ci",
+        operation_receipt=_receipt(tmp_path, predecessor),
+        dsn="postgres://test",
+        runner=_runner(_authorities()),
+    )
+    assert proof["ok"] is False
+    assert proof["checks"]["predecessor_bound"] is False
+    assert "predecessor_bound" in proof["failures"]
+    if failure_code is not None:
+        assert failure_code in proof["failures"]
+    assert proof["generations"]["predecessor_phase"] == "preflight"
 
 
 def test_live_proof_rejects_generation_movement_during_observation(

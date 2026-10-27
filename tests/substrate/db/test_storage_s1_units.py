@@ -51,6 +51,8 @@ _EDGE_PAGE = cold_history.EDGE_TYPE_EDGE_ID_SPEC
 #: Every spec PACT lane-s-redesign-s1 adds, in spec order.
 _S1_LOGICAL = (
     ("okg.graph_nodes", _GIN),
+    # Issue 4053: the node-id trigram index, another extended spec.
+    ("okg.graph_nodes", cold_history.NODE_ID_TRGM_SPEC),
     ("okg.graph_nodes", _NODE_PAGE),
     ("okg.graph_edges", _EDGE_PAGE),
 )
@@ -985,3 +987,17 @@ def test_statistics_expression_matches_postgres_spelling(
     assert dai.statistics_expression_matches([printed], key) is ok
     assert dai.statistics_expression_matches([printed, printed], key) is False
     assert dai.statistics_expression_matches(None, key) is False
+
+
+def test_node_id_trigram_spec_is_a_live_rows_gin_trgm_index_on_node_ids() -> None:
+    spec = cold_history.NODE_ID_TRGM_SPEC
+    assert spec in cold_history.INTERVAL_SOURCE_READ_INDEX_SPECS["okg.graph_nodes"]
+    assert spec.rotate is False and spec.extended
+    physical = _PHYSICAL["okg.graph_nodes"]
+    name = cold_history._full_index_name(physical, spec.suffix)
+    assert len(name) <= 63
+    online = cold_history.spec_index_statement(name, physical, spec).as_string(None)
+    assert online == (
+        f'CREATE INDEX CONCURRENTLY IF NOT EXISTS "{name}" ON "public"."{physical}" '
+        'USING gin ("node_id" gin_trgm_ops) WHERE deleted = FALSE'
+    )

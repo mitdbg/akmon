@@ -832,12 +832,11 @@ def _publish(tmp_path, dsn: str, *, extra_groups=None) -> str:
 #: The time limits of a date call, as the product reads them: module
 #: globals of `okg.substrate.mcp.server`, looked up by name at each use
 #: (`_date_budget` reads `_DATE_CALL_BUDGET_MS` when it creates a call's
-#: budget; the forms read, the total, the candidate probe and the walk read
-#: their share when they start their statement). Nothing copies them when a
-#: server is built, so setting the module attribute reaches every call.
+#: budget; the forms read and the total read their share when they start
+#: their statement). Nothing copies them when a server is built, so setting
+#: the module attribute reaches every call.
 DATE_LIMITS = (
     "_DATE_CALL_BUDGET_MS", "_DATE_VALUES_READ_BUDGET_MS", "_DATE_TOTAL_BUDGET_MS",
-    "_DATE_PROBE_SHARE_MS", "_DATE_WALK_SHARE_MS",
 )
 #: Ten minutes: no load on a runner makes a date call of these tests run
 #: out of it.
@@ -2011,101 +2010,6 @@ def test_a_first_call_that_pays_a_slow_setup_answers_as_the_second(
             mcp._okg_write_pool.close()
 
 
-@pytest.mark.postgres
-def test_a_date_range_that_admits_most_records_walks_the_page_order(
-        clean_runtime, okg_mcp_can_log_in, tmp_path, monkeypatch) -> None:
-    """A date range's index candidates drive the page only while they are
-    few. Past the bound the page statement is the plain walk of the page's
-    order (the record id) with the exact condition and LIMIT, which can
-    stop at the page size; it does not build the candidate set first. The
-    rows and their order are the same either way.
-
-    No declared index is built here: the candidate planner is replaced by
-    one that offers every record id as the candidates of `created`."""
-    from okg.substrate.mcp import attr_filter_source
-    from okg.substrate.mcp import server as srv
-
-    deployment = _publish(tmp_path, clean_runtime)
-    every_id = [record[0] for record in RECORDS]
-
-    def offers_every_record(conn, **arguments):
-        return attr_filter_source.ExpressionCandidates(
-            sql="SELECT unnest(%(fake_ids)s::text[]) /* offered_candidates */",
-            params={"fake_ids": every_id}, attrs=("created",),
-        ), []
-
-    statements: list[str] = []
-    plain_execute = psycopg.Cursor.execute
-
-    def recording(self, query, params=None, **options):
-        statements.append(query if isinstance(query, str) else str(query))
-        return plain_execute(self, query, params, **options)
-
-    budgets: list = []
-    monkeypatch.setattr(attr_filter_source, "plan_expression_candidates", offers_every_record)
-    monkeypatch.setattr(psycopg.Cursor, "execute", recording)
-    monkeypatch.setattr(srv, "_DATE_BUDGET_OBSERVER", budgets.append)
-    mcp = srv.build_server(dsn=clean_runtime, deployment_name=deployment)
-    tools = mcp._tool_manager._tools
-    tickets = {"kind": "nodes", "subtype": "ticket"}
-    want = [n for n in _selected(*YEAR_BY_DAY) if n.startswith("ticket:")]
-    page_tail = "LIMIT %(page_limit)s OFFSET %(page_offset)s"
-
-    def pages() -> list[str]:
-        return [s for s in statements if s.rstrip().endswith(page_tail)]
-
-    try:
-        # Few candidates (26 against the usual bound): they drive the page.
-        driven = tools["filter"].fn(input=tickets, predicate=IN_2025, limit=3)
-        assert pages() and all("fake_ids" in s for s in pages()), pages()
-        assert "candidate probe" in [label for label, _ms in budgets[-1].statements]
-        # More candidates than the bound: the page walks its own order.
-        statements.clear()
-        monkeypatch.setattr(srv, "_DATE_WIDE_CANDIDATES", 3)
-        walked = tools["filter"].fn(input=tickets, predicate=IN_2025, limit=3)
-        assert any("date_candidate_probe" in s for s in statements)
-        assert len(pages()) == 2, pages()               # ISO-8601 alone, then with the other forms
-        for statement in pages():
-            # No candidate set and no overlay union to build first: the
-            # source, the exact condition, the id order and the limit.
-            assert "fake_ids" not in statement and "overlay_target" not in statement, (
-                statement)
-            assert " ORDER BY " in statement and statement.rstrip().endswith(page_tail)
-        labels = [label for label, _ms in budgets[-1].statements]
-        assert labels.count("page") == 2 and "candidate probe" in labels, labels
-        # The same rows in the same order, and the same total.
-        assert [row["node_id"] for row in walked["items"]] == [
-            row["node_id"] for row in driven["items"]] == want[:3]
-        assert walked["total_count"] == driven["total_count"] == len(want)
-        assert walked["truncated"] is True and walked["next_offset"] == driven["next_offset"]
-        # Failure case: a walk that cannot finish in its share gives way to
-        # the candidates, and the page is still served.
-        original_leaf = dc.window_leaf_sql
-        monkeypatch.setattr(dc, "window_leaf_sql", lambda value_sql, leaf, bind: (
-            # Waits in a statement that does not hold the candidates: the
-            # comment in their SQL is in the text the server sees (spelled
-            # in two parts here, so this condition does not add it).
-            "((SELECT count(*) FROM pg_sleep(CASE WHEN strpos(current_query(), "
-            f"'offered' || '_candidates') > 0 THEN 0 ELSE {FOREVER_S} END)) = 1 AND "
-            f"({original_leaf(value_sql, leaf, bind)}))"))
-        monkeypatch.setattr(srv, "_DATE_WALK_SHARE_MS", 200)
-        statements.clear()
-        budgets.clear()
-        slow_walk = tools["filter"].fn(input=tickets, predicate=IN_2025, limit=3)
-        assert [row["node_id"] for row in slow_walk["items"]] == want[:3]
-        assert any("fake_ids" in s for s in pages()), pages()
-        # The accounting: each walk was given its share and no more, and
-        # the candidates' page followed it.
-        timed = budgets[-1].statements
-        walks = [ms for (label, ms), (_next, later) in zip(timed, timed[1:])
-                 if label == "page" and _next == "page" and ms <= 200]
-        assert len(walks) == 2, timed
-    finally:
-        mcp._okg_pool.close()
-        if mcp._okg_write_pool:
-            mcp._okg_write_pool.close()
-
-
 def _once(seconds: float) -> str:
     """A SQL condition that waits once per statement, then holds."""
     return f"(SELECT count(*) FROM pg_sleep({seconds})) = 1"
@@ -2447,8 +2351,11 @@ def test_a_forms_read_squeezed_by_a_slow_page_is_not_remembered(
     deployment = _publish(tmp_path, clean_runtime)
     original_read, original_leaf = dc.odd_values_sql, dc.window_leaf_sql
     # The page waits 1.8 s of a 3 s budget, so less than the 1.5 s share is
-    # left for the read; the read itself would wait 30 s.
-    waits = {"read": FOREVER_S, "leaf": 1.8}
+    # left for the read; the read itself would wait 30 s. The graph page
+    # holds the date condition twice, in its graph-id branch and in its page
+    # WHERE (accepted at the cutover, PACT lane-s-storage-cutover), and the
+    # wait runs once per copy: 0.9 s each.
+    waits = {"read": FOREVER_S, "leaf": 0.9}
 
     def slow_read(value_sql, *names):
         select_sql, where_sql = original_read(value_sql, *names)

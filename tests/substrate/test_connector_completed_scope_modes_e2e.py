@@ -63,6 +63,7 @@ import yaml
 
 from okg.substrate.ingest import IngestOptions, run_ingest
 from tests.pytest.catalog_fixture_builders import seed_catalog
+from tests.pytest.source_jobs_inline import use_inline_source_jobs
 from tests.substrate.runtime import test_connector_completed_scope_modes as modes
 from tests.substrate.test_ingest_service import (
     _claim_layered_fixture_catalog,
@@ -70,6 +71,14 @@ from tests.substrate.test_ingest_service import (
 )
 
 pytestmark = pytest.mark.postgres
+
+
+@pytest.fixture(autouse=True)
+def _inline_source_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These tests prove connector admission and scope handling, not the
+    # source child process;
+    # `tests/substrate/ingest/test_source_jobs.py` proves that boundary.
+    use_inline_source_jobs(monkeypatch)
 
 
 #: Lets the `github` shape's `references` edge between two documents publish.

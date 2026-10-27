@@ -55,9 +55,6 @@ from .._deployment_repo import GIT_ENV, HERMETIC_GIT, commit_deployment_tree
 
 pytestmark = pytest.mark.postgres
 
-# The attribute history has a fixed name; the two graph history tables are
-# Chronos interval tables whose physical names carry a hash.
-_ATTRIBUTE_HISTORY_TABLE = "okg.attribute_effective_view_intervals"
 # The per-record lineage envelope. It moves with the source revision, so it
 # is left out when deciding whether a record's content changed (#2308).
 _LINEAGE_ATTR = "nomos_source_lineage"
@@ -285,12 +282,6 @@ def _history(dsn: str) -> dict:
                 "(src, dst, edge_type, attrs - %(lineage)s, provenance, "
                 f'confidence, deleted)) FROM "{edges}" GROUP BY edge_id'
             ),
-            _ATTRIBUTE_HISTORY_TABLE: (
-                "SELECT concat_ws(':', target_kind, target_id, namespace, "
-                "branch_id), count(*), count(DISTINCT attrs_hash) "
-                f"FROM {_ATTRIBUTE_HISTORY_TABLE} "
-                "GROUP BY target_kind, target_id, namespace, branch_id"
-            ),
         }
         for table, sql in queries.items():
             rows = conn.execute(sql, {"lineage": _LINEAGE_ATTR}).fetchall()
@@ -441,115 +432,35 @@ def test_unchanged_reingest_writes_no_new_row_versions(
         f"(record, versions, distinct contents): {after['duplicates']}"
     )
     # The branch node is the one record whose content changed: one new node
-    # version and one new attribute interval, and nothing else.
+    # version, and nothing else.
     expected = dict(before["versions"])
     expected["okg.graph_nodes"] += 1
-    expected[_ATTRIBUTE_HISTORY_TABLE] += 1
     assert after["versions"] == expected, (before["versions"], after["versions"])
     moved = _published_content(clean_runtime, name)
     assert moved["generations"] > content["generations"], moved
     assert moved["attrs"][branch_node]["head_commit_sha"] == new_head
 
 
-_OPEN_ORD = 9223372036854775807
-
-
-def _attribute_intervals(dsn: str) -> set[tuple]:
-    """Every stored attribute interval, as comparable tuples.
-
-    Columns: target_kind, target_id, namespace, branch_id, from_ord, to_ord,
-    attrs_hash.
-    """
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        rows = conn.execute(
-            "SELECT target_kind, target_id, namespace, branch_id, from_ord, "
-            f"to_ord, encode(attrs_hash, 'hex') FROM {_ATTRIBUTE_HISTORY_TABLE}"
-        ).fetchall()
-    return {tuple(row) for row in rows}
-
-
-def _retention_cutoff(dsn: str, name: str, branch_id: str) -> tuple[int | None, dict]:
-    """The retention cutoff the latest publish applied, and its prune report.
-
-    With no ``chronos.history_retention`` policy, every publish prunes CLOSED
-    attribute intervals whose ``to_ord`` is at or below the cutoff
-    (``attributes.prune_effective_interval_view_closed``). The cutoff is the
-    ``EFFECTIVE_VIEW_RETENTION_GENERATIONS``-th highest generation ordinal on
-    the branch, lowered to the ordinal the prune reports it protected for the
-    attribute-integrity receipt. A branch with fewer ordinals has no cutoff.
-    """
-    from okg.substrate.attributes import EFFECTIVE_VIEW_RETENTION_GENERATIONS
-    from okg.substrate.graph_store import ChronosGraphStore
-
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
-        latest = store.list_generations(deployment_name=name)[-1]
-        report = dict((latest.metadata or {}).get("effective_interval_view_prune") or {})
-        row = conn.execute(
-            "SELECT ordinal FROM okg.generation_ordinals WHERE branch_id = %s "
-            "ORDER BY ordinal DESC OFFSET %s LIMIT 1",
-            (branch_id, EFFECTIVE_VIEW_RETENTION_GENERATIONS - 1),
-        ).fetchone()
-    assert report.get("keep_generations") == EFFECTIVE_VIEW_RETENTION_GENERATIONS, report
-    assert report.get("capped") is False, report
-    if row is None:
-        return None, report
-    cutoff = int(row[0])
-    protected = report.get("protect_from_ord")
-    if protected is not None:
-        cutoff = min(cutoff, int(protected))
-    return cutoff, report
-
-
-def _prunable(rows: set[tuple], branch_id: str, cutoff: int | None) -> set[tuple]:
-    if cutoff is None:
-        return set()
-    return {
-        row for row in rows
-        if row[3] == branch_id and row[5] != _OPEN_ORD and int(row[5]) <= cutoff
-    }
-
-
-def test_unchanged_reprovision_adds_no_version_and_prunes_by_the_retention_rule(
+def test_unchanged_reprovision_adds_no_version(
     tmp_path: Path, clean_runtime: str, monkeypatch: pytest.MonkeyPatch, capsys,
 ) -> None:
-    """An unchanged ``okg provision`` adds no version; retention prunes the rest.
+    """An unchanged ``okg provision`` adds no version.
 
     #2305 reported an unchanged re-provision refused on the workspace-graph
     profile. That does not reproduce on this deployment, so this test guards
-    the general contract, not #2305's workspace-profile symptom:
-
-    * the re-provision is accepted, stores no new node or edge version, and
-      leaves the published content unchanged;
-    * the attribute history follows the designed retention rule (no
-      ``chronos.history_retention`` policy is declared): a closed interval
-      inside the window survives, and one outside it is pruned, exactly
-      the set the rule selects and nothing else.
-
-    The branch node is given one closed attribute interval first: a commit
-    that changes no file moves its ``head_commit_sha``, and a full re-read
-    stores the new value. That interval is inside the window right after the
-    re-read publish, and the re-provision's new generation moves the window
-    past it.
+    the general contract, not #2305's workspace-profile symptom: the
+    re-provision is accepted, stores no new node or edge version, and leaves
+    the published content unchanged. (The attribute-interval retention half of
+    this test went with the interval table, PACT lane-s-storage-drop-copies.)
     """
     name = _name("jdrp")
     target = _stage_deployment(tmp_path, capsys, name=name)
     _claim_and_provision(target, clean_runtime, capsys, monkeypatch)
-    branch_node = f"branch:{name}:main"
     _git(_repo(target), "commit", "--allow-empty", "-m", "no file changes")
     _ingest(name, clean_runtime, capsys, "--mode", "reconcile", "--reset-cursor")
 
     history = _history(clean_runtime)
-    intervals = _attribute_intervals(clean_runtime)
     content = _published_content(clean_runtime, name)
-    closed = {r for r in intervals if r[1] == branch_node and r[5] != _OPEN_ORD}
-    assert len(closed) == 1, sorted(r for r in intervals if r[1] == branch_node)
-    branch_id = next(iter(closed))[3]
-    # Inside the window after the re-read publish: nothing the rule would
-    # prune is still stored, and the branch node's closed interval survived.
-    cutoff, _report = _retention_cutoff(clean_runtime, name, branch_id)
-    assert _prunable(intervals, branch_id, cutoff) == set(), (cutoff, sorted(intervals))
-    assert cutoff is None or int(next(iter(closed))[5]) > cutoff, (cutoff, closed)
 
     _provision(target, clean_runtime, capsys)
     reprovisioned = _history(clean_runtime)
@@ -557,17 +468,6 @@ def test_unchanged_reprovision_adds_no_version_and_prunes_by_the_retention_rule(
     for table in ("okg.graph_nodes", "okg.graph_edges"):
         assert reprovisioned["versions"][table] == history["versions"][table], table
     assert _published_content(clean_runtime, name)["digest"] == content["digest"]
-
-    # The re-provision writes no attribute row, so the history after it is
-    # exactly the history before it minus what the retention rule selects.
-    cutoff, report = _retention_cutoff(clean_runtime, name, branch_id)
-    expected_pruned = _prunable(intervals, branch_id, cutoff)
-    now = _attribute_intervals(clean_runtime)
-    assert now == intervals - expected_pruned, (
-        f"cutoff {cutoff}: missing {sorted(intervals - now)}, "
-        f"added {sorted(now - intervals)}, expected pruned {sorted(expected_pruned)}"
-    )
-    assert report.get("deleted") == len(expected_pruned), report
 
 
 # ---------------------------------------------------------------------------

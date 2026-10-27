@@ -1,6 +1,6 @@
 """Reclaim index allocation that outlived its rows: ``okg db reclaim-index-space``.
 
-okg#3112. A full publish writes ``okg.attribute_effective_view_intervals``
+okg#3112. A publish writes okg-schema tables
 inside the one publication transaction. When that
 transaction fails or is cancelled, PostgreSQL rolls the rows back but keeps
 every btree page they allocated; VACUUM then truncates the heaps and never
@@ -38,7 +38,7 @@ flags, index comments, owners, reloptions and tablespaces; every constraint
 definition and its validation and deferral flags; user triggers; the table
 owner, access list, reloptions, persistence and comment; and the row count
 plus a digest of every row. Beyond the targets it digests every row of
-``okg.attribute_versions``, ``okg.generation_ordinals``, the Chronos
+``okg.generation_ordinals``, the Chronos
 checkpoint table, the record-set and record-authority tables
 (``okg.source_record_set*``, ``okg.source_record_authorit*``) and the graph
 row tables (``_chronos_b_interval_okg_graph_*``).
@@ -67,6 +67,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -109,8 +110,6 @@ __all__ = [
 _AUTHORITY_TABLES_SQL = r"""
 SELECT n.nspname AS schema, c.relname AS relation,
        CASE
-         WHEN n.nspname = 'okg' AND c.relname = 'attribute_versions'
-           THEN 'attribute_versions'
          WHEN n.nspname = 'okg' AND c.relname = 'generation_ordinals'
            THEN 'generation_ordinals'
          WHEN c.relname = '_chronos_branch_interval_checkpoints'
@@ -126,7 +125,7 @@ SELECT n.nspname AS schema, c.relname AS relation,
  WHERE c.relkind = 'r'
    AND (
         (n.nspname = 'okg'
-         AND c.relname IN ('attribute_versions', 'generation_ordinals'))
+         AND c.relname = 'generation_ordinals')
      OR c.relname = '_chronos_branch_interval_checkpoints'
      OR (n.nspname = 'okg'
          AND (c.relname LIKE 'source\_record\_set%'
@@ -137,7 +136,7 @@ SELECT n.nspname AS schema, c.relname AS relation,
 """
 
 #: Authority classes the fingerprint must find on a migrated deployment.
-_REQUIRED_AUTHORITY = ("attribute_versions", "generation_ordinals", "checkpoints")
+_REQUIRED_AUTHORITY = ("generation_ordinals", "checkpoints")
 
 
 def _text(value: Any) -> Any:
@@ -898,14 +897,26 @@ DEFAULT_POST_PUBLISH_REBUILD_LOCK_TIMEOUT_SECONDS = 5.0
 #: resumes. A queued publish waits at most this budget plus one step.
 POST_PUBLISH_REBUILD_BUDGET_ENV = "OKG_POST_PUBLISH_INDEX_REBUILD_BUDGET_SECONDS"
 DEFAULT_POST_PUBLISH_REBUILD_BUDGET_SECONDS = 30.0
-
-#: The okg-schema tables a publish writes in bulk; the two Chronos graph
-#: tables are added by name at run time.
-_POST_PUBLISH_OKG_TABLES = (
-    "okg.attribute_effective_view_intervals",
-    "okg.attribute_effective_view",
-    "okg.attribute_versions",
+#: When a step finds an old snapshot open (``old_snapshot_open``), the run
+#: waits and checks again at most this many times in total (all steps of one
+#: run share the count), waiting ``base``, ``2 * base``, ``4 * base`` ...
+#: seconds between checks, never past the budget above. The wait happens
+#: before the publisher lock is taken, so a retry never lengthens a lock
+#: hold. ``0`` retries restores the earlier stop-at-once behavior.
+POST_PUBLISH_REBUILD_OLD_SNAPSHOT_RETRIES_ENV = (
+    "OKG_POST_PUBLISH_INDEX_REBUILD_OLD_SNAPSHOT_RETRIES"
 )
+DEFAULT_POST_PUBLISH_REBUILD_OLD_SNAPSHOT_RETRIES = 3
+POST_PUBLISH_REBUILD_OLD_SNAPSHOT_WAIT_ENV = (
+    "OKG_POST_PUBLISH_INDEX_REBUILD_OLD_SNAPSHOT_RETRY_WAIT_SECONDS"
+)
+DEFAULT_POST_PUBLISH_REBUILD_OLD_SNAPSHOT_WAIT_SECONDS = 1.0
+
+#: The okg-schema tables a publish rewrites in bulk, beside the two Chronos
+#: graph tables added by name at run time. Empty since PACT
+#: lane-s-storage-drop-copies dropped the three attribute copies, the only
+#: okg-schema tables a publish rewrote.
+_POST_PUBLISH_OKG_TABLES: tuple[str, ...] = ()
 _PAGE_BYTES = 8192
 #: A btree page minus its page header (24 bytes) and btree special space (16).
 _PAGE_USABLE_BYTES = _PAGE_BYTES - 24 - 16
@@ -1004,6 +1015,28 @@ def _env_number(name: str, default: float, *, minimum: float) -> float:
     return value
 
 
+def _retry_count(value: Any) -> int:
+    """The old-snapshot retry count: a whole number, never truncated."""
+    number = float(value)
+    if not number.is_integer() or number < 0:
+        raise SubstrateError(
+            f"{POST_PUBLISH_REBUILD_OLD_SNAPSHOT_RETRIES_ENV} must be a whole number, at least 0",
+            data={"reason": "invalid_setting", "value": str(value)},
+        )
+    return int(number)
+
+
+def _retry_wait(value: Any) -> float:
+    """The first old-snapshot retry wait: finite and above 0."""
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise SubstrateError(
+            f"{POST_PUBLISH_REBUILD_OLD_SNAPSHOT_WAIT_ENV} must be a finite number above 0",
+            data={"reason": "invalid_setting", "value": str(value)},
+        )
+    return number
+
+
 def _successful_publish(summary: Any) -> tuple[bool, str]:
     """(True, "") for a publish that wrote a new generation, else the reason."""
     if not isinstance(summary, Mapping):
@@ -1023,7 +1056,7 @@ def _post_publish_tables(cur: Any) -> list[str]:
           FROM pg_class AS c
           JOIN pg_namespace AS n ON n.oid = c.relnamespace
          WHERE c.relkind = 'r'
-           AND ((n.nspname || '.' || c.relname) = ANY(%s)
+           AND ((n.nspname || '.' || c.relname) = ANY(%s::text[])
                 OR (n.nspname = 'public'
                     AND c.relname LIKE '\\_chronos\\_b\\_interval\\_okg\\_graph\\_%%'))
          ORDER BY 1
@@ -1351,6 +1384,69 @@ def _take_step_lock(
     return key
 
 
+def _take_step_lock_with_retry(
+    conn: psycopg.Connection,
+    cur: Any,
+    deployment: str,
+    *,
+    deadline: float | None,
+    snapshot_age_seconds: float | None,
+    report: dict[str, Any],
+    max_retries: int,
+    retry_wait_seconds: float,
+) -> tuple[int, int]:
+    """:func:`_take_step_lock`, waiting out ``old_snapshot_open``.
+
+    Only that reason is retried; every other stop (``publish_waiting``,
+    ``publish_running``, ``source_run_in_progress``, ``time_budget``) is
+    final. The check that raises ``old_snapshot_open`` runs before the
+    publisher lock is taken, so the waits here never extend a lock hold. The
+    lock is free during a wait, so a publish that starts then takes it at
+    once (it never registers wait intent); the next check finds it held
+    (``publish_running``) and stops the run, or keeps waiting if that
+    publish's own snapshot counts as old, until the retries run out. Either
+    way the publish is not delayed. The retry count is per run, kept in
+    ``report["old_snapshot_waits"]`` with one entry per check that found an
+    old snapshot; a wait that would pass the deadline is not taken.
+    """
+    while True:
+        try:
+            return _take_step_lock(
+                conn, cur, deployment,
+                deadline=deadline, snapshot_age_seconds=snapshot_age_seconds,
+            )
+        except _StopRebuild as stop:
+            if stop.reason != "old_snapshot_open":
+                raise
+            log = report.setdefault("old_snapshot_waits", {
+                "max_retries": max_retries,
+                "retry_wait_seconds": retry_wait_seconds,
+                "retries": 0,
+                "waited_seconds": 0.0,
+                "checks": [],
+            })
+            wait = retry_wait_seconds * (2 ** log["retries"])
+            check: dict[str, Any] = {
+                "check": len(log["checks"]) + 1,
+                "blocking": [
+                    {"pid": item.get("pid"), "xact_seconds": item.get("xact_seconds")}
+                    for item in stop.detail.get("old_snapshots") or []
+                ],
+            }
+            log["checks"].append(check)
+            if log["retries"] >= max_retries:
+                check["decision"] = "gave_up_retries_exhausted"
+                raise
+            if deadline is not None and time.monotonic() + wait >= deadline:
+                check["decision"] = "gave_up_time_budget"
+                raise
+            check["decision"] = "waited"
+            check["wait_seconds"] = round(wait, 3)
+            log["retries"] += 1
+            log["waited_seconds"] = round(log["waited_seconds"] + wait, 3)
+            time.sleep(wait)
+
+
 def _release_step_lock(cur: Any, key: tuple[int, int]) -> None:
     conn = cur.connection
     if conn.closed or conn.info.transaction_status == psycopg.pq.TransactionStatus.INERROR:
@@ -1370,6 +1466,8 @@ def rebuild_indexes_after_publish(
     min_reclaim_bytes: int | None = None,
     lock_timeout_seconds: float | None = None,
     budget_seconds: float | None = None,
+    old_snapshot_retries: int | None = None,
+    old_snapshot_retry_wait_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Rebuild the bloated indexes of the publish-written tables; never raises.
 
@@ -1393,7 +1491,17 @@ def rebuild_indexes_after_publish(
     (``OKG_POST_PUBLISH_INDEX_REBUILD_BUDGET_SECONDS``, default 30), and no
     step starts while another session holds a snapshot older than ours
     (``old_snapshot_open``, see :func:`_old_snapshots`): every concurrent
-    index statement would wait for it under the publisher lock. Background
+    index statement would wait for it under the publisher lock. That stop is
+    retried before it is final: the run waits and checks again up to
+    ``old_snapshot_retries`` times in all
+    (``OKG_POST_PUBLISH_INDEX_REBUILD_OLD_SNAPSHOT_RETRIES``, default 3),
+    after ``old_snapshot_retry_wait_seconds`` (default 1, doubling), and
+    never past the budget. The waits come before the publisher lock is taken,
+    so they add nothing to a lock hold; the checks and waits are listed under
+    ``old_snapshot_waits`` in the payload. A transaction that stays open costs
+    every cycle that has rebuild work the full wait (7 s by default) before
+    the run gives up; set the retries to 0 to stop at once. Every other stop
+    reason is final at once. Background
     workers (pg_cron, TimescaleDB jobs) are not seen by that guard; a wait
     for them stays bounded by the lock timeout. Each run first drops an
     invalid ``<index>_ccnew``/``_ccold`` copy an earlier rebuild of the same
@@ -1464,6 +1572,21 @@ def rebuild_indexes_after_publish(
                 budget_seconds if budget_seconds is not None else _env_number(
                     POST_PUBLISH_REBUILD_BUDGET_ENV,
                     DEFAULT_POST_PUBLISH_REBUILD_BUDGET_SECONDS,
+                    minimum=0.0,
+                )
+            ),
+            old_snapshot_retries=_retry_count(
+                old_snapshot_retries if old_snapshot_retries is not None else _env_number(
+                    POST_PUBLISH_REBUILD_OLD_SNAPSHOT_RETRIES_ENV,
+                    DEFAULT_POST_PUBLISH_REBUILD_OLD_SNAPSHOT_RETRIES,
+                    minimum=0,
+                )
+            ),
+            old_snapshot_retry_wait_seconds=_retry_wait(
+                old_snapshot_retry_wait_seconds
+                if old_snapshot_retry_wait_seconds is not None else _env_number(
+                    POST_PUBLISH_REBUILD_OLD_SNAPSHOT_WAIT_ENV,
+                    DEFAULT_POST_PUBLISH_REBUILD_OLD_SNAPSHOT_WAIT_SECONDS,
                     minimum=0.0,
                 )
             ),
@@ -1581,6 +1704,8 @@ def _rebuild_after_publish(
     min_reclaim_bytes: int,
     lock_timeout_seconds: float,
     budget_seconds: float,
+    old_snapshot_retries: int,
+    old_snapshot_retry_wait_seconds: float,
     started: float,
 ) -> dict[str, Any]:
     base: dict[str, Any] = {
@@ -1590,6 +1715,8 @@ def _rebuild_after_publish(
             "min_reclaim_bytes": min_reclaim_bytes,
             "lock_timeout_seconds": lock_timeout_seconds,
             "budget_seconds": budget_seconds,
+            "old_snapshot_retries": old_snapshot_retries,
+            "old_snapshot_retry_wait_seconds": old_snapshot_retry_wait_seconds,
         },
         "rebuilt": [],
         "analyzed": [],
@@ -1620,6 +1747,8 @@ def _rebuild_after_publish(
                     min_reclaim_bytes=min_reclaim_bytes,
                     deadline=started + budget_seconds,
                     snapshot_age_seconds=lock_timeout_seconds,
+                    old_snapshot_retries=old_snapshot_retries,
+                    old_snapshot_retry_wait_seconds=old_snapshot_retry_wait_seconds,
                 )
             finally:
                 _reset_session(cur)
@@ -1761,11 +1890,15 @@ def _rebuild_steps(
     min_reclaim_bytes: int,
     deadline: float | None = None,
     snapshot_age_seconds: float | None = None,
+    old_snapshot_retries: int = 0,
+    old_snapshot_retry_wait_seconds: float = 0.0,
 ) -> dict[str, Any]:
     def step(action: Callable[[], Any]) -> Any:
-        key = _take_step_lock(
+        key = _take_step_lock_with_retry(
             conn, cur, deployment,
             deadline=deadline, snapshot_age_seconds=snapshot_age_seconds,
+            report=base, max_retries=old_snapshot_retries,
+            retry_wait_seconds=old_snapshot_retry_wait_seconds,
         )
         held = time.monotonic()
         try:

@@ -430,6 +430,54 @@ def _resolve_xdist_workers(raw_xdist: Any) -> str:
     return str(min(workers, max_workers))
 
 
+def _shard_only_paths(
+    paths: list[str], weights_table: Path, index: int, count: int
+) -> tuple[list[str], str | None]:
+    """The paths pytest gets for this shard and the whole step's file list.
+
+    PACT lane-ci-shard-only-collection. Every shard used to collect the whole
+    step and deselect two thirds at collection, ~281 s per xdist worker. Here
+    the runner places the step's files with the plugin's own function and
+    hands pytest only the shard's files; the plugin still filters, over the
+    same whole-step list (``--okg-db-partition-universe``).
+
+    Fails closed: if the shard's list cannot be computed (unreadable table, a
+    path that is not a plain test file, an empty share) this prints a loud
+    warning, including a GitHub ``::warning::`` annotation, and returns every
+    path: the shard collects everything and deselects as before. The whole-step
+    list is still returned whenever it could be computed, so every shard places
+    over the same files whether or not it fell back. The lane's result is
+    unchanged either way.
+    """
+
+    universe: str | None = None
+    try:
+        from okg import pytest_db_partition as plugin
+
+        missing = [
+            path for path in paths if not (REPO_ROOT / path.split("::", 1)[0]).is_file()
+        ]
+        if missing:
+            raise ValueError(f"not plain test files: {', '.join(missing[:5])}")
+        table = REPO_ROOT / weights_table
+        weights = plugin.load_weights(table)
+        reserved = plugin.load_reserved(table, count)
+        universe = plugin.universe_option(paths)
+        owned = plugin.owned_entries(paths, weights, count, index, reserved)
+        if not owned:
+            raise ValueError(f"shard {index} owns no files")
+        return owned, universe
+    except (ImportError, ValueError, OSError) as error:
+        print(
+            f"::warning title=db shard {index}/{count} collects all files::"
+            f"qa: WARNING db shard {index}/{count} cannot pre-select its files "
+            f"({error}); FALLING BACK to collect-all-then-deselect for this shard "
+            "(slower, every test still runs exactly once)",
+            file=sys.stderr,
+        )
+        return paths, universe
+
+
 def _pytest_command(
     step: dict[str, Any],
     *,
@@ -438,6 +486,7 @@ def _pytest_command(
     partition_count: int | None = None,
     partition_kind: str = "fast",
     db_partition_weights: Path = DB_PARTITION_WEIGHTS,
+    presplit: bool = False,
 ) -> list[str]:
     command = [sys.executable, "-m", "pytest"]
     xdist = step.get("xdist")
@@ -481,7 +530,13 @@ def _pytest_command(
     markers = step.get("markers")
     if markers:
         command.extend(["-m", str(markers)])
-    command.extend(str(path) for path in step.get("paths", []))
+    paths = [str(path) for path in step.get("paths", [])]
+    universe: str | None = None
+    if db_partitioned and presplit:
+        paths, universe = _shard_only_paths(
+            paths, db_partition_weights, partition_index, partition_count
+        )
+    command.extend(paths)
     if db_partitioned:
         command.extend(
             [
@@ -495,6 +550,8 @@ def _pytest_command(
                 db_partition_weights.as_posix(),
             ]
         )
+        if universe is not None:
+            command.append(f"--okg-db-partition-universe={universe}")
     if fast_partitioned:
         command.extend(
             [
@@ -604,6 +661,7 @@ def resolve_steps(
                     if partition_kind == "db"
                     else DB_PARTITION_WEIGHTS
                 ),
+                presplit=(partition_kind == "db" and lane_name == DB_PARTITION_LANE),
             )
         elif kind == "shell":
             command = [str(part) for part in step.get("command", [])]

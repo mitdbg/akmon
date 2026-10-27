@@ -27,8 +27,8 @@ Where the references are read from, and why that is every retained one:
   candidate values can become effective later without an ingest. Each row
   holds one attr's value, so the value itself or a list element is searched.
 
-``okg.attribute_versions`` and the effective views are derived from the
-tables above. Cold-history maintenance drops indexes only, never rows.
+The overlay validity ranges are derived from the tables above.
+Cold-history maintenance drops indexes only, never rows.
 """
 from __future__ import annotations
 

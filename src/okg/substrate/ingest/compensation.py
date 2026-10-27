@@ -1106,6 +1106,52 @@ def undo_run_to_run_base(
         )
         page_started = now
 
+    rules_by_source: dict[str, Any] = {}
+
+    def other_source_edge_waits(
+        edge: dict[str, Any], decided_nodes: dict[str, _NodeUndo],
+    ) -> bool:
+        """Whether another source's edge would wait once the undo has run.
+
+        Cross-source endpoint wedge: an edge a producer wrote onto a node the
+        undone run inserted used to be deleted with the node. If that
+        producer's clause lets the edge wait for the record, the edge stays
+        (the publish step moves it to the waiting table); otherwise it goes
+        with the node as before.
+        """
+        from okg.substrate.graph_store_internal.edge_deferrals import (
+            EDGE_DEFERRALS_TABLE,
+            source_deferral_rules,
+        )
+        from okg.substrate.producer_authority import classify_edge_deferral
+
+        edge_source = edge.get("source")
+        raw = getattr(db, "raw_connection", None)
+        if (
+            not edge_source or edge_source == source or raw is None
+            or EDGE_DEFERRALS_TABLE not in backend.tables
+        ):
+            return False
+        if edge_source not in rules_by_source:
+            rules_by_source[edge_source] = source_deferral_rules(
+                raw, str(edge_source),
+            )
+        rules = rules_by_source[edge_source]
+        if rules is None:
+            return False
+
+        def subtype(end: str) -> str | None:
+            node = decided_nodes[str(edge[end])]
+            return None if node.target is None else str(node.target["subtype"])
+
+        record = {
+            "src": edge["src"], "dst": edge["dst"],
+            "edge_type": edge["edge_type"],
+            "src_subtype": subtype("src"), "dst_subtype": subtype("dst"),
+            "attrs": edge.get("attrs") or {},
+        }
+        return classify_edge_deferral(record, rules) is not None
+
     restored_declarations: list[dict[str, Any]] = []
     # Edges first, decided against the nodes' state before the undo.
     if EDGE_TABLE in metas:
@@ -1187,8 +1233,17 @@ def undo_run_to_run_base(
                                 "another writer removed",
                             ))
                         elif b is None:
-                            # Onto a node the undo deletes: it goes with it.
-                            target = None
+                            if h is not None and other_source_edge_waits(
+                                h, nodes,
+                            ):
+                                # Another source's edge that can wait for
+                                # the record: left in place; the next
+                                # publish moves it to the waiting table.
+                                target = h
+                            else:
+                                # Onto a node the undo deletes: it goes
+                                # with it.
+                                target = None
                         break
                 if target is None and h is not None:
                     deletes.append(dict(key))

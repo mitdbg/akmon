@@ -8,7 +8,7 @@ publications:
     config: mkdocs.yml
     build_dir: .scratch/docs-site
     machine_index: okg-llms.txt
-    page_limit: 66
+    page_limit: 68
     pages:
     - README.md
     - develop/architecture/consistency.md
@@ -18,6 +18,7 @@ publications:
     - develop/architecture/privacy.md
     - develop/architecture/responsibility-map.md
     - develop/architecture/runtime.md
+    - develop/architecture/waiting-edges.md
     - develop/extensions/consistency-api.md
     - develop/extensions/distributions.md
     - develop/extensions/ontologies.md
@@ -49,6 +50,7 @@ publications:
     - reference/observability.md
     - reference/sdk-api.md
     - reference/security.md
+    - reference/views.md
     - reference/source-manifest.md
     - start/concepts.md
     - start/data-lifecycle.md

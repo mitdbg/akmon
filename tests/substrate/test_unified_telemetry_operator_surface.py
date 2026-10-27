@@ -109,7 +109,7 @@ def _seed_operator_trace(
                         "enrichers_ms": 31.5,
                         "view_stack_ms": 42.25,
                         "native_views_ms": 20.0,
-                        "attribute_effective_view_materialize_ms": 7.5,
+                        "attribute_overlay_ranges_sync_ms": 7.5,
                         "consistency_gates_ms": 9.0,
                         "checkpoint_generation_ms": 3.0,
                     },

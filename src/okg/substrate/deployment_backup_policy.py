@@ -36,7 +36,6 @@ class EffectInventoryChecks:
     catalog_unchanged: bool
     nomos_unchanged: bool
     smoke_source_versioned: bool
-    attribute_read_model_rebuildable: bool
     no_external_effects: bool
     effect_digest_stable: bool
 
@@ -190,7 +189,6 @@ _REFUSAL_EFFECTS = (
     "planner_trusted",
     "plan_readable",
     "smoke_source_versioned",
-    "attribute_read_model_rebuildable",
     "effect_digest_stable",
 )
 

@@ -27,7 +27,6 @@ from okg.substrate.publisher import Publisher
 from tests.pytest.catalog_fixture_builders import SubtypeSpec, seed_catalog
 from tests.pytest.catalog_fixture_builders import bind_test_catalog_writer  # noqa: E402
 
-
 pytestmark = pytest.mark.postgres
 
 
@@ -185,7 +184,7 @@ def test_filter_pages_in_sql_before_python_policy_work(
 
     def capture_execute(self, query, params=None, **kwargs):
         text = str(query)
-        if "attribute_effective_view" in text and "page_limit" in text:
+        if "effective_page" in text and "page_limit" in text:
             statements.append((text, params))
         return real_execute(self, query, params, **kwargs)
 
@@ -448,22 +447,15 @@ def test_declared_attr_overlay_bypasses_a_stale_declared_index_match(
     """
     generation = _publish_fixture(clean_runtime)
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT v.target_id
-                  FROM okg.attribute_effective_view AS view
-                  JOIN okg.attribute_versions AS v
-                    USING (target_kind, target_id, attrs_hash)
-                 WHERE view.generation_id = %s
-                   AND view.target_kind = 'node'
-                   AND view.subtype = 'doc'
-                   AND v.attrs @> %s::jsonb
-                 LIMIT 1
-                """,
-                (generation, '{"path":"alpha.py"}'),
-            )
-            target_id = cur.fetchone()[0]
+        # The doc whose graph row holds path alpha.py, read from the graph.
+        found = ChronosGraphStore.from_connection(
+            conn, ensure_schema=False,
+        ).checkout_generation(generation).query(
+            "SELECT node_id FROM okg.graph_nodes WHERE subtype = 'doc' "
+            "AND attrs @> '{\"path\": \"alpha.py\"}'::jsonb LIMIT 1", {},
+        )
+        first = found[0]
+        target_id = first["node_id"] if isinstance(first, dict) else first[0]
         record_attribute_observation(
             conn,
             target_kind="node",
@@ -528,7 +520,7 @@ def test_map_attr_input_filter_uses_sql_even_for_stable_projection(
 
     def capture_execute(self, query, params=None, **kwargs):
         text = str(query)
-        if "attribute_effective_view" in text and "page_limit" in text:
+        if "effective_page" in text and "page_limit" in text:
             statements.append(text)
         return real_execute(self, query, params, **kwargs)
 
@@ -565,14 +557,9 @@ def test_attribute_aggregate_refuses_python_fallback(
 ) -> None:
     generation = _publish_fixture(clean_runtime)
     mcp = server_mod.build_server(dsn=clean_runtime, deployment_name="default")
-    broad_called = False
-
-    def broad_scan(*args, **kwargs):
-        nonlocal broad_called
-        broad_called = True
-        raise AssertionError("broad Python attr scan was invoked")
-
-    monkeypatch.setattr(mcp, "_okg_operator_attr_rows", broad_scan)
+    # The broad Python attr scan seam is gone (PACT lane-s-storage-cutover):
+    # the refusal is the only answer.
+    assert not hasattr(mcp, "_okg_operator_attr_rows")
     try:
         # Force the honest refusal arm without changing database policy state.
         monkeypatch.setattr(
@@ -590,7 +577,6 @@ def test_attribute_aggregate_refuses_python_fallback(
         if mcp._okg_write_pool:
             mcp._okg_write_pool.close()
     assert exc_info.value.code == "unsupported_operator_form"
-    assert broad_called is False
 
 
 #: Third re-review (#3666, 2c): a range on a declared attribute whose bound

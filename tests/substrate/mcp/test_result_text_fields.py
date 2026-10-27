@@ -235,6 +235,10 @@ ABNORMAL = {
     # #3666 step 3b: a file named by its path, and the id it resolved to.
     "resolved_path": ({"path": "rp/MARK.py", "source": "rp-SRC", "node_id": "doc:rp:MARK"},
                       ['! path "rp/MARK.py" in "rp-SRC" resolved to "doc:rp:MARK"']),
+    # #4053: a search for one name no record bears says so, with near ids.
+    "exact_name_absent": ({"name": "ea-MARK", "checked": ["name"], "within_filter": False,
+                           "near_ids": ["page:ea-NEAR"]},
+                          ['! no record has the name or id "ea-MARK"', "page:ea-NEAR"]),
     # #3666 step 3b: what a reply cut to fit max_bytes left out.
     "metadata_cut": ({"subtypes": 7, "read_one": {"tool": "inspect"}},
                      ["! metadata of 7 subtypes left out to fit max_bytes"]),
@@ -251,6 +255,20 @@ ABNORMAL = {
                     ["! 3 rows have no ak-MARK: they are the group (absent)"]),
     "sum_not_exact": (["sum(attrs.se-MARK)"],
                       ["! sum(attrs.se-MARK) includes non-integer values"]),
+    # PACT read-live-handles (review R3-3): value-list rows not read.
+    "value_lists_not_read": ([{"ref": "l1.x", "field": "attrs.v", "rows": 25, "not_read": 1,
+                              "note": "vl-MARK rows were not read"}],
+                             ["! partial: vl-MARK rows were not read"]),
+    # PACT read-multi-handle-input: a sum that added a whole float of 2^53
+    # or more (L7), and a chain handle's read.
+    "sum_large_floats": (["sum(attrs.lf-MARK)"],
+                         ["! sum(attrs.lf-MARK) added whole-number floats of 2^53 or more"]),
+    "combined": ({"chain": "l1.c", "answers": 2, "of": 3, "rows": 2,
+                  "rows_in_several_answers": 1, "varying": "q", "failed": [],
+                  "read": "09:00:00-09:01:00Z",
+                  "not_kept": [{"index": 1, "value": "cb-MARK", "reason": "expired"}]},
+                 ["! over 2 of 3 answers; 1 no longer kept: q=cb-MARK",
+                  "! 1 identical rows appear in more than one answer"]),
     # Lane ri (CompOps q020): a read of file names names the file-text grep.
     "names_only": ({"reason": "path_test", "query": "nm-MARK", "terms": 1, "count": 0,
                     "count_basis": "exact"}, ['no file text contains "nm-MARK"']),

@@ -1,0 +1,57 @@
+# Copy each new issue to the private okg repository, where the maintainers track the work.
+#
+# One way: akmon -> okg. This issue stays open for its reporter; a workflow in
+# the okg repository closes it when the copy there closes. That repository is private, so
+# nothing written here links to it or names an issue in it. The logic, and how
+# a re-run avoids a second copy or a second comment, is in
+# scripts/mirror_issue_to_okg.py.
+#
+# Token: a GitHub App that holds only Issues read and write, installed on okg
+# and akmon only; its ID and key are repository secrets (no environment), so
+# this job can read them. The default GITHUB_TOKEN cannot write to another
+# repository.
+
+name: Mirror issues to okg
+
+on:
+  issues:
+    types: [opened]
+
+permissions: {}
+
+concurrency:
+  group: mirror-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    # Skip pull requests and anything a bot (an app included) opened; the
+    # script checks the same again.
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.issue.user.type != 'Bot' &&
+      github.event.sender.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Mint the issues token
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.AKMON_ISSUES_APP_ID }}
+          private-key: ${{ secrets.AKMON_ISSUES_APP_KEY }}
+          owner: mitdbg
+          repositories: okg,akmon
+          permission-issues: write
+      - name: Copy the issue and note it here
+        env:
+          MIRROR_TOKEN: ${{ steps.token.outputs.token }}
+        run: python scripts/mirror_issue_to_okg.py

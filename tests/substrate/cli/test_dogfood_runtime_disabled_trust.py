@@ -219,7 +219,12 @@ def _status(
 ) -> dict[str, Any]:
     deployment_dir = tmp_path / "deployments" / DEPLOYMENT
     deployment_dir.mkdir(parents=True, exist_ok=True)
-    manifest: dict[str, Any] = {"name": DEPLOYMENT}
+    # These cases are the dogfood contract (#2987); the deployment declares it
+    # so `okg dogfood status` judges it as dogfood (#3958).
+    manifest: dict[str, Any] = {
+        "name": DEPLOYMENT,
+        "readiness": {"profile": "dogfood"},
+    }
     if runtime_block is not None:
         manifest["runtime"] = runtime_block
     (deployment_dir / "deployment.yaml").write_text(

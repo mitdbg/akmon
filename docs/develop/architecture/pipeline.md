@@ -92,8 +92,7 @@ its calls. Their boundaries are in
 
 ## Rows several producers write
 
-`okg.graph_edges` keeps one row per (source node, edge type, target node).
-When several producers write the same edge, as `code-structure`,
+`okg.graph_edges` keeps one row per (source node, edge type, target node); an edge to a record another source has not written [waits elsewhere](waiting-edges.md). When several producers write the same edge, as `code-structure`,
 `code-lsp-resolution` and the `code_reference` enricher do for `calls` and
 `references`, the row used to belong to whichever wrote last, so an
 incremental publish and a rebuild could store different rows. A deployment

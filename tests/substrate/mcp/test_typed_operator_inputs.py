@@ -443,7 +443,10 @@ async def test_the_published_enums_match_what_the_runtime_accepts(
     metrics = schemas["aggregate"]["properties"]["metrics"]
     # count, and sum/min/max of a column of a kept live answer (the
     # read fixes): the schema says so instead of an unconstrained array.
-    assert metrics["items"]["pattern"] == r"^(count|(sum|min|max)\(attrs\.[^().]+\))$"
+    # PACT read-map-compute: and of a map's computed column, calc.<name>.
+    assert metrics["items"]["pattern"] == (
+        r"^(count|(sum|min|max)\((attrs\.[^().]+|calc\.[a-z][a-z0-9_]{0,31})\))$"
+    )
 
 
 async def test_every_bounded_parameter_publishes_its_maximum(server) -> None:

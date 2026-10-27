@@ -135,8 +135,9 @@ OPERATOR_METADATA: dict[str, OperatorMetadata] = {
         admission_required=False,
         layer="core_read",
         description=(
-            "Inspect graph, ontology, subtype, node, session, generation, "
-            "admission, alias-suggestion, or tool-surface state."
+            "Inspect graph, ontology, subtype, node, node-history, "
+            "subtype-diff, session, generation, admission, alias-suggestion, "
+            "or tool-surface state."
         ),
     ),
     "search": OperatorMetadata(
@@ -176,7 +177,7 @@ OPERATOR_METADATA: dict[str, OperatorMetadata] = {
         boundary="okg_graph_read",
         admission_required=False,
         layer="core_read",
-        description="Project, rename, or shape fields from a set expression.",
+        description="Add computed columns to every row of a set.",
     ),
     "aggregate": OperatorMetadata(
         name="aggregate",

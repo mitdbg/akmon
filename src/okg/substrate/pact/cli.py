@@ -8171,7 +8171,7 @@ def _git_worktree_state(root: Path) -> dict[str, Any]:
         }
     branch = run_git(["rev-parse", "--abbrev-ref", "HEAD"])
     head = run_git(["rev-parse", "HEAD"])
-    status = run_git(["status", "--porcelain=v1"])
+    status = run_git(["--no-optional-locks", "status", "--porcelain=v1"])
     tracked: list[str] = []
     untracked: list[str] = []
     for line in status.stdout.splitlines():

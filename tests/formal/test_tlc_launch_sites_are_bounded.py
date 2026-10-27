@@ -154,8 +154,11 @@ def test_every_test_launch_site_resolves_the_jar_through_an_overridable_resolver
         if path.parts[0] == "tests"
     }
     # Two of the launch sites are in tests this repository keeps out of its
-    # public copy; there, the two shipped ones must still be found.
-    assert len(test_sites) >= (2 if is_public_copy() else 4), (
+    # public copy; there, the one shipped site must still be found. (The
+    # deployment-backup declassification witness moved from a test into
+    # scripts/check_formal_deployment_backup_policy.py, PACT
+    # lane-s-storage-drop-copies, so tests hold one launch site fewer.)
+    assert len(test_sites) >= (1 if is_public_copy() else 3), (
         "the test-launch-site filter found almost nothing, so the assertion "
         f"below would pass vacuously; found: {sorted(map(str, test_sites))}"
     )

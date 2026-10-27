@@ -337,6 +337,7 @@ def plan_expression_candidates(
     target_kind: str,
     param_prefix: str = "dai",
     refused: Sequence[str] | None = None,
+    at_branch_point: int | None = None,
 ) -> tuple[ExpressionCandidates | None, list[tuple[str, str]]]:
     """The expression candidate set over the attributes whose index is ready
     (None when none narrows; the caller adds the overlay union), and
@@ -346,10 +347,22 @@ def plan_expression_candidates(
     at the branch head (``pinned_generation``). Appends no note: the caller
     names the outcome. ``refused`` is the caller's :func:`ts_refused_attrs`
     answer when it already has one (it then passes the
-    :func:`narrowable_predicate`); None asks here."""
+    :func:`narrowable_predicate`); None asks here.
+
+    ``at_branch_point`` is for a reader of the graph rows themselves (the
+    graph read path, PACT lane-s-storage-redesign-s2): the probe then reads
+    the index entries visible at that branch point, at any pin. The
+    ``pinned_generation`` rule exists because the materialized reader
+    filters the effective view of the pinned generation, while the candidate
+    set comes from the graph rows at the head. A reader of the graph rows at
+    the pin's own branch point has no such gap: the index holds every row
+    version (its WHERE reads only the row's own ``deleted`` flag and value),
+    so the probe at the pin admits every row visible there whose value the
+    clause can match. None keeps the head-only rule."""
     planned = _plan_expression(
         conn, generation_id=generation_id, predicate=predicate, declared=declared,
         target_kind=target_kind, param_prefix=param_prefix, refused=refused,
+        at_branch_point=at_branch_point,
     )
     if planned is None:
         return None, []
@@ -365,6 +378,7 @@ def _plan_expression(
     target_kind: str,
     param_prefix: str,
     refused: Sequence[str] | None,
+    at_branch_point: int | None = None,
 ) -> tuple[ExpressionCandidates | None, list[tuple[str, str]]] | None:
     """None when no clause can narrow; else the candidate set over the ready
     attributes (None when none renders) and the not-ready ``(attr, reason)``."""
@@ -374,7 +388,10 @@ def _plan_expression(
     attrs = list(dict.fromkeys(c.attr for c in clauses))
     uncovered: list[tuple[str, str]] = []
     physical_table: str | None = None
-    bp = _head_branch_point(conn, generation_id)
+    bp = (
+        int(at_branch_point) if at_branch_point is not None
+        else _head_branch_point(conn, generation_id)
+    )
     if bp is None:
         uncovered = [(attr, "pinned_generation") for attr in attrs]
     else:

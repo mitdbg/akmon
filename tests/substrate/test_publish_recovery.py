@@ -371,7 +371,7 @@ def test_refused_publish_recovers_without_teardown(
     pins_before = _generation_pin_rows(dsn)
     guidance = du._backup_refusal_guidance(
         ctx,
-        refusal_failures=["smoke_source_versioned", "attribute_read_model_rebuildable"],
+        refusal_failures=["smoke_source_versioned"],
     )
     assert _generation_pin_rows(dsn) == pins_before  # no read lease taken
     assert guidance["publish_recovery"]["state"] == pr.STATE_STAGED_WORK_UNPUBLISHED
@@ -379,7 +379,7 @@ def test_refused_publish_recovers_without_teardown(
     assert "not the recovery for a refused publish" in guidance["fix_hint"]
     assert "uv run okg ingest --deployment test --json" in guidance["fix_hint"]
     assert set(guidance["failed_check_hints"]["manifest_configuration"]) == {
-        "smoke_source_versioned", "attribute_read_model_rebuildable",
+        "smoke_source_versioned",
     }
 
     # Fix the cause the hint names -- the same call `okg catalog ownership

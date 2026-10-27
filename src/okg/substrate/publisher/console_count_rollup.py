@@ -89,6 +89,7 @@ from typing import Any, NamedTuple
 
 from okg.substrate.derived_artifacts.maintained_derivation import (
     FULL_REASON_DIMENSION_SHAPE_UPGRADE,
+    FULL_REASON_LARGE_CHANGE_SET,
     FULL_REASON_SCOPE_UNAVAILABLE,
     ChronosRegisteredTable,
     CorrectnessOracle,
@@ -98,6 +99,7 @@ from okg.substrate.derived_artifacts.maintained_derivation import (
     MaintainContext,
     MaintainResult,
     SentinelSpec,
+    is_large_change_set,
     is_sentinel_row,
     maintain,
     read_cadence_counter,
@@ -141,6 +143,14 @@ from okg.substrate.graph_store import (
 SELF_HEAL_EVERY_N_GENERATIONS = read_self_heal_cadence(
     "OKG_CONSOLE_COUNT_ROLLUP_SELF_HEAL_EVERY", default=25
 )
+
+# Issue 3955: above this share of the prior node + edge count (and the kit's
+# 10,000-id floor) the cycle recounts in full instead of resolving every
+# changed id at two checkouts. Measured on a 242k-node, 339k-edge synthetic
+# graph after a bulk load (two repeats): the two id-list reads cost 0.09-0.14 s
+# at 1 % changed and 0.61-0.64 s at 5 %, against 0.55 s for one full recount,
+# so the crossover is just under 5 %. Not measured at a 4.8M-edge scale.
+LARGE_CHANGE_SET_PERCENT = 5
 
 # The dimension-kind discriminators (a closed set; the read consumes only the
 # kind an offender needs) come from the import-light single source so the maintain +
@@ -449,6 +459,23 @@ def _count_incremental(ctx: MaintainContext) -> MaintainResult:
         return _count_full_recount(ctx)._replace(
             mode="incremental",
             full_reason=FULL_REASON_DIMENSION_SHAPE_UPGRADE,
+        )
+
+    # A bulk change (issue 3955): resolving every changed id at the current and
+    # the prior checkout costs more than one recount of the whole graph. The
+    # prior rollup's subtype and edge-type buckets count every node and edge
+    # once each, so their sum is the prior graph size.
+    prior_total = sum(
+        count
+        for (kind, _value), count in prior_counts.items()
+        if kind in (KIND_SUBTYPE, KIND_EDGE_TYPE)
+    )
+    if is_large_change_set(
+        len(node_ids) + len(edge_ids), prior_total, percent=LARGE_CHANGE_SET_PERCENT
+    ):
+        return _count_full_recount(ctx)._replace(
+            mode="incremental",
+            full_reason=FULL_REASON_LARGE_CHANGE_SET,
         )
 
     # Advance the periodic-self-heal counter (absence implies 0; the entry guard

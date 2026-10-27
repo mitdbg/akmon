@@ -157,6 +157,25 @@ def readiness_source_groups_for_deployment_dir(
     return resolved
 
 
+def source_matches_readiness_name(
+    readiness_name: str,
+    source_name: str,
+    ownership_id: str | None = None,
+) -> bool:
+    """Is the registry source `source_name` the one readiness calls `readiness_name`?
+
+    A registry may spell a key with underscores where the readiness list uses
+    dashes (cern-team: `code_structure` for `code-structure`), so a source
+    matches by exact key, the key with dashes, or the tail of its ownership id.
+    The one rule every readiness check that names registry sources shares.
+    """
+    if readiness_name in {source_name, source_name.replace("_", "-")}:
+        return True
+    return bool(ownership_id) and (
+        readiness_name == str(ownership_id).rpartition(".")[2]
+    )
+
+
 def readiness_sources_for_profiles(
     readiness_profiles: Sequence[str] | None,
 ) -> frozenset[str]:
@@ -377,7 +396,11 @@ def source_inventory_row(
         if readiness_source_groups is not None
         else readiness_sources_for_profiles(readiness_profiles)
     )
-    readiness_required = source_name in ready_sources
+    ownership_id = getattr(entry, "ownership_id", None)
+    readiness_required = any(
+        source_matches_readiness_name(ready, source_name, ownership_id)
+        for ready in ready_sources
+    )
     credential_refs = [
         str(item) for item in (getattr(entry, "credential_refs", None) or ())
     ]
@@ -1083,11 +1106,11 @@ def _readiness_summary(
     readiness_profiles: Sequence[str] | None = None,
     readiness_source_groups: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, Any]:
-    declared = {
-        str(row.get("source_name"))
+    declared_rows = [
+        (str(row["source_name"]), str(row.get("ownership_id") or ""))
         for row in sources
         if row.get("source_name")
-    }
+    ]
     ready_groups = (
         {str(group): tuple(sources) for group, sources in readiness_source_groups.items()}
         if readiness_source_groups is not None
@@ -1096,8 +1119,15 @@ def _readiness_summary(
     ready_sources = frozenset(
         source for sources in ready_groups.values() for source in sources
     )
-    missing = sorted(ready_sources - declared)
-    present = sorted(ready_sources & declared)
+    present = sorted(
+        ready
+        for ready in ready_sources
+        if any(
+            source_matches_readiness_name(ready, name, owner)
+            for name, owner in declared_rows
+        )
+    )
+    missing = sorted(ready_sources - set(present))
     return {
         "profiles": list(_normalized_readiness_profiles(readiness_profiles)),
         "groups": {
@@ -1366,6 +1396,7 @@ __all__ = [
     "readiness_source_groups_for_manifest",
     "readiness_source_groups_for_profiles",
     "readiness_sources_for_profiles",
+    "source_matches_readiness_name",
     "source_convergence_for_source",
     "source_inventory_for_registry",
     "source_inventory_row",

@@ -259,6 +259,83 @@ def test_attribute_filtered_hidden_rows_do_not_fill_the_effective_read(
     assert WITHHELD not in str(secret["results"])
 
 
+# ---------- case 4, graph path: rows that reach the supplement through an overlay ----------
+
+def _overlay_kind_notes(hidden_source: str) -> dict:
+    """Hidden notes store another `kind`; an overlay (below) gives them the
+    filter's value, so on the graph path they reach the overlay branch."""
+    return {
+        OPEN: [
+            _node("note:o1", "note", "sanderling flock on the beach", kind="shore"),
+            _node("note:o2", "note", "one sanderling", kind="shore"),
+        ],
+        hidden_source: [
+            _node(f"note:h{i:02d}", "note", f"{WITHHELD} {WITHHELD} sanderling hidden {i}",
+                  kind="inland")
+            for i in range(HIDDEN_ROWS)
+        ],
+    }
+
+
+def _overlay_kind(dsn: str, deployment: str, node_ids: list[str]) -> None:
+    """Record and materialize `kind=shore` overlays on `node_ids` at the
+    published generation."""
+    from okg.substrate.attributes import (
+        materialize_effective_attributes_for_generation,
+        record_attribute_observation,
+    )
+    from okg.substrate.mcp import open_session
+
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        generation = str(open_session(
+            conn, deployment_name=deployment, nomos_subject=READER,
+        ).generation_id)
+        for node_id in node_ids:
+            record_attribute_observation(
+                conn, target_kind="node", target_id=node_id, generation_id=generation,
+                attr_key="kind", value="shore", producer="test:leak-overlay",
+            )
+        materialize_effective_attributes_for_generation(conn, generation_id=generation)
+
+
+@pytest.mark.parametrize("completeness", ["bounded", "exact"])
+@pytest.mark.parametrize("mode", sorted(MODES))
+def test_overlaid_hidden_rows_do_not_fill_the_graph_supplement_cap(
+    clean_runtime, tmp_path, monkeypatch, mode, completeness,
+):
+    """On the graph path a row whose filter value comes from an attribute
+    overlay is read by the supplement's overlay branch, which has its own
+    LIMIT. Hidden overlaid rows that outnumber the cap must not fill it, so
+    the withheld word and the absent word give the same page facts."""
+    deployment = _setup(
+        tmp_path, clean_runtime, monkeypatch, mode, [], _overlay_kind_notes,
+    )
+    hidden_ids = [f"note:h{i:02d}" for i in range(HIDDEN_ROWS)]
+    # o2 is overlaid too (with the value it stores), so a visible row also
+    # goes through the overlay branch.
+    _overlay_kind(clean_runtime, deployment, [*hidden_ids, "note:o2"])
+    monkeypatch.setattr(search_module, "_LEXICAL_RANK_CAP", 4)
+    graph_reads: list[int] = []
+    real = search_module._graph_lexical_candidates
+
+    def counting(*args, **kwargs):
+        graph_reads.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(search_module, "_graph_lexical_candidates", counting)
+    kwargs = {
+        "filter": {"subtype": "note", "attr_filters": {"kind": "shore"}},
+        "completeness": completeness,
+    }
+    secret = _lexical(clean_runtime, deployment, f"sanderling {WITHHELD}", **kwargs)
+    control = _lexical(clean_runtime, deployment, f"sanderling {ABSENT}", **kwargs)
+    assert graph_reads, "the graph supplement was not read"
+    assert sorted(row["node_id"] for row in secret["results"]) == ["note:o1", "note:o2"]
+    for key in _FOLD_FACTS:
+        assert secret.get(key) == control.get(key), key
+    assert WITHHELD not in str(secret["results"])
+
+
 # ---------- the reader's class decisions are cached (PACT reader-view-decision-cache-3560) ----------
 
 def _count_decisions(monkeypatch) -> list[str]:

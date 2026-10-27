@@ -14,9 +14,9 @@ graph-wide 10K window. Two proofs:
       path bit-for-bit (parity) -- including when an accepted overlay overrides a
       raw value and when the predicate itself touches attrs (stays in Python).
 
-The prior (pre-pushdown) behavior is reproduced by forcing the unfiltered scan
-(`scan_predicate=None`) on the same fixture, which trips the cap -- proving the
-pushdown is what makes the selective input scale, not a larger cap.
+PACT lane-s-storage-cutover removed the Layer-1 scan seam and the
+materialized snapshot path these tests also compared with; the parity
+reference is now the page read of the same subtype.
 """
 
 from __future__ import annotations
@@ -32,7 +32,6 @@ from okg.substrate.attributes import (  # noqa: E402
     materialize_effective_attributes_for_generation,
     record_attribute_observation,
 )
-from okg.substrate.errors import SubstrateError  # noqa: E402
 from okg.substrate.graph_store import ChronosGraphStore  # noqa: E402
 from okg.substrate.library.sources.base import NodeFact  # noqa: E402
 from okg.substrate.mcp import open_session  # noqa: E402
@@ -273,35 +272,6 @@ def test_attr_aggregate_group_page_truncation_is_true(
             mcp._okg_write_pool.close()
 
 
-def test_attr_aggregate_explain_uses_index_scan(
-    clean_runtime: str,
-) -> None:
-    """Verification point #8: the SQL GROUP BY path uses an INDEX SCAN on the
-    snapshot's node-subtype index for a SELECTIVE subtype, not a Seq Scan. We
-    EXPLAIN the exact GROUP BY query the fast aggregate path issues for the tiny
-    ci_workflow subtype over the >10K-node snapshot."""
-    fixture = _seed_large_graph(clean_runtime)
-    gen = fixture["generation_id"]
-    with psycopg.connect(clean_runtime, autocommit=True) as conn:
-        with conn.cursor() as cur:
-            # schema-interval-narrow-split: attrs resolve through the
-            # version-store join, mirroring the production from-clause.
-            cur.execute(
-                "EXPLAIN SELECT (attrs -> 'conclusion') AS g0, count(*) AS n "
-                "FROM okg.attribute_effective_view "
-                "JOIN okg.attribute_versions "
-                "USING (target_kind, target_id, attrs_hash) "
-                "WHERE target_kind = 'node' AND generation_id = %s "
-                "AND namespace = 'default' "
-                "AND subtype = 'ci_workflow' "
-                "GROUP BY 1",
-                (gen,),
-            )
-            plan = "\n".join(r[0] for r in cur.fetchall())
-    assert "Index Scan" in plan or "Index Only Scan" in plan, plan
-    assert "Seq Scan on attribute_effective_view" not in plan, plan
-
-
 def test_selective_attr_aggregate_over_large_graph_does_not_trip_cap(
     clean_runtime: str,
 ) -> None:
@@ -317,162 +287,6 @@ def test_selective_attr_aggregate_over_large_graph_does_not_trip_cap(
         groups = {g["attrs.conclusion"]: g["count"] for g in result["groups"]}
         # Effective attrs: wf:1 success, wf:2 failure, wf:3 OVERRIDDEN to failure.
         assert groups == {"success": 1, "failure": 2}, result["groups"]
-    finally:
-        mcp._okg_pool.close()
-        if mcp._okg_write_pool:
-            mcp._okg_write_pool.close()
-
-
-def test_unfiltered_scan_still_trips_cap_on_layer1_fallback(
-    clean_runtime: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Layer-1 contract (the chronos-scan + Python-overlay FALLBACK path): an
-    unfiltered scan over the >10K graph trips the bounded-overlay cap, while a
-    pushed-down subtype scopes the cap to the matched set and succeeds. We drop
-    the Layer-2 indexed snapshot so the fallback path runs; with the snapshot
-    present (the default), the cap no longer fires at all -- see
-    `test_unfiltered_scan_completes_in_sql_with_layer2_view` below."""
-    fixture = _seed_large_graph(clean_runtime)
-    gen = fixture["generation_id"]
-    # The production interval source refuses an incomplete stab loudly. This
-    # test is specifically the legacy Layer-1 seam, so disable that source
-    # after publishing and then remove the per-generation snapshot.
-    monkeypatch.setenv("OKG_IVM_INTERVAL_VIEW", "0")
-    mcp = build_server(dsn=clean_runtime)
-    try:
-        attr_rows = mcp._okg_operator_attr_rows  # type: ignore[attr-defined]
-        with psycopg.connect(clean_runtime, autocommit=True) as conn:
-            # Force the Layer-1 fallback by removing both Layer-2 effective-view
-            # representations for this generation, so _effective_view_ready() is
-            # false regardless of the interval-view feature flag.
-            conn.execute(
-                "DELETE FROM okg.attribute_effective_view WHERE generation_id = %s",
-                (gen,),
-            )
-            conn.execute(
-                "DELETE FROM okg.attribute_effective_view_intervals "
-                "WHERE branch_id = 'default'",
-            )
-            session = dataclasses.replace(
-                open_session(conn, deployment_name="default"), generation_id=gen
-            )
-            with pytest.raises(SubstrateError, match="bounded"):
-                attr_rows(conn, session, kind="nodes", limit=10_000, scan_predicate=None)
-            # With the subtype pushed down, the same call succeeds (3 rows).
-            # _operator_attr_rows returns (rows, scan_truncated).
-            pushed, pushed_truncated = attr_rows(
-                conn,
-                session,
-                kind="nodes",
-                limit=10_000,
-                scan_predicate={"op": "eq", "field": "subtype", "value": "ci_workflow"},
-            )
-            assert len(pushed) == 3
-            assert pushed_truncated is False
-    finally:
-        mcp._okg_pool.close()
-        if mcp._okg_write_pool:
-            mcp._okg_write_pool.close()
-
-
-def test_unfiltered_scan_completes_in_sql_with_layer2_view(
-    clean_runtime: str,
-) -> None:
-    """Layer-2 contract (scale-operator-attr-reads / req.effective-attrs-view):
-    with the indexed effective-attrs snapshot present, an UNFILTERED scan over the
-    >10K graph no longer trips the bounded-overlay cap -- it completes in SQL,
-    reading effective attrs straight from the index. The OLD code capped this at
-    10_001 rows (a SILENT undercount, the MUST-FIX #1 bug); the fixed fast path
-    returns ALL matched rows (10_050 bulk + 3 ci_workflow = 10_053) and reports
-    `scan_truncated=False` because the count is well under the 200K result-size
-    ceiling. This is what lets a 470K subtype complete COMPLETELY where Layer 1
-    capped out."""
-    fixture = _seed_large_graph(clean_runtime)
-    gen = fixture["generation_id"]
-    mcp = build_server(dsn=clean_runtime)
-    try:
-        attr_rows = mcp._okg_operator_attr_rows  # type: ignore[attr-defined]
-        with psycopg.connect(clean_runtime, autocommit=True) as conn:
-            session = dataclasses.replace(
-                open_session(conn, deployment_name="default"), generation_id=gen
-            )
-            # No cap error -- the SQL fast path serves the unfiltered scan and
-            # returns EVERY row (NOT a 10_001 window). The result is NOT truncated
-            # because it is far below the result-size ceiling.
-            rows, truncated = attr_rows(
-                conn, session, kind="nodes", limit=10_000, scan_predicate=None
-            )
-            assert len(rows) == _BULK_NODE_COUNT + 3, len(rows)
-            assert truncated is False
-            # Subtype pushdown still narrows to exactly the 3 ci_workflow rows.
-            pushed, pushed_truncated = attr_rows(
-                conn,
-                session,
-                kind="nodes",
-                limit=10_000,
-                scan_predicate={"op": "eq", "field": "subtype", "value": "ci_workflow"},
-            )
-            assert len(pushed) == 3
-            assert pushed_truncated is False
-    finally:
-        mcp._okg_pool.close()
-        if mcp._okg_write_pool:
-            mcp._okg_write_pool.close()
-
-
-def test_fast_path_rows_match_layer1_fallback_rows(
-    clean_runtime: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """req.parity (Layer 2): for the SAME selective operator scan, the SQL fast
-    path (snapshot present) and the Layer-1 chronos-scan + Python-overlay
-    fallback (snapshot deleted) return BYTE-IDENTICAL effective attrs per node --
-    same id set, same merged attrs (overlay override included). This pins that
-    routing to the indexed surface introduces no semantic drift vs the prior
-    path."""
-    fixture = _seed_large_graph(clean_runtime)
-    gen = fixture["generation_id"]
-    mcp = build_server(dsn=clean_runtime)
-    pred = {"op": "eq", "field": "subtype", "value": "ci_workflow"}
-    try:
-        attr_rows = mcp._okg_operator_attr_rows  # type: ignore[attr-defined]
-        with psycopg.connect(clean_runtime, autocommit=True) as conn:
-            session = dataclasses.replace(
-                open_session(conn, deployment_name="default"), generation_id=gen
-            )
-            # Fast path (Layer-2 snapshot present).
-            fast, _ = attr_rows(
-                conn, session, kind="nodes", limit=10_000, scan_predicate=pred
-            )
-            # Force the Layer-1 fallback by deleting both effective-view
-            # representations for this generation.
-            conn.execute(
-                "DELETE FROM okg.attribute_effective_view WHERE generation_id = %s",
-                (gen,),
-            )
-            conn.execute(
-                "DELETE FROM okg.attribute_effective_view_intervals "
-                "WHERE branch_id = 'default'",
-            )
-            monkeypatch.setenv("OKG_IVM_INTERVAL_VIEW", "0")
-            slow, _ = attr_rows(
-                conn, session, kind="nodes", limit=10_000, scan_predicate=pred
-            )
-
-        def _norm(rows):
-            return {
-                r["node_id"]: dict((r.get("attrs") or {}))
-                for r in rows
-            }
-
-        fast_n, slow_n = _norm(fast), _norm(slow)
-        assert set(fast_n) == set(slow_n), (set(fast_n), set(slow_n))
-        for nid in fast_n:
-            assert fast_n[nid] == slow_n[nid], (nid, fast_n[nid], slow_n[nid])
-        # wf:3's overlay override must appear identically on both paths.
-        assert fast_n[fixture["overridden"]]["conclusion"] == "failure"
-        assert slow_n[fixture["overridden"]]["conclusion"] == "failure"
     finally:
         mcp._okg_pool.close()
         if mcp._okg_write_pool:
@@ -497,17 +311,18 @@ def test_attr_aggregate_parity_pushdown_matches_python_overlay(
         # Prior path reference: scan the ci_workflow subtype rows with the SAME
         # effective-attrs overlay (scan_predicate pushed only to make it fit the
         # cap; grouping is identical Python logic), then group by attrs.conclusion.
-        attr_rows = mcp._okg_operator_attr_rows  # type: ignore[attr-defined]
         with psycopg.connect(clean_runtime, autocommit=True) as conn:
             session = dataclasses.replace(
                 open_session(conn, deployment_name="default"), generation_id=gen
             )
-            rows, _ = attr_rows(
+            # The page read (the graph rows plus overlays) of the subtype.
+            rows, _more = mcp._okg_effective_view_sql_page(
                 conn,
                 session,
                 kind="nodes",
-                limit=10_000,
-                scan_predicate={"op": "eq", "field": "subtype", "value": "ci_workflow"},
+                predicate={"op": "eq", "field": "subtype", "value": "ci_workflow"},
+                limit=500,
+                offset=0,
             )
         ref: dict[str, int] = {}
         for row in rows:

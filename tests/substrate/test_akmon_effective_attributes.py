@@ -7,7 +7,6 @@ import pytest
 psycopg = pytest.importorskip("psycopg")
 
 from okg.substrate.attributes import (  # noqa: E402
-    ATTRIBUTE_EFFECTIVE_VIEW_TABLE,
     attribute_history_for_target,
     ensure_attribute_schema,
     mark_attribute_stale,
@@ -164,26 +163,6 @@ def test_empty_attribute_materialization_skips_snapshot_queries(
                 """,
             )
             assert cur.fetchone()[0] == 0
-
-
-def test_attribute_effective_view_has_generation_namespace_index(
-    clean_runtime: str,
-) -> None:
-    with psycopg.connect(clean_runtime, autocommit=True) as conn, conn.cursor() as cur:
-        ensure_attribute_schema(conn)
-        cur.execute(
-            """
-            SELECT indexdef
-              FROM pg_indexes
-             WHERE schemaname = 'okg'
-               AND tablename = %s
-               AND indexname = 'attribute_effective_view_generation_namespace_idx'
-            """,
-            (ATTRIBUTE_EFFECTIVE_VIEW_TABLE.removeprefix("okg."),),
-        )
-        row = cur.fetchone()
-    assert row is not None
-    assert "(generation_id, namespace)" in row[0]
 
 
 def test_attribute_history_preserves_past_observations(clean_runtime: str) -> None:

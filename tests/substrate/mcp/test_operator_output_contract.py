@@ -532,21 +532,30 @@ async def test_every_error_carries_its_code_and_hint_in_its_one_block(
         assert line.code == "run_sql_invalid"
 
 
-@pytest.mark.parametrize("path", ("unknown_tool", "non_operator_tool_raises"))
-async def test_an_sdk_built_error_is_one_text_block(server, path: str) -> None:
+async def test_an_sdk_built_error_is_one_text_block(server) -> None:
     """A write or admin tool's raised exception stays the SDK's own text,
     which has no status line (the classifiers count it as failed)."""
-    name = "no_such_tool"
-    if path == "non_operator_tool_raises":
-        def widget_write() -> dict:
-            raise RuntimeError("widget store unavailable")
 
-        server.tool(name="widget_write", structured_output=False)(widget_write)
-        name = "widget_write"
-    result = await _client_call(server, name, {})
+    def widget_write() -> dict:
+        raise RuntimeError("widget store unavailable")
+
+    server.tool(name="widget_write", structured_output=False)(widget_write)
+    result = await _client_call(server, "widget_write", {})
     text = _one_text(result)
     assert result.isError is True
     assert parse_status_line(text) is None
+
+
+async def test_an_unregistered_tool_is_one_tool_not_served_refusal(server) -> None:
+    """A name the server does not register is no longer the SDK's bare
+    "Unknown tool" text (issue #3993): it is one refusal with a status line."""
+    result = await _client_call(server, "no_such_tool", {})
+    text = _one_text(result)
+    assert result.isError is True
+    line = parse_status_line(text)
+    assert line is not None and line.status == "refused"
+    assert line.code == "tool_not_served", text
+    assert "Unknown tool" not in text
 
 
 # ── the measure equals the served bytes ─────────────────────────────────

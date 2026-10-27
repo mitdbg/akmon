@@ -186,8 +186,28 @@ def catalog(dsn: str) -> dict[str, dict[str, Any]]:
 
 
 def ordinals(dsn: str) -> list[dict[str, Any]]:
+    """Every published ordinal of branch ``default`` with its checkpoint and
+    branch point. (Moved here from declared_attr_indexes, whose drift checks
+    were its only other reader, PACT lane-s-storage-drop-copies.)"""
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor(row_factory=dict_row) as cur:
-        return dai._ordinals(cur, "default")
+        if not dai._regclass(cur, "okg.generation_ordinals") or not dai._regclass(
+            cur, "public._chronos_branch_interval_checkpoints"
+        ):
+            return []
+        cur.execute(
+            """
+            SELECT o.ordinal, o.checkpoint_id, s.branch_point::bigint AS bp
+              FROM okg.generation_ordinals o
+              JOIN public._chronos_branch_interval_checkpoints c
+                ON c.checkpoint_id = o.checkpoint_id
+              JOIN public._chronos_branch_interval_segments s
+                ON s.segment_id = c.segment_id
+             WHERE o.branch_id = %s
+             ORDER BY o.ordinal
+            """,
+            ("default",),
+        )
+        return [dict(row) for row in cur.fetchall()]
 
 
 def typed(attr: str, value_type: str, alias: str) -> str:

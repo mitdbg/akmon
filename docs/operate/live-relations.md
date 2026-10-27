@@ -412,10 +412,11 @@ dispatcher's arm leaves a worker thread running.
 **A cut answer goes on by `next`.** An answer cut to fit is kept, and the
 reply names one call, `expand(next="<token>")`: the following rows, every
 field whole, with no second upstream call. After a field cut it starts again
-at row 1. `"retain": true` keeps any `ok` answer; see
-[retained live answers](../reference/mcp-results.md#retained-live-answers).
-Either is kept 300 seconds for the calling reader only. Limits: 50,000 rows
-and 8 MiB per set, 2 sets per reader, 8 sets and 64 MiB per process.
+at row 1. Every `ok` answer is kept and named by its handle; see
+[live handles](../reference/mcp-results.md#live-handles). It is kept 600
+seconds for the calling reader and session only. Limits: 50,000 rows and
+8 MiB per set, 64 sets and 32 MiB per reader and session, 1,024 sets and
+128 MiB per process.
 
 ## 5. What is retained, and where
 

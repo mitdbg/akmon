@@ -601,75 +601,31 @@ def test_p6_never_run_enricher_is_pending(clean_runtime: str) -> None:
 # #653 stranding no longer reproduces on dev.
 
 
-class _DriftCursor:
-    def __enter__(self) -> "_DriftCursor":
-        return self
-
-    def __exit__(self, *_a: Any) -> None:
-        return None
-
-    def execute(self, *_a: Any, **_k: Any) -> None:
-        return None
-
-    def fetchall(self):
-        # No open-interval rows: the first (running-vs-full) drift check
-        # fires before this is consulted.
-        return []
-
-
-class _DriftConn:
-    def cursor(self) -> _DriftCursor:
-        return _DriftCursor()
-
-
-def test_p2_reconcile_raises_on_count_drift() -> None:
-    """P2: a failing reconcile surfaces a typed SubstrateError -- the
-    failure is loud, never swallowed.
-
-    In the cycle this raise propagates out of the interval
-    ``conn.transaction()`` block, rolling back the just-minted ordinal and
-    interval rows, so ``checkpoint_generation`` (which runs AFTER the
-    transaction) is never reached: no checkpoint of any status is cut on a
-    failed reconcile.
-    """
-    publisher = Publisher("postgres://unused", "test")
-    with pytest.raises(SubstrateError) as excinfo:
-        publisher._reconcile_effective_interval_view(
-            _DriftConn(),
-            generation_id="generation:xyz",
-            node_count=9,   # running counter
-            edge_count=5,
-            full_counts=(10, 5),  # full graph count -> drift on nodes
-        )
-    assert "drift" in str(excinfo.value).lower()
-
-
 def test_p2_reconcile_precedes_checkpoint_in_one_transaction() -> None:
-    """P2 ordering pin: in ``_cycle_chronos_native`` the interval
-    sync + reconcile run inside a single ``conn.transaction()`` that
+    """P2 ordering pin: in ``_cycle_chronos_native`` the generation ordinal
+    and the overlay-range sync run inside the publication transaction that
     appears BEFORE ``store.checkpoint_generation(...)``.
 
     Reverting to the pre-#663 order (checkpoint first) reintroduces the
-    #653 stranding -- a durably-published generation with no interval read
-    authority -- and breaks this pin.
+    #653 stranding -- a durably-published generation with no read
+    authority -- and breaks this pin. (The interval sync and reconcile this
+    pinned are retired with the attribute copies, PACT
+    lane-s-storage-drop-copies.)
     """
     import inspect
 
     src = inspect.getsource(publisher_mod.Publisher._cycle_chronos_native)
-    txn_open = src.index("with conn.transaction():")
-    sync_call = src.index("sync_effective_interval_view_for_generation(\n")
-    reconcile_call = src.index("self._reconcile_effective_interval_view(")
+    txn_open = src.index("_open_publication_transaction(_publication_scope)")
+    ordinal_call = src.index("assigned_ordinal = assign_generation_ordinal(")
+    sync_call = src.index("sync_overlay_ranges_for_generation(\n")
     checkpoint_call = src.index("store.checkpoint_generation(")
 
-    # The sync + reconcile are inside the transaction opened above them,
-    # and the checkpoint is cut only after (below) that transaction block.
-    assert txn_open < sync_call < checkpoint_call, (
-        "interval sync must run inside the pre-checkpoint transaction"
+    assert txn_open < ordinal_call < sync_call < checkpoint_call, (
+        "the ordinal and the range sync must run inside the publication "
+        "transaction, before the checkpoint"
     )
-    assert txn_open < reconcile_call < checkpoint_call, (
-        "reconcile must run inside the transaction, before the checkpoint "
-        "(reverting to checkpoint-first reintroduces #653 stranding)"
-    )
+    assert "sync_effective_interval_view_for_generation" not in src
+    assert "_reconcile_effective_interval_view" not in src
 
 
 # ===========================================================================

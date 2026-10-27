@@ -26,6 +26,7 @@ from okg.substrate.chat.source_admin import (
     project_admin_preset,
 )
 from okg.substrate.chat.sync import (
+    ADMIN_CONNECTION_SUFFIX,
     ADMIN_PRESET_SUFFIX,
     SURFACE_ADMIN_PRESET,
     WRITTEN_SURFACES,
@@ -55,7 +56,7 @@ from .test_write_connection_projection import (
 ADMIN_CAPABLE_TOOLS = (*READ_TOOLS, "query", *SOURCE_ADMIN_TOOLS)
 
 ADMIN_PRESET_ID = f"okg-fixture{ADMIN_PRESET_SUFFIX}"
-ADMIN_SERVER_ID = f"okg-fixture{ADMIN_PRESET_SUFFIX}"
+ADMIN_SERVER_ID = f"okg-fixture{ADMIN_CONNECTION_SUFFIX}"
 
 
 def _instance(*, with_admin_group: bool = True) -> FakeInstance:
@@ -403,3 +404,52 @@ def test_a_suffix_colliding_tool_name_refuses_the_admin_surface(
     assert "readd_source" in admin["refusal"]
     assert ADMIN_PRESET_ID not in instance.models
     assert _entry(instance, ADMIN_SERVER_ID) is None
+
+
+def test_an_earlier_release_admin_connection_is_reported_stale_not_dropped() -> None:
+    """#3960: without the admin switch, the old `okg-<d>-admin` id may be
+    foreign, so it is named as a leftover (like the current id) and never
+    dropped by the connection rewrite."""
+    from okg.substrate.chat.sync import _stale_admin_state
+
+    stale = _stale_admin_state(
+        [{"info": {"id": "okg-fixture-admin"}}, {"info": {"id": "other"}}],
+        ["okg-fixture"],
+        server_id=ADMIN_SERVER_ID,
+        preset_id=ADMIN_PRESET_ID,
+        legacy_server_id="okg-fixture-admin",
+    )
+    assert stale["stale_connection"] == "okg-fixture-admin"
+    assert stale["stale_row"] is None
+    assert "okg-fixture-admin" in stale["fix_hint"]
+
+
+def test_an_earlier_release_admin_connection_migrates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#3960 review F5: `okg-fixture-admin` becomes `okg_fixture_admin` and
+    the admin preset (id unchanged) is re-pointed and verified."""
+    import dataclasses
+
+    from okg.substrate.chat import sync as sync_module
+
+    _pin_endpoint(monkeypatch, advertised=ADMIN_CAPABLE_TOOLS, enforces_auth=True)
+    instance = _instance()
+    old = _make_inputs(tmp_path, manifest=_raw_manifest(sso=True))
+    monkeypatch.setattr(sync_module, "ADMIN_CONNECTION_SUFFIX", "-admin")
+    monkeypatch.setattr(sync_module, "WRITE_CONNECTION_SUFFIX", "-write")
+    assert _run(old, instance, advertised=ADMIN_CAPABLE_TOOLS).ok
+    assert _entry(instance, "okg-fixture-admin") is not None
+
+    monkeypatch.setattr(sync_module, "ADMIN_CONNECTION_SUFFIX", "_admin")
+    monkeypatch.setattr(sync_module, "WRITE_CONNECTION_SUFFIX", "_write")
+    new = dataclasses.replace(old, mcp_server_id="okg_fixture")
+    migrated = _run(new, instance, advertised=ADMIN_CAPABLE_TOOLS)
+    assert migrated.ok, migrated.to_dict()
+    ids = sorted(str((e.get("info") or {}).get("id")) for e in instance.tool_servers)
+    assert ids == ["okg_fixture", "okg_fixture_admin"]
+    assert instance.model_row(ADMIN_PRESET_ID)["meta"]["toolIds"] == [
+        "server:mcp:okg_fixture_admin"
+    ]
+    again = _run(new, instance, advertised=ADMIN_CAPABLE_TOOLS)
+    assert again.ok and again.changes == 0

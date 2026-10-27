@@ -25,6 +25,7 @@ from okg.substrate.runtime_queue_health import (
 
 import contextlib
 import json  # noqa: F401
+import logging
 import os
 import shlex  # noqa: F401
 import sys
@@ -36,6 +37,8 @@ from pathlib import Path  # noqa: F401
 from typing import Any  # noqa: F401
 from okg.substrate.support.user_hints import okg_prefix
 
+_LOG = logging.getLogger(__name__)
+
 # NOTE: `import okg.substrate.cli.deployment as _dep` is done at the BOTTOM of
 # this module (after all defs) — see the end of the file. The moved functions
 # below reference `_dep` only at CALL time, so a forward module-global is fine,
@@ -43,19 +46,23 @@ from okg.substrate.support.user_hints import okg_prefix
 # safe regardless of which module is imported first.
 
 __all__ = [
+    "SourceRegistryUnloadable",
     "_ready_add_check",
     "_ready_add_generation_count_integrity_check",
+    "_ready_add_source_freshness_advisory",
     "_ready_add_source_sync_liveness_check",
     "_ready_as_float",
     "_ready_build_source_sync_status_contract",
     "_ready_database_status",
     "_ready_postgres_capacity_status",
     "_ready_declared_baseline_source_groups",
+    "_ready_declared_runtime_status",
     "_ready_doctor_status",
     "_ready_embeddings_enabled",
     "_ready_generation_status",
     "_ready_is_workspace_graph_deployment",
     "_ready_load_yaml_mapping",
+    "_ready_manifest_and_origin",
     "_ready_mcp_status",
     "_READY_NOMOS_ACTIVE_STATE_PRESENT_MESSAGE",
     "_ready_nomos_active_state_message",
@@ -70,6 +77,7 @@ __all__ = [
     "_ready_no_change_expected_delta_is_all_zero",
     "_ready_queue_status",
     "_ready_required_dependency",
+    "_ready_resolved_readiness_profile",
     "_ready_rollout_project_command",
     "_ready_rollout_repo_root",
     "_ready_rollout_source_registry",
@@ -80,6 +88,7 @@ __all__ = [
     "_ready_slug_for_dsn",
     "_ready_source_freshness_status",
     "_ready_source_aliases",
+    "_ready_source_freshness_advisory_status",
     "_ready_source_groups_for_profile",
     "_ready_source_optimization_full_pipeline_proof_failed",
     "_ready_source_optimization_full_pipeline_proof_passed",
@@ -102,12 +111,31 @@ __all__ = [
 ]
 
 
+class SourceRegistryUnloadable(Exception):
+    """The deployment's source registry exists but does not load (#3958).
+
+    Raised only for the ``standard`` profile, whose baseline sources come from
+    the registry alone: the live checks report it as
+    ``sources.registry.unavailable`` (code ``source_registry_unloadable``),
+    never as a database failure.
+    """
+
+    def __init__(self, registry_path: Path, error: Exception) -> None:
+        super().__init__(
+            f"source registry {registry_path} did not load: "
+            f"{type(error).__name__}: {error}"
+        )
+        self.registry_path = registry_path
+        self.error = error
+
+
 def _ready_source_groups_for_profile(
     readiness_profile: str,
     *,
     deployment: str | None = None,
     deployment_dir: Path | None = None,
 ) -> dict[str, tuple[str, ...]]:
+    del deployment
     if readiness_profile == "ci":
         if deployment_dir is not None:
             from okg.substrate.source_sync_convergence import (
@@ -120,13 +148,116 @@ def _ready_source_groups_for_profile(
             )
         return _dep._READY_CI_SOURCE_GROUPS
     if readiness_profile == "dogfood":
-        if deployment_dir is not None and not _dep._ready_is_workspace_graph_deployment(
-            deployment=deployment,
-            deployment_dir=deployment_dir,
-        ):
-            return _dep._ready_declared_baseline_source_groups(deployment_dir)
-        return _dep._READY_AGENT_CONTEXT_SOURCE_GROUPS
+        # Issue #3958: the union of the declared agent-context sources and
+        # the declared baseline sources, with no module detection. A caller
+        # that runs `--checks dogfood` on any deployment (backup verify, the
+        # backup budget script) therefore never loses a baseline source, and
+        # the team workspace, which marks no baseline source, keeps exactly
+        # its agent-context list.
+        groups = dict(_ready_declared_agent_context_source_groups(deployment_dir))
+        if deployment_dir is not None:
+            groups.update(
+                _dep._ready_declared_baseline_source_groups(
+                    deployment_dir, unloadable="empty",
+                )
+            )
+        return groups
+    if readiness_profile == "standard":
+        # Only the sources the registry marks `required_for_baseline`. An
+        # unloadable registry raises `SourceRegistryUnloadable`, which the
+        # live checks report by name.
+        if deployment_dir is None:
+            return {}
+        return _dep._ready_declared_baseline_source_groups(
+            deployment_dir, unloadable="raise",
+        )
     return {}
+
+
+def _ready_declared_agent_context_source_groups(
+    deployment_dir: Path | None,
+) -> dict[str, tuple[str, ...]]:
+    """Agent-context groups, limited to the sources the registry declares.
+
+    A source the deployment never declared has no watermark and no producer,
+    so reporting it "missing" turns a plain install into a false
+    ``unavailable`` (#3958). Without a readable registry nothing is known to
+    be undeclared, so the full set stays and the registry blocker speaks.
+    The same holds for a registry that exists but does not load: the full set
+    stays and the sync-liveness probe reports the load error itself, instead of
+    this helper turning it into a database-connection failure.
+
+    Every dropped name is reported by :func:`_ready_undeclared_agent_context_sources`
+    so a registry mistake on the team workspace cannot pass silently.
+    """
+    groups = _dep._READY_AGENT_CONTEXT_SOURCE_GROUPS
+    if deployment_dir is None:
+        return groups
+    manifest = _dep._ready_load_yaml_mapping(deployment_dir / "deployment.yaml")
+    registry_path = _dep._ready_rollout_source_registry(
+        deployment_dir=deployment_dir,
+        manifest=manifest,
+    )
+    if not registry_path.is_file():
+        return groups
+    registry, load_error = _ready_try_load_source_registry(registry_path)
+    if registry is None:
+        _LOG.warning(
+            "source registry %s did not load; readiness keeps the full "
+            "agent-context source list: %s",
+            registry_path,
+            load_error,
+        )
+        return groups
+    from okg.substrate.source_sync_convergence import (
+        source_matches_readiness_name,
+    )
+
+    def declared(source: str) -> bool:
+        return any(
+            source_matches_readiness_name(
+                source, str(key), getattr(entry, "ownership_id", None)
+            )
+            for key, entry in registry.items()
+        )
+
+    narrowed = {
+        group: tuple(source for source in sources if declared(source))
+        for group, sources in groups.items()
+    }
+    return {group: sources for group, sources in narrowed.items() if sources}
+
+
+def _ready_undeclared_agent_context_sources(
+    readiness_profile: str,
+    *,
+    deployment: str | None,
+    deployment_dir: Path | None,
+    source_groups: Mapping[str, tuple[str, ...]],
+) -> list[str]:
+    """Agent-context sources a dogfood deployment left out of readiness.
+
+    Only for a manifest that declares dogfood (through ``readiness.profile``
+    or its environment's policy, #3958). An explicit ``--checks dogfood`` on a
+    deployment that does not declare it (backup verify does that) must not
+    list eight "undeclared" names it never meant to have.
+    """
+    del deployment
+    if readiness_profile != "dogfood" or deployment_dir is None:
+        return []
+    declared = _dep._ready_resolved_readiness_profile(deployment_dir)
+    if declared.get("name") != "dogfood" or declared.get("source") not in {
+        "declared",
+        "environment",
+    }:
+        return []
+    checked = {source for sources in source_groups.values() for source in sources}
+    return sorted(
+        source
+        for sources in _dep._READY_AGENT_CONTEXT_SOURCE_GROUPS.values()
+        for source in sources
+        if source not in checked
+    )
 
 
 def _ready_is_workspace_graph_deployment(
@@ -154,7 +285,17 @@ def _ready_is_workspace_graph_deployment(
 
 def _ready_declared_baseline_source_groups(
     deployment_dir: Path,
+    *,
+    unloadable: str = "propagate",
 ) -> dict[str, tuple[str, ...]]:
+    """The registry's ``required_for_baseline`` sources, as one group.
+
+    ``unloadable`` says what a registry that exists but does not load does:
+    ``propagate`` lets the load error escape (the historical behaviour),
+    ``empty`` logs it and contributes no group (the dogfood union, where the
+    agent-context list and the sync-liveness probe already report it), and
+    ``raise`` raises :class:`SourceRegistryUnloadable` (``standard``).
+    """
     manifest = _dep._ready_load_yaml_mapping(deployment_dir / "deployment.yaml")
     registry_path = _dep._ready_rollout_source_registry(
         deployment_dir=deployment_dir,
@@ -162,9 +303,22 @@ def _ready_declared_baseline_source_groups(
     )
     if not registry_path.is_file():
         return {}
-    from okg.substrate.sources.registry import load_source_registry
+    if unloadable == "propagate":
+        from okg.substrate.sources.registry import load_source_registry
 
-    registry = load_source_registry(registry_path)
+        registry = load_source_registry(registry_path)
+    else:
+        registry, load_error = _ready_try_load_source_registry(registry_path)
+        if registry is None:
+            if unloadable == "raise":
+                raise SourceRegistryUnloadable(registry_path, load_error)
+            _LOG.warning(
+                "source registry %s did not load; readiness adds no declared "
+                "baseline sources: %s",
+                registry_path,
+                load_error,
+            )
+            return {}
     baseline_sources = tuple(
         sorted(
             str(source_name)
@@ -1691,6 +1845,25 @@ def _ready_source_progress_freshness_row(
     }
 
 
+def _ready_try_load_source_registry(
+    registry_path: Path,
+) -> tuple[Mapping[str, Any] | None, Exception | None]:
+    """Load the source registry, returning the load error instead of raising.
+
+    The two readiness helpers that narrow or alias source names only need the
+    registry when it loads. When it does not, the sync-liveness probe loads it
+    itself and reports the error as ``sources.sync_liveness.unavailable``, so a
+    bad registry is not turned into a database-connection failure here. The
+    error travels with the result so each caller names it explicitly.
+    """
+    from okg.substrate.sources.registry import load_source_registry
+
+    try:
+        return load_source_registry(registry_path), None
+    except Exception as exc:  # noqa: BLE001 - the caller receives the error.
+        return None, exc
+
+
 def _ready_source_aliases(deployment_dir: Path) -> dict[str, tuple[str, ...]]:
     """Map logical registry names to their durable ownership identities."""
     manifest = _dep._ready_load_yaml_mapping(deployment_dir / "deployment.yaml")
@@ -1700,14 +1873,25 @@ def _ready_source_aliases(deployment_dir: Path) -> dict[str, tuple[str, ...]]:
     )
     if not registry_path.is_file():
         return {}
-    from okg.substrate.sources.registry import load_source_registry
-
-    registry = load_source_registry(registry_path)
+    registry, load_error = _ready_try_load_source_registry(registry_path)
+    if registry is None:
+        # Aliases only help find a watermark. A registry that does not load
+        # is reported by the sync-liveness probe, which loads it itself, not
+        # as a database failure; the error is also logged here.
+        _LOG.warning(
+            "source registry %s did not load; no source aliases: %s",
+            registry_path,
+            load_error,
+        )
+        return {}
     aliases: dict[str, tuple[str, ...]] = {}
     for source_name, entry in registry.items():
         ownership_id = str(getattr(entry, "ownership_id", "") or "").strip()
         if ownership_id:
             aliases[str(source_name)] = (ownership_id,)
+            aliases.setdefault(
+                str(source_name).replace("_", "-"), (ownership_id,)
+            )
     return aliases
 
 
@@ -3438,6 +3622,250 @@ def _ready_load_yaml_mapping(path: Path) -> dict[str, Any]:
     return loaded
 
 
+def _ready_manifest_and_origin(deployment_dir: Path) -> tuple[dict[str, Any], bool]:
+    """The manifest readiness reads, and whether environment composition made it.
+
+    The same lookup as :func:`_ready_load_yaml_mapping`, which it mirrors: the
+    composed manifest when this process runs the active sealed environment for
+    that path, else the authored ``deployment.yaml``. The flag is what the
+    readiness-profile resolver needs, because ``environment_policy`` is
+    honoured only in a composed manifest.
+    """
+    path = deployment_dir / "deployment.yaml"
+    if os.environ.get("OKG_ENVIRONMENT_DESCRIPTOR"):
+        from okg.substrate.deployments import active_effective_manifest_for_path
+
+        effective = active_effective_manifest_for_path(path)
+        if effective is not None:
+            return dict(effective), True
+    try:
+        loaded = fastyaml.safe_load(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}, False
+    return (dict(loaded) if isinstance(loaded, dict) else {}), False
+
+
+def _ready_resolved_readiness_profile(deployment_dir: Path) -> dict[str, Any]:
+    """The readiness profile this deployment is judged by (#3958).
+
+    The resolver's answer, plus ``composed`` and, with a problem, the files
+    that hold the two values (the manifest, and on the sealed path the
+    environment descriptor), so the status can name both.
+    """
+    from okg.substrate.deployments.readiness_profile import (
+        declared_readiness_profile,
+    )
+
+    manifest, composed = _dep._ready_manifest_and_origin(deployment_dir)
+    resolved = declared_readiness_profile(manifest, composed=composed)
+    resolved["composed"] = composed
+    problem = resolved.get("problem")
+    if isinstance(problem, dict):
+        files = [
+            str(
+                deployment_dir
+                / ("definition.yaml" if composed else "deployment.yaml")
+            )
+        ]
+        descriptor = os.environ.get("OKG_ENVIRONMENT_DESCRIPTOR")
+        if composed and descriptor:
+            files.append(descriptor)
+        problem["files"] = files
+    return resolved
+
+
+def _ready_declared_runtime_status(deployment_dir: Path) -> str:
+    """``enabled``, ``disabled``, ``not_declared`` or ``unreadable``.
+
+    The live checks' copy of the status command's ``runtime_config`` rule:
+    only an explicit ``runtime.enabled`` key is a declaration, read through the
+    runtime's own config reader.
+    """
+    from okg.substrate.runtime.config import RuntimeConfig
+
+    try:
+        manifest = _dep._ready_load_yaml_mapping(deployment_dir / "deployment.yaml")
+        block = manifest.get("runtime")
+        config = RuntimeConfig.from_manifest_block(block)
+    except Exception:  # noqa: BLE001 - unreadable keeps every requirement.
+        return "unreadable"
+    if not isinstance(block, Mapping) or "enabled" not in block:
+        return "not_declared"
+    return "enabled" if config.enabled else "disabled"
+
+
+def _ready_source_freshness_advisory_status(
+    conn: Any,
+    *,
+    deployment: str,
+    deployment_dir: Path,
+    max_source_age_seconds: int,
+) -> dict[str, Any]:
+    """Every enabled declared source whose watermark is missing or too old.
+
+    For a ``standard`` deployment that marks no source
+    ``required_for_baseline``: nothing is required to be fresh, so this is
+    advice only and the caller reports it as a warning. Left out: a disabled
+    source (``enabled_by_default: false``, the registry's own "dormant"
+    rule, which source sync skips too) and a registry-only entry, which keeps
+    no watermark. The disabled names are returned under ``disabled``.
+    """
+    from okg.substrate.source_sync import source_sync_entry_is_explicitly_dormant
+    from okg.substrate.sources.profiles import REGISTRY_ONLY
+
+    manifest = _dep._ready_load_yaml_mapping(deployment_dir / "deployment.yaml")
+    registry_path = _dep._ready_rollout_source_registry(
+        deployment_dir=deployment_dir,
+        manifest=manifest,
+    )
+    if not registry_path.is_file():
+        return {
+            "ok": True,
+            "max_source_age_seconds": max_source_age_seconds,
+            "checked": [],
+            "missing": [],
+            "stale": [],
+        }
+    registry, load_error = _ready_try_load_source_registry(registry_path)
+    if registry is None:
+        raise SourceRegistryUnloadable(registry_path, load_error)
+    disabled = sorted(
+        str(name)
+        for name, entry in registry.items()
+        if source_sync_entry_is_explicitly_dormant(entry)
+    )
+    names = sorted(
+        str(name)
+        for name, entry in registry.items()
+        if getattr(entry, "source_class", None) != REGISTRY_ONLY
+        and str(name) not in disabled
+    )
+    if not names:
+        # Not `source_groups={}`: the freshness probe reads an empty mapping
+        # as "use the agent-context list".
+        return {
+            "ok": True,
+            "max_source_age_seconds": max_source_age_seconds,
+            "checked": [],
+            "missing": [],
+            "stale": [],
+            "disabled": [f"{deployment}.{name}" for name in disabled],
+        }
+    status = _dep._ready_source_freshness_status(
+        conn,
+        deployment=deployment,
+        max_source_age_seconds=max_source_age_seconds,
+        source_groups={"declared": tuple(names)},
+        source_aliases=_dep._ready_source_aliases(deployment_dir),
+    )
+    return {
+        "ok": not status["missing"] and not status["stale"],
+        "max_source_age_seconds": max_source_age_seconds,
+        "checked": [f"{deployment}.{name}" for name in names],
+        "missing": list(status["missing"]),
+        "stale": list(status["stale"]),
+        "disabled": [f"{deployment}.{name}" for name in disabled],
+    }
+
+
+def _ready_add_source_freshness_advisory(
+    payload: dict[str, Any],
+    conn: Any,
+    *,
+    deployment: str,
+    deployment_dir: Path,
+    max_source_age_seconds: int,
+    deadline: "ReadinessDeadline | None",
+) -> None:
+    """Run the freshness advisory under its own deadline; it can only warn.
+
+    Every outcome is a ``pass`` or a ``warning``. A failure or a timeout is
+    ``sources.freshness_advisory_unmeasured`` -- never an ``*.unavailable``
+    id and never an unknown -- so this probe cannot change trust_level.
+    """
+    budget = deadline.probe_budget() if deadline is not None else None
+    dependency = "_ready_source_freshness_advisory_status"
+    if budget is not None and budget <= 0.0:
+        _dep._ready_add_check(
+            payload,
+            "sources.freshness_advisory_unmeasured",
+            "warning",
+            "source freshness advisory was not measured: the readiness "
+            "deadline was spent before it ran",
+            {"reason": READINESS_DEADLINE_EXCEEDED, "probe_id": dependency},
+        )
+        _ready_record_probe(
+            payload,
+            probe_id=dependency,
+            outcome="deadline_exceeded",
+            elapsed_seconds=0.0,
+            timeout_seconds=budget,
+        )
+        return
+    started = time.monotonic()
+    try:
+        advisory = _dep._ready_source_freshness_advisory_status(
+            conn,
+            deployment=deployment,
+            deployment_dir=deployment_dir,
+            max_source_age_seconds=max_source_age_seconds,
+        )
+    except Exception as exc:  # noqa: BLE001 - advice only; reported, never fatal.
+        elapsed = time.monotonic() - started
+        timed_out = _ready_is_query_timeout(exc)
+        _dep._ready_add_check(
+            payload,
+            "sources.freshness_advisory_unmeasured",
+            "warning",
+            (
+                "source freshness advisory exceeded its deadline and was not "
+                "measured"
+                if timed_out
+                else "source freshness advisory could not be measured"
+            ),
+            {
+                "reason": READINESS_PROBE_TIMEOUT if timed_out else "probe_failed",
+                "probe_id": dependency,
+                "error": type(exc).__name__,
+            },
+        )
+        _ready_record_probe(
+            payload,
+            probe_id=dependency,
+            outcome="timeout" if timed_out else "failed",
+            elapsed_seconds=elapsed,
+            timeout_seconds=budget,
+        )
+        return
+    _ready_record_probe(
+        payload,
+        probe_id=dependency,
+        outcome="ok",
+        elapsed_seconds=time.monotonic() - started,
+        timeout_seconds=budget,
+    )
+    payload["source_freshness_advisory"] = advisory
+    late = [*advisory["missing"], *advisory["stale"]]
+    if late:
+        _dep._ready_add_check(
+            payload,
+            "sources.freshness_advisory",
+            "warning",
+            "no source is marked required_for_baseline, so nothing is "
+            "required to be fresh; these declared sources are missing or "
+            "older than the limit: " + ", ".join(late),
+            advisory,
+        )
+    else:
+        _dep._ready_add_check(
+            payload,
+            "sources.freshness_advisory",
+            "pass",
+            "every declared source has a watermark within the limit",
+            advisory,
+        )
+
+
 def _ready_source_sync_liveness_status(
     *,
     dsn: str,
@@ -3534,8 +3962,8 @@ def _ready_source_sync_recovery_commands(
         else ""
     )
     ready_command = (
-        f"{prefix}{okg_prefix()} deployment ready {quoted} "
-        f"--checks {shlex.quote(readiness_profile)} --json"
+        f"{prefix}{okg_prefix()} deployment ready {quoted}"
+        f"{_dep._ready_checks_flag(readiness_profile)} --json"
     )
     commands = {
         "start_supervised_worker": (

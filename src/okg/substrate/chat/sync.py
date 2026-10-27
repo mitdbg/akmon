@@ -161,6 +161,7 @@ from okg.substrate.chat.live_tool_slot import (
 from okg.substrate.mcp.operators import CHAT_DEFAULT_TOOLS
 
 __all__ = [
+    "ADMIN_CONNECTION_SUFFIX",
     "ADMIN_PRESET_GATING_CLAIM",
     "ADMIN_PRESET_REFUSED_FILTER_COLLISION",
     "ADMIN_PRESET_REFUSED_PROJECTION",
@@ -180,12 +181,14 @@ __all__ = [
     "GOVERNED_TOGGLES",
     "GUIDANCE_KEYS",
     "MCP_HTTP_AUTH_PRODUCER",
+    "MCP_SERVER_ID_PREFIX",
     "SURFACE_ADMIN_PRESET",
     "VERIFY_HEALTHY",
     "VERIFY_REJECTED",
     "VERIFY_UNAVAILABLE",
     "WRITE_AUTHORIZED",
     "WRITE_CONNECTION_SUFFIX",
+    "WRITE_PRESET_SUFFIX",
     "WRITE_UNAUTHORIZED_NO_ADMIN_GROUP",
     "WRITE_UNAUTHORIZED_READ_ONLY_ENDPOINT",
     "ChatSyncError",
@@ -213,8 +216,10 @@ __all__ = [
     "effective_tool_binding",
     "expected_site_name",
     "is_string_allowed",
+    "legacy_mcp_server_ids",
     "load_bundle_chat",
     "looks_masked",
+    "mcp_server_id_for",
     "payload_secrets",
     "plan_admin_preset",
     "plan_tool_curation",
@@ -274,6 +279,78 @@ SITE_NAME_VENDOR_DEFAULT = "Open WebUI"
 #: F2/F5. The tool identity Open WebUI builds for an MCP connection.
 MCP_TOOL_ID_PREFIX = "server:mcp:"
 
+#: The start of every MCP server id this verb registers. Open WebUI 0.11.4
+#: names each MCP tool ``f"{server_id}_{tool}"`` (``utils/middleware.py``
+#: 2995-2998) and never rewrites it, so the server id is the visible prefix of
+#: every tool name a chat model sees. An id holding hyphens produced names
+#: such as ``okg-cms-kb-public_search``, which local models retyped with
+#: hyphens throughout and got "Tool not found" (#3960). Every server id is
+#: therefore built from underscores only, and so are its suffixes
+#: (:data:`WRITE_CONNECTION_SUFFIX`, :data:`ADMIN_CONNECTION_SUFFIX`, the live
+#: suffix). Preset (model) ids are NOT tool-name prefixes and keep hyphens:
+#: existing chats reference them.
+MCP_SERVER_ID_PREFIX = "okg_"
+
+#: The id scheme before #3960: ``okg-<deployment>`` plus ``-write``,
+#: ``-live`` and ``-admin``. Kept only so a sync run can find and drop the
+#: registrations an earlier release wrote.
+_LEGACY_SERVER_ID_PREFIX = "okg-"
+_LEGACY_SERVER_SUFFIXES = {
+    "write_connection": "-write",
+    "live_connection": "-live",
+    "admin_connection": "-admin",
+}
+
+
+#: The deployment-name shape the server id is built from. Scaffolded names
+#: already match it (``deployment_scaffold.safe_deployment_slug``); a
+#: hand-made directory may not, so it is checked here.
+_DEPLOYMENT_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+
+def mcp_server_id_for(deployment: str) -> str:
+    """The deployment's read-connection server id: underscores only.
+
+    Refuses a name outside ``[a-z0-9][a-z0-9-]*``. On that alphabet,
+    replacing each hyphen with an underscore is one-to-one, and the result is
+    a valid function-name prefix for chat providers (``[a-z0-9_]``). Without
+    the check, directories ``a-b`` and ``a_b`` would both claim ``okg_a_b``
+    on one instance, and the second sync would repoint the first one's
+    connection at another graph.
+    """
+    if not _DEPLOYMENT_SLUG_RE.fullmatch(deployment):
+        raise ChatSyncError(
+            f"deployment name {deployment!r} cannot name a chat MCP server: "
+            "chat server ids are built from names matching "
+            "[a-z0-9][a-z0-9-]* (lowercase letters, digits and hyphens), so "
+            "that two deployments can never map to one id.",
+            data={
+                "deployment": deployment,
+                "reason": "deployment_name_not_slug",
+                "pattern": _DEPLOYMENT_SLUG_RE.pattern,
+            },
+            fix_hint=(
+                "rename the deployment directory to lowercase letters, digits "
+                "and hyphens"
+            ),
+        )
+    return f"{MCP_SERVER_ID_PREFIX}{deployment.replace('-', '_')}"
+
+
+def legacy_mcp_server_ids(deployment: str) -> dict[str, str]:
+    """The server ids an earlier release registered for ``deployment``.
+
+    Keyed by role (``connection``, ``write_connection``, ``live_connection``,
+    ``admin_connection``) so each caller drops or reports only the roles it
+    owns, under the same rule as the current ids.
+    """
+    base = f"{_LEGACY_SERVER_ID_PREFIX}{deployment}"
+    ids = {"connection": base}
+    ids.update(
+        {role: f"{base}{suffix}" for role, suffix in _LEGACY_SERVER_SUFFIXES.items()}
+    )
+    return ids
+
 #: Sentinel for `_resolve_connection_credential`'s `env_name`. An UNPASSED
 #: argument inherits `chat.mcp.auth_token_env` -- the graph connection's
 #: variable. An EXPLICIT `None` means "this connection declares no
@@ -293,9 +370,12 @@ SURFACE_MCP = "mcp"
 #: the deployment declares ``chat.sso.admin_group``, so it is NOT in the
 #: literal :data:`WRITTEN_SURFACES`; a run that declares it appends it.
 SURFACE_ADMIN_PRESET = "admin_preset"
-#: Appended to the preset id and to the MCP server id for the admin preset
-#: and its connection.
+#: Appended to the preset id for the admin preset. A preset id is an Open
+#: WebUI model id, which chats reference, so it keeps its hyphen.
 ADMIN_PRESET_SUFFIX = "-admin"
+#: Appended to the MCP server id for the admin connection. Underscore, for
+#: the reason given at :data:`MCP_SERVER_ID_PREFIX`.
+ADMIN_CONNECTION_SUFFIX = "_admin"
 
 #: The five WRITTEN surfaces, in application order. ``mcp`` is deliberately
 #: absent: it is a probe that reports reachable/unreachable, and counting it
@@ -1978,10 +2058,14 @@ def bind_tool_curation(
 # general read connection. The two connections point at the same endpoint and
 # differ only in what they admit.
 
-#: Appended to the read connection's ids. The write connection is a distinct
-#: registration, so it needs a distinct `info.id` -- two entries sharing one id
-#: would have the reconciler overwrite one with the other on every run.
-WRITE_CONNECTION_SUFFIX = "-write"
+#: Appended to the read connection's server id. The write connection is a
+#: distinct registration, so it needs a distinct `info.id` -- two entries
+#: sharing one id would have the reconciler overwrite one with the other on
+#: every run. Underscore, for the reason given at :data:`MCP_SERVER_ID_PREFIX`.
+WRITE_CONNECTION_SUFFIX = "_write"
+#: Appended to the read preset's id for the write preset. A model id, so it
+#: keeps its hyphen (see :data:`ADMIN_PRESET_SUFFIX`).
+WRITE_PRESET_SUFFIX = "-write"
 
 #: The child that supplies the authenticated transport this connection needs.
 #: Named in the refusal because "refused" without the producer leaves an
@@ -2232,7 +2316,7 @@ def bind_write_connection(
         )
     return WriteConnection(
         server_id=server_id,
-        preset_id=f"{preset_id}{WRITE_CONNECTION_SUFFIX}",
+        preset_id=f"{preset_id}{WRITE_PRESET_SUFFIX}",
         admin_group=admin_group,
         endpoint=endpoint,
         intended=intended,
@@ -2370,6 +2454,7 @@ def _stale_admin_state(
     *,
     server_id: str,
     preset_id: str,
+    legacy_server_id: str | None = None,
 ) -> dict[str, Any]:
     """Admin-id leftovers on an instance whose deployment declares no switch.
 
@@ -2383,12 +2468,17 @@ def _stale_admin_state(
     Computed from the readback the preset surface already makes, so a
     deployment without the switch issues no request it did not issue before.
     """
-    connection = any(
-        (entry.get("info") or {}).get("id") == server_id for entry in entries
-    )
+    registered = {(entry.get("info") or {}).get("id") for entry in entries}
+    # The earlier release's admin id (``okg-<d>-admin``) is a leftover of the
+    # same kind, so it is named the same way rather than left unreported.
+    found = [
+        candidate for candidate in (server_id, legacy_server_id)
+        if candidate and candidate in registered
+    ]
+    connection = bool(found)
     row = preset_id in set(rows)
     stale: dict[str, Any] = {
-        "stale_connection": server_id if connection else None,
+        "stale_connection": found[0] if connection else None,
         "stale_row": preset_id if row else None,
     }
     if connection or row:
@@ -2448,7 +2538,7 @@ def plan_admin_preset(
     if admin_group is None:
         return None
     admin_preset_id = f"{preset_id}{ADMIN_PRESET_SUFFIX}"
-    server_id = f"{mcp_server_id}{ADMIN_PRESET_SUFFIX}"
+    server_id = f"{mcp_server_id}{ADMIN_CONNECTION_SUFFIX}"
 
     def _refused(status: str, err: Exception, reason: str | None = None) -> AdminPresetPlan:
         data = getattr(err, "data", None) or {}
@@ -4012,7 +4102,7 @@ def load_inputs(
         mcp_probe_url=probe,
         mcp_instance_url=mcp_instance_url or probe,
         preset_id=f"okg-{deployment}",
-        mcp_server_id=f"okg-{deployment}",
+        mcp_server_id=mcp_server_id_for(deployment),
         state_home=state_home,
         tool_description_overrides_path=overrides_path,
         skills_dir=skills_dir,
@@ -5970,7 +6060,7 @@ def _sync_preset(
     tool_id = f"{MCP_TOOL_ID_PREFIX}{inputs.mcp_server_id}"
     write_server_id = f"{inputs.mcp_server_id}{WRITE_CONNECTION_SUFFIX}"
     write_tool_id = f"{MCP_TOOL_ID_PREFIX}{write_server_id}"
-    admin_server_id = f"{inputs.mcp_server_id}{ADMIN_PRESET_SUFFIX}"
+    admin_server_id = f"{inputs.mcp_server_id}{ADMIN_CONNECTION_SUFFIX}"
     admin_registered = admin_plan is not None and admin_plan.projected
     admin_connection_entry: dict[str, Any] | None = None
     if admin_registered:
@@ -6053,6 +6143,48 @@ def _sync_preset(
     )
     live_server_id = live_slot.server_id if live_slot is not None else None
     live_registered = live_slot is not None and live_slot.registered
+    # Migration (#3960). The ids an earlier release registered for this
+    # deployment, limited to the roles this run owns under the same rule as
+    # the current ids: read and write always; live only with a live slot;
+    # admin only with the admin switch (otherwise the entry may be foreign
+    # and is preserved and reported, as the current admin id is). Any left on
+    # the instance is drift (`connection:legacy_ids`), so the rewrite below
+    # drops them even when the current entries already exist.
+    legacy_ids = legacy_mcp_server_ids(inputs.deployment)
+    legacy_owned = {legacy_ids["connection"], legacy_ids["write_connection"]}
+    if live_slot is not None:
+        legacy_owned.add(legacy_ids["live_connection"])
+    if admin_plan is not None:
+        legacy_owned.add(legacy_ids["admin_connection"])
+    legacy_owned -= {
+        inputs.mcp_server_id, write_server_id, live_server_id, admin_server_id,
+    }
+    # Only the ids this run drops can strand a model; an old admin or live
+    # entry this run does not own stays registered and keeps working.
+    legacy_tool_ids = {f"{MCP_TOOL_ID_PREFIX}{legacy}" for legacy in legacy_owned}
+    own_preset_ids = {
+        inputs.preset_id,
+        f"{inputs.preset_id}{WRITE_PRESET_SUFFIX}",
+        f"{inputs.preset_id}{ADMIN_PRESET_SUFFIX}",
+    }
+    # A deployment prompt that spells out tool names (a workaround for this
+    # very issue) still names the old ones after the rename, and a model that
+    # follows it calls tools that no longer exist. The text is deployment
+    # content, so sync WARNS rather than refuses or rewrites it.
+    prompt_old_ids = sorted(
+        legacy for legacy in legacy_ids.values()
+        if f"{legacy}_" in system_text
+        and legacy not in {
+            inputs.mcp_server_id, write_server_id, live_server_id, admin_server_id,
+        }
+    )
+    if prompt_old_ids:
+        outcome.notes.append(
+            "warning: the chat system prompt names tools under the old server "
+            f"id(s) {prompt_old_ids} (as '<old id>_<tool>'), which no longer "
+            f"exist; the tools are now named '{inputs.mcp_server_id}_<tool>'. "
+            "Update or remove that text in the deployment's prompt file."
+        )
     live_connection_entry: dict[str, Any] | None = None
     if live_registered:
         # BOTH directions, on the values that reach the wire. See
@@ -6114,6 +6246,10 @@ def _sync_preset(
             "connection:config.function_name_filter_list",
             ",".join(filter_list),
         ),
+        # The earlier id scheme's registrations this run owns (#3960). Any
+        # still registered is drift, which is what makes the migration
+        # converge after a partial or rolled-back state.
+        Desired(outcome.surface, "connection:legacy_ids", []),
         Desired(outcome.surface, "preset:name", display_name),
         Desired(outcome.surface, "preset:params.system", system_text),
         Desired(outcome.surface, "preset:meta.description", description),
@@ -6294,6 +6430,8 @@ def _sync_preset(
     # not be compared. Recorded once per key: `read` runs twice per
     # reconcile, and a note repeated per read reads like two findings.
     masked_noted: set[str] = set()
+    #: Holds one marker once the stranded-model note is written (#3960).
+    legacy_rows_noted: set[str] = set()
 
     def _observe_key(entry: Mapping[str, Any], key: str) -> Observed:
         """The credential observation for one connection.
@@ -6321,6 +6459,11 @@ def _sync_preset(
         entries = client.tool_servers()
         connection = _connection(entries)
         observations: dict[str, Observed] = {}
+        observations["connection:legacy_ids"] = Observed(True, sorted(
+            str((entry.get("info") or {}).get("id"))
+            for entry in entries
+            if (entry.get("info") or {}).get("id") in legacy_owned
+        ))
         if connection is None:
             for key in (
                 "connection:url",
@@ -6527,6 +6670,26 @@ def _sync_preset(
                         admin_entry, "admin_connection:auth_key_digest",
                     )
         rows = {str(r.get("id")): r for r in client.models_list()}
+        # Models this run does not own that still name an earlier-release
+        # tool id lose their graph tools once the legacy connection is gone:
+        # Open WebUI skips an unknown server without an error. Sync never
+        # writes a row it does not own, so they are NAMED, once per run.
+        stranded: dict[str, list[str]] = {}
+        for row_id, row in rows.items():
+            named = sorted(
+                set((row.get("meta") or {}).get("toolIds") or []) & legacy_tool_ids
+            )
+            if named and row_id not in own_preset_ids:
+                stranded[row_id] = named
+        if stranded and not legacy_rows_noted:
+            legacy_rows_noted.add("noted")
+            outcome.notes.append(
+                f"server id migration: model(s) {sorted(stranded)} still name "
+                f"{sorted({i for ids in stranded.values() for i in ids})}, "
+                "which this deployment no longer registers; point their "
+                "tools at the new server id in the workspace model list, or "
+                "they get no graph tools"
+            )
         if admin_plan is None and report is not None:
             # No requests of its own: the same two reads, interpreted. The
             # last read of the run (the post-write readback) is what remains.
@@ -6535,6 +6698,7 @@ def _sync_preset(
                 rows,
                 server_id=admin_server_id,
                 preset_id=f"{inputs.preset_id}{ADMIN_PRESET_SUFFIX}",
+                legacy_server_id=legacy_ids["admin_connection"],
             )
         if write_connection is not None:
             # Read BEFORE the read-preset early return below: a missing read
@@ -6672,9 +6836,15 @@ def _sync_preset(
             # tool server's credential as the literal digest string and
             # destroy it. Nothing here is observed — the entries go to the
             # instance and nowhere else.
+            raw_entries = client.tool_servers_raw()
+            dropped_legacy = sorted(
+                str((e.get("info") or {}).get("id"))
+                for e in raw_entries
+                if (e.get("info") or {}).get("id") in legacy_owned
+            )
             entries = [
                 dict(e)
-                for e in client.tool_servers_raw()
+                for e in raw_entries
                 if (e.get("info") or {}).get("id")
                 not in {
                     inputs.mcp_server_id,
@@ -6686,8 +6856,16 @@ def _sync_preset(
                     # and is written back untouched. It is reported as
                     # possibly stale instead (`admin_preset.stale_connection`).
                     admin_server_id if admin_plan is not None else None,
+                    # The earlier id scheme's entries for the same roles.
+                    *legacy_owned,
                 }
             ]
+            if dropped_legacy:
+                outcome.notes.append(
+                    f"server id migration: replaced connection(s) "
+                    f"{dropped_legacy} with {inputs.mcp_server_id!r} and its "
+                    "suffixed ids, so tool names use one separator"
+                )
             entries.append(dict(read_connection_entry))
             if admin_connection_entry is not None:
                 entries.append(dict(admin_connection_entry))

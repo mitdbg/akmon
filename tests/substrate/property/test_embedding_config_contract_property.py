@@ -4,7 +4,7 @@ import itertools
 import warnings
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import HealthCheck, given, settings, strategies as st
 
 from okg.substrate.embeddings import (
     EmbeddingConfig,
@@ -27,6 +27,12 @@ _UNKNOWN_KEY = st.text(
     min_size=1,
     max_size=16,
 ).map(lambda suffix: f"x_{suffix}")
+# The first unrestricted st.text() draw in a process builds Hypothesis's
+# Unicode table (about 0.2 s on an idle lab host, cached on disk afterwards).
+# On a fresh checkout under a loaded parallel run that one draw passed the
+# 1 s too_slow health check and failed the test before any example ran. The
+# check measures the host, not the property; every assertion still runs.
+_FIRST_TEXT_DRAW_MAY_BE_SLOW = settings(suppress_health_check=[HealthCheck.too_slow])
 
 
 @pytest.mark.parametrize(
@@ -87,6 +93,7 @@ def test_exhaustive_symbolic_spelling_state_model(
         max_size=4,
     )
 )
+@_FIRST_TEXT_DRAW_MAY_BE_SLOW
 def test_every_unknown_key_is_rejected(
     spelling: str,
     unknown: dict[str, object],
@@ -106,6 +113,7 @@ def test_every_unknown_key_is_rejected(
         st.lists(st.integers()),
     ).filter(lambda value: not isinstance(value, dict))
 )
+@_FIRST_TEXT_DRAW_MAY_BE_SLOW
 def test_every_non_mapping_block_is_rejected(
     spelling: str,
     value: object,

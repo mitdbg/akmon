@@ -296,7 +296,8 @@ async def test_the_descriptions_say_what_the_tools_do(served_surface):
     assert "`where` and `order_by` (on the far record)" in expand
     assert 'metrics=["count"]' in tools["aggregate"]
     assert "a declared attrs.<key>" in tools["filter"]
-    assert tools["map"].startswith("Chosen fields of every record in a set.")
+    # PACT read-map-compute: map adds computed columns.
+    assert tools["map"].startswith("Add computed columns to every row of a set; never drops a row.")
 
 
 @pytest.mark.anyio

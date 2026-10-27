@@ -576,10 +576,11 @@ def test_native_view_boundary_from_publish_diagnostics_refreshes_segment(
                 {
                     "label": "commit",
                     "status": "published",
-                    "attribute_effective_view_refresh": {
-                        "status": "materialized",
-                        "node_rows": 4,
-                        "edge_rows": 3,
+                    "attribute_overlay_refresh": {
+                        "materialized": True,
+                        "reason": "materialized",
+                        "carried_forward": 4,
+                        "overlaid": 3,
                     },
                     "native_view_refresh": {
                         "status": "materialized",
@@ -593,8 +594,7 @@ def test_native_view_boundary_from_publish_diagnostics_refreshes_segment(
                         },
                     ],
                     "timings_ms": {
-                        "attribute_effective_view_materialize": 5.0,
-                        "attribute_effective_attrs_materialize": 2.5,
+                        "attribute_effective_attrs_materialize": 7.5,
                         "native_views": 1.0,
                     },
                 },
@@ -604,11 +604,31 @@ def test_native_view_boundary_from_publish_diagnostics_refreshes_segment(
 
     view = _segment(row["work_segments"], "mcp_read_side_view")
     assert view["status"] == "fallback"
-    assert view["fallback_reason"] == "attribute_effective_full_materialization"
+    assert view["fallback_reason"] == "attribute_overlay_carry_forward"
     assert view["dirty_scope_count"] == 9
     assert view["reused_scope_count"] == 1
     assert view["output_count"] == 9
     assert view["elapsed_ms"] == 8.5
+
+
+def test_a_publish_without_an_overlay_refresh_is_unavailable_not_a_fallback() -> None:
+    """okg#3112 S3: the boundary reads ``attribute_overlay_refresh``. A
+    publish that carries only the retired snapshot key reports unavailable
+    with its reason, never a fabricated fallback."""
+    boundary = native_view_scope_boundary_from_diagnostics_commit({
+        "publishes": [
+            {
+                "label": "commit",
+                "status": "published",
+                "attribute_effective_view_refresh": {
+                    "status": "materialized", "node_rows": 4, "edge_rows": 3,
+                },
+            },
+        ],
+    })
+    assert boundary["status"] == "unavailable"
+    assert boundary["reason"] == "attribute_overlay_not_materialized_for_replay_row"
+    assert boundary["attribute_overlay_materialized"] is None
 
 
 def test_publish_diagnostics_refresh_remaining_runtime_segments(

@@ -28,6 +28,7 @@ import pytest
 import yaml
 
 from okg.substrate.admission import QUARANTINE_BRANCH
+from tests.pytest.source_jobs_inline import use_inline_source_jobs
 
 postgres = pytest.mark.postgres
 
@@ -159,6 +160,9 @@ def _deployment(
     data["sources"] = {"held": entry}
     registry_path.write_text(yaml.safe_dump(data))
     _claim_layered_fixture_catalog(dsn, dep)
+    # The tests prove approval and retraction logic, not the source child
+    # process; `tests/substrate/ingest/test_source_jobs.py` proves that.
+    use_inline_source_jobs(monkeypatch)
     monkeypatch.setattr(admission_workflows, "_resolve_dsn", lambda _name: dsn)
     return dep, emission_path
 

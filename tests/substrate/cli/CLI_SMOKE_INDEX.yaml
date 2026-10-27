@@ -457,13 +457,9 @@ verbs:
   db dbos-gc:
     test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
   db current-runtime-dlq:
-    test_file: tests/substrate/test_deployment_upgrade_dirty_state.py
+    test_file: tests/substrate/test_deployment_upgrade.py
   db acknowledge-runtime-dlq:
     test_file: tests/substrate/test_runtime_dlq_acknowledgement.py
-  db inspect-effective-attribute-recovery:
-    test_file: tests/substrate/test_deployment_upgrade_dirty_state.py
-  db prepare-effective-attribute-recovery:
-    test_file: tests/substrate/test_deployment_upgrade_dirty_state.py
   db prune-source-blobs:
     test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
   db prune-blobs:
@@ -473,15 +469,6 @@ verbs:
     test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
   db migrations:
     test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
-  db repair-effective-attribute-intervals:
-    test_file: tests/substrate/test_effective_attribute_view_intervals.py
-    notes: "real PostgreSQL partial repair, rollback, lock contention, and idempotence proof"
-  db prune-effective-intervals:
-    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
-    notes: "CLI smoke (no-DSN nonzero); deep window/drain/idempotence witnesses in tests/substrate/test_effective_attribute_view_intervals.py"
-  db backfill-effective-interval-raw-attrs:
-    test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
-    notes: "CLI smoke (no-DSN nonzero); deep dedup + reads==recompute witnesses in tests/substrate/test_effective_attribute_view_intervals.py"
   db role-passwords:
     test_file: tests/substrate/test_least_privilege_mcp.py
     notes: "real PostgreSQL (issue #3273): --apply sets random passwords, the built-in ones are refused, the 0600 secrets file feeds the MCP role DSN; doctor warns on a built-in password until rotation"
@@ -504,7 +491,7 @@ verbs:
     test_file: tests/substrate/db/test_ordered_migrations.py
   db attr-index:
     test_file: tests/substrate/db/test_declared_attr_index_lifecycle.py
-    notes: "real PostgreSQL (okg#3112 step 2): `reconcile` dry run plans without DDL, --apply builds every declared index concurrently, a second reconciler is refused, --retry-failed lifts the failure cap; `verify --against-graph` exit 0 clean and 1 naming the attribute, plain `verify` refused as removed_check (test_declared_attr_index_parity.py)"
+    notes: "real PostgreSQL (okg#3112 step 2): `reconcile` dry run plans without DDL, --apply builds every declared index concurrently, a second reconciler is refused, --retry-failed lifts the failure cap (`verify` is gone with the attribute copies)"
 
   # ─── admin: runtime (DBOS) group ─────────────────────────────
   runtime:
@@ -522,6 +509,8 @@ verbs:
     test_file: tests/substrate/ingest/test_supersede_incomplete_checkpoint.py
   runtime finish-undo:
     test_file: tests/substrate/ingest/test_run_base_undo.py
+  runtime deferred-edges:
+    test_file: tests/substrate/ingest/test_cross_source_endpoint_wedge_db.py
   runtime smoke:
     test_file: tests/substrate/cli/test_low_coverage_verb_smoke.py
   runtime drain:

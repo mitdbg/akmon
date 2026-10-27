@@ -408,6 +408,39 @@ def test_postgres_worker_capacity_requires_reserved_headroom(
         _load(root, "fixture-production", values)
 
 
+def test_postgres_compose_defaults_shared_memory_to_2gb(tmp_path: Path) -> None:
+    """No database.shm_size must not leave Docker's 64 MB /dev/shm (#3991)."""
+    root, values = _environment_fixture(tmp_path)
+    descriptor = root / "fixture-staging/environment.yaml"
+    raw = yaml.safe_load(descriptor.read_text(encoding="utf-8"))
+    assert "shm_size" not in raw["database"]
+    environment = _load(root, "fixture-staging", values)
+    assert environment.database.shm_size is None
+
+    plan = render_environment_services(environment, adapter="systemd", environ=values)
+    postgres = yaml.safe_load(_artifact(plan, "database_compose")["content"])[
+        "services"
+    ]["postgres"]
+
+    assert postgres["shm_size"] == "2gb"
+
+
+def test_postgres_compose_keeps_a_declared_shared_memory_size(tmp_path: Path) -> None:
+    root, values = _environment_fixture(tmp_path)
+    descriptor = root / "fixture-staging/environment.yaml"
+    raw = yaml.safe_load(descriptor.read_text(encoding="utf-8"))
+    raw["database"]["shm_size"] = "4gb"
+    descriptor.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    environment = _load(root, "fixture-staging", values)
+
+    plan = render_environment_services(environment, adapter="systemd", environ=values)
+    postgres = yaml.safe_load(_artifact(plan, "database_compose")["content"])[
+        "services"
+    ]["postgres"]
+
+    assert postgres["shm_size"] == "4gb"
+
+
 def test_postgres_compose_applies_environment_wal_overrides(tmp_path: Path) -> None:
     """database.wal overrides named WAL settings; the rest keep the defaults."""
     root, values = _environment_fixture(tmp_path)

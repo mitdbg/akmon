@@ -50,8 +50,10 @@ __all__ = [
 
 #: Appended to the deployment's MCP server id to name the live registration.
 #: A separate id is what lets one reconcile drop, rewrite and withdraw the
-#: live connection without touching the graph one.
-LIVE_CONNECTION_SUFFIX = "-live"
+#: live connection without touching the graph one. Underscore: Open WebUI
+#: prefixes every tool name with the server id, so a server id uses one
+#: separator throughout (``okg.substrate.chat.sync.MCP_SERVER_ID_PREFIX``).
+LIVE_CONNECTION_SUFFIX = "_live"
 
 
 class ChatLiveToolSlotError(SubstrateError):

@@ -2,8 +2,7 @@
 
 One run of ``okg_declared_attr_index_maintenance`` reconciles the
 declared-attribute expression indexes (drops, then builds, design section
-4.3) and then runs the drift checks for the publishes since the last run
-(design section 3). It runs on the deployment's index-maintenance queue
+4.3). It runs on the deployment's index-maintenance queue
 (``okg-<deployment>-index-maintenance``, concurrency 1), never on the
 control queue, so a ``CREATE INDEX CONCURRENTLY`` that waits ten minutes for
 an older transaction never holds a publish. The five-minute schedule
@@ -37,16 +36,6 @@ log = logging.getLogger(__name__)
 
 DECLARED_ATTR_INDEX_WORKFLOW_NAME = "okg_declared_attr_index_maintenance"
 
-#: Reconcile outcomes after which the drift checks do not run, because the
-#: run cannot vouch that no schema change is under way (``refused``: another
-#: actor, possibly a migrate, holds the graph-index DDL lock; ``preempted``:
-#: a migrate or catalog apply asked the reconciler to stop; ``error``) or
-#: because there is nothing to check yet.
-_SKIP_DRIFT_AFTER = frozenset({
-    "not_installed", "not_registered", "not_enabled", "preempted", "refused", "error",
-})
-
-
 _DECORATED: dict[str, Any] = {}
 
 
@@ -62,7 +51,7 @@ def register_declared_attr_index_workflow(*, deployment: str) -> None:
         max_recovery_attempts=3,
     )
     def declared_attr_index_workflow() -> dict:
-        """One reconcile and drift-check run. A recovered run starts over:
+        """One reconcile run. A recovered run starts over:
         the reconciler reads the catalog and the manifest afresh, marks a
         build its predecessor left ``building`` as failed and drops it."""
         return maintenance_workflow_body(deployment=deployment)
@@ -86,7 +75,7 @@ def declared_attr_index_workflow() -> Any:
 
 def maintenance_workflow_body(*, deployment: str, dsn: str | None = None) -> dict:
     """The workflow's body: one maintenance run, raising ``SubstrateError``
-    (with the run's report) when either half raised, so DBOS records the
+    (with the run's report) when the reconcile raised, so DBOS records the
     workflow as failed rather than as a success."""
     out = run_index_maintenance(deployment=deployment, dsn=dsn)
     if out.get("status") == "error":
@@ -99,11 +88,10 @@ def maintenance_workflow_body(*, deployment: str, dsn: str | None = None) -> dic
 
 
 def run_index_maintenance(*, deployment: str, dsn: str | None = None) -> dict:
-    """Reconcile, then check drift. Each half reports its own status; a
-    failure in one is logged and returned, never swallowed into success:
-    ``status`` is ``error`` when either half raised, else ``ok``. The drift
-    checks are skipped, with the reason, when the reconcile was refused,
-    preempted or failed."""
+    """Reconcile. A failure is logged and returned, never swallowed into
+    success: ``status`` is ``error`` when the reconcile raised, else ``ok``.
+    (PACT lane-s-storage-drop-copies retired the drift check: the
+    effective-attribute view it compared the graph with is gone.)"""
     from okg.substrate import declared_attr_indexes as dai
 
     if dsn is None:
@@ -123,19 +111,10 @@ def run_index_maintenance(*, deployment: str, dsn: str | None = None) -> dict:
         log.exception("declared-attribute index reconcile failed: deployment=%s", deployment)
         out["reconcile"] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
     reconcile_status = (out.get("reconcile") or {}).get("status")
-    if reconcile_status in _SKIP_DRIFT_AFTER:
-        out["drift"] = {"status": "skipped", "reason": f"reconcile_{reconcile_status}"}
-    else:
-        try:
-            out["drift"] = dai.run_drift_checks(dsn)
-        except Exception as exc:  # noqa: BLE001 -- reported in the workflow output
-            log.exception("declared-attribute drift check failed: deployment=%s", deployment)
-            out["drift"] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
-    drift_status = (out.get("drift") or {}).get("status")
-    out["status"] = "error" if "error" in (reconcile_status, drift_status) else "ok"
+    out["status"] = "error" if reconcile_status == "error" else "ok"
     log.info(
-        "declared-attribute index maintenance: deployment=%s reconcile=%s drift=%s",
-        deployment, reconcile_status, drift_status,
+        "declared-attribute index maintenance: deployment=%s reconcile=%s",
+        deployment, reconcile_status,
     )
     return out
 

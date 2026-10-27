@@ -76,7 +76,7 @@ the newest number on the
 [releases page](https://github.com/mitdbg/akmon/releases).
 
 ```bash
-export AKMON_VERSION=0.3.0
+export AKMON_VERSION=0.4.0
 git clone --depth 1 --branch "v${AKMON_VERSION}" https://github.com/mitdbg/akmon.git akmon
 cd akmon
 uv sync --locked
@@ -84,7 +84,7 @@ source .venv/bin/activate
 okg --version
 ```
 
-The last command prints the version you chose, for example `okg 0.3.0`. If
+The last command prints the version you chose, for example `okg 0.4.0`. If
 `uv sync` times out, run `UV_HTTP_TIMEOUT=300 uv sync --locked` until it
 succeeds; until then, `okg --version` may run a different `okg` already on
 your `PATH`. The rest of this page runs `okg` in this activated environment.
@@ -314,15 +314,15 @@ of this file, never a password.
 Run the check below from `<dir>` as well: `okg mcp-serve` finds
 `.okg/local.env` from the folder it starts in.
 
-**Check:** the server lists its seven tools. `okg agent connect` already
-printed `server check: started from / and listed 7 tools`. To run the check
+**Check:** the server lists its eight tools. `okg agent connect` already
+printed `server check: started from / and listed 8 tools`. To run the check
 yourself, use the one under [Check it](../use/agents/index.md#check-it) on
 Connect an agent; it needs no agent and prints `['inspect', 'search',
-'expand', 'filter', 'map', 'aggregate', 'query']`. If it prints `[]` on a busy
+'expand', 'filter', 'map', 'aggregate', 'query', 'run']`. If it prints `[]` on a busy
 machine, run it again.
 
 In a new agent session, ask which tools the `okg-<name>` server offers. It lists
-the same seven.
+the same eight.
 
 ## 5. Ask a first question
 

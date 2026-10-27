@@ -1,0 +1,265 @@
+id: https://palimpzest.mit.edu/okg/modules/document_versions
+name: document_versions
+title: Document versions — versioned documents with ordered blocks
+description: |-
+  A document that is issued again and again, and keeps every issue. Names
+  are neutral on purpose: the same four subtypes describe a regulatory
+  report, a wiki page and a specification.
+
+  IDENTITY. A document is the pair (`entity`, `family`): the entity owns it
+  (a company, a wiki space, a project), the family says which document of
+  that owner it is (a report series, a page, a spec). A `document_version`
+  is one issue of it, named by `version` and dated by `issued_at`. Version
+  identity is (`entity`, `version`), so a version string is unique within
+  an entity, not just within a family.
+
+  EVERY ATTRIBUTE A SURFACE READS IS TEXT. A rule engine reads these nodes
+  as rows, one subtype per row source with no join, and refuses a
+  non-text attribute. Booleans are the strings "true" and "false". The one
+  integer, `position`, is for people and ordering; no surface reads it.
+
+  IDENTITY IS COPIED DOWN. Each block, value and annotation repeats its
+  version's `entity`, `family`, `version`, `issued_at`, `covers`,
+  `doc_kind` and `is_latest`. A row source cannot join, so a row has to carry
+  what it is filtered and grouped by. The version node is the authority;
+  the helper `okg.substrate.library.sources.document_versions` writes both
+  from one value, so they cannot disagree.
+
+  LATEST. `is_latest` is "true" on one admitted version per (entity,
+  family): the one with the greatest (`issued_at`, `version`). A version
+  issued earlier than the current latest but received later never takes
+  the flag. When a newer version arrives, the old latest is re-emitted
+  with "false" on itself and on everything it contains.
+
+  KEPT BUT NOT ADMITTED. A version that was received and refused is still
+  a node, with `admitted` "false" and the reason in `refusal`, and it has
+  no blocks, values or annotations. It is never the latest.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  okg: https://palimpzest.mit.edu/okg/
+  docver: https://palimpzest.mit.edu/okg/modules/document_versions/
+default_range: string
+imports:
+- linkml:types
+classes:
+  DocumentVersion:
+    description: |-
+      One issue of a document. Node id
+      `docver:<deployment>:<entity>:<version>`; a ":" or "%" inside a part
+      is percent-escaped so two different identities never share an id.
+    class_uri: docver:DocumentVersion
+    attributes:
+      entity:
+        required: true
+        description: Who owns the document (a company, a wiki space, a project).
+      family:
+        required: true
+        description: Which document of that owner this is (a report series, a page, a spec).
+      version:
+        required: true
+        description: This issue's name, unique within the entity (a revision number, a release tag).
+      issued_at:
+        description: |-
+          When this version was issued, as a UTC instant to the second,
+          `YYYY-MM-DDTHH:MM:SSZ`. Empty only on a version that is not
+          admitted. Orders the versions of one (entity, family).
+      covers:
+        description: The span of time the content is about, as text. Empty when none applies.
+      doc_kind:
+        description: A finer label inside the family (a sub-type of the report, a page type). Free text.
+      is_latest:
+        required: true
+        description: '"true" on the one admitted version per (entity, family) with the greatest (issued_at, version); "false" otherwise.'
+      admitted:
+        required: true
+        description: '"true" when the content was read and kept; "false" when the version is recorded but refused.'
+      refusal:
+        description: Why a version is not admitted. Empty when it is.
+      title:
+        description: Display title. Searchable.
+      raw_sha256:
+        description: SHA-256 (lower-case hex) of the raw source bytes this version was read from.
+      reader_ref:
+        description: Which reader code produced the content (a commit, a version tag).
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_title_from: title
+      okg_searchable_text_fields: title
+      # A version's blocks are its passages: passage-ranked reads roll their
+      # scores up to the version.
+      okg_passage_rollup:
+        edge_type: contains
+        child_subtype: DocumentBlock
+  DocumentBlock:
+    description: |-
+      One ordered piece of a version's content (a section, a paragraph, a
+      table). Node id `docblock:<deployment>:<entity>:<version>:<position>`.
+      The same text in two versions is two nodes, because a block belongs to
+      one version.
+    class_uri: docver:DocumentBlock
+    attributes:
+      block_key:
+        required: true
+        description: The producer's key for this block, unique within its version.
+      entity:
+        required: true
+        description: The version's entity.
+      family:
+        required: true
+        description: The version's family.
+      version:
+        required: true
+        description: The version's name.
+      issued_at:
+        description: The version's issued_at.
+      covers:
+        description: The version's covers.
+      doc_kind:
+        description: The version's doc_kind.
+      is_latest:
+        required: true
+        description: The version's is_latest.
+      block_kind:
+        description: What sort of block this is (heading, paragraph, table).
+      text:
+        description: The block's text. Searchable.
+      payload:
+        description: Canonical JSON (sorted keys, no spaces) the checks read.
+      position:
+        range: integer
+        required: true
+        description: Zero-based place of this block among its version's blocks, in the order the producer gave them. For people and ordering; no surface reads it.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: text
+  DocumentValue:
+    description: |-
+      One named value a version states (an amount, a setting, a limit).
+      Node id `docval:<deployment>:<entity>:<version>:<ordinal>`, where the
+      ordinal is the value's zero-based place among its version's values.
+    class_uri: docver:DocumentValue
+    attributes:
+      value_key:
+        required: true
+        description: The producer's key for this value, unique within its version.
+      entity:
+        required: true
+        description: The version's entity.
+      family:
+        required: true
+        description: The version's family.
+      version:
+        required: true
+        description: The version's name.
+      issued_at:
+        description: The version's issued_at.
+      covers:
+        description: The version's covers.
+      doc_kind:
+        description: The version's doc_kind.
+      is_latest:
+        required: true
+        description: The version's is_latest.
+      name:
+        required: true
+        description: What the value is called. Searchable.
+      unit:
+        description: The unit the value is stated in. Empty when none applies.
+      context:
+        description: The situation the value is stated for (a time span, a scope), as text.
+      payload:
+        description: Canonical JSON (sorted keys, no spaces) the checks read; holds the value itself.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+      okg_searchable_text_fields: name
+  BlockAnnotation:
+    description: |-
+      A note a producer attaches to a version's blocks, of a stated kind
+      (layout, history). Node id
+      `blockann:<deployment>:<entity>:<version>:<kind>:<key>`. Several
+      kinds can coexist on one version.
+    class_uri: docver:BlockAnnotation
+    attributes:
+      annotation_key:
+        required: true
+        description: The producer's key for this annotation, unique within its version and kind.
+      annotation_kind:
+        required: true
+        description: What sort of annotation this is (layout, history, ...).
+      entity:
+        required: true
+        description: The version's entity.
+      family:
+        required: true
+        description: The version's family.
+      version:
+        required: true
+        description: The version's name.
+      issued_at:
+        description: The version's issued_at.
+      covers:
+        description: The version's covers.
+      doc_kind:
+        description: The version's doc_kind.
+      is_latest:
+        required: true
+        description: The version's is_latest.
+      payload:
+        description: Canonical JSON (sorted keys, no spaces) the checks read.
+    annotations:
+      archetype: artifact
+      transient: 'false'
+  EdgeNarrowings:
+    description: |-
+      How the four subtypes connect. A version contains its blocks and
+      values; an annotation annotates its version; a version amends the
+      version it corrects and supersedes the version it replaces as the
+      latest of its (entity, family).
+    annotations:
+      okg_edge_narrowings: 'true'
+      okg_relation_kind:
+        contains: contains
+        annotates: references
+        amends: references
+        supersedes: references
+    attributes:
+      document_version_contains_document_block:
+        description: The block is part of this version's content.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: DocumentVersion
+          dst_subtypes: DocumentBlock
+      document_version_contains_document_value:
+        description: The value is stated by this version.
+        annotations:
+          edge_archetype: contains
+          src_subtypes: DocumentVersion
+          dst_subtypes: DocumentValue
+      block_annotation_annotates_document_version:
+        description: The annotation is about this version's blocks.
+        annotations:
+          edge_archetype: annotates
+          src_subtypes: BlockAnnotation
+          dst_subtypes: DocumentVersion
+      document_version_amends_document_version:
+        description: The source version corrects or changes the target version, which is another version of the same entity. A version amends at most one version.
+        annotations:
+          edge_archetype: amends
+          cardinality: at_most_one_target
+          src_subtypes: DocumentVersion
+          dst_subtypes: DocumentVersion
+      document_version_supersedes_document_version:
+        description: |-
+          The source version is the next admitted version after the target in
+          the same (entity, family), ordered by (issued_at, version). A version
+          supersedes at most one version. A source that keeps an edge a later
+          version has made untrue (it did not hand the runner the helper's
+          record set) gives one version two targets, and the publish is blocked.
+        annotations:
+          edge_archetype: supersedes
+          cardinality: at_most_one_target
+          src_subtypes: DocumentVersion
+          dst_subtypes: DocumentVersion

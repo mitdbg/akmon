@@ -640,32 +640,24 @@ def test_source_convergence_accepts_live_ready_after_resume_deadline(
     ] == 1.0
 
 
-def test_attribute_read_model_phase_refuses_interval_opt_out() -> None:
-    result = _phase_attribute_read_model(
-        SimpleNamespace(
-            options=SimpleNamespace(plan_only=False),
-            env={"OKG_IVM_INTERVAL_VIEW": "0"},
-        )
-    )
-    assert result["ok"] is False
-    assert result["reason"] == "interval-backed attribute view is disabled"
-
-
-def test_attribute_read_model_phase_rejects_malformed_success(
+def test_retired_attribute_phases_run_nothing_and_say_why(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "okg.substrate.deployment_upgrade._run_okg",
-        lambda ctx, argv: CommandResult(0, "{}", ""),
-    )
-    result = _phase_attribute_read_model(
-        SimpleNamespace(
-            options=SimpleNamespace(plan_only=False, deployment="dep"),
-            env={"OKG_IVM_INTERVAL_VIEW": "1"},
-        )
-    )
-    assert result["ok"] is False
-    assert result["reason"] == "attribute read-model repair did not report success"
+    """PACT lane-s-storage-drop-copies: the generation_recovery and
+    attribute_read_model phases stay in the lifecycle contract but run no
+    command, and report that they were skipped and why."""
+    from okg.substrate.deployment_upgrade import _phase_generation_recovery
+
+    def refuse(ctx, argv):  # noqa: ANN001 - a retired phase must not run okg
+        raise AssertionError(f"retired phase ran {argv}")
+
+    monkeypatch.setattr("okg.substrate.deployment_upgrade._run_okg", refuse)
+    ctx = SimpleNamespace(options=SimpleNamespace(plan_only=False, deployment="dep"))
+    for phase in (_phase_attribute_read_model, _phase_generation_recovery):
+        result = phase(ctx)
+        assert result["ok"] is True, result
+        assert "retired" in result["skipped"], result
+        assert "0046_attribute_copies_teardown" in result["reason"], result
 
 
 def test_stop_services_invokes_applied_down_and_propagates_failure() -> None:
@@ -1911,7 +1903,6 @@ def _closed_effect_checks(**overrides):
         "catalog_unchanged": True,
         "nomos_unchanged": True,
         "smoke_source_versioned": True,
-        "attribute_read_model_rebuildable": True,
         "no_external_effects": True,
         "effect_digest_stable": True,
     }
@@ -3080,21 +3071,6 @@ def test_okg_ci_production_smoke_and_attribute_authority_are_closed() -> None:
     assert pact["name"] == "pact"
     assert pact["admission_contract_valid"] is True
     assert all(pact["admission_contract_checks"].values())
-    assert (
-        manifest["native_views"]["attribute_effective_view_empty_overlay_fast_path"]
-        is True
-    )
-    missing_view_declaration = copy.deepcopy(manifest)
-    del missing_view_declaration["native_views"][
-        "attribute_effective_view_empty_overlay_fast_path"
-    ]
-    assert (
-        du._target_attribute_read_model_rebuildable(
-            ctx,
-            missing_view_declaration,
-        )
-        is False
-    )
 
 
 def test_normalized_strict_registry_snapshot_is_recursively_json_shaped(
@@ -3408,7 +3384,7 @@ def test_planner_integrity_requires_revision_bound_pristine_substrate(
         del repo_root, kwargs
         if args == ["rev-parse", "HEAD"]:
             return "a" * 40 + "\n"
-        if args == ["status", "--porcelain=v1", "--untracked-files=no"]:
+        if args == ["--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=no"]:
             return tracked_status
         if args == ["ls-files", "--others", "--exclude-standard"]:
             return untracked_status
@@ -4190,11 +4166,6 @@ def test_collect_effect_inventory_reads_explicit_framework_repo(
             "manifest_fingerprint": None,
         },
     )
-    monkeypatch.setattr(
-        du,
-        "_target_attribute_read_model_rebuildable",
-        lambda _ctx, _raw_manifest: True,
-    )
 
     _effects, errors, report = _actual_collect_effect_inventory(ctx)
 
@@ -4241,11 +4212,6 @@ def test_deployment_revision_change_invalidates_effect_inventory_identity(
             "owner_catalog_fingerprint": None,
             "manifest_fingerprint": None,
         },
-    )
-    monkeypatch.setattr(
-        du,
-        "_target_attribute_read_model_rebuildable",
-        lambda _ctx, _raw_manifest: True,
     )
     calls = 0
     real_target = du._target_catalog_and_nomos_inventory
@@ -4876,11 +4842,6 @@ def test_effect_inventory_is_readable_with_a_tracked_symlink(
             "manifest_fingerprint": None,
         },
     )
-    monkeypatch.setattr(
-        du,
-        "_target_attribute_read_model_rebuildable",
-        lambda _ctx, _raw_manifest: True,
-    )
 
     _effects, errors, report = _actual_collect_effect_inventory(ctx)
 
@@ -5395,11 +5356,6 @@ def test_collect_effect_inventory_reads_vendored_layout(
             "owner_catalog_fingerprint": None,
             "manifest_fingerprint": None,
         },
-    )
-    monkeypatch.setattr(
-        du,
-        "_target_attribute_read_model_rebuildable",
-        lambda _ctx, _raw_manifest: True,
     )
 
     _effects, errors, report = _actual_collect_effect_inventory(ctx)
@@ -6412,7 +6368,6 @@ def test_full_restore_refuses_unknown_effects_before_pg_dump(
         "planner_trusted",
         "plan_readable",
         "smoke_source_versioned",
-        "attribute_read_model_rebuildable",
     ],
 )
 def test_each_authority_claim_alone_refuses_before_pg_dump(
@@ -12149,6 +12104,48 @@ def test_schema_catalog_digest_covers_row_security_policy() -> None:
 
 
 @pytest.mark.postgres
+def test_schema_catalog_digest_ignores_the_gap_a_dropped_column_leaves(
+    okg_workspace_isolated_runtime: str,
+) -> None:
+    """A table with a dropped middle column digests like the same table
+    created without it, which is what pg_restore rebuilds (migration 0046
+    drops columns from the middle of okg.declared_attr_indexes); a changed
+    column order still changes the digest."""
+    import psycopg
+    from psycopg import sql
+    from uuid import uuid4
+    from okg.substrate import deployment_upgrade as du
+
+    table = sql.Identifier(f"_catalog_gap_{uuid4().hex[:12]}")
+
+    def digest(conn) -> str:
+        return du._database_logical_identity(conn)["schema_catalog_digest"]
+
+    with psycopg.connect(okg_workspace_isolated_runtime, autocommit=True) as conn:
+        # The identity reads the owner stamp, which a bare test database lacks.
+        conn.execute(
+            "INSERT INTO okg.database_owner (owner_deployment_name) "
+            "VALUES ('catalog-gap') ON CONFLICT DO NOTHING"
+        )
+        try:
+            conn.execute(sql.SQL(
+                "CREATE TABLE okg.{} (a int, dropped int, c text)").format(table))
+            conn.execute(sql.SQL("ALTER TABLE okg.{} DROP COLUMN dropped").format(table))
+            with_gap = digest(conn)
+            conn.execute(sql.SQL("DROP TABLE okg.{}").format(table))
+            conn.execute(sql.SQL("CREATE TABLE okg.{} (a int, c text)").format(table))
+            restored_shape = digest(conn)
+            conn.execute(sql.SQL("DROP TABLE okg.{}").format(table))
+            conn.execute(sql.SQL("CREATE TABLE okg.{} (c text, a int)").format(table))
+            reordered = digest(conn)
+        finally:
+            conn.execute(sql.SQL("DROP TABLE IF EXISTS okg.{}").format(table))
+
+    assert with_gap == restored_shape
+    assert reordered != restored_shape
+
+
+@pytest.mark.postgres
 def test_database_function_identity_normalizes_defaults_and_rejects_acl_drift(
     okg_workspace_isolated_runtime: str,
 ) -> None:
@@ -13512,304 +13509,6 @@ def test_upgrade_resume_continues_after_completed_phase(
     assert second["phases"][0]["phase"] == "preflight"
     assert second["phases"][1]["phase"] == "backup"
     assert second["phases"][-1]["phase"] == "readiness"
-
-
-def test_ordinary_repair_rebinds_after_authorized_snapshot_backfill(
-    tmp_path: Path,
-) -> None:
-    from okg.substrate.deployment_upgrade import (
-        UpgradeContext,
-        UpgradeOptions,
-        _phase_generation_recovery,
-    )
-
-    original = {
-        "schema": "okg.effective_attribute_recovery_classification.v1",
-        "classification": "ordinary_repair",
-        "deployment": "dep",
-        "branch": "default",
-        "branch_id": "default",
-        "generation_id": "gen:1",
-        "ordinal": 7,
-        "checkpoint_counts": {"node": 3, "edge": 2},
-        "pinned_counts": {"node": 3, "edge": 2},
-        "snapshot_identity": {"row_count": 0, "fingerprint": "sha256:old"},
-        "interval_identity": {"row_count": 6, "fingerprint": "sha256:interval"},
-        "payload_match": False,
-        "integrity_receipt": {"ok": False, "reason": "receipt_dirty"},
-        "count_stamp_recovery": None,
-        "binding_digest": "sha256:before",
-    }
-    rebound = {
-        **original,
-        "snapshot_identity": {"row_count": 5, "fingerprint": "sha256:backfilled"},
-        "binding_digest": "sha256:after",
-    }
-    calls: list[list[str]] = []
-
-    def runner(argv: list[str], env: dict[str, str]) -> CommandResult:
-        del env
-        calls.append(argv)
-        if "inspect-effective-attribute-recovery" in argv:
-            return _ok(rebound)
-        if "prepare-effective-attribute-recovery" in argv:
-            assert argv[argv.index("--expected-binding-digest") + 1] == (
-                "sha256:after"
-            )
-            expected = json.loads(
-                argv[argv.index("--expected-classification") + 1]
-            )
-            assert expected == rebound
-            return _ok(
-                {
-                    "ok": True,
-                    "prepared": False,
-                    "classification": rebound,
-                }
-            )
-        raise AssertionError(argv)
-
-    ctx = UpgradeContext(
-        options=UpgradeOptions(deployment="dep", skip_backup=True),
-        dsn="postgres://user@host/db",
-        resolution={},
-        env={},
-        state_file=tmp_path / "state.json",
-        backup_dir=tmp_path,
-        command_runner=runner,
-        data={"attribute_recovery_classification": original},
-    )
-
-    result = _phase_generation_recovery(ctx)
-
-    assert result["ok"] is True
-    assert result["binding_rebased"] is True
-    assert result["revalidated_classification"] == rebound
-    assert ctx.data["attribute_recovery_classification"] == rebound
-    assert len(calls) == 2
-
-
-def test_ordinary_repair_rebinds_to_monotonic_post_backup_successor(
-    tmp_path: Path,
-) -> None:
-    from okg.substrate.deployment_upgrade import (
-        UpgradeContext,
-        UpgradeOptions,
-        _phase_generation_recovery,
-    )
-
-    original = {
-        "schema": "okg.effective_attribute_recovery_classification.v1",
-        "classification": "ordinary_repair",
-        "deployment": "dep",
-        "branch": "default",
-        "branch_id": "default",
-        "generation_id": "gen:1",
-        "ordinal": 7,
-        "checkpoint_counts": {"node": 3, "edge": 2},
-        "pinned_counts": {"node": 3, "edge": 2},
-        "count_stamp_recovery": None,
-        "binding_digest": "sha256:before",
-    }
-    observed = {
-        **original,
-        "generation_id": "gen:2",
-        "ordinal": 8,
-        "binding_digest": "sha256:after",
-        "checkpoint_counts": {"node": 4, "edge": 3},
-        "pinned_counts": {"node": 4, "edge": 3},
-    }
-    calls: list[list[str]] = []
-
-    def runner(argv: list[str], env: dict[str, str]) -> CommandResult:
-        del env
-        calls.append(argv)
-        if "inspect-effective-attribute-recovery" in argv:
-            return _ok(observed)
-        if "prepare-effective-attribute-recovery" in argv:
-            expected = json.loads(
-                argv[argv.index("--expected-classification") + 1]
-            )
-            assert expected == observed
-            assert argv[argv.index("--expected-binding-digest") + 1] == (
-                "sha256:after"
-            )
-            return _ok(
-                {
-                    "ok": True,
-                    "prepared": False,
-                    "classification": observed,
-                }
-            )
-        raise AssertionError(argv)
-
-    ctx = UpgradeContext(
-        options=UpgradeOptions(deployment="dep", skip_backup=True),
-        dsn="postgres://user@host/db",
-        resolution={},
-        env={},
-        state_file=tmp_path / "state.json",
-        backup_dir=tmp_path,
-        command_runner=runner,
-        data={"attribute_recovery_classification": original},
-    )
-
-    result = _phase_generation_recovery(ctx)
-
-    assert result["ok"] is True
-    assert result["graph_anchor_rebased"] is True
-    assert result["monotonic_ordinary_successor"] is True
-    assert result["revalidated_classification"] == observed
-    assert ctx.data["attribute_recovery_classification"] == observed
-    assert len(calls) == 2
-
-
-@pytest.mark.parametrize(
-    ("observed_update", "reason"),
-    [
-        ({"deployment": "other"}, "deployment drift"),
-        ({"branch_id": "other"}, "branch drift"),
-        ({"branch": None}, "branch is missing"),
-        ({"generation_id": "gen:1"}, "generation did not change"),
-        ({"ordinal": 7}, "ordinal did not advance"),
-        ({"ordinal": "8"}, "ordinal is malformed"),
-        (
-            {
-                "checkpoint_counts": {"node": 4, "edge": 3},
-                "pinned_counts": {"node": 3, "edge": 3},
-            },
-            "current counts are not exact",
-        ),
-        (
-            {"count_stamp_recovery": {"schema": "unexpected"}},
-            "count-stamp recovery appeared",
-        ),
-        (
-            {"classification": "corrupt_state_recovery"},
-            "classification became corrupt",
-        ),
-    ],
-)
-def test_ordinary_repair_rebind_refuses_unsafe_post_backup_successor(
-    tmp_path: Path,
-    observed_update: dict[str, object],
-    reason: str,
-) -> None:
-    from okg.substrate.deployment_upgrade import (
-        UpgradeContext,
-        UpgradeOptions,
-        _phase_generation_recovery,
-    )
-
-    original = {
-        "schema": "okg.effective_attribute_recovery_classification.v1",
-        "classification": "ordinary_repair",
-        "deployment": "dep",
-        "branch": "default",
-        "branch_id": "default",
-        "generation_id": "gen:1",
-        "ordinal": 7,
-        "checkpoint_counts": {"node": 3, "edge": 2},
-        "pinned_counts": {"node": 3, "edge": 2},
-        "count_stamp_recovery": None,
-        "binding_digest": "sha256:before",
-    }
-    observed = {
-        **original,
-        "generation_id": "gen:2",
-        "ordinal": 8,
-        "checkpoint_counts": {"node": 4, "edge": 3},
-        "pinned_counts": {"node": 4, "edge": 3},
-        "binding_digest": "sha256:after",
-        **observed_update,
-    }
-
-    def runner(argv: list[str], env: dict[str, str]) -> CommandResult:
-        del env
-        assert "inspect-effective-attribute-recovery" in argv, reason
-        return _ok(observed)
-
-    ctx = UpgradeContext(
-        options=UpgradeOptions(deployment="dep", skip_backup=True),
-        dsn="postgres://user@host/db",
-        resolution={},
-        env={},
-        state_file=tmp_path / "state.json",
-        backup_dir=tmp_path,
-        command_runner=runner,
-        data={"attribute_recovery_classification": original},
-    )
-
-    result = _phase_generation_recovery(ctx)
-
-    assert result["ok"] is False, reason
-    assert result["reason"] == (
-        "attribute recovery graph anchor changed after preflight"
-    )
-    assert result["graph_anchor_matches"] is False
-    assert result["monotonic_ordinary_successor"] is False
-
-
-def test_ordinary_repair_rebind_refuses_drift_after_current_inspection(
-    tmp_path: Path,
-) -> None:
-    from okg.substrate.deployment_upgrade import (
-        UpgradeContext,
-        UpgradeOptions,
-        _phase_generation_recovery,
-    )
-
-    original = {
-        "schema": "okg.effective_attribute_recovery_classification.v1",
-        "classification": "ordinary_repair",
-        "deployment": "dep",
-        "branch": "default",
-        "branch_id": "default",
-        "generation_id": "gen:1",
-        "ordinal": 7,
-        "checkpoint_counts": {"node": 3, "edge": 2},
-        "pinned_counts": {"node": 3, "edge": 2},
-        "count_stamp_recovery": None,
-        "binding_digest": "sha256:before",
-    }
-    observed = {
-        **original,
-        "generation_id": "gen:2",
-        "ordinal": 8,
-        "checkpoint_counts": {"node": 4, "edge": 3},
-        "pinned_counts": {"node": 4, "edge": 3},
-        "binding_digest": "sha256:after",
-    }
-
-    def runner(argv: list[str], env: dict[str, str]) -> CommandResult:
-        del env
-        if "inspect-effective-attribute-recovery" in argv:
-            return _ok(observed)
-        if "prepare-effective-attribute-recovery" in argv:
-            return CommandResult(
-                2,
-                json.dumps({"ok": False, "reason": "binding changed"}),
-                "",
-            )
-        raise AssertionError(argv)
-
-    ctx = UpgradeContext(
-        options=UpgradeOptions(deployment="dep", skip_backup=True),
-        dsn="postgres://user@host/db",
-        resolution={},
-        env={},
-        state_file=tmp_path / "state.json",
-        backup_dir=tmp_path,
-        command_runner=runner,
-        data={"attribute_recovery_classification": original},
-    )
-
-    result = _phase_generation_recovery(ctx)
-
-    assert result["ok"] is False
-    assert result["reason"] == (
-        "attribute recovery no-op binding revalidation failed"
-    )
 
 
 def test_upgrade_resume_restarts_at_earliest_failed_live_postcondition(
@@ -16337,7 +16036,7 @@ def test_dev_isolated_schema_preflight_initializes_empty_database(
     assert result["ok"] is True, result
     assert ctx.data["dev_schema"]["schema_installed"] is True
     assert any("migrate" in c for c in commands)
-    assert any("inspect-effective-attribute-recovery" in c for c in commands)
+    assert not any("inspect-effective-attribute-recovery" in c for c in commands)
 
 
 # --- okg up restore defects (2026-09-03 okg-workspace restore) --------------
@@ -17159,7 +16858,6 @@ def test_backup_refusal_names_the_publish_recovery(
         monkeypatch, tmp_path,
         effects=_closed_effect_checks(
             smoke_source_versioned=False,
-            attribute_read_model_rebuildable=False,
         ),
         plan=plan,
     )
@@ -17168,11 +16866,11 @@ def test_backup_refusal_names_the_publish_recovery(
     assert backup["ok"] is False
     assert backup["reason"] == "physical rollback admission refused mutation"
     assert backup["failed_checks"] == [
-        "smoke_source_versioned", "attribute_read_model_rebuildable",
+        "smoke_source_versioned",
     ]
     assert backup["publish_recovery"] == plan
     assert set(backup["failed_check_hints"]["manifest_configuration"]) == {
-        "smoke_source_versioned", "attribute_read_model_rebuildable",
+        "smoke_source_versioned",
     }
     assert backup["failed_check_hints"]["authority"] == {}
     assert "runtime.smoke_sources" in (
@@ -18265,3 +17963,61 @@ def test_resume_revalidation_ready_child_uses_compat_spelling(
         completed={"readiness"},
     )
     _assert_compat_ready_child(calls, "general")
+
+
+@pytest.mark.postgres
+def test_preflight_records_the_published_head_for_the_live_proof(
+    clean_runtime: str,
+) -> None:
+    """okg#3112 S3: prove-live binds its predecessor to this record.
+
+    On a database with one published generation the record names it, with
+    the checkpoint's counts and a count of its pinned checkout. Failure
+    case: a database the read cannot reach records ``unavailable`` with the
+    error and no generation id, so the proof's ``predecessor_bound`` fails.
+    """
+    import psycopg
+
+    from okg.substrate import deployment_upgrade as du
+    from okg.substrate.graph_store import ChronosGraphStore
+    from okg.substrate.library.sources.base import NodeFact
+    from okg.substrate.publisher import Publisher
+    from tests.pytest.catalog_fixture_builders import (
+        bind_test_catalog_writer,
+        seed_catalog,
+    )
+
+    dsn = clean_runtime
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        seed_catalog(conn, subtypes=["case"], narrowings=[])
+        ChronosGraphStore.from_connection(conn).apply_facts(
+            [
+                NodeFact(f"case:{i}", "case", {"x": 1}, {"id": f"case:{i}"}, {"v": 1})
+                for i in range(2)
+            ],
+            source="default",
+            strict_endpoints=True,
+        )
+    published = Publisher(
+        dsn, "default", catalog_identity=bind_test_catalog_writer(dsn, "default"),
+    ).cycle()
+    assert published["status"] == "published", published
+
+    record = du._preflight_predecessor_generation(
+        SimpleNamespace(dsn=dsn, options=SimpleNamespace(deployment="default"))
+    )
+    assert record["schema"] == "okg.deployment_predecessor_generation.v1"
+    assert record["status"] == "published", record
+    assert record["generation_id"] == published["generation_id"]
+    assert record["checkpoint_counts"] == {"node_count": 2, "edge_count": 0}
+    assert record["pinned_counts"] == {"node_count": 2, "edge_count": 0}
+
+    unreachable = du._preflight_predecessor_generation(
+        SimpleNamespace(
+            dsn="postgresql://okg@127.0.0.1:1/absent",
+            options=SimpleNamespace(deployment="default"),
+        )
+    )
+    assert unreachable["status"] == "unavailable", unreachable
+    assert "generation_id" not in unreachable
+    assert unreachable["error"]["type"]

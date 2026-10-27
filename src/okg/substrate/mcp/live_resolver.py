@@ -129,6 +129,90 @@ def without_run_generation(name: str, arguments: Any) -> Any:
     return {k: v for k, v in arguments.items() if k != "generation_id"}
 
 
+#: The tools whose `input` may be a string (`Union[str, ...]`): a node id, or
+#: a JSON object FastMCP decodes inside `Tool.run` (`pre_parse_json`). That is
+#: after the grammar rewrite and the resolver have read the call, so both
+#: must see the decoded form. Every other argument is refused as a string by
+#: argument validation, loudly, before either runs.
+STRING_INPUT_TOOLS = frozenset({"aggregate", "expand", "filter", "map"})
+#: The tools whose `input` may name a handle as a string (PACT
+#: read-live-handles, N7): `"<id>"`, `'"<id>"'` and `'{"ref": "<id>"}'` all
+#: become `{"ref": "<id>"}`.
+HANDLE_INPUT_TOOLS = frozenset({"aggregate", "filter", "map"})
+
+#: The string-input tools whose `input` is required: it has no `None` form, so
+#: a string that FastMCP would decode to `None` fails validation inside
+#: `Tool.run`, as an untyped error (#4022). `expand`'s `input` is optional
+#: (`None` is the absent input, which `next` continues), so it is not listed.
+REQUIRED_INPUT_TOOLS = frozenset({"aggregate"})
+
+
+class JsonStringRefused(ValueError):
+    """A string `input` that starts like JSON but is not an object."""
+
+    def __init__(self, tool: str, problem: str) -> None:
+        self.tool, self.problem = tool, problem
+        self.fix_hint = (
+            "send `input` as an object, or as a JSON string that decodes to one; "
+            "a node id is sent as a plain string; leave `input` out to count every record"
+        )
+        super().__init__(f"{tool}: the string `input` {problem}")
+
+
+def decode_json_arguments(tool: str, arguments: Mapping[str, Any]) -> Mapping[str, Any]:
+    """`arguments` with a JSON-object string `input` decoded, as
+    `pre_parse_json` decodes it later (#3989). The same mapping when nothing
+    was decoded.
+
+    A handle id, bare or JSON-encoded (`result_references.string_input_shape`),
+    becomes `{"ref": id}` on `filter`, `map` and `aggregate`. A string that
+    decodes to JSON null is refused on a tool whose `input` is required
+    (#4022). A string that does not start with `{` or `[`, or starts with `[`
+    and is not JSON, is left alone: it is a node id. One that starts with `{`
+    and is not valid JSON, or that decodes to a list, is refused
+    (:class:`JsonStringRefused`). FastMCP keeps every other decoded scalar (a
+    number, a boolean, a quoted string) as the string sent, so those stay
+    node ids.
+    """
+
+    value = arguments.get("input") if tool in STRING_INPUT_TOOLS else None
+    if not isinstance(value, str):
+        return arguments
+    from okg.substrate.mcp.result_references import string_input_shape
+
+    # One rule for the shape of a string input, shared with the grammar's
+    # handle rewrite (PACT read-live-handles, N7), so the two never disagree.
+    shape, named = string_input_shape(value)
+    if shape == "handle" and tool in HANDLE_INPUT_TOOLS:
+        return {**arguments, "input": {"ref": named}}
+    head = value.lstrip()[:1]
+    if head == "n" and tool in REQUIRED_INPUT_TOOLS:
+        try:
+            decoded_null = json.loads(value) is None
+        except ValueError:
+            decoded_null = False
+        if decoded_null:
+            raise JsonStringRefused(
+                tool,
+                "decodes to null; send an object or a node id, "
+                "or leave `input` out to count every record",
+            )
+        return arguments
+    if shape == "text" or head not in ("{", "["):
+        return arguments
+    try:
+        decoded = json.loads(value)
+    except RecursionError:
+        raise JsonStringRefused(tool, "is nested too deeply to read") from None
+    except ValueError:
+        if head == "[":
+            return arguments
+        raise JsonStringRefused(tool, "starts like a JSON object but is not valid JSON") from None
+    if not isinstance(decoded, dict):
+        raise JsonStringRefused(tool, "decodes to a list; send an object") from None
+    return {**arguments, "input": decoded}
+
+
 # Kept under their earlier names for callers and tests.
 _HANDOFF = HANDOFF
 _HOLDER = HOLDER
@@ -188,6 +272,11 @@ class LiveTypedSet:
     #: no row carries refused as a probable typo; on a narrowed set it is
     #: answered with a note naming it.
     whole_listing: bool = True
+    #: A handle derived from another (a filter that narrowed or ordered it,
+    #: PACT read-live-handles): the handle it came from, and the row count
+    #: of the call that made the original set, for `original_call`.
+    derived_from: Optional[str] = None
+    original_rows: Optional[int] = None
 
     @property
     def refetch(self) -> Any:
@@ -256,23 +345,14 @@ def declared_keys(live_type: Any, edge: Any = None) -> tuple[str, ...]:
 # -- context variables: the handoff and the whole-call holder -----------------
 
 
-#: Set for one whole MCP call: a grown set's new id -> the id it grew from,
-#: discarded once the new one is committed (:func:`after_commit`).
-_GROWN: contextvars.ContextVar[Optional[dict[str, str]]] = contextvars.ContextVar(
-    "okg_live_graph_grown", default=None,
-)
-
-
 @contextlib.contextmanager
 def holder_scope() -> Iterator[None]:
     """Hold resolved live rows for the rest of one MCP call."""
 
     token = HOLDER.set({})
-    grown = _GROWN.set({})
     try:
         yield
     finally:
-        _GROWN.reset(grown)
         HOLDER.reset(token)
 
 
@@ -296,9 +376,12 @@ def has_handoff(operator_name: str) -> bool:
 
 # -- the keep rule -------------------------------------------------------------
 
-#: A read is kept when it made MORE than this many upstream calls, or when
-#: its reply is cut.
-KEEP_OVER_CALLS = 20
+#: `filter`, `map` and `aggregate` keep every live read (PACT
+#: read-live-handles, 4.1.1). The far end of a live node's edge
+#: (`expand(input=<live node>, edge_type=...)`) is not one of the set reads
+#: 3a-i names: it keeps today's rule, kept when it made MORE than this many
+#: upstream calls or its reply is cut.
+EXPAND_KEEP_OVER_CALLS = 20
 #: The page size a read tool serves when the call names none.
 DEFAULT_PAGE = 50
 #: Tools whose reply is a page of rows (`limit` + `offset`).
@@ -341,23 +424,9 @@ def _keep(operator_name: str, state: dict[str, Any], *, cut: bool) -> None:
     from okg.substrate.mcp import live_result_sets as _lrs
     from okg.substrate.mcp import result_references as _rr
 
-    kept_set: LiveTypedSet = state["set"]
-    mint = state.get("mint") or {}
     store = _lrs.live_store()
-    stateless = bool(kept_set.stateless)
-    coverage = {**dict(kept_set.coverage), "kept": True}
-    payload = dataclasses.replace(
-        kept_set, coverage=coverage,
-        live_line=with_tail(kept_set.live_line, "kept"),
-        grown_from=state.get("grow_from"),
-    )
     try:
-        draft = store.mint(
-            reader_key=kept_set.reader_key, binding=dict(mint.get("binding") or {}),
-            members=(), header_claim=mint.get("header_claim"),
-            multi_user=bool(mint.get("multi_user")), payload=payload,
-            payload_bytes=len(kept_set.rows_json), payload_rows=kept_set.row_count,
-        )
+        draft = _mint_kept(state)
     except _rr.ResultReferenceCapacity as exc:
         reason = (exc.data or {}).get("reason")
         why = "too_large" if reason in {"reference_members", "reference_bytes"} else "capacity"
@@ -383,7 +452,52 @@ def _keep(operator_name: str, state: dict[str, Any], *, cut: bool) -> None:
         state["live_line"] = with_tail(str(state.get("live_line") or ""), f"not kept: {why}")
         return
     _rr.adopt_draft(store, draft)
+    _record_kept(state, draft)
+
+
+def _mint_kept(state: Mapping[str, Any]) -> Any:
+    """The kept set's draft in the live store (its reader, its logical
+    session's quota); raises the store's capacity refusal."""
+
+    from okg.substrate.mcp import handles as _handles
+    from okg.substrate.mcp import live_result_sets as _lrs
+
+    kept_set: LiveTypedSet = state["set"]
+    mint = state.get("mint") or {}
+    coverage = {**dict(kept_set.coverage), "kept": True}
+    payload = dataclasses.replace(
+        kept_set, coverage=coverage,
+        live_line=with_tail(kept_set.live_line, "kept"),
+        grown_from=state.get("grow_from"),
+    )
+    return _lrs.live_store().mint(
+        reader_key=kept_set.reader_key, binding=dict(mint.get("binding") or {}),
+        members=(), header_claim=mint.get("header_claim"),
+        multi_user=bool(mint.get("multi_user")), payload=payload,
+        payload_bytes=len(kept_set.rows_json), payload_rows=kept_set.row_count,
+        # The caps count per reader and logical session (M1).
+        quota_key=_handles.quota_key(
+            kept_set.reader_key, kept_set.logical_session, bool(kept_set.stateless),
+        ),
+    )
+
+
+def _record_kept(state: dict[str, Any], draft: Any) -> None:
+    """What a kept set's state says once its draft is held or committed."""
+
+    from okg.substrate.mcp import handles as _handles
+    from okg.substrate.mcp import live_result_sets as _lrs
+
+    kept_set: LiveTypedSet = state["set"]
+    stateless = bool(kept_set.stateless)
     state["kept_id"] = draft.id
+    call = state.get("call")
+    if isinstance(call, Mapping):
+        # The calls that rebuild it, for a dead handle's retry hint (3.6);
+        # a grown set's chain starts with the one its parent was made by.
+        _handles.remember(
+            draft.id, kept_set.reader_key, call, parent=state.get("grow_from"),
+        )
     state["result_reference"] = _lrs.reference_block(
         set_id=draft.id, expires_at=draft.expires_at, rows=kept_set.row_count,
         digest=kept_set.digest, observed_at=kept_set.observed_at,
@@ -392,10 +506,172 @@ def _keep(operator_name: str, state: dict[str, Any], *, cut: bool) -> None:
     if stateless:
         tail += " · kept per reader (stateless transport)"
     state["live_line"] = with_tail(str(state.get("live_line") or ""), tail)
-    old = state.get("grow_from")
-    grown = _GROWN.get()
-    if old and grown is not None:
-        grown[draft.id] = str(old)
+
+
+def keep_grown_now(state: dict[str, Any]) -> None:
+    """Commit a grown set now, before the tool body computes over it (#4181).
+
+    `map(compute)` over a handle that lacked fields fetched them (up to
+    1,500 upstream calls); a refusal found after the fetch (the output
+    bounds, the evaluation time, a field absent from every row) used to
+    release the grown set with the refused reply, so a narrower retry paid
+    the same calls again. Committed here, it counts against its reader's
+    and logical session's quota like any kept set, lives its own 600 s, and
+    every refusal of this call names it (:func:`name_kept_growth`). So a
+    refused call now takes one handle slot: at the caller's own cap the
+    commit evicts the caller's oldest unpinned handle, never another
+    quota key's (review M3). A served reply names it as its handle's
+    `from`, as before. A full store
+    leaves the set to the keep rule of the tool body, which says why it was
+    not kept; the refusal then says it was not kept and why.
+    """
+
+    from okg.substrate.mcp import live_result_sets as _lrs
+    from okg.substrate.mcp import result_references as _rr
+
+    if state.get("set") is None or state.get("kept_id"):
+        return
+    store = _lrs.live_store()
+    try:
+        draft = _mint_kept(state)
+    except _rr.ResultReferenceCapacity as exc:
+        state["kept_now_failed"] = str((exc.data or {}).get("reason") or "capacity")
+        return
+    try:
+        store.commit(draft)
+    except _rr.ResultReferenceCapacity as exc:
+        state["kept_now_failed"] = str((exc.data or {}).get("reason") or "capacity")
+        return
+    finally:
+        # A committed draft holds no reservation, so this is a no-op then.
+        store.release(draft.id)
+    _record_kept(state, draft)
+    state["kept_now"] = True
+
+
+#: Canonical bytes of a kept-handle block's `template`, at most (review L6):
+#: past it the template is left out and the block keeps the id and counts.
+MAX_KEPT_TEMPLATE_BYTES = 1024
+#: The holder key a call's kept grown set is registered under (review L1).
+_KEPT_GROWTH = "kept-growth:"
+
+
+def kept_growth_block(
+    state: Optional[Mapping[str, Any]], operator: str, arguments: Mapping[str, Any],
+) -> Optional[dict[str, Any]]:
+    """`error.kept_handle` of a refusal after growth committed its set, or
+    None when this call grew nothing (#4181)."""
+
+    if not isinstance(state, Mapping) or not state.get("grow_from"):
+        return None
+    if not (state.get("kept_now") or state.get("kept_now_failed")):
+        return None
+    from okg.substrate.mcp import handles as _handles
+
+    calls = int(state.get("calls_made") or 0)
+    said = f"{calls:,} upstream call{'s' if calls != 1 else ''}"
+    if not state.get("kept_now"):
+        return {
+            "id": None, "reason": str(state["kept_now_failed"]),
+            "upstream_calls": calls,
+            "note": (
+                f"the fields this call fetched ({said}) could not be kept: the "
+                "handle store refused them; a retry fetches them again"
+            ),
+        }
+    kept = str(state["kept_id"])
+    kept_set = state.get("set")
+    template_arguments: dict[str, Any] = {"input": {"ref": kept}}
+    for public, internal in (("compute", "compute"), ("select", "projection"),
+                             ("where", "predicate")):
+        value = arguments.get(internal)
+        if value not in (None, True, {}):
+            template_arguments[public] = value
+    block: dict[str, Any] = {
+        "id": kept,
+        "rows": int(getattr(kept_set, "row_count", 0) or 0),
+        "fields": list(state.get("fetched") or ()),
+        **({"fields_on_no_row": list(state["fetched_none"])}
+           if state.get("fetched_none") else {}),
+        "upstream_calls": calls,
+        "expires_at": _handles.expires_of(kept),
+        "template": {"tool": operator, "arguments": template_arguments},
+        "note": (
+            f"the fields this call fetched ({said}) are kept as {kept}, one of "
+            "your handles until it expires; template is the refused call on "
+            "it and is refused again if sent unchanged: change it as the retry "
+            "line says (a where, fewer or shorter columns, a field name); over "
+            "the kept handle it makes no upstream call"
+        ),
+    }
+    if len(json.dumps(block["template"], default=str)) > MAX_KEPT_TEMPLATE_BYTES:
+        del block["template"]
+        block["template_omitted"] = "too_large"
+    return block
+
+
+def _retarget_retry(retry: Any, kept: Optional[str]) -> None:
+    """A refusal's corrected call on the kept set, not the input it grew
+    from, which would fetch again (review L5)."""
+
+    if not kept or not isinstance(retry, dict):
+        return
+    arguments = retry.get("arguments")
+    if isinstance(arguments, dict) and "input" in arguments:
+        arguments["input"] = {"ref": kept}
+
+
+def name_kept_growth(
+    state: Optional[Mapping[str, Any]], operator: str, arguments: Mapping[str, Any],
+    refusal: Any,
+) -> None:
+    """Name the kept grown set on `refusal` (a raised substrate error, the
+    tool error wrapping one, or a refusal payload); a no-op when this call
+    kept no grown set or the refusal already names it."""
+
+    block = kept_growth_block(state, operator, arguments)
+    if block is None:
+        return
+    kept = block.get("id")
+    prefix = f"{operator} over the kept handle {kept} (no upstream call): " if kept else ""
+    if isinstance(refusal, dict):
+        if refusal.get("status") != "refused" or not isinstance(refusal.get("error"), dict):
+            return
+        error = refusal["error"]
+        if "kept_handle" in error:
+            return
+        error["kept_handle"] = block
+        if prefix:
+            error["fix_hint"] = prefix + str(error.get("fix_hint") or "send the call on it")
+        if isinstance(error.get("data"), dict):
+            error["data"]["kept_handle"] = kept
+        _retarget_retry(error.get("retry_call"), kept)
+        return
+    error = refusal if isinstance(refusal, SubstrateError) else getattr(
+        refusal, "__cause__", None,
+    )
+    if not isinstance(error, SubstrateError) or getattr(error, "kept_handle", None):
+        return
+    error.kept_handle = block  # type: ignore[attr-defined]
+    if prefix:
+        error.fix_hint = prefix + (error.fix_hint or "send the call on it")
+    if isinstance(error.data, dict):
+        error.data["kept_handle"] = kept
+    _retarget_retry(getattr(error, "retry_call", None), kept)
+
+
+def name_kept_growth_served(operator: str, arguments: Mapping[str, Any], payload: Any) -> None:
+    """Name this MCP call's kept grown set on the refusal it serves, however
+    the refusal arose: the tool body's, a commit-time capacity refusal, a
+    server fault (review L1). Reads the call's holder; a no-op outside one."""
+
+    holder = HOLDER.get()
+    if not holder or operator != "map":
+        return
+    for key, held in list(holder.items()):
+        if isinstance(key, str) and key.startswith(_KEPT_GROWTH):
+            name_kept_growth(getattr(held, "state", None), operator, arguments, payload)
+            return
 
 
 def seed_call_memo(
@@ -405,10 +681,10 @@ def seed_call_memo(
 
     Called by the byte-bound wrapper on its outermost entry, with the call's
     bound arguments, only when :func:`has_handoff` says this call carries a
-    resolved read. Applies the keep rule: the set is minted and adopted here,
-    in this draft scope, when the read made more than
-    :data:`KEEP_OVER_CALLS` upstream calls or its reply is cut; a grown set
-    is always minted. Returns the live line for the reply, or None when this
+    resolved read. Every live set read is kept (PACT read-live-handles,
+    4.1.1): the set is minted and adopted here, in this draft scope; a set
+    over the per-handle cap is served with no handle when its reply is not
+    cut, and refused when it is. Returns the live line for the reply, or None when this
     call has no resolved live read. Every byte-fitting rerun runs inside the
     same scope and reads the same memo, so it makes no upstream call and
     mints nothing.
@@ -428,9 +704,16 @@ def seed_call_memo(
     state["fresh"] = True
     state["calls_made"] = resolved.calls_made
     memo["live-read:" + resolved.ref] = state
-    if state.get("set") is not None and state.get("keepable", True):
+    if (
+        state.get("set") is not None and state.get("keepable", True)
+        # A grown set committed by its growth (#4181) is kept already.
+        and not state.get("kept_id")
+    ):
         cut = _reply_cut(operator_name, state, call or {})
-        if state.get("grow_from") or cut or resolved.calls_made > KEEP_OVER_CALLS:
+        if (
+            operator_name in LIVE_TOOLS or cut
+            or resolved.calls_made > EXPAND_KEEP_OVER_CALLS
+        ):
             _keep(operator_name, state, cut=cut)
     return str(state.get("live_line") or "") or None
 
@@ -461,6 +744,20 @@ def finish_reply(operator_name: str, result: Any) -> Any:
             result["result_reference"] = dict(state["result_reference"])
             if operator_name != "expand":
                 result["input"] = {"ref": state["kept_id"]}
+                if operator_name in ("filter", "map") and result.get("handle") is None:
+                    # The reply names its handle (PACT read-live-handles 3.7).
+                    from okg.substrate.mcp import handles as _handles
+
+                    kept = state["set"]
+                    result.pop("handle_reason", None)
+                    result.pop("kept", None)
+                    result["handle"] = _handles.handle_block(
+                        set_id=str(state["kept_id"]), rows=kept.row_count,
+                        columns=_handles.columns_of(kept, state.get("rows") or []),
+                        order="input order",
+                        expires_at=_handles.expires_of(str(state["kept_id"])),
+                        stateless=bool(kept.stateless),
+                    )
     line = str(state.get("live_line") or "")
     if line:
         result = {"live_line": line, **{k: v for k, v in result.items() if k != "live_line"}}
@@ -508,8 +805,13 @@ def fresh_served_fields(state: Optional[Mapping[str, Any]]) -> Optional[dict[str
         out["input"] = {"ref": state["kept_id"]}
         out["result_reference"] = dict(state["result_reference"])
     else:
+        # filter, map and aggregate keep every read (PACT read-live-handles
+        # 4.1.1): a reply with no id says why (too_large, capacity). Only a
+        # live node's edge read can still be "not_needed".
+        why = str(state.get("not_kept") or "not_needed")
         out["input"] = None
-        out["kept"] = {"kept": False, "reason": state.get("not_kept") or "not_needed"}
+        out["kept"] = {"kept": False, "reason": why}
+        out["handle_reason"] = why
     if state.get("grow_from"):
         out["grown_from"] = state["grow_from"]
     names = names_refused_block(state)
@@ -525,22 +827,6 @@ def with_live_line(payload: dict[str, Any], state: Optional[Mapping[str, Any]]) 
     if not isinstance(state, Mapping) or not state.get("fresh") or not state.get("live_line"):
         return payload
     return {"live_line": str(state["live_line"]), **payload}
-
-
-def after_commit(committed: Sequence[Any]) -> None:
-    """After the served point: drop each set a committed grown set replaced.
-    Runs only once the new set is stored, never inside the tool body, so a
-    failed reply leaves the old set readable."""
-
-    grown = _GROWN.get()
-    if not grown:
-        return
-    from okg.substrate.mcp import live_result_sets as _lrs
-
-    for entry in committed:
-        old = grown.pop(getattr(entry, "id", ""), None)
-        if old:
-            _lrs.live_store().discard(old)
 
 
 # -- condition helpers ----------------------------------------------------------
@@ -806,8 +1092,18 @@ def named_keys(tool: str, arguments: Mapping[str, Any]) -> list[tuple[str, str]]
     by, metrics, order_by."""
 
     pairs: list[tuple[str, str]] = []
-    for name in ("select", "projection", "by", "order_by"):
+    # aggregate's order_by names one of its own metrics or by fields, which
+    # are read below (PACT read-aggregate-order-by): never an upstream key.
+    names = ("select", "projection", "by") + (("order_by",) if tool != "aggregate" else ())
+    from okg.substrate.mcp.live_reader import split_order_direction
+
+    for name in names:
         for text in _strings(arguments.get(name)):
+            if name == "order_by":
+                # The direction is split off as the body's parse_order_by
+                # splits it ("x desc", "x asc", "-x"); read whole, "x desc" was
+                # fetched as a field of its own (review R3-1, #4054).
+                text = split_order_direction(text)[0]
             key = field_key(text)
             if key is not None:
                 pairs.append((name, key))
@@ -816,6 +1112,13 @@ def named_keys(tool: str, arguments: Mapping[str, Any]) -> list[tuple[str, str]]
             key = field_key(text[text.index("(") + 1:-1])
             if key is not None:
                 pairs.append(("metrics", key))
+    if tool == "map" and arguments.get("compute") is not None:
+        # PACT read-map-compute (6.2): the upstream fields the computed
+        # columns read are fetched as a select names them: with the listing
+        # on a first read, by growth on a kept set that lacks them.
+        from okg.substrate.mcp.map_compute import upstream_keys
+
+        pairs.extend(("compute", key) for key in upstream_keys(arguments.get("compute")))
     return pairs
 
 
@@ -1085,6 +1388,11 @@ async def resolve(server: Any, name: str, arguments: dict[str, Any]) -> Any:
     registry = getattr(server, "_okg_live_types", None)
     if registry is None or not getattr(registry, "types", None):
         return None
+    try:
+        # The server decodes before its rewrite; this is for a direct caller.
+        arguments = decode_json_arguments(name, arguments)  # type: ignore[assignment]
+    except JsonStringRefused as exc:
+        raise refused(str(exc), "input_string_not_object", exc.fix_hint) from None
     if name == "search":
         refuse_live_search(registry, arguments)
         return None
@@ -1120,6 +1428,12 @@ async def resolve(server: Any, name: str, arguments: dict[str, Any]) -> Any:
         )
     system_type, edge = edge_set
     _refuse_whole_attrs(name, arguments, live_type, edge)
+    if name == "map" and arguments.get("compute") is not None:
+        # PACT read-map-compute (review M1): a computed column named like a
+        # field the type declares, refused before the listing call.
+        from okg.substrate.mcp import map_compute as _mc
+
+        _mc.refuse_shadowing(arguments.get("compute"), declared_keys(live_type, edge))
     push = plan_push(name, edge, live_type, condition)
     keys = condition_keys(push.rest) | output_keys(name, arguments)
     holder = HOLDER.get()
@@ -1148,16 +1462,38 @@ async def resolve(server: Any, name: str, arguments: dict[str, Any]) -> Any:
         )
     finally:
         reader.close()
+    _note_call(resolved, name, arguments)
     if holder is not None:
         holder[holder_key] = resolved
     return _rewritten(name, arguments, resolved.ref), resolved
 
 
+def _note_call(resolved: Resolved, name: str, arguments: Mapping[str, Any]) -> None:
+    """The producing call a kept set is remembered with (3.6), `authority`
+    removed, with the upstream calls it made."""
+
+    from okg.substrate.mcp import handles as _handles
+
+    resolved.state["call"] = _handles.producing_call(
+        name, arguments, upstream_calls=resolved.calls_made,
+    )
+
+
 def _held_keys(rows: Sequence[Mapping[str, Any]]) -> set[str]:
+    """Every key the rows hold: their upstream fields, the fields with a
+    state, and their computed columns' names (PACT read-map-compute, 6.5),
+    so a bare name equal to a computed column is never fetched upstream."""
+
+    from okg.substrate.mcp.map_compute import VALUE_PREFIX
+
     held: set[str] = set()
     for row in rows:
         held.update((row.get("attrs") or {}).keys())
         held.update(((row.get("live") or {}).get("fields") or {}).keys())
+        held.update(
+            key[len(VALUE_PREFIX):] for key in row
+            if isinstance(key, str) and key.startswith(VALUE_PREFIX)
+        )
     return held
 
 
@@ -1171,11 +1507,11 @@ async def _resolve_growth(
     only that field is fetched, for the nodes the set holds, and the rows go
     to the tool body as a NEW set.
 
-    The new set is minted without `parent`, so it lives 300 s from its own
+    The new set is minted without `parent`, so it lives 600 s from its own
     mint; it records where it came from (`grown_from`) and when its older
     fields were read; every field fetched now carries its own time in
-    ``live.field_observed_at``. The old set is discarded only once the new
-    one is committed (:func:`after_commit`). None when the call needs no new
+    ``live.field_observed_at``. The old set stays readable until its own
+    expiry: a handle is an immutable name (PACT read-live-handles, N4). None when the call needs no new
     field: the body reads the set as it is, and refuses a key no row carries
     (a probable typo) itself when the set is the whole listing, or notes it
     when the set is narrowed.
@@ -1194,27 +1530,76 @@ async def _resolve_growth(
     lookup = getattr(server, "_okg_live_kept_set", None)
     if lookup is None:
         return None
-    retained = await server._okg_run_blocking(lookup, name, str(ref), arguments.get("authority"))
+    # The call's MCP context, so the lookup sees the caller's logical session:
+    # the server's own context variable is set only inside the tool body, and
+    # this runs before it (#4050: the owner read as another session, growth
+    # was skipped and the column came back null with no call and no note).
+    context = server.get_context() if hasattr(server, "get_context") else None
+    retained = await server._okg_run_blocking(
+        lookup, name, str(ref), arguments.get("authority"), context,
+    )
     if not isinstance(retained, LiveTypedSet):
         return None
     live_type = registry.by_subtype(retained.subtype)
     if live_type is None:
         return None
     arguments = without_run_generation(name, arguments)
+    # The rows decoded here count against the decode budget like any read of
+    # a handle (PACT read-live-handles 4.1.5, review F5). This runs before any
+    # draft scope, so the reservation is given back here.
+    from okg.substrate.mcp import handles as _handles
+
+    # The caller first (review R3-2): a caller who lost access hears that
+    # refusal, never a decode-capacity one.
+    await check_caller(server, name, str(live_type.subtype))
+    token = _handles.decode_budget.reserve(len(retained.rows_json))
+    try:
+        return await _grow_kept(
+            server, registry, name, arguments, retained, live_type, str(ref), keys, predicate,
+        )
+    finally:
+        _handles.decode_budget.release(token)
+
+
+async def _grow_kept(
+    server: Any, registry: Any, name: str, arguments: Mapping[str, Any],
+    retained: "LiveTypedSet", live_type: Any, ref: str, keys: set[str], predicate: Any,
+) -> Any:
+    """:func:`_resolve_growth` once the kept set is found and its decode is
+    reserved: the fields it lacks, fetched into a new set."""
+
+    from okg.substrate.mcp import live_result_sets as _lrs
+
     rows = _lrs.decode_rows(retained.rows_json)
+    if name == "map" and arguments.get("compute") is not None:
+        # PACT read-map-compute: the expressions are compiled against this
+        # set's own columns before any upstream call, so a refused one makes
+        # no call (the tool body compiles them again over the grown rows).
+        from okg.substrate.mcp import map_compute as _mc
+
+        program = _mc.compile_for(arguments.get("compute"), retained, rows)
+        _mc.check_select(arguments.get("projection"), program)
+        # Every refusal the tool body would make over these rows, before
+        # growth fetches anything (review M1, M2).
+        _mc.refuse_operands(program, groups=False, typed=True)
+        _mc.refuse_shadowing(
+            arguments.get("compute"),
+            _mc.upstream_names(retained, rows) | set(declared_keys(live_type)),
+        )
     missing = keys - _held_keys(rows)
     if not missing:
         return None
     declared = dict(live_type.fields or {})
-    open_read = "attributes" in (retained.coverage.get("per_node_calls") or {})
     edge_set = registry.edge_set(live_type.subtype)
     set_edge = edge_set[1] if edge_set is not None else None
-    listing_columns = set(getattr(set_edge, "member_columns", ()) or ())
-    from_listing = {k for k in missing if k not in declared and k in listing_columns}
-    per_node = {
-        k for k in missing - from_listing
-        if k in declared or (live_type.open_fields is not None and not open_read)
-    }
+    from_listing, per_node = growth_fields(registry, live_type, retained, missing)
+    if name == "map" and arguments.get("compute") is not None:
+        # An expression field no row holds that growth cannot fetch either:
+        # refused before any call, never computed as null (review H1).
+        unfetchable = sorted(
+            (set(_mc.attrs_operands(program)) & missing) - from_listing - per_node,
+        )
+        _mc.check_operands_held(program, retained, rows, keys=unfetchable)
     if not per_node and not from_listing:
         return None
 
@@ -1226,7 +1611,7 @@ async def _resolve_growth(
             return _regrown(arguments, held.ref), dataclasses.replace(held, tool=name)
 
     subtype = str(live_type.subtype)
-    await check_caller(server, name, subtype)
+    # The caller check ran in :func:`_resolve_growth`, before the decode.
     refusal = await check_arguments(server, name, subtype, arguments)
     if refusal is not None:
         return refusal
@@ -1244,7 +1629,6 @@ async def _resolve_growth(
     prepared = await prepare_read(server, name, arguments, sorted(subtypes))
     reader = Reader(server, name, prepared, time.monotonic() + DEADLINE_SECONDS)
     started = now_text()
-    keys_absent: Optional[dict[str, Any]] = None
     try:
         groups = plan_groups(name, live_type, per_node, set())
         if groups and rows:
@@ -1274,15 +1658,6 @@ async def _resolve_growth(
                     stamps[key] = started
         await fetch_groups(
             reader, groups, rows, retained.node_id, declared, observed_at=started,
-        )
-        known = retained.declared_keys or declared_keys(live_type, set_edge)
-        # The same rule as a first read: refused as a probable typo only
-        # when the set's rows are the whole listing, otherwise noted.
-        keys_absent = refuse_typos(
-            name, rows,
-            [("predicate", k) for k in sorted(condition_keys(predicate) & missing)]
-            + [(arg, k) for arg, k in named_keys(name, arguments) if k in missing],
-            known, whole=retained.whole_listing,
         )
     finally:
         reader.close()
@@ -1331,12 +1706,102 @@ async def _resolve_growth(
         fields=frozenset(f"attrs.{k}" for k in _held_keys(rows)),
         narrowing=[], grown_from=str(ref),
         ids_checked=retained.ids_checked, known=retained.declared_keys,
-        whole=retained.whole_listing, keys_absent=keys_absent,
+        whole=retained.whole_listing,
     )
+    _note_call(resolved, name, arguments)
+    if name == "map" and arguments.get("compute") is not None:
+        # #4181: the grown set is committed before anything after the fetch
+        # can refuse the call, so each such refusal names it and a narrower
+        # map over it makes no upstream call.
+        resolved.state["calls_made"] = resolved.calls_made
+        # The fields read on at least one row, and those no row answered
+        # with (a misspelled open field: review L3).
+        asked = sorted(from_listing | per_node)
+        read = {
+            k for k in asked
+            if any(row["live"]["fields"].get(k) == "live" for row in rows)
+        }
+        resolved.state["fetched"] = [f"attrs.{k}" for k in asked if k in read]
+        resolved.state["fetched_none"] = [f"attrs.{k}" for k in asked if k not in read]
+        # The store's lock and eviction plan run off the event loop, as the
+        # kept-set lookup above does (review L2).
+        await server._okg_run_blocking(keep_grown_now, resolved.state)
+        if holder is not None:
+            # Every refusal this MCP call serves names it (review L1).
+            holder[_KEPT_GROWTH + resolved.ref] = resolved
+    known = retained.declared_keys or declared_keys(live_type, set_edge)
+    try:
+        # The same rule as a first read: refused as a probable typo only
+        # when the set's rows are the whole listing, otherwise noted.
+        keys_absent = refuse_typos(
+            name, rows,
+            [("predicate", k) for k in sorted(condition_keys(predicate) & missing)]
+            + [(arg, k) for arg, k in named_keys(name, arguments) if k in missing],
+            known, whole=retained.whole_listing,
+        )
+    except SubstrateError as exc:
+        name_kept_growth(resolved.state, name, arguments, exc)
+        raise
+    if keys_absent:
+        resolved.state["keys_absent"] = dict(keys_absent)
     if holder is not None:
         holder[holder_key] = resolved
     return _regrown(arguments, resolved.ref), resolved
 
+
+def growth_fields(
+    registry: Any, live_type: Any, retained: "LiveTypedSet", missing: set[str],
+) -> tuple[set[str], set[str]]:
+    """`(from_listing, per_node)`: the keys a growth of `retained` fetches,
+    of the `missing` ones (a listing column it lacks, a declared field, or
+    an open field when the open-fields call was not made)."""
+
+    declared = dict(live_type.fields or {})
+    open_read = "attributes" in (retained.coverage.get("per_node_calls") or {})
+    edge_set = registry.edge_set(live_type.subtype)
+    set_edge = edge_set[1] if edge_set is not None else None
+    listing_columns = set(getattr(set_edge, "member_columns", ()) or ())
+    from_listing = {k for k in missing if k not in declared and k in listing_columns}
+    per_node = {
+        k for k in missing - from_listing
+        if k in declared or (live_type.open_fields is not None and not open_read)
+    }
+    return from_listing, per_node
+
+
+def refuse_unfetched(
+    registry: Any, operator: str, retained: Any, rows: Sequence[Mapping[str, Any]],
+    keys: Sequence[str], ref: str,
+) -> None:
+    """A read of a kept live-type set that names a field growth fetches and
+    no row holds (no value, no field state): refused by name (#4050).
+
+    Growth fetches such a field before the tool body runs; reaching the body
+    without it means growth did not run, and serving the rows would read the
+    column as null on every row with no upstream call and no note."""
+
+    if not isinstance(retained, LiveTypedSet) or registry is None or not keys or not rows:
+        return
+    live_type = registry.by_subtype(retained.subtype)
+    if live_type is None:
+        return
+    missing = set(keys) - _held_keys(rows)
+    if not missing:
+        return
+    from_listing, per_node = growth_fields(registry, live_type, retained, missing)
+    unfetched = sorted(from_listing | per_node)
+    if not unfetched:
+        return
+    shown = ", ".join(f"attrs.{k}" for k in unfetched)
+    raise refused(
+        f"{operator}: the kept set's rows hold no {shown}, and the read that "
+        f"fetches {'it' if len(unfetched) == 1 else 'them'} did not run; "
+        "the rows are not served, since the column would read null on every row",
+        "field_not_fetched",
+        "read the set again with the field named (the read that made the set, "
+        "with this field in its condition, select or metrics)",
+        fields=[f"attrs.{k}" for k in unfetched], ref=str(ref),
+    )
 
 def _regrown(arguments: Mapping[str, Any], ref: str) -> dict[str, Any]:
     """A grown set's call: the same call on the new rows, its own conditions
@@ -1385,22 +1850,29 @@ def _may_fan_out(live_type: Any, edge: Any, push: PushPlan, keys: set[str]) -> b
     return any(key not in columns for key in rest) and live_type.open_fields is not None
 
 
-async def check_caller(server: Any, name: str, subtype: str) -> None:
-    """The caller, before any upstream call."""
+def ask_expand_gate(server: Any, name: str, subtype: Optional[str] = None) -> None:
+    """The dispatch gate's decision on expand; the refusal is the gate's own."""
 
     gate = getattr(server, "_okg_dispatch_principal_gate", None)
-    if gate is not None:
-        try:
-            await server._okg_run_blocking(gate, "expand")
-        except SubstrateError as exc:
-            data = getattr(exc, "data", None)
-            if isinstance(data, dict):
-                data.setdefault("tool_called", name)
-                data.setdefault("note", "live read: expand permission")
-            _calls.log.info(
-                "live read refused by the expand decision: tool=%s type=%s", name, subtype,
-            )
-            raise
+    if gate is None:
+        return
+    try:
+        gate("expand")
+    except SubstrateError as exc:
+        data = getattr(exc, "data", None)
+        if isinstance(data, dict):
+            data.setdefault("tool_called", name)
+            data.setdefault("note", "live read: expand permission")
+        _calls.log.info(
+            "live read refused by the expand decision: tool=%s type=%s", name, subtype,
+        )
+        raise
+
+
+def check_expand_served(server: Any, name: str, subtype: Optional[str] = None) -> None:
+    """Expand is served to this session. A kept raw answer has no live type
+    (`subtype` None): expand minted it, so expand's own check is the one."""
+
     visible = None
     reader = getattr(server, "okg_visible_tools", None)
     if callable(reader):
@@ -1411,13 +1883,20 @@ async def check_caller(server: Any, name: str, subtype: str) -> None:
     else:
         expand_served = "expand" in visible
     if not expand_served:
+        what = f"type {subtype!r} is live" if subtype is not None else "a kept live answer"
         raise refused(
-            f"{name}: type {subtype!r} is live; a live read needs expand, which "
+            f"{name}: {what}; a live read needs expand, which "
             "this session is not served",
             "expand_not_served",
             "ask for expand on this session's surface, or read a stored type",
-            type=subtype, tool_called=name,
+            tool_called=name, **({"type": subtype} if subtype is not None else {}),
         )
+
+
+def check_served(server: Any, name: str, subtype: str) -> None:
+    """Expand and the live type are served to this session."""
+
+    check_expand_served(server, name, subtype)
     surface = getattr(server, "_okg_agent_surface", None)
     served_types = getattr(surface, "live_types", None) if surface is not None else None
     try:
@@ -1432,6 +1911,25 @@ async def check_caller(server: Any, name: str, subtype: str) -> None:
             "read a stored type, or ask the operator to serve this live type",
             type=subtype,
         )
+
+
+def check_caller_sync(server: Any, name: str, subtype: str) -> None:
+    """:func:`check_caller` for a caller already on a call worker, without the
+    access-rule check (the kept-set read makes that one itself). A read of a
+    kept set asks it again, so a caller that lost expand, the type, or the
+    dispatch gate's allowance since the first read is refused as a first
+    read is."""
+
+    ask_expand_gate(server, name, subtype)
+    check_served(server, name, subtype)
+
+
+async def check_caller(server: Any, name: str, subtype: str) -> None:
+    """The caller, before any upstream call."""
+
+    if getattr(server, "_okg_dispatch_principal_gate", None) is not None:
+        await server._okg_run_blocking(ask_expand_gate, server, name, subtype)
+    check_served(server, name, subtype)
     # Issue #3923: the one access-rule check of every live call (refused
     # while the rules are on, audit or enforce, or cannot be told), off the
     # event loop because the state reads the deployment's Nomos mode.

@@ -28,7 +28,7 @@ You need:
 - [`uv`](https://docs.astral.sh/uv/getting-started/installation/). It
   installs the right Python for you. OKG requires Python `>=3.12,<3.14`.
 - [Docker with Compose](https://docs.docker.com/engine/install/), running.
-  On podman, run `export AKMON_VERSION=0.3.0`, then start the database with
+  On podman, run `export AKMON_VERSION=0.4.0`, then start the database with
   the `podman run` command in
   [Quickstart step 1](../start/quickstart.md#1-get-akmon-and-start-the-database)
   and skip step 2 below.

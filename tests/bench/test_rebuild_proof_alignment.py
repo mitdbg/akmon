@@ -7,12 +7,11 @@ incremental run:
   values (a view node's ``canonical_asset_id``, ``<deployment>.<source>``
   ownership ids) could never match. It now shares the incremental
   experiment's deployment name while keeping its own database and files.
-* The attribute fingerprint read the per-generation snapshot, which holds only
-  the changed rows once the interval table owns a generation. It now reads the
-  surface the generation's checkpoint marker names and refuses when none.
+* The attribute fingerprint names the generation it read on each side. (It
+  reads the per-generation overlay rows since PACT lane-s-storage-drop-copies
+  dropped the snapshot and interval tables.)
 
-No database: the worker pattern, the rendered deployment files and the
-representation decision are pure.
+No database: the worker pattern and the rendered deployment files are pure.
 """
 
 from __future__ import annotations
@@ -198,8 +197,8 @@ def test_real_pgrep_finds_the_worker_by_pattern(
 
 
 def test_report_names_the_attribute_surface_read_on_each_side() -> None:
-    """Review finding 2: the equivalence report carries which table each
-    side's attribute fingerprint read, and for which generation."""
+    """Review finding 2: the equivalence report carries, for each side,
+    which generation its attribute fingerprint read."""
     graph = {
         "generation_id": "g",
         "nodes": {"count": 1, "digest": "d"},
@@ -208,12 +207,11 @@ def test_report_names_the_attribute_surface_read_on_each_side() -> None:
     }
     outputs = {"count": 0, "digest": "d"}
 
-    def attrs(gen: str, representation: str) -> dict:
+    def attrs(gen: str) -> dict:
         return {
             "count": 3,
             "digest": "a",
             "present": True,
-            "representation": representation,
             "generation_id": gen,
         }
 
@@ -228,61 +226,12 @@ def test_report_names_the_attribute_surface_read_on_each_side() -> None:
         rebuild_graph=graph,
         incremental_outputs=outputs,
         rebuild_outputs=outputs,
-        incremental_attrs=attrs("okg:inc", "interval"),
-        rebuild_attrs=attrs("okg:reb", "snapshot"),
+        incremental_attrs=attrs("okg:inc"),
+        rebuild_attrs=attrs("okg:reb"),
         delta_proof={"rows": []},
         rebuild_experiment_id="rebuild-x",
         rebuild_generation_id="okg:reb",
     )
 
-    assert report["incremental"]["attribute_effective"]["representation"] == "interval"
     assert report["incremental"]["attribute_effective"]["generation_id"] == "okg:inc"
-    assert (
-        report["forced_rebuild"]["attribute_effective"]["representation"] == "snapshot"
-    )
     assert report["forced_rebuild"]["attribute_effective"]["generation_id"] == "okg:reb"
-
-
-@pytest.mark.parametrize(
-    ("marker", "expected"),
-    [
-        ({"ran": True, "reason": None}, "interval"),
-        ({"ran": False, "reason": "interval_representation_not_enabled"}, "snapshot"),
-    ],
-)
-def test_representation_follows_the_checkpoint_marker(marker, expected) -> None:
-    metadata = {"effective_interval_view_sync": marker}
-
-    assert (
-        orchestrator._attribute_representation_for_generation("okg:g", metadata)
-        == expected
-    )
-
-
-@pytest.mark.parametrize(
-    "metadata",
-    [
-        None,
-        {},
-        {"effective_interval_view_sync": "ran"},
-        {"effective_interval_view_sync": {"ran": False, "reason": "blocked"}},
-        {
-            "effective_interval_view_sync": {
-                "ran": False,
-                "reason": "deferred_intermediate_publish",
-            }
-        },
-    ],
-)
-def test_representation_refuses_when_the_marker_names_no_full_surface(
-    metadata,
-) -> None:
-    with pytest.raises(ValueError, match="okg:g"):
-        orchestrator._attribute_representation_for_generation("okg:g", metadata)
-
-
-def test_fingerprint_refuses_an_unknown_representation() -> None:
-    with pytest.raises(ValueError, match="unknown attribute representation"):
-        orchestrator._attribute_effective_fingerprint(
-            "postgresql://unused/x", "okg:g", representation="latest"
-        )

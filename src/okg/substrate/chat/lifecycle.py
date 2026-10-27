@@ -463,7 +463,7 @@ def observe_okg_surfaces(
     rather than answering "absent", because an unreachable instance is the one
     thing that must never be mistaken for a retired one.
     """
-    from okg.substrate.chat.sync import WRITE_CONNECTION_SUFFIX
+    from okg.substrate.chat.sync import WRITE_CONNECTION_SUFFIX, legacy_mcp_server_ids
 
     try:
         registered = {
@@ -487,11 +487,16 @@ def observe_okg_surfaces(
                 "live read shows the surfaces absent"
             ),
         ) from exc
+    # An instance an earlier release synced, and this one has not yet, still
+    # carries the old ids (#3960). Counting only the current ids would let a
+    # retirement receipt say "absent" while those connections serve tools.
+    legacy = legacy_mcp_server_ids(deployment)
     return {
         "preset": preset_present,
-        "connection": mcp_server_id in registered,
-        "write_connection": (
-            f"{mcp_server_id}{WRITE_CONNECTION_SUFFIX}" in registered
+        "connection": bool({mcp_server_id, legacy["connection"]} & registered),
+        "write_connection": bool(
+            {f"{mcp_server_id}{WRITE_CONNECTION_SUFFIX}", legacy["write_connection"]}
+            & registered
         ),
         "prompt": f"/okg-{deployment}" in commands,
     }

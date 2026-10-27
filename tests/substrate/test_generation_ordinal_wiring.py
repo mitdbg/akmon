@@ -5,7 +5,8 @@ Proves the live-path behaviour of `mint_generation_ordinal` (called from
   * real publishes mint strictly-increasing ordinals,
   * the FIRST mint on a branch with pre-existing un-ordinaled generations
     one-time backfills them in causal order, then continues O(1),
-  * the OKG_IVM_GENERATION_ORDINAL kill-switch disables minting.
+  * every publish, intermediate ones too, assigns the ordinal and syncs the
+    overlay ranges in one publication transaction that a failure rolls back.
 
 These run real `Publisher.cycle()` publishes, so they want the isolated throwaway
 Postgres (not the contended shared instance).
@@ -95,25 +96,6 @@ def test_first_mint_lazy_backfills_then_assigns_o1(clean_runtime: str) -> None:
         )
 
 
-def test_kill_switch_disables_minting(
-    clean_runtime: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("OKG_IVM_GENERATION_ORDINAL", "0")
-    suffix = uuid.uuid4().hex[:8]
-    with psycopg.connect(clean_runtime, autocommit=True) as conn:
-        seed_catalog(conn, subtypes=["doc"])
-    _add_fact(clean_runtime, f"doc:0:{suffix}")
-    Publisher(clean_runtime, _DEPLOYMENT, catalog_identity=bind_test_catalog_writer(clean_runtime, _DEPLOYMENT)).cycle()
-    with psycopg.connect(clean_runtime, autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('okg.generation_ordinals')")
-        if cur.fetchone()[0] is None:
-            count = 0
-        else:
-            cur.execute("SELECT count(*) FROM okg.generation_ordinals")
-            count = cur.fetchone()[0]
-    assert count == 0, count
-
-
 def test_checkpoint_on_unresolvable_fork_is_nonfatal(clean_runtime: str) -> None:
     """A checkpoint on a structural fork with no recorded base (the quarantine
     shape) must NOT break the publish: the mint raises internally, is swallowed
@@ -158,111 +140,42 @@ def _branch_ordinals(dsn: str, branch: str = "default") -> dict[str, int]:
         return {str(row[0]): int(row[1]) for row in cur.fetchall()}
 
 
-def _snapshot_node_ids(dsn: str, generation_id: str) -> set[str]:
-    """Node ids in the per-generation effective-attribute SNAPSHOT."""
+def _synced_marker_ordinal(dsn: str, generation_id: str) -> int | None:
+    """The ordinal the overlay marker of ``generation_id`` was synced at, or
+    None when its overlays were not folded into the ranges."""
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT target_id FROM okg.attribute_effective_view "
-            "WHERE generation_id = %s AND target_kind = 'node'",
+            "SELECT ordinal FROM okg.attribute_overlay_generations "
+            "WHERE generation_id = %s AND namespace = 'default' AND ranges_synced",
             (str(generation_id),),
         )
-        return {str(row[0]) for row in cur.fetchall()}
+        row = cur.fetchone()
+    return None if row is None else int(row[0])
 
 
-def _checkpoint_metadata(dsn: str, generation_id: str) -> dict:
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
-        return dict(store.get_generation(str(generation_id)).metadata or {})
-
-
-def test_kill_switch_disables_minting_on_the_interval_path(
-    clean_runtime: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Issue #1514: OKG_IVM_GENERATION_ORDINAL=0 must also stop the INTERVAL arm.
-
-    The kill switch gated only `ChronosGraphStore._maybe_mint_generation_ordinal`.
-    The interval-tracked publish path calls `assign_generation_ordinal` directly
-    inside the `effective_interval_view_sync` block, so it minted regardless and
-    the switch was inert on every interval-tracked branch.
-
-    The first publish here runs with the switch OFF (default: minting enabled)
-    purely as a DISCRIMINATOR: only the interval-sync block writes
-    `effective_interval_view_prune` into the checkpoint metadata, so its presence
-    proves this deployment really takes the arm under test. Without that, the
-    second publish minting nothing could just mean the interval arm never ran and
-    the test would pass vacuously on unfixed code.
-    """
-    monkeypatch.setenv("OKG_IVM_INTERVAL_VIEW", "1")
-    monkeypatch.setenv("OKG_IVM_GENERATION_ORDINAL", "1")
-    suffix = uuid.uuid4().hex[:8]
-    with psycopg.connect(clean_runtime, autocommit=True) as conn:
-        seed_catalog(conn, subtypes=["doc"])
-
-    # TWO interval publishes before the flip, not one. After the second, the
-    # prior snapshot is the interval arm's CHANGED-ONLY form, which is the shape
-    # a real deployment is in when an operator reaches for the switch -- and it
-    # drives a different carry-forward path in the materialize than a full prior
-    # snapshot does.
-    _add_fact(clean_runtime, f"doc:0:{suffix}")
-    _publish(clean_runtime)
-    _add_fact(clean_runtime, f"doc:1:{suffix}")
-    first = _publish(clean_runtime)
-    assert first["status"] == "published", first
-    first_metadata = _checkpoint_metadata(clean_runtime, first["generation_id"])
-    assert "effective_interval_view_prune" in first_metadata, sorted(first_metadata)
-    after_first = _branch_ordinals(clean_runtime)
-    assert sorted(after_first.values()) == [0, 1], after_first
-    assert after_first[str(first["generation_id"])] == 1, after_first
-
-    # Same branch, same deployment -- only the kill switch changes.
-    monkeypatch.setenv("OKG_IVM_GENERATION_ORDINAL", "0")
-    _add_fact(clean_runtime, f"doc:2:{suffix}")
-    second = _publish(clean_runtime)
-    assert second["status"] == "published", second
-
-    # No new ordinal: the interval arm no longer mints behind the switch.
-    assert _branch_ordinals(clean_runtime) == after_first, _branch_ordinals(
-        clean_runtime
-    )
-    # And the interval arm itself stood down rather than syncing an
-    # ordinal-keyed front with no ordinal to key it on.
-    second_metadata = _checkpoint_metadata(clean_runtime, second["generation_id"])
-    assert "effective_interval_view_prune" not in second_metadata, sorted(
-        second_metadata
-    )
-    # Standing the sync down is only half the contract. The effective-attribute
-    # materializer drops the snapshot carry-forward when it believes the
-    # interval front carries the unchanged majority. It has to reach the SAME
-    # conclusion as the publisher, or this generation's snapshot holds only the
-    # one changed node while no interval rows describe the rest -- the
-    # unchanged majority living in neither place. Assert the FULL snapshot.
-    assert _snapshot_node_ids(clean_runtime, second["generation_id"]) == {
-        f"doc:0:{suffix}",
-        f"doc:1:{suffix}",
-        f"doc:2:{suffix}",
-    }, _snapshot_node_ids(clean_runtime, second["generation_id"])
-
-
-def _interval_front(dsn: str, branch: str = "default") -> tuple[int, int, int]:
-    """(rows, highest from_ord, closed rows) of the branch's interval table.
+def _ranges_front(dsn: str, branch: str = "default") -> tuple[int, int, int]:
+    """(range rows, highest synced marker ordinal, closed ranges) of the branch.
 
     A failed cycle that rolled back cleanly leaves this unchanged: it must not
-    open or close any interval at an ordinal no generation owns.
+    open or close a range, or mark a generation synced, at an ordinal no
+    generation owns.
     """
-    from okg.substrate.attributes import (
-        ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,
-        EFFECTIVE_INTERVAL_OPEN_ORD,
-    )
+    from okg.substrate.attributes import OVERLAY_RANGE_OPEN_ORD
 
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
         cur.execute(
-            f"SELECT count(*), COALESCE(max(from_ord), -1), "
-            f"count(*) FILTER (WHERE to_ord < %s) "
-            f"FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} WHERE branch_id = %s",
-            (EFFECTIVE_INTERVAL_OPEN_ORD, branch),
+            "SELECT count(*), count(*) FILTER (WHERE to_ord < %s) "
+            "FROM okg.attribute_overlay_ranges WHERE chronos_branch_id = %s",
+            (OVERLAY_RANGE_OPEN_ORD, branch),
         )
-        rows, max_from, closed = cur.fetchone()
-    return int(rows), int(max_from), int(closed)
+        rows, closed = cur.fetchone()
+        cur.execute(
+            "SELECT COALESCE(max(ordinal), -1) FROM okg.attribute_overlay_generations "
+            "WHERE chronos_branch_id = %s AND ranges_synced",
+            (branch,),
+        )
+        synced = cur.fetchone()[0]
+    return int(rows), int(synced), int(closed)
 
 
 def _published_checkpoints(dsn: str) -> list[str]:
@@ -299,31 +212,63 @@ def _inject_backend_checkpoint_failure(
     monkeypatch.setattr(_IntervalBackend, "create_checkpoint", _boom)
 
 
-def _inject_prune_failure(monkeypatch: pytest.MonkeyPatch, calls: list) -> None:
+def _inject_ranges_failure(monkeypatch: pytest.MonkeyPatch, calls: list) -> None:
+    # The overlay-range sync, which runs after the ordinal in the same
+    # publication transaction.
     import okg.substrate.attributes as attributes
 
     def _boom(*args, **kwargs):  # type: ignore[no-untyped-def]
-        calls.append("prune")
-        raise RuntimeError("injected prune failure")
+        calls.append("ranges")
+        raise RuntimeError("injected ranges failure")
 
-    monkeypatch.setattr(attributes, "prune_effective_interval_view_closed", _boom)
+    monkeypatch.setattr(attributes, "sync_overlay_ranges_for_generation", _boom)
 
 
-def _inject_integrity_failure(monkeypatch: pytest.MonkeyPatch, calls: list) -> None:
-    # Both arms of the pre-checkpoint integrity write: a full anchor when the
-    # cycle has no changeset, an incremental receipt when it has one.
-    import okg.substrate.attribute_integrity as attribute_integrity
+def test_every_publish_assigns_the_ordinal_and_syncs_the_ranges(
+    clean_runtime: str,
+) -> None:
+    """PACT lane-s-storage-drop-copies: the ordinal and the overlay-range sync
+    used to run only inside the interval-sync block, i.e. only on a final
+    publish. Now every published root-branch generation -- an intermediate
+    (non-final) one too -- gets the next ordinal and its marker is synced at
+    it, and no copy table exists to write."""
+    suffix = uuid.uuid4().hex[:8]
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        seed_catalog(conn, subtypes=["doc"])
+        for table in (
+            "okg.attribute_effective_view",
+            "okg.attribute_effective_view_intervals",
+            "okg.attribute_versions",
+        ):
+            assert conn.execute(
+                "SELECT to_regclass(%s) IS NULL", (table,)
+            ).fetchone()[0], table
 
-    def _boom(*args, **kwargs):  # type: ignore[no-untyped-def]
-        calls.append("integrity")
-        raise RuntimeError("injected integrity failure")
+    _add_fact(clean_runtime, f"doc:0:{suffix}")
+    first = _publish(clean_runtime)
+    _add_fact(clean_runtime, f"doc:1:{suffix}")
+    intermediate = Publisher(
+        clean_runtime,
+        _DEPLOYMENT,
+        catalog_identity=bind_test_catalog_writer(clean_runtime, _DEPLOYMENT),
+    ).cycle(native_view_refresh_final=False)
+    _add_fact(clean_runtime, f"doc:2:{suffix}")
+    third = _publish(clean_runtime)
+    for result in (first, intermediate, third):
+        assert result["status"] == "published", result
+    ordinals = _branch_ordinals(clean_runtime)
+    assert ordinals == {
+        str(first["generation_id"]): 0,
+        str(intermediate["generation_id"]): 1,
+        str(third["generation_id"]): 2,
+    }, ordinals
+    for result, ordinal in ((first, 0), (intermediate, 1), (third, 2)):
+        assert _synced_marker_ordinal(clean_runtime, result["generation_id"]) == ordinal
 
-    monkeypatch.setattr(
-        attribute_integrity, "finalize_full_attribute_integrity_anchor", _boom
-    )
-    monkeypatch.setattr(
-        attribute_integrity, "finalize_incremental_attribute_integrity_receipt", _boom
-    )
+    from okg.substrate.attributes import overlay_range_parity
+
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        assert overlay_range_parity(conn, branch_id="default") == []
 
 
 @pytest.mark.parametrize(
@@ -331,11 +276,10 @@ def _inject_integrity_failure(monkeypatch: pytest.MonkeyPatch, calls: list) -> N
     [
         ("checkpoint_generation", _inject_checkpoint_failure),
         ("chronos_create_checkpoint", _inject_backend_checkpoint_failure),
-        ("prune", _inject_prune_failure),
-        ("integrity", _inject_integrity_failure),
+        ("ranges", _inject_ranges_failure),
     ],
 )
-def test_failed_interval_publish_leaves_no_stranded_ordinal(
+def test_failed_publish_leaves_no_stranded_ordinal(
     clean_runtime: str,
     monkeypatch: pytest.MonkeyPatch,
     failure_point: str,
@@ -343,15 +287,11 @@ def test_failed_interval_publish_leaves_no_stranded_ordinal(
 ) -> None:
     """Issue #1587: a failure between the ordinal and the checkpoint strands nothing.
 
-    The interval arm used to COMMIT the ordinal (with the interval sync) before
-    the retention prune, the integrity preflight and `checkpoint_generation`
-    ran, each in its own transaction. A failure in any of them left an ordinal
-    row with no generation behind it, and the next successful publish skipped
-    that position. All of them now commit in one publication transaction, so a
-    failure at each point rolls the ordinal AND the interval front back, and the
-    next successful publish takes the very next ordinal.
+    The ordinal, the overlay-range sync and the checkpoint commit in one
+    publication transaction, so a failure at each point rolls the ordinal AND
+    the ranges back, and the next successful publish takes the very next
+    ordinal.
     """
-    monkeypatch.setenv("OKG_IVM_INTERVAL_VIEW", "1")
     suffix = uuid.uuid4().hex[:8]
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
         seed_catalog(conn, subtypes=["doc"])
@@ -359,12 +299,11 @@ def test_failed_interval_publish_leaves_no_stranded_ordinal(
     _add_fact(clean_runtime, f"doc:0:{suffix}")
     first = _publish(clean_runtime)
     assert first["status"] == "published", first
-    first_metadata = _checkpoint_metadata(clean_runtime, first["generation_id"])
-    # Discriminator: prove the interval arm (the one that mints early) ran.
-    assert "effective_interval_view_prune" in first_metadata, sorted(first_metadata)
+    # Discriminator: the publication transaction (ordinal + ranges) ran.
+    assert _synced_marker_ordinal(clean_runtime, first["generation_id"]) == 0
     after_first = _branch_ordinals(clean_runtime)
     assert after_first == {str(first["generation_id"]): 0}, after_first
-    front_before = _interval_front(clean_runtime)
+    front_before = _ranges_front(clean_runtime)
     published_before = _published_checkpoints(clean_runtime)
     assert published_before == [str(first["generation_id"])], published_before
 
@@ -377,27 +316,24 @@ def test_failed_interval_publish_leaves_no_stranded_ordinal(
     # The failure fired at the named point, not somewhere earlier.
     assert calls == [failure_point], calls
 
-    # Nothing of the failed cycle survived: no ordinal, no interval rows at its
-    # ordinal, no generation.
+    # Nothing of the failed cycle survived: no ordinal, no range or synced
+    # marker at its ordinal, no generation.
     assert _branch_ordinals(clean_runtime) == after_first, _branch_ordinals(
         clean_runtime
     )
-    assert _interval_front(clean_runtime) == front_before
+    assert _ranges_front(clean_runtime) == front_before
     assert _published_checkpoints(clean_runtime) == published_before
 
     # The next successful publish takes ordinal 1 -- no gap -- and includes the
     # fact the failed cycle could not publish.
     second = _publish(clean_runtime)
     assert second["status"] == "published", second
-    assert "effective_interval_view_prune" in _checkpoint_metadata(
-        clean_runtime, second["generation_id"]
-    )
+    assert _synced_marker_ordinal(clean_runtime, second["generation_id"]) == 1
     after_second = _branch_ordinals(clean_runtime)
     assert after_second == {
         str(first["generation_id"]): 0,
         str(second["generation_id"]): 1,
     }, after_second
-    assert _interval_front(clean_runtime)[1] == 1, _interval_front(clean_runtime)
 
     # And the one after that continues densely: every ordinal names a real
     # published generation, each exactly once.
@@ -412,7 +348,7 @@ def test_failed_interval_publish_leaves_no_stranded_ordinal(
 
 def _inject_verifier_failure(monkeypatch: pytest.MonkeyPatch, calls: list) -> None:
     # Handled by the caller-owned test itself: the precommit verifier raises
-    # after the ordinal, interval sync, prune, preflight and checkpoint all ran.
+    # after the ordinal, the range sync and the checkpoint all ran.
     return None
 
 
@@ -421,12 +357,11 @@ def _inject_verifier_failure(monkeypatch: pytest.MonkeyPatch, calls: list) -> No
     [
         ("checkpoint_generation", _inject_checkpoint_failure),
         ("chronos_create_checkpoint", _inject_backend_checkpoint_failure),
-        ("prune", _inject_prune_failure),
-        ("integrity", _inject_integrity_failure),
+        ("ranges", _inject_ranges_failure),
         ("verifier", _inject_verifier_failure),
     ],
 )
-def test_caller_owned_failed_interval_publish_leaves_no_stranded_ordinal(
+def test_caller_owned_failed_publish_leaves_no_stranded_ordinal(
     clean_runtime: str,
     monkeypatch: pytest.MonkeyPatch,
     failure_point: str,
@@ -437,13 +372,12 @@ def test_caller_owned_failed_interval_publish_leaves_no_stranded_ordinal(
     The publication transaction joins the caller-owned transaction instead of
     opening its own. A failure after the ordinal is assigned -- including the
     caller's own precommit verifier, which runs after the checkpoint -- must
-    reach the caller's rollback with the ordinal, the interval rows and the
+    reach the caller's rollback with the ordinal, the ranges and the
     checkpoint, run the Chronos finalize hook exactly once as a rollback, and
     leave the next publish at the very next ordinal.
     """
     from chronos_core.branching._runtime import ChronosBranchContext
 
-    monkeypatch.setenv("OKG_IVM_INTERVAL_VIEW", "1")
     suffix = uuid.uuid4().hex[:8]
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
         seed_catalog(conn, subtypes=["doc"])
@@ -451,12 +385,10 @@ def test_caller_owned_failed_interval_publish_leaves_no_stranded_ordinal(
     _add_fact(clean_runtime, f"doc:0:{suffix}")
     first = _publish(clean_runtime)
     assert first["status"] == "published", first
-    assert "effective_interval_view_prune" in _checkpoint_metadata(
-        clean_runtime, first["generation_id"]
-    )
+    assert _synced_marker_ordinal(clean_runtime, first["generation_id"]) == 0
     after_first = _branch_ordinals(clean_runtime)
     assert after_first == {str(first["generation_id"]): 0}, after_first
-    front_before = _interval_front(clean_runtime)
+    front_before = _ranges_front(clean_runtime)
     published_before = _published_checkpoints(clean_runtime)
 
     calls: list[str] = []
@@ -509,7 +441,7 @@ def test_caller_owned_failed_interval_publish_leaves_no_stranded_ordinal(
 
     # Nothing of the failed cycle is visible after the caller's rollback.
     assert _branch_ordinals(clean_runtime) == after_first
-    assert _interval_front(clean_runtime) == front_before
+    assert _ranges_front(clean_runtime) == front_before
     assert _published_checkpoints(clean_runtime) == published_before
 
     second = _publish(clean_runtime)
@@ -518,3 +450,45 @@ def test_caller_owned_failed_interval_publish_leaves_no_stranded_ordinal(
         str(first["generation_id"]): 0,
         str(second["generation_id"]): 1,
     }
+
+
+def test_full_cycle_reasons_match_the_publisher_predicate() -> None:
+    """Issue 3955: the publisher decides a full-count cycle as bool() of
+    _full_cycle_reasons. Over every combination of the inputs, that equals the
+    four-condition predicate (the recovery and integrity reasons are retired
+    with the attribute copies)."""
+    import itertools
+
+    from okg.substrate.publisher.publisher import _full_cycle_reasons
+
+    every = 4
+    for has_previous, blocked, stamped, position in itertools.product(
+        (False, True), (False, True), (False, True), (1, 2, 3, 4),
+    ):
+        original = (
+            not has_previous or blocked or not stamped or position % every == 0
+        )
+        reasons = _full_cycle_reasons(
+            has_previous=has_previous,
+            block_intervened=blocked,
+            has_cadence_stamp=stamped,
+            cadence_position=position,
+            self_heal_every=every,
+        )
+        assert bool(reasons) == original, (
+            has_previous, blocked, stamped, position, reasons,
+        )
+    assert _full_cycle_reasons(
+        has_previous=True,
+        block_intervened=True,
+        has_cadence_stamp=True,
+        cadence_position=40,
+        self_heal_every=20,
+    ) == ["blocked_generation_between", "cadence_every_20"]
+    assert _full_cycle_reasons(
+        has_previous=False,
+        block_intervened=True,
+        has_cadence_stamp=False,
+        cadence_position=1,
+        self_heal_every=20,
+    ) == ["first_publish"]

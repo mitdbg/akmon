@@ -17,7 +17,7 @@ from __future__ import annotations
 import psycopg
 import pytest
 
-from okg.substrate.attributes import ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE
+from okg.substrate.attributes import OVERLAY_RANGES_TABLE
 from okg.substrate.graph_store import CONSOLE_COUNT_ROLLUP_TABLE, ChronosGraphStore
 from okg.substrate.graph_store_internal.generation_ordinal import (
     GENERATION_ORDINAL_TABLE,
@@ -159,7 +159,7 @@ def test_interval_cutover_schema_migration_runs_on_legacy_registered_graph(
         # drops the dependents too; a bare DROP TABLE instead raises
         # DependentObjectsStillExist on a fully migrated database.
         conn.execute(
-            f"DROP TABLE IF EXISTS {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} CASCADE"
+            f"DROP TABLE IF EXISTS {OVERLAY_RANGES_TABLE} CASCADE"
         )
         conn.execute(f"DROP TABLE IF EXISTS {GENERATION_ORDINAL_TABLE} CASCADE")
         assert not _view_exists(conn, GENERATION_INTERVAL_STAB_VIEW), (
@@ -177,7 +177,7 @@ def test_interval_cutover_schema_migration_runs_on_legacy_registered_graph(
 
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
         ChronosGraphStore.from_connection(conn, ensure_schema=True)
-        assert not _table_exists(conn, ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE)
+        assert not _table_exists(conn, OVERLAY_RANGES_TABLE)
         assert not _table_exists(conn, GENERATION_ORDINAL_TABLE)
         assert not _view_exists(conn, GENERATION_INTERVAL_STAB_VIEW)
 
@@ -189,7 +189,7 @@ def test_interval_cutover_schema_migration_runs_on_legacy_registered_graph(
         store.close()
 
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
-        assert _table_exists(conn, ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE)
+        assert _table_exists(conn, OVERLAY_RANGES_TABLE)
         assert _table_exists(conn, GENERATION_ORDINAL_TABLE)
         # The dependent view is part of the cutover, not collateral: the
         # migration must rebuild what CASCADE removed, or the MCP sidecar

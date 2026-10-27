@@ -348,6 +348,25 @@ def refuse_rerun_while_undo_unfinished(
 ADMISSION_WRITES_STAND = frozenset({"accepted", "published", "blocked"})
 
 
+#: ``application_name`` of the session that holds a source run's liveness lock.
+LIVENESS_APPLICATION_NAME = "okg-source-run-liveness"
+
+
+def live_source_run_sessions(conn: Any) -> int:
+    """Sessions of this database holding a source run's liveness lock.
+
+    Counts runs a run base cannot show: before a branch's first generation no
+    run base is cut, but the run still holds its lock.
+    """
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute(
+            "SELECT count(*) FROM pg_stat_activity"
+            " WHERE datname = current_database() AND application_name LIKE %s",
+            (LIVENESS_APPLICATION_NAME + "%",),
+        )
+        return int(cur.fetchone()[0])
+
+
 def _liveness_key_sql(placeholder: str = "%s") -> str:
     return f"hashtextextended({placeholder}, 0)"
 
@@ -364,7 +383,12 @@ def hold_run_liveness(dsn: str, checkpoint_id: str) -> Any:
     """
     from okg.substrate.db.connection import connect as db_connect
 
-    conn = db_connect(dsn, autocommit=True)
+    # The session names itself, so a run is visible to ``okg doctor`` even
+    # before the branch's first generation, when no run base is cut for it
+    # to be found by (publisher-starvation-4039).
+    conn = db_connect(
+        dsn, autocommit=True, application_name=LIVENESS_APPLICATION_NAME,
+    )
     try:
         got = conn.execute(
             f"SELECT pg_try_advisory_lock({_liveness_key_sql()})",

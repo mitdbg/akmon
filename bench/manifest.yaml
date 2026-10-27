@@ -35,9 +35,6 @@
 #       native_view_materialization_delay_ms
 #                              non-negative int; coalesce non-final native-view
 #                              refreshes during bursty replay layers
-#       attribute_effective_view_empty_overlay_fast_path
-#                              bool; skip generation-keyed effective-attrs
-#                              snapshot copies when no attribute overlays exist
 #       source_sync_compaction_window_seconds
 #                              non-negative int; enable DBOS source-sync wakeup
 #                              compaction for bursty file/git watcher events
@@ -213,7 +210,6 @@ experiments:
       # ~1,400 queries in one run and ~5,400 in the next.
       native_view_min_refresh_interval_ms: 0
       native_view_materialization_delay_ms: 0
-      attribute_effective_view_empty_overlay_fast_path: true
       # Coalesce a single `git reset` burst (working-tree files changed by one
       # commit) into ONE source-sync, like prod (codebase-index uses
       # compaction). With window=0 a multi-file commit split into several
@@ -243,7 +239,7 @@ experiments:
     config:
       enrichers: code        # render the CodeReferenceResolver enricher
       views: true            # keep the native-view stage on (symbol_calls/file_symbols)
-      # NOTE: the native_view_* / source_sync_* / lsp_* / attribute_effective_view_*
+      # NOTE: the native_view_* / source_sync_* / lsp_* / attribute-view
       # tuning knobs that used to live here were never wired into BenchConfig, the
       # deployment.yaml render, or the substrate -- they appeared ONLY in this manifest
       # entry, so they did nothing AND made the whole manifest unloadable (BenchConfig
@@ -352,7 +348,6 @@ experiments:
     config:
       native_view_min_refresh_interval_ms: 60000
       native_view_materialization_delay_ms: 60000
-      attribute_effective_view_empty_overlay_fast_path: true
       source_sync_compaction_window_seconds: 0
       source_sync_watch_debounce_seconds: 0.02
       source_sync_head_poll_interval_seconds: 0.05

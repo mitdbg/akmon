@@ -70,6 +70,7 @@ from okg.substrate.derived_artifacts.views import (
     PublishedViewArtifact,
     ViewArtifactDefinition,
     carry_forward_view_artifact,
+    outputs_match_manifest_content,
     publish_view_artifact,
     register_view_artifact_definition,
 )
@@ -103,6 +104,10 @@ class ViewScheduleTask:
     dirty_scope_keys: Sequence[str] | None = None
     consume_dirty_scopes: bool = True
     metrics: Mapping[str, Any] = field(default_factory=dict)
+    #: Stored on the view's manifest (``inputs_valid_through_generation``,
+    #: ``external_inputs_state``, ``inputs_as_of``). The same record is written
+    #: whether the scheduler publishes the outputs or stores them as a carry.
+    manifest_metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 type DerivedScheduleTask = RelationScheduleTask | ViewScheduleTask
@@ -1402,14 +1407,29 @@ def _run_view_task(
     # when its own dirty scope is empty. Carrying forward here would reuse the
     # previous relation reference and discard the outputs the caller just
     # rendered from the current corpus.
-    if (
+    #
+    # An empty dirty-scope set is not evidence that a view's output is
+    # unchanged: the native view stage passes none for a full rebuild. A task
+    # that holds the outputs it just rendered is carried only when each slot's
+    # content hash (generation-dependent fields excluded) equals the previous
+    # manifest's; otherwise the outputs are published.
+    may_carry = (
         not force_full
-        and
-        previous_manifest_id is not None
+        and previous_manifest_id is not None
         and previous_hashes_match
         and not dirty_scope_keys
         and not upstream_bindings
-    ):
+    )
+    if may_carry and task.outputs:
+        step_started = time.perf_counter()
+        may_carry = outputs_match_manifest_content(
+            conn,
+            previous_manifest_id=previous_manifest_id,
+            outputs=task.outputs,
+        )
+        add_timing("scheduler.view_content_hash_compare", step_started)
+        timings_ms["scheduler.view_content_unchanged"] = 1.0 if may_carry else 0.0
+    if may_carry:
         step_started = time.perf_counter()
         published = carry_forward_view_artifact(
             conn,
@@ -1417,6 +1437,7 @@ def _run_view_task(
             source_manifest_id=previous_manifest_id,
             target_generation_id=target_generation_id,
             metrics=metrics,
+            manifest_metadata=task.manifest_metadata,
         )
         add_timing("scheduler.carry_forward_view_artifact", step_started)
         status = "carried_forward"
@@ -1443,6 +1464,7 @@ def _run_view_task(
             definition_registered=(
                 previous_manifest_id is not None and previous_hashes_match
             ),
+            manifest_metadata=task.manifest_metadata,
         )
         add_timing("scheduler.publish_view_artifact", step_started)
         status = "completed"

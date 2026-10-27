@@ -346,7 +346,7 @@ def build_census(root: Path) -> dict[str, Any]:
     source_commit, source_commit_error = _git(root, "rev-parse", "HEAD")
     source_ref, source_ref_error = _git(root, "branch", "--show-current")
     baseline_commit, baseline_error = _git(root, "rev-parse", "origin/dev")
-    working_tree, working_tree_error = _git(root, "status", "--porcelain")
+    working_tree, working_tree_error = _git(root, "--no-optional-locks", "status", "--porcelain")
     provenance_errors = {
         "source_commit": source_commit_error,
         "source_ref": source_ref_error,

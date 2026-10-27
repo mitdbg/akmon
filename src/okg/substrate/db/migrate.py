@@ -360,13 +360,22 @@ class MigrateResult:
     graph_read_indexes: dict[str, Any] | None = None
     #: How migrate kept the declared-attribute index reconciler out of the
     #: graph tables (okg#3112 step 2): ``free``/``acquired`` (with any
-    #: cancelled reconciler pid), ``not_acquired`` after the 60 s wait, or
+    #: cancelled reconciler pid), ``not_acquired`` (reason ``wait_expired``
+    #: after the 60 s wait for the reconciler, or
+    #: ``held_by_another_index_change`` within about a second when only
+    #: another index change holds the DDL lock), or
     #: ``not_installed`` before migration 0037.
     declared_attr_index_preemption: dict[str, Any] | None = None
     #: Issue #3342: blocked incomplete-ingest checkpoints whose repair
     #: contract this run retired (one supersede report each). Empty once
     #: converged.
     incomplete_checkpoint_retirements: tuple[dict[str, Any], ...] = ()
+    #: PACT recovery-contract-removed-sources: repair contracts whose
+    #: required sources were removed or renamed. With a deployment named,
+    #: one report per held contract (``retired``, ``retired_by_other`` or
+    #: ``not_retired`` with its reason); without, ``candidate`` reports and
+    #: nothing retired. Empty when no deployment holds such a contract.
+    source_contract_retirements: tuple[dict[str, Any], ...] = ()
     #: PACT openrouter-embeddings-hnsw: the semantic-search HNSW index step.
     #: ``None`` when no deployment was named or its embedding model is not
     #: indexed (embeddings off, ``hash``, sentence-transformers), so a
@@ -906,32 +915,6 @@ def _reconcile_registered_grants(cur: psycopg.Cursor) -> int:
     return applied
 
 
-def _backfill_deployments(deployment_name: str | None, dsn: str | None) -> list[str]:
-    """The deployment name(s) whose latest published generation the Layer-2
-    effective-attrs backfill should target. Prefers the explicit
-    ``--deployment``; else the DSN-reverse-mapped deployment; else the
-    convention-default ``"default"`` (the deployment name the publisher /
-    ``latest_generation`` use for a single-deployment DB). De-duplicated."""
-    candidates: list[str] = []
-    if deployment_name:
-        candidates.append(deployment_name)
-    try:
-        reverse = _deployment_for_database(dsn)
-    except MigrateAuthorityUnresolvable:
-        # Backfill target selection is a best-effort read optimization, and
-        # this code runs strictly AFTER migrate's single commit. The strict
-        # gate semantics live in migrate()'s pre-connect lookup (which is
-        # skipped only when an explicit deployment_name already routed
-        # through the provenance gate); degrading HERE cannot ungate
-        # anything — it only skips an optional backfill.
-        reverse = None
-    if reverse and reverse not in candidates:
-        candidates.append(reverse)
-    if "default" not in candidates:
-        candidates.append("default")
-    return candidates
-
-
 #: The one generated view the Chronos metadata migrations must see gone.
 _CHRONOS_CHECKPOINT_DEPENDENT_VIEW = ("okg", "v_generations")
 
@@ -1438,6 +1421,7 @@ def migrate(
     if vector_sets is not None:
         result = dataclasses.replace(result, vector_sets=vector_sets)
     from okg.substrate.ingest.published_completeness import (
+        retire_contracts_of_removed_sources,
         retire_pre_publish_incomplete_checkpoints,
     )
 
@@ -1461,6 +1445,37 @@ def migrate(
                 "step is a no-op the second time and the retirement retries"
             ),
         ) from exc
+    # A contract whose required sources were removed or renamed can never be
+    # repaired. With --deployment it is retired when every safety check
+    # passes; without, candidates are reported and nothing is retired (no
+    # source registry to classify against). Every caller of migrate() with a
+    # deployment name runs this: provision, init, promotion and the exchange
+    # harness as well as `okg migrate`.
+    try:
+        contract_reports = retire_contracts_of_removed_sources(
+            dsn, deployment_name,
+        )
+    except Exception as exc:
+        data = dict(getattr(exc, "data", None) or {})
+        raise SubstrateError(
+            "the schema is migrated, but retiring the repair contract of "
+            "removed or renamed sources failed",
+            data={
+                **data,
+                "schema_migrated": True,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+            fix_hint=(
+                "fix the cause, then rerun `okg migrate --deployment "
+                f"{deployment_name or '<deployment>'} --apply`; the schema "
+                "step is a no-op the second time and the retirement retries"
+            ),
+        ) from exc
+    if contract_reports:
+        result = dataclasses.replace(
+            result, source_contract_retirements=tuple(contract_reports),
+        )
     if not retirements:
         return result
     return dataclasses.replace(
@@ -1933,15 +1948,7 @@ def _migrate_once(
             # storage-column upgrade so a deployment provisioned by an older,
             # integer-`deleted` Chronos is migrated (writer_segment_id +
             # deleted->boolean). Idempotent; migrate holds write privileges.
-            # tolerate_pre_narrow_split: migrate is the ONE caller allowed to
-            # observe the pre-0020 wide attribute shape without refusing —
-            # the orchestration loop below runs the 0020 multi-phase driver
-            # right after this transaction commits. Every other ensure caller
-            # refuses a populated wide database loudly
-            # (phase-interval-narrow-split-migration).
-            graph_store.ensure_interval_storage_upgrade(
-                tolerate_pre_narrow_split=True
-            )
+            graph_store.ensure_interval_storage_upgrade()
             # The deployment's edge ranking (item 92a): the graph writer reads
             # it from okg.edge_precedence, which only a deployment-aware path
             # can fill. Same transaction as the rest of migrate.
@@ -2189,50 +2196,11 @@ def _migrate_once(
             # view scripts has run; withdraw the grant before the commit.
             _close_function_owner_transfer(cur)
 
-        # scale-operator-attr-reads / req.effective-attrs-view (Layer 2) MUST-FIX
-        # #3 (backfill): materialize the indexed effective-attrs snapshot for the
-        # LATEST published generation if it is missing one, so an already-published
-        # deployment turns the SQL fast path on at `okg up`/migrate WITHOUT a
-        # republish. Idempotent (a generation that already has a snapshot is a
-        # no-op). Fail-soft: a backfill error must NOT abort the migration (the
-        # snapshot is a read optimization; absent -> the operators fall back to
-        # Layer 1, never wrong). Runs in its own committed step after the schema
-        # commit so a heavy backfill cannot roll back the DDL.
-        #
         # THE single commit of the migrate transaction (audit F1): everything
         # above — schema body, Chronos ensures (commit-suppressed proxy),
         # ordered migrations, views, ledger rows — becomes durable here
         # atomically, and the advisory migration lock releases with it.
         conn.commit()
-
-        if runner_outcome.get("pending_multiphase"):
-            # The attribute tables are still in the pre-0020 wide shape; the
-            # snapshot backfill targets the narrow shape and the orchestration
-            # loop re-enters this helper after the multi-phase driver runs, so
-            # the second pass performs it.
-            logging.getLogger(__name__).info(
-                "effective-attrs view backfill deferred to the "
-                "post-multiphase migrate pass"
-            )
-        else:
-            try:
-                from okg.substrate.attributes import (
-                    backfill_effective_attribute_view,
-                )
-
-                for backfill_deployment in _backfill_deployments(
-                    deployment_name, dsn
-                ):
-                    with db_connect(dsn) as backfill_conn:
-                        backfill_effective_attribute_view(
-                            backfill_conn,
-                            deployment_name=backfill_deployment,
-                        )
-                        backfill_conn.commit()
-            except Exception:  # noqa: BLE001 — backfill is a best-effort read optimization; never abort migrate on it
-                logging.getLogger(__name__).exception(
-                    "effective-attrs view backfill skipped (non-fatal)"
-                )
 
     # Count at migrate surface level. The "statements executed"
     # accounting is coarse — we report the rough count from the

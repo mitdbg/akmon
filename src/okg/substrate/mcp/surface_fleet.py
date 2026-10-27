@@ -206,6 +206,7 @@ def expected_surface(
         )
     instructions = authored_instructions_for(
         served,
+        ids=metadata.get("id_families"),
         deployment_text=str(metadata.get("instructions") or ""),
         expansion_text=expansion_text,
     )

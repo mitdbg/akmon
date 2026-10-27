@@ -1,7 +1,8 @@
 """scale-operator-attr-reads / req.parity (Layer 2) — MUST-FIX #2.
 
-The Layer-2 SQL fast path (`_effective_view_fast_rows`) MUST feed the Nomos
-read-filter the SAME final effective attrs the Layer-1 slow path does. Accepted
+The page read MUST feed the Nomos read-filter the final effective attrs (the
+Layer-2 snapshot path and the Layer-1 slow path it was once compared with
+are gone since PACT lane-s-storage-cutover). Accepted
 overlays can contain both policy inputs and classified data, so every MCP path
 must apply them before the final policy decision and mask. Once redacted, the
 normal downstream overlay pass must not restore raw values.
@@ -149,11 +150,14 @@ def _seed_with_classification_overlay(clean_runtime: str) -> dict[str, str]:
     return {"generation_id": gen, "node_id": nid}
 
 
-def test_fast_and_slow_paths_agree_when_overlay_flips_classification(
+def test_the_page_masks_the_row_an_overlay_moves_into_a_classification(
     clean_runtime: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Effective overlays drive the policy and cannot restore masked values."""
+    """Effective overlays drive the policy and cannot restore masked values.
+    The page read (graph rows plus overlays, PACT lane-s-storage-cutover;
+    before it, the Layer-2 snapshot and Layer-1 scan seams, compared with
+    each other) hands the read filter the effective attrs."""
     monkeypatch.setenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", "enforce")
     monkeypatch.setenv("OKG_NOMOS_SUBJECT", "subject:mcp-reader")
     fixture = _seed_with_classification_overlay(clean_runtime)
@@ -161,40 +165,25 @@ def test_fast_and_slow_paths_agree_when_overlay_flips_classification(
     mcp = build_server(dsn=clean_runtime)
     pred = {"op": "eq", "field": "subtype", "value": "document"}
     try:
-        attr_rows = mcp._okg_operator_attr_rows  # type: ignore[attr-defined]
         with psycopg.connect(clean_runtime, autocommit=True) as conn:
             session = dataclasses.replace(
                 open_session(conn, deployment_name=_DEPLOYMENT),
                 generation_id=gen,
                 nomos_subject="subject:mcp-reader",
             )
-            # Fast path (snapshot present).
-            fast, _ = attr_rows(
-                conn, session, kind="nodes", limit=10_000, scan_predicate=pred
-            )
-            # Force Layer-1 fallback.
-            conn.execute(
-                "DELETE FROM okg.attribute_effective_view WHERE generation_id = %s",
-                (gen,),
-            )
-            slow, _ = attr_rows(
-                conn, session, kind="nodes", limit=10_000, scan_predicate=pred
+            page, _more = mcp._okg_effective_view_sql_page(
+                conn, session, kind="nodes", predicate=pred, limit=500, offset=0,
             )
 
-        def _by_id(rows):
-            return {r["node_id"]: dict(r.get("attrs") or {}) for r in rows}
-
-        fast_by, slow_by = _by_id(fast), _by_id(slow)
-        # Same id set and attrs for the SQL snapshot and Layer-1 fallback.
-        assert set(fast_by) == set(slow_by) == {nid}, (fast_by, slow_by)
-        assert fast_by[nid] == slow_by[nid], (fast_by[nid], slow_by[nid])
+        page_by = {r["node_id"]: dict(r.get("attrs") or {}) for r in page}
+        assert set(page_by) == {nid}, page_by
         # The effective classification triggers redaction. The accepted raw
         # overlay is masked and remains masked after downstream overlay helpers.
-        assert fast_by[nid]["classification"] == "restricted"
-        assert fast_by[nid]["owner_email"] == MASK_TOKEN
-        assert "text" not in fast_by[nid]
-        assert fast_by[nid]["nomos_redacted"] is True
-        serialized = json.dumps({"fast": fast_by, "slow": slow_by})
+        assert page_by[nid]["classification"] == "restricted"
+        assert page_by[nid]["owner_email"] == MASK_TOKEN
+        assert "text" not in page_by[nid]
+        assert page_by[nid]["nomos_redacted"] is True
+        serialized = json.dumps({"page": page_by})
         assert "alice@example.com" not in serialized
         assert "raw@example.com" not in serialized
         assert "secret-body" not in serialized

@@ -115,11 +115,6 @@ deployment_up:
         dump: 1012
         backup: 4200
         total: 7200
-# The planner treats the attribute read model as rebuildable only under the
-# interval arm with the empty-overlay fast path declared; without it the backup
-# admission refuses on attribute_read_model_rebuildable.
-native_views:
-  attribute_effective_view_empty_overlay_fast_path: true
 runtime:
   # Required before `okg runtime worker` will start for this deployment.
   enabled: true

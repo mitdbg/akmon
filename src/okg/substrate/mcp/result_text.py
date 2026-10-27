@@ -966,6 +966,93 @@ def _summary_next(payload: dict[str, Any]) -> Optional[str]:
     return text + (f", offset={offset})" if offset else ")")
 
 
+def _ranked_next(payload: dict[str, Any]) -> Optional[str]:
+    """The next page of a ranked aggregate (PACT read-aggregate-order-by, M2):
+    on a stored set ``offset=N generation_id=G`` with the page's pinned
+    generation; on a kept live set the whole call on its kept reference,
+    which reads the same ranked groups with no upstream call."""
+    order = payload.get("order_by")
+    if not (isinstance(order, dict) and isinstance(order.get("name"), str)):
+        return None
+    if not isinstance(payload.get("groups"), list):
+        return None
+    offset = _int(payload.get("next_offset"))
+    reference = payload.get("input")
+    argument = f"{order['name']} {'desc' if order.get('direction') == 'desc' else 'asc'}"
+    if payload.get("served_from") is not None:
+        if not (isinstance(reference, dict) and isinstance(reference.get("ref"), str)):
+            return None
+        # The whole call (review M1): the condition this page applied and its
+        # page size, so the hint reads the next page of the same ranking.
+        predicate = payload.get("predicate")
+        limit = _int(payload.get("limit"))
+        return (
+            f'aggregate(input={{"ref": {safe_json(reference["ref"])}}}, '
+            f'by={safe_json(payload.get("by") or [])}, '
+            f'metrics={safe_json(payload.get("metrics") or ["count"])}, '
+            + (f"predicate={safe_json(predicate)}, " if predicate not in (None, {}) else "")
+            + f"order_by={safe_json(argument)}, "
+            + (f"limit={limit}, " if limit is not None else "")
+            + f"offset={offset})"
+        )
+    generation = payload.get("pinned_generation_id", payload.get("generation_id"))
+    if generation is None:
+        return None
+    return f"offset={offset} generation_id={scalar(generation)}"
+
+
+def _handle_of(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """The live handle a reply names (PACT read-live-handles, 3.7): its
+    ``handle`` block, or a live expand's kept answer."""
+    handle = payload.get("handle")
+    if isinstance(handle, dict) and isinstance(handle.get("id"), str):
+        return handle
+    live = payload.get("external_live")
+    reference = live.get("result_reference") if isinstance(live, dict) else None
+    if (
+        isinstance(reference, dict) and reference.get("retained") is True
+        and isinstance(reference.get("id"), str)
+    ):
+        return {"id": reference["id"], "rows": reference.get("rows"), "order": "input order"}
+    return None
+
+
+def _handle_line(payload: dict[str, Any]) -> Optional[str]:
+    """``handle <id> · <n> rows · 10 min``; an aggregate's ``handle <G>
+    (groups) · from <S> · <n> groups · 10 min``; ``no handle · <why>``. It
+    suggests no call (3.7)."""
+    from okg.substrate.mcp.live_result_sets import LIFETIME_SECONDS
+
+    handle = _handle_of(payload)
+    if handle is None:
+        reason = payload.get("handle_reason")
+        if "handle" in payload and isinstance(reason, str):
+            return f"no handle{SEP}{token_text(reason)}"
+        return None
+    rows = _int(handle.get("rows"))
+    life = f"{max(1, LIFETIME_SECONDS // 60)} min"
+    groups = payload.get("operator_name") == "aggregate" or isinstance(payload.get("groups"), list)
+    parts = [f"handle {token_text(handle['id'])}" + (" (groups)" if groups else "")]
+    if groups and isinstance(handle.get("from"), str):
+        parts.append(f"from {token_text(handle['from'])}")
+    if rows is not None:
+        noun = "group" if groups else "row"
+        parts.append(f"{rows:,} {noun}{'' if rows == 1 else 's'}")
+    parts.append(life)
+    if handle.get("scope"):
+        parts.append("per reader (stateless transport)")
+    return SEP.join(parts)
+
+
+def _live_page_next(payload: dict[str, Any]) -> Optional[str]:
+    """The next page of a kept live `filter` or `map` read (3.7): the whole
+    call the reply carries in `next_call`, on the reply's own handle, which
+    holds the rows being paged in their order."""
+    if payload.get("operator_name") not in ("filter", "map") or payload.get("served_from") is None:
+        return None
+    return _call_text(payload.get("next_call"))
+
+
 def _next(payload: dict[str, Any]) -> Optional[str]:
     """What continues the read: ``offset=<n>`` or the token itself.
 
@@ -988,6 +1075,12 @@ def _next(payload: dict[str, Any]) -> Optional[str]:
         # Without the reference's own offset nothing is guessed from rows.
         return f'map(input={{"ref": {safe_json(reference.get("id"))}}}, offset={delivered})'
     if payload.get("next_offset") is not None:
+        ranked = _ranked_next(payload)
+        if ranked is not None:
+            return ranked
+        live_page = _live_page_next(payload)
+        if live_page is not None:
+            return live_page
         # The next page of an exact lexical read is exact only if asked for
         # again (PACT lexical-index-scan-cap-3162).
         mode = ' completeness="exact"' if _exact_requested(payload) else ""
@@ -1133,6 +1226,16 @@ def _delivery_complete(payload: dict[str, Any]) -> tuple[bool, Any]:
 
 
 def _ending(payload: dict[str, Any]) -> list[str]:
+    """The ending, with `complete` read as `partial` when a value list from
+    a handle had rows whose column was not read (PACT read-live-handles,
+    review R3-3): every matching row of the input is not known to be here."""
+    ending = _ending_of(payload)
+    if ending == ["complete"] and payload.get("value_lists_not_read"):
+        return ["partial (value list rows not read)"]
+    return ending
+
+
+def _ending_of(payload: dict[str, Any]) -> list[str]:
     """The last facts of an answer's status line (design `read-model` 3.5).
 
     Exactly one of ``complete``; ``completion unknown``; or ``bound reached
@@ -2073,10 +2176,122 @@ def _names_only_line(payload: dict[str, Any]) -> Optional[str]:
     return render(payload.get(NAMES_ONLY_KEY))
 
 
+def _chain_values(key: Any, values: Any) -> str:
+    """`q=i03, i07 and 2 more`: a chain's values, as the agent sent them."""
+    from okg.substrate.mcp.live_handle_lists import value_text
+
+    names = [v for v in values] if isinstance(values, list) else []
+    return _neutralise_markers(value_text(str(key), names))
+
+
+def _combined_lines(payload: dict[str, Any]) -> list[str]:
+    """A chain handle's read (PACT read-multi-handle-input, 6.3): what was
+    combined, the answers no longer kept, and rows in several answers."""
+    combined = payload.get("combined")
+    if not isinstance(combined, dict):
+        return []
+    out: list[str] = []
+    key = combined.get("varying")
+    answers, total = _int(combined.get("answers")), _int(combined.get("of"))
+    listed = [item for item in combined.get("not_kept") or [] if isinstance(item, dict)]
+    gone = [item for item in listed if item.get("reason") != "not_in_chain"]
+    older = [item for item in listed if item.get("reason") == "not_in_chain"]
+    if listed and answers is not None and total is not None:
+        parts = []
+        if gone:
+            parts.append(
+                f"{len(gone)} no longer kept: "
+                f"{_chain_values(key, [item.get('value') for item in gone])}"
+            )
+        if older:
+            parts.append(
+                f"{len(older)} older answers not in this handle: "
+                f"{_chain_values(key, [item.get('value') for item in older])}"
+            )
+        out.append(f"! over {answers} of {total} answers; " + "; ".join(parts))
+    origin = payload.get("original_call")
+    relation = origin.get("relation") if isinstance(origin, dict) else None
+    line = (
+        f"input: {scalar(answers)} kept answers of {_neutralise_markers(str(relation))}, "
+        f"one per {_neutralise_markers(str(key))}{SEP}{scalar(combined.get('rows'))} rows"
+    )
+    if combined.get("read"):
+        line += f"{SEP}read {scalar(combined.get('read'))}"
+    failed = combined.get("failed")
+    if isinstance(failed, list) and failed:
+        noun = "call" if len(failed) == 1 else "calls"
+        line += f" ({len(failed)} {noun} failed: {_chain_values(key, failed)})"
+    out.append(line)
+    several = _int(combined.get("rows_in_several_answers"))
+    if several:
+        out.append(
+            f"! {several} identical rows appear in more than one answer"
+        )
+    return out
+
+
+def chain_hint_line(hint: Any) -> Optional[str]:
+    """The chain line of a live reply (PACT read-multi-handle-input, 8.4):
+    one handle over this session's kept answers and the two calls that read
+    it, a total and a ranking."""
+    from okg.substrate.mcp.run_tool import call_text
+
+    if not isinstance(hint, dict) or not isinstance(hint.get("chain"), str):
+        return None
+    calls = [c for c in hint.get("calls") or [] if isinstance(c, dict)]
+    if len(calls) != 2:
+        return None
+    key = hint.get("argument")
+    notes = []
+    failed, missing = hint.get("failed"), hint.get("missing")
+    if isinstance(failed, list) and failed:
+        noun = "call" if len(failed) == 1 else "calls"
+        notes.append(f"{len(failed)} {noun} failed: {_chain_values(key, failed)}")
+    if isinstance(missing, list) and missing:
+        notes.append(f"{_chain_values(key, missing)} no longer kept; call it again")
+    dropped = hint.get("dropped")
+    if isinstance(dropped, list) and dropped:
+        notes.append(f"{len(dropped)} older answers left out: {_chain_values(key, dropped)}")
+    said = f" ({'; '.join(notes)})" if notes else ""
+    return (
+        f"! these {scalar(hint.get('answers'))} answers are kept as one handle{said}; "
+        f"read them with no new upstream calls: total {call_text(calls[0])}; "
+        f"rank {call_text(calls[1])}"
+    )
+
+
+def _exact_name_absent_line(payload: dict[str, Any]) -> Optional[str]:
+    """``! no record has the name or id "X": ...`` (issue 4053), or None.
+
+    Said when a search whose query is a name found no record that bears it
+    (search's `exact_name_absent`, only where the deployment runs no access
+    rules): plain enough that an agent can answer "absent". The near ids
+    are record ids, never names: a name is source text and would need the
+    untrusted-data fence a notice line cannot hold.
+    """
+    absent = payload.get("exact_name_absent")
+    if not isinstance(absent, dict) or not isinstance(absent.get("name"), str):
+        return None
+    if absent.get("within_filter") is True:
+        who = "no record this search's filters keep"
+    else:
+        who = "no record"
+    line = (
+        f"! {who} has the name or id {safe_json(absent['name'])}: names, titles, "
+        "labels, keys and ids checked exactly; ids and text also in any case or "
+        "with up to three separators between its words; other attributes not "
+        "checked"
+    )
+    near = absent.get("near_ids")
+    if isinstance(near, list) and near and all(isinstance(n, str) for n in near):
+        line += "; ids with a near name: " + ", ".join(near)
+    return line
+
+
 def _notices(
     payload: dict[str, Any], session_state: Optional[dict[str, Any]],
 ) -> list[str]:
-    out: list[str] = []
+    out: list[str] = _combined_lines(payload)
     bounded = _not_a_total_notice(payload)
     if bounded is not None:
         out.append(bounded)
@@ -2091,6 +2306,9 @@ def _notices(
             f"! no record has {field} = {safe_json(hint['sent'])}; "
             f"did you mean {safe_json(hint['stored'])}? (stored with that case)"
         )
+    absent = _exact_name_absent_line(payload)
+    if absent is not None:
+        out.append(absent)
     freshness = payload.get("source_freshness")
     key = stale_key(freshness)
     announce = key is not None
@@ -2296,6 +2514,11 @@ def _notices(
     load_note = payload.get("load_note")
     if isinstance(load_note, str) and load_note:
         out.append(f"! {load_note}")
+    # PACT read-live-handles (review R3-3): a value list from a handle with
+    # rows whose column was not read, in one sentence each.
+    for entry in payload.get("value_lists_not_read") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("note"), str):
+            out.append(f"! partial: {entry['note']}")
     # What a total over a kept live answer covers.
     cover = payload.get("totals_cover")
     if isinstance(cover, str) and cover:
@@ -2308,10 +2531,20 @@ def _notices(
 
         out.append(f"! {absent_sentence(absent_keys)}")
     not_exact = payload.get("sum_not_exact")
+    large = payload.get("sum_large_floats")
+    large = [str(label) for label in large] if isinstance(large, list) else []
     if isinstance(not_exact, list) and not_exact:
         from okg.substrate.mcp.live_result_sets import inexact_sentence
 
-        out.append(f"! {inexact_sentence([str(label) for label in not_exact])}")
+        # A label flagged only for a whole-number float of 2^53 or more has
+        # its own sentence below (PACT read-multi-handle-input, L7).
+        floats = [str(label) for label in not_exact if str(label) not in large]
+        if floats:
+            out.append(f"! {inexact_sentence(floats)}")
+    if large:
+        from okg.substrate.mcp.live_result_sets import large_float_sentence
+
+        out.append(f"! {large_float_sentence(large)}")
     if "zero_hit_reason" in payload:
         out.append(
             f"! no hits: {scalar(payload.get('zero_hit_reason'))} "
@@ -2659,9 +2892,10 @@ _PLACED_TOP = frozenset({
     "result_reference", "search_next", "exact_matches", "incoming_not_shown",
     "passages_not_shown", "truncation_remedy", "text_elsewhere", "resolved_path",
     "metadata_cut", "sample_nodes_omitted", "link_targets", "load_state", "load_note",
-    "totals_cover", "names_only", "absent_keys", "sum_not_exact",
+    "totals_cover", "names_only", "absent_keys", "sum_not_exact", "value_lists_not_read",
+    "sum_large_floats", "combined",
     "items", "groups", "rows", "columns", "mentions", "not_a_total", "value_hint",
-    "where_checked_on",
+    "where_checked_on", "exact_name_absent",
 })
 
 _ROW_KEYS = ("results", "neighbors", "items", "groups", "rows")
@@ -2757,8 +2991,11 @@ def _placed_leftovers(
             # Said by its notice line (issue #3666).
             if value is None or isinstance(value, str):
                 continue
-        elif key in ("absent_keys", "sum_not_exact"):
-            # Said by its notice line (#3666, lane ri).
+        elif key in (
+            "absent_keys", "sum_not_exact", "value_lists_not_read", "sum_large_floats",
+            "combined",
+        ):
+            # Said by its notice line (#3666, lane ri; read-live-handles R3-3).
             if value is None or isinstance(value, (dict, list)):
                 continue
         elif key == "names_only":
@@ -5386,6 +5623,90 @@ def _live_next_line(live: dict[str, Any]) -> Optional[str]:
     return f"! {what}; narrow the args to see the rest" if truncated else None
 
 
+#: Live states that are not an answer: the live read failed.
+_LIVE_FAILED_STATES = frozenset({"error", "timeout"})
+
+
+def live_read_failure(payload: Any, tool: Optional[str]) -> Optional[tuple[str, Optional[str]]]:
+    """``(kind, remedy)`` when an expand reply's live read failed, else None.
+
+    The graph rows beside a failed live read are still served, but the call
+    did not do what it was asked: its status line says so and the served
+    result sets ``isError`` (lane re, issue 4). An empty match is not a
+    failure; it is served as 0 rows. ``kind`` is the failure token
+    (``upstream_not_found``, ``response_over_cap``, ...), ``remedy`` the
+    envelope's own advice."""
+
+    if tool != "expand" or not isinstance(payload, dict):
+        return None
+    if payload.get("status") == "refused" or payload.get("result_kind") == "live_page":
+        return None
+    live = payload.get("external_live")
+    if not isinstance(live, dict) or live.get("state") not in _LIVE_FAILED_STATES:
+        return None
+    error = live.get("error")
+    error = error if isinstance(error, dict) else {}
+    kind = error.get("failure") or error.get("reason") or live.get("state")
+    remedy = error.get("remedy") or error.get("detail")
+    names = error.get("narrow_with")
+    if isinstance(error.get("remedy"), str) and isinstance(names, list) and names:
+        remedy = f"{remedy}: {', '.join(token_text(name) for name in names)}"
+    return str(kind), (str(remedy) if remedy else None)
+
+
+def _live_matched_nothing_lines(live: dict[str, Any]) -> list[str]:
+    """What a "nothing" answer prints: which relation matched nothing (or
+    found nothing named so), for which arguments, then the system's own
+    words. A fan-out names the values that found nothing; the other values'
+    rows are above it."""
+    note = live.get("matched_nothing")
+    if not isinstance(note, dict):
+        return []
+    sent = note.get("args")
+    terms = (
+        ", ".join(f"{token_text(key)}={safe_json(value)}" for key, value in sent.items())
+        if isinstance(sent, dict) and sent else ""
+    )
+    failures = note.get("failures") or [note.get("failure")]
+    said = (
+        "found nothing named so" if set(failures) == {"upstream_not_found"}
+        else "matched nothing" if "upstream_not_found" not in failures
+        else "matched nothing or found nothing named so"
+    )
+    relation = token_text(live.get("relation"))
+    total = note.get("each_values")
+    values = sent.get(next(iter(sent))) if isinstance(sent, dict) and sent else None
+    # A long list arrives as {"values": <count>, "first": [...]} (`_printed_query`).
+    count = len(values) if isinstance(values, list) else (
+        values.get("values") if isinstance(values, dict) else None
+    )
+    if isinstance(total, int) and isinstance(count, int):
+        head = (
+            f"0 rows for {count} of {total} values: the external system "
+            f"answered that {relation} {said} for {terms}"
+        )
+    else:
+        head = (
+            f"0 rows: the external system answered that {relation} {said}"
+            + (f" for {terms}" if terms else "")
+        )
+    if "upstream_not_found" in failures:
+        # Not found answers about the object the arguments name; a misspelled
+        # name or a wrong scope reads the same (review N-M1).
+        head += "; if you expected it, check the name and scope"
+    lines = [head]
+    if note.get("excerpt"):
+        said_for = note.get("excerpt_for")
+        if isinstance(said_for, dict) and said_for:
+            # A fan-out keeps the first such value's words: say which value.
+            lines.append("its words for " + ", ".join(
+                f"{token_text(key)}={safe_json(value)}" for key, value in said_for.items()
+            ) + ":")
+        _, blocks = _key_lines({"said": note["excerpt"]})
+        lines += blocks
+    return lines
+
+
 def _live_status_facts(live: dict[str, Any]) -> list[str]:
     """The status line's live facts: the relation, then its rows."""
     relation = token_text(live.get("relation"))
@@ -5429,7 +5750,19 @@ def _live_lines(node: Any, live: dict[str, Any]) -> list[str]:
     lines = [f"--- live {token_text(relation)}"]
     if live.get("state") != "ok":
         error = live.get("error")
-        key_lines, key_blocks = _key_lines(error if isinstance(error, dict) else {"error": error})
+        error = dict(error) if isinstance(error, dict) else {"error": error}
+        if live.get("state") in _LIVE_FAILED_STATES:
+            # The status line printed the kind and the remedy
+            # (`live_read_failure`): not twice, so the error form is no
+            # larger than the reserve the reply budget kept for it.
+            error.pop("failure" if error.get("failure") else "reason", None)
+            if error.get("remedy"):
+                if isinstance(error.get("remedy"), str) and error.get("narrow_with"):
+                    error.pop("narrow_with")
+                error.pop("remedy")
+            elif error.get("detail"):
+                error.pop("detail")
+        key_lines, key_blocks = _key_lines(error)
         lines += key_lines + key_blocks
         query = live.get("query")
         if isinstance(query, dict) and query:
@@ -5469,6 +5802,10 @@ def _live_lines(node: Any, live: dict[str, Any]) -> list[str]:
             lines.append(f"[{index}] {body}".rstrip())
         lines.append(FENCE_CLOSE)
     shown = len(rows) if isinstance(rows, list) else (1 if isinstance(rows, dict) and rows else 0)
+    note = live.get("matched_nothing")
+    if shown == 0 or (isinstance(note, dict) and note.get("each_values")):
+        # A fan-out says which values found nothing even when others answered.
+        lines += _live_matched_nothing_lines(live)
     reference = live.get("result_reference")
     reference = reference if isinstance(reference, dict) else {}
     # Live build 3 (#3666): a cut answer names ONE call that goes on, its
@@ -5503,6 +5840,9 @@ def _live_lines(node: Any, live: dict[str, Any]) -> list[str]:
         lines.append(
             f"! {len(altered)} upstream field name(s) were rewritten to be safe to print"
         )
+    chain_line = chain_hint_line(live.get("chain_hint"))
+    if chain_line is not None:
+        lines.append(chain_line)
     hint = live.get("run_hint")
     if isinstance(hint, dict) and isinstance(hint.get("call"), dict):
         # H3 (#3666, lane ri): built from this session's own calls.
@@ -5956,13 +6296,41 @@ def _render(
         # the publish freshness block, printed whole below).
         facts.append(f"generation {scalar(generation)}")
     shown.paging = len(ending) > 1 and not ending[-1].endswith(": none")
-    if tool == "expand" and isinstance(payload.get("external_live"), dict):
+    live_failure = live_read_failure(payload, tool)
+    if live_failure is not None:
+        # Lane re, issue 4: a failed live read is said first, by kind, with
+        # its remedy, never behind an `ok`.
+        _, remedy_text = live_failure
+        facts.append(
+            f"live {token_text(payload['external_live'].get('relation'))} failed"
+            + (f": {remedy_text}" if remedy_text else "")
+        )
+    elif tool == "expand" and isinstance(payload.get("external_live"), dict):
         # #3666: the live relation and its rows, after the graph page's own
         # facts (`rows 1-k of N`, or `N rows, all shown`).
         facts += _live_status_facts(payload["external_live"])
     shown.keys.update({"truncated", "complete", "text_left"})
-    lines = [SEP.join([f"{tool} {_status_word(payload, raised=raised)}", *facts])]
-    reference_line = _reference_line(payload)
+    status_word = (
+        f"error {token_text(live_failure[0])}" if live_failure is not None
+        else _status_word(payload, raised=raised)
+    )
+    lines = [SEP.join([f"{tool} {status_word}", *facts])]
+    handle_line = _handle_line(payload)
+    handle = _handle_of(payload)
+    if handle_line is not None:
+        # PACT read-live-handles (3.7): the handle on its own line, next to
+        # the status line; it suggests no call.
+        lines.append(handle_line)
+        # `next_call` is the status line's `next:` (a cut kept page).
+        shown.keys.update({"handle", "handle_reason", "next_call"})
+    reference = payload.get("result_reference")
+    same_id = (
+        handle is not None and isinstance(reference, dict)
+        and reference.get("id") == handle.get("id")
+    )
+    reference_line = None if same_id else _reference_line(payload)
+    if same_id:
+        shown.keys.add("result_reference")
     if reference_line is not None:
         lines.append(reference_line)
         shown.keys.add("result_reference")
@@ -6110,10 +6478,42 @@ def _render(
         elif payload.get("external_live") is not None:
             consumed.discard("external_live")
     elif tool in ("aggregate", "query"):
+        if tool == "aggregate":
+            # PACT read-aggregate-order-by: what was ranked, in words, and
+            # what a partial live read leaves out; the trap note on an
+            # unranked page cut while it computes another metric.
+            from okg.substrate.mcp import aggregate_order as _ao
+
+            head = _ao.head_line(payload)
+            lines += [head] if head is not None else []
+            lines += _ao.partial_lines(payload)
+            note = _ao.order_note_line(payload)
+            lines += [note] if note is not None else []
+        if tool == "aggregate":
+            lines += _computed_lines(payload)
+            consumed |= {key for key in _COMPUTED_KEYS if key in payload}
         lines += _table_rows(tool, rows, payload, start, shown)
         if tool == "aggregate":
+            tie = _ao.tie_line(payload)
+            lines += [tie] if tie is not None else []
             consumed |= {"by", "metrics"}
+            consumed |= {
+                key for key in (
+                    "order_by", "ranking_complete", "ranked_last_no_value",
+                    "tie_at_page_end", "order_note", "ranking_cut", "ranking_left_out",
+                ) if key in payload
+            }
+            if (
+                isinstance(payload.get("order_by"), dict) and "predicate" in payload
+                and payload.get("next_offset") is not None
+            ):
+                # Printed in the `next` hint (the whole call on the kept set).
+                consumed.add("predicate")
     elif tool in ("filter", "map"):
+        # PACT read-map-compute: the computed columns' states and the rows
+        # a computed column left out, before the rows.
+        lines += _computed_lines(payload)
+        consumed |= {key for key in _COMPUTED_KEYS if key in payload}
         # PACT read-reply-size-3666: filter rows say `shown earlier` as
         # search rows do; a map row is a projection the caller chose.
         lines += _generic_rows(
@@ -6149,6 +6549,41 @@ def _render(
         rest_lines, rest_blocks = _key_lines(rest)
         lines += ["--- other fields", *rest_lines, *rest_blocks]
     return "\n".join(lines)
+
+
+#: Reply keys of `map(compute)` and of reads over its handle (PACT
+#: read-map-compute) that :func:`_computed_lines` prints.
+_COMPUTED_KEYS = ("computed", "compute", "map_input", "not_computed", "handle_note")
+
+
+def _computed_lines(payload: dict[str, Any]) -> list[str]:
+    """`map(compute)`'s lines: the input a `where` narrowed, one line per
+    computed column (its states, and the rows without a value, named), the
+    rows a computed column left out of a later read, and why a reply has no
+    handle."""
+    out: list[str] = []
+    source = payload.get("map_input")
+    if isinstance(source, dict):
+        out.append(
+            f"input: {scalar(source.get('rows'))} of {scalar(source.get('of'))} rows of "
+            f"{scalar(source.get('handle'))} (where {safe_json(source.get('where'))})"
+        )
+    computed = payload.get("computed")
+    if isinstance(computed, dict):
+        from okg.substrate.mcp.map_compute import computed_line
+
+        out += computed_line(computed)
+    aside = payload.get("not_computed")
+    if isinstance(aside, dict) and isinstance(aside.get("note"), str):
+        rows = aside.get("rows")
+        named = (
+            f" ({', '.join(scalar(r) for r in rows)})" if isinstance(rows, list) and rows else ""
+        )
+        out.append(f"! partial: {aside['note']}{named}")
+    note = payload.get("handle_note")
+    if isinstance(note, str) and note:
+        out.append(f"! {note}")
+    return out
 
 
 def _graph_schema_without_repeats(payload: dict[str, Any], schema: Any) -> Any:

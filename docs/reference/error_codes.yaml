@@ -163,6 +163,7 @@ codes:
     severity: user
     raised_by:
       - MCP inspect(kind='generation')
+      - MCP inspect(kind='node_history') and inspect(kind='subtype_diff'), for a generation off the session branch's history
     referenced_in:
       - docs/runbooks/troubleshooting/storage.md
     fix_hint_template: "read this generation from the deployment and branch that own it"
@@ -177,6 +178,41 @@ codes:
       - pact/changes/int-on-chronos-generation-ref/audit.md
     fix_hint_template: "set okg.pin_generation to a published Chronos checkpoint id, or RESET it to read the latest published generation"
     data_shape: [guc, value]
+
+  # ---------- history reads (PACT okg-attribute-history-read) ----------
+
+  - code: history_row_budget_exceeded
+    python_exception: HistoryRowBudgetExceeded
+    severity: user
+    raised_by:
+      - MCP inspect(kind='node_history')
+      - MCP inspect(kind='subtype_diff')
+    referenced_in:
+      - docs/reference/mcp-results.md
+    fix_hint_template: "diff two closer generations, or read the record at single generations"
+    data_shape: [budget, budget_name, target_kind]
+
+  - code: history_generation_unordered
+    python_exception: HistoryGenerationUnordered
+    severity: user
+    raised_by:
+      - MCP inspect(kind='node_history')
+      - MCP inspect(kind='subtype_diff')
+    referenced_in:
+      - docs/reference/mcp-results.md
+    fix_hint_template: "backfill the generation-ordinal registry for this branch, or pass a `from` after the named generations"
+    data_shape: [generation_ids, unordered_count, branch, deployment_name]
+
+  - code: history_range_invalid
+    python_exception: HistoryRangeInvalid
+    severity: user
+    raised_by:
+      - MCP inspect(kind='node_history')
+      - MCP inspect(kind='subtype_diff')
+    referenced_in:
+      - docs/reference/mcp-results.md
+    fix_hint_template: "swap the two generations, or omit `from` to start at the oldest"
+    data_shape: [from_generation, to_generation]
 
   # ---------- extension / host problems ----------
 
@@ -251,6 +287,27 @@ codes:
       - okg.substrate.library.extraction.registry.load_extractors
     fix_hint_template: "add {0} block to extractors.yaml"
     data_shape: [axis]
+
+  - code: overlay_generation_unmaterialized
+    python_exception: null
+    severity: user
+    raised_by:
+      - okg.substrate.attributes.require_overlay_generation_marker
+      - okg.substrate.mcp.graph_read.require_graph_pin
+    # The MCP readers send require_graph_pin's hint; with no marker table it is
+    # "an operator runs `okg migrate --apply`, which also writes the markers".
+    fix_hint_template: "pin an earlier generation that has its marker (see `okg generation list --deployment <name>`), or publish this branch again: a publish that succeeds writes the marker, and a read with no generation_id then pins it. That publish can itself be refused; its refusal names its own fix"
+    # require_graph_pin adds `cause` (overlay_step_not_run or
+    # marker_table_missing).
+    data_shape: [generation_id, namespace, marker_table_present]
+
+  - code: overlay_ranges_out_of_order
+    python_exception: null
+    severity: fatal
+    raised_by:
+      - okg.substrate.attributes.sync_overlay_ranges_for_generation
+    fix_hint_template: "re-materialize only the branch's latest generation"
+    data_shape: [generation_id, branch_id, ordinal, last_synced_ordinal]
 
   - code: enricher_load_error
     python_exception: EnricherLoadError
@@ -417,16 +474,6 @@ codes:
     referenced_in: []
     fix_hint_template: "re-run the publish: the rows written during this one are still unpublished and the next cycle counts them"
     data_shape: [branch, stage, segment_signature_counted, segment_signature_now]
-
-  - code: removed_check
-    python_exception: null
-    severity: user
-    raised_by:
-      - okg.substrate.cli.main._cmd_db_attr_index
-    referenced_in:
-      - docs/reference/cli.md
-    fix_hint_template: "run okg db attr-index verify --against-graph, which checks the effective-attribute view against the graph rows"
-    data_shape: [reason, check]
 
   - code: no_applied_catalog
     python_exception: null
@@ -1299,6 +1346,21 @@ codes:
       (producer_authority._signature_group_plan): a rule reads a record
       property the grouping does not key on; the run was not admitted
     data_shape: [source, run_id, stage, record_kind, records, verdicts]
+
+  - code: producer_deferred_edges_over_limit
+    python_exception: null
+    severity: user
+    raised_by:
+      - source admission
+      - okg.substrate.producer_authority.evaluate_source_run_signature
+    referenced_in:
+      - docs/develop/architecture/waiting-edges.md
+    fix_hint_template: >-
+      the run defers more edges than consistency.deferred_cap_mode allows;
+      check the id prefix of the edges named in the verdict's sample, run the
+      source that owns the missing records, or raise
+      consistency.max_deferred_edges_per_run
+    data_shape: []
 
   - code: source_run_grouping_timeout
     python_exception: SourceRunGroupingTimeout
@@ -2229,16 +2291,6 @@ codes:
 
   # ---------- fact / projection correctness ----------
 
-  - code: effective_interval_backfill_required
-    python_exception: EffectiveIntervalBackfillRequired
-    severity: recoverable
-    raised_by:
-      - Publisher.cycle
-    referenced_in:
-      - docs/reference/cli.md
-    fix_hint_template: "run `uv run okg db repair-effective-attribute-intervals --deployment {0} --apply` before enabling OKG_IVM_INTERVAL_VIEW"
-    data_shape: [reason, deployment_name, branch, predecessor_generation_id, predecessor_ordinal, expected_counts, observed_counts, receipt_reason]
-
   - code: narrowing_violation
     python_exception: NarrowingViolation
     severity: recoverable
@@ -3138,39 +3190,6 @@ codes:
     fix_hint_template: "fix the DSN or the deployments root ({detail}); the authority gate fails closed and never proceeds ungated"
     data_shape: [detail, root, manifest]
 
-  # The effective-attribute
-  # payload-parity fingerprint REFUSES on a schema it cannot fingerprint
-  # completely instead of narrowing its column set to whatever survives. Two
-  # fingerprints taken over DIFFERENT column sets compare equal and report a
-  # parity match that was never performed -- a false witness inside an
-  # integrity check, which is worse than the crash it would have replaced.
-  #
-  # `code` is stated honestly, because a registry row that overstates itself is
-  # the class of defect this file exists to prevent. The raise site
-  # (attributes.py:3784, in _effective_interval_payload_signatures) constructs
-  # a BARE SubstrateError -- as all fourteen raises in that module do -- so the
-  # JSON envelope carries the base catch-all `substrate_error`, not the string
-  # below. What IS emitted and stable is `data.reason`, whose two values are
-  # `schema_predates_interval_narrow_split` and `attribute_relations_absent`
-  # (attributes.py:3678-3679), deliberately distinct because a database that
-  # predates the split and a database missing the relation entirely want
-  # different operator fixes. So: dispatch on data.reason today; the row below
-  # is the registry's name for the refusal, and `python_exception: null`
-  # records that no dedicated class carries it yet. Giving it one in errors.py
-  # plus `code=` at the raise site is
-  # task.pre-narrow-split-upgrade-preflight.typed-refusal.
-  - code: effective_attribute_payload_parity_inapplicable
-    python_exception: null
-    severity: fatal
-    raised_by:
-      - okg.substrate.attributes._effective_interval_payload_signatures
-      - okg db repair-effective-attribute-intervals --apply
-      - okg db prepare-effective-attribute-recovery --apply
-    referenced_in:
-      - pact/changes/pre-narrow-split-upgrade-preflight
-    fix_hint_template: "apply migration {0} (okg up runs it in the migrate phase), then re-run this check"
-    data_shape: [applicable, reason, payload_columns, missing_payload_columns, absent_relations, required_migration]
-
   # ---------- operator safety ----------
 
   - code: requires_confirm
@@ -3299,6 +3318,19 @@ codes:
     referenced_in:
       - pact/changes/typed-operator-inputs/pact.yaml
       - pact/changes/release-read-refusals/pact.yaml
+    # PACT read-live-handles: a read-grammar refusal may name `reason`
+    # (`handle_as_condition`: a handle id inside a compound condition or a
+    # scope's filter; `values_from_handle_need_handle_input`).
+    # PACT read-map-compute: `map(compute=...)` refuses by `reason` before any
+    # upstream call or graph read: an expression refusal of the formula
+    # language (`unknown_function`, `unknown_column`, `compute_cycle`,
+    # `too_many_columns`, a parse error, ...), `compute_under_access_rules`,
+    # `compute_on_stored_set`, `compute_on_edges`, `compute_with_projection`,
+    # `record_column_on_raw_rows`, `date_on_live_rows`, `reserved_key`,
+    # `reserved_column_name`, `column_shadows_field`, `key_absent_on_every_row`,
+    # `calc_column_unknown` (a later read names a `calc.` column the set
+    # lacks); while computing, `too_many_rows`, `evaluation_budget`,
+    # `regex_budget` and `map_output_too_large`, never a partial answer.
     fix_hint_template: "correct the named field(s), or re-read the tool's inputSchema in tools/list"
     data_shape: [tool, invalid_fields, validation_kinds]
 
@@ -3425,6 +3457,16 @@ codes:
       - src/okg/substrate/mcp/response_bounds.py
     fix_hint_template: "use search, filter, map, inspect, expand or aggregate, which apply the access rules"
     data_shape: [tool, access_rules]
+
+  - code: tool_not_served
+    python_exception: ToolNotServed
+    severity: user
+    raised_by:
+      - MCP call to a tool name the server does not register (a deployment whose `agent_surface.served` omits it, or a name no deployment has)
+    referenced_in:
+      - src/okg/substrate/mcp/session_tool_surface.py
+    fix_hint_template: "call one of the served tools, or ask the operator to add the tool to `agent_surface.served`"
+    data_shape: [tool, served]
 
   - code: cross_link_rule_parse_error
     python_exception: RuleParseError
@@ -4851,7 +4893,14 @@ codes:
     # generation_unavailable (`cause`: the code opening the pin gave),
     # binding_mismatch (`field`: authority, catalog, branch, database,
     # deployment or attributes) and member_missing (`count` only).
-    data_shape: [reason, field, count, cause]
+    # PACT read-live-handles: a live handle's `expired` or `evicted` adds
+    # `retry_call`, the call that rebuilds it (`authority` removed), for the
+    # reader that made it; another logical session of that reader answers
+    # `unknown`, as an id never issued.
+    # PACT read-multi-handle-input: a chain handle a newer one replaced
+    # answers `replaced` to its owner, with `replaced_by` (the newer id) and
+    # `retry_call` (a read of it, no upstream call).
+    data_shape: [reason, field, count, cause, retry_call, replaced_by]
 
   - code: result_reference_capacity
     python_exception: ResultReferenceCapacity
@@ -4872,8 +4921,9 @@ codes:
     fix_hint_template: "use a lexical record search with retain, or drop retain"
     # PACT read-result-references-3222-consumers. `reason`: method, rank_by
     # or argument (named in `argument`), refused from the arguments alone
-    # before any SQL (a passage-unit subtype after the catalog read), or
-    # effective_view_not_ready at production. Slice 3
+    # before any SQL (a passage-unit subtype after the catalog read). A pin
+    # with no overlay marker is refused overlay_generation_unmaterialized at
+    # production (PACT lane-s-storage-cutover). Slice 3
     # (read-result-references-3222-summary) adds `argument` values select
     # and max_chars (with view="metadata") and summary (without it).
     data_shape: [reason, argument]
@@ -4899,6 +4949,8 @@ codes:
     # `argument` names it: predicate (a bare or nested field, or the
     # contains op), select or projection (a field other than
     # attrs.<field>), by, order_by, metrics (other than count) or retain.
+    # `reason` `kept_set_too_large`: a cut map(compute) page whose computed
+    # rows are too large to keep (PACT read-map-compute).
     data_shape: [argument]
 
   - code: result_reference_internal
@@ -5392,11 +5444,42 @@ codes:
     fix_hint_template: null
     data_shape: [relation, arg]
 
+  # PACT read-live-handles (4.1.5): reading a live handle would decode more
+  # rows than one call (`scope: call`, 16 MiB) or the calls in flight
+  # (`scope: server`, 32 MiB per process) hold, counted as compact JSON.
+  # Refused at once, after the caller checks and before any row; no
+  # upstream call. `bytes` is the handle's size and `limit` the bound.
+  # PACT read-multi-handle-input: a chain handle's answers cannot be read as
+  # one set. `reason` is typed_set, groups_handle, derived_handle,
+  # relation_differs, anchor_differs, args_differ, value_twice, same_call,
+  # too_many_values, too_large or no_source_kept; `index` is the 1-based
+  # source (0 for the whole chain); `handles` the ids it is about (the
+  # source, with the earlier one it repeats, or the chain). A refusal of one
+  # source keeps that source's own code and adds `index` and `chain` (the
+  # chain id) to its data.
+  # No upstream call.
+  - code: live_handles_not_combinable
+    python_exception: LiveHandlesNotCombinable
+    severity: user
+    raised_by: [okg.substrate.mcp.live_handle_lists]
+    fix_hint_template: "read the chain again, or call the missing values again"
+    data_shape: [reason, index, handles]
+
+  - code: live_decode_capacity
+    python_exception: LiveDecodeCapacity
+    severity: user
+    raised_by: [okg.substrate.mcp.handles]
+    fix_hint_template: "narrow the set, or retry"
+    data_shape: [scope, bytes, limit]
+
   # A read of a live type (filter, map, aggregate, inspect, expand) refused
   # by the live-graph resolver; `data.reason` names which (e.g. mixed_set,
   # planned_overrun, heavy_reads_busy, store_full). Most come before any
   # upstream call; store_full, kept_set_too_large, listing_failed and
-  # system_unavailable come after the calls they count.
+  # system_unavailable come after the calls they count. field_not_fetched:
+  # a read of a kept set names a field growth fetches and no kept
+  # row holds, so growth did not run; refused with zero calls, never served
+  # as null.
   - code: live_read_refused
     python_exception: LiveReadRefused
     severity: user
@@ -5814,6 +5897,49 @@ codes:
       - docs/operate/operator-ui.md
     fix_hint_template: "okg ui serves loopback only; bind --host 127.0.0.1 and reach it remotely through an SSH tunnel; pass --port <1-65535>"
     data_shape: [host, port, reason]
+
+  # PACT recovery-contract-removed-sources. A blocked checkpoint's repair
+  # contract names a source the registry no longer holds (removed or
+  # renamed) or holds with a changed binding (rebound), so no retry can
+  # reproduce it. Replaces incomplete_recovery_contract_mismatch for that
+  # case; an all-present contract keeps the mismatch refusal.
+  - code: incomplete_recovery_contract_unsatisfiable
+    python_exception: null
+    severity: user
+    raised_by:
+      - okg ingest
+      - okg runtime worker
+    referenced_in: []
+    fix_hint_template: "restart `okg runtime worker` or run `okg migrate --deployment {0} --apply` when every held-back source is gone (they retire the repair requirement after their safety checks); otherwise run `okg runtime supersede-checkpoint --deployment {0}` (dry run first) and supersede with a recorded reason"
+    data_shape: [deployment, latest_checkpoint_id, source_classes, unsatisfiable_sources, automatic_retirement_applies, escape_hatch_command]
+
+  # Reported by okg migrate --deployment and okg runtime worker start (never
+  # raised): the checkpoint was recorded under another deployment name, so
+  # this deployment's unfinished-undo guard cannot see its undo and nothing
+  # is retired.
+  - code: incomplete_recovery_deployment_renamed
+    python_exception: null
+    severity: user
+    raised_by:
+      - okg migrate
+      - okg runtime worker
+    referenced_in: []
+    fix_hint_template: "run the command against the deployment name the checkpoint was recorded for, or supersede by hand after checking that deployment's unfinished undos"
+    data_shape: [deployment, checkpoint_id, recorded_deployment]
+
+  # Reported by okg migrate --deployment and okg runtime worker start (never
+  # raised): every held-back source is gone, but the publisher's own guard
+  # still refuses to publish, so retiring the repair requirement would only
+  # move the wedge. The report names the step that clears it.
+  - code: incomplete_recovery_publish_blocked
+    python_exception: null
+    severity: recoverable
+    raised_by:
+      - okg migrate
+      - okg runtime worker
+    referenced_in: []
+    fix_hint_template: "clear the publish block first (`okg runtime finish-undo --deployment {0} --apply` for an unfinished undo, or `okg remediate retire-source --source <name> --deployment-name {0}` for a kept rerun of a removed source, or `okg ingest --deployment {0} --include <new name>` for a kept rerun of a renamed source, never retire-source, which would delete the renamed source's records), then run `okg migrate --deployment {0} --apply`"
+    data_shape: [deployment, checkpoint_id, publish_block, sources, clears_with]
 
 next_action_enum:
   - configure_postgres_dsn

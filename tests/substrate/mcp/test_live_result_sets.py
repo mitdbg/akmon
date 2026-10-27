@@ -291,9 +291,14 @@ def test_too_large_is_reported_and_the_prefix_is_still_served(
 def test_a_full_server_is_reported_as_capacity_and_the_prefix_is_still_served(
     live_store,
 ) -> None:
+    # Re-pinned by PACT read-live-handles (M1): a full server evicts the
+    # largest holder's oldest committed set, so only reservations of calls in
+    # flight, which nothing evicts, leave no room.
     for i in range(live_result_sets.MAX_PER_SERVER):
-        _dispatch(store=live_store, adapter=CountingAdapter(), reader=f"other-{i}")
-    assert live_store.count() == live_result_sets.MAX_PER_SERVER
+        live_store.mint(reader_key=f"other-{i}", binding={}, members=(),
+                        header_claim=None, multi_user=False, payload=b"[]",
+                        payload_bytes=2, payload_rows=0)
+    assert live_store.pending_count() == live_result_sets.MAX_PER_SERVER
     plain, _ = _dispatch(store=live_store, adapter=CountingAdapter(), retain=False,
                          room=_room(4096))
     envelope, sampler = _dispatch(store=live_store, adapter=CountingAdapter(),
@@ -302,7 +307,8 @@ def test_a_full_server_is_reported_as_capacity_and_the_prefix_is_still_served(
     assert envelope["rows"] == plain["rows"][: len(envelope["rows"])]
     assert envelope["rows_returned"] >= 1
     assert sampler.rows[0]["attrs"]["retained_reason"] == "capacity"
-    assert live_store.count() == live_result_sets.MAX_PER_SERVER
+    assert live_store.pending_count() == live_result_sets.MAX_PER_SERVER
+    assert live_store.count() == 0
 
 
 @pytest.mark.parametrize("budget", [3_000, 8_000, 64 * 1024])
@@ -315,14 +321,65 @@ def test_the_envelope_with_its_block_fits_the_budget(live_store, budget) -> None
     assert _measure(envelope) <= budget
 
 
-def test_the_reserve_counts_the_largest_block() -> None:
+@pytest.mark.parametrize("fmt", ["text", "json"])
+@pytest.mark.parametrize("each", [None, {"q": ["a", "b", "c"]}])
+def test_the_reserve_holds_the_largest_kept_answer_and_error_form(
+    live_store, fmt, each,
+) -> None:
+    """Every live call keeps its answer (PACT read-live-handles), so its
+    largest rowless `ok` form carries the largest handle block and the
+    longest next token, and an error form carries a not-kept block. The
+    `ok` form has no error body, and the reserve's full-size error body
+    outweighs the block, the token and their lines; the error form has no
+    digest fields, which outweigh a not-kept block. So the reserve holds
+    both in JSON and in text without carrying the block itself. Adding the
+    block on top refused a live call at the 4 KiB floor before it ran
+    (#4060)."""
+    from okg.substrate.mcp.response_bounds import public_call_tool_result_bytes
+    from okg.substrate.mcp.result_text import result_format_scope
+
+    graph = {"node_id": "node-1", "direction": "out", "neighbors": []}
+
+    def served(envelope: dict[str, Any]) -> int:
+        return public_call_tool_result_bytes(
+            {**graph, "external_live": envelope}, tool="expand",
+        )
+
     bound = _bound()
     model = compile_args_model(bound.relation)
-    plain = live_reserve_envelope(bound=bound, args_model=model, args={"q": "x"})
-    kept = live_reserve_envelope(bound=bound, args_model=model, args={"q": "x"},
-                                 retain=True)
-    block = kept["result_reference"]
-    assert _measure(kept) >= _measure(plain) + _measure(block)
+    reserve = live_reserve_envelope(
+        bound=bound, args_model=model, args={} if each else {"q": "x"}, each=each,
+    )
+    assert "result_reference" not in reserve
+    block = live_result_sets.largest_block(reserve["observed_at"])
+    digest_form = {key: value for key, value in reserve.items() if key != "error"}
+    longest_ok = {
+        **digest_form, "result_reference": block,
+        "next": live_result_sets.largest_next_token(),
+        "next_from_row": live_result_sets.MAX_ROWS, "nested_cut": True,
+    }
+    denied, _sampler = _dispatch(store=live_store, adapter=CountingAdapter(),
+                                 gate=_gate(False))
+    assert denied["state"] == "denied" and denied["result_reference"]["retained"] is False
+    longest_reason = max(live_result_sets.NOT_KEPT_REASONS, key=len)
+    longest_error = {
+        **{key: reserve[key] for key in denied if key in reserve},
+        "state": "timeout", "error": reserve["error"],
+        "result_reference": live_result_sets.not_kept_block(longest_reason),
+    }
+    with result_format_scope(fmt):
+        assert served(reserve) >= served(longest_ok), (served(reserve), served(longest_ok))
+        assert served(reserve) >= served(longest_error), (
+            served(reserve), served(longest_error),
+        )
+        assert served(reserve) >= served(denied)
+
+
+def test_the_largest_block_is_at_least_any_real_block() -> None:
+    bound = _bound()
+    model = compile_args_model(bound.relation)
+    reserve = live_reserve_envelope(bound=bound, args_model=model, args={"q": "x"})
+    block = live_result_sets.largest_block(reserve["observed_at"])
     real = live_result_sets.new_store().mint(
         reader_key="r", binding={}, members=(), header_claim=None, multi_user=False,
         payload=b"[]", payload_bytes=2, payload_rows=0,
@@ -588,35 +645,44 @@ def test_a_role_removed_from_the_claim_makes_the_id_unknown() -> None:
 # ============================================================ limits (store)
 
 
-def test_a_reader_keeps_four_sets_and_its_oldest_is_evicted() -> None:
+def test_a_reader_keeps_64_sets_and_its_oldest_is_evicted() -> None:
+    # Re-pinned by PACT read-live-handles (M1), then read-multi-handle-input
+    # (Jason board d275): 64 per reader and session.
     store = live_result_sets.new_store()
-    first, *rest = (_commit(store, "reader-a") for _ in range(5))
+    first, *rest = (_commit(store, "reader-a") for _ in range(65))
     assert _reason(store, first, "reader-a") == "evicted"
     assert {store.lookup(i, reader_key="reader-a").id for i in rest} == set(rest)
 
 
-def test_a_principal_keeps_four_sets_across_its_reader_keys() -> None:
+def test_a_principal_keeps_128_sets_across_its_reader_keys() -> None:
+    # Re-pinned by PACT read-live-handles (M1), then read-multi-handle-input:
+    # 128 per principal.
     claim = {"provider_id": "sso", "issuer": "https://idp/", "external_subject": "bob"}
     store = live_result_sets.new_store()
-    keys = [continuation.reader_key({"note": str(i)}, claim, True) for i in range(5)]
+    keys = [continuation.reader_key({"note": str(i)}, claim, True) for i in range(129)]
     ids = [_commit(store, key, claim=claim, multi=True) for key in keys]
-    assert store.principal_count(continuation.principal_key(claim, True)) == 4
+    assert store.principal_count(continuation.principal_key(claim, True)) == 128
     assert _reason(store, ids[0], keys[0]) == "evicted"
 
 
-def test_a_full_server_refuses_without_evicting_another_readers_set() -> None:
+def test_a_full_server_evicts_the_largest_holders_oldest_set() -> None:
+    # Re-pinned by PACT read-live-handles (M1): a full server no longer
+    # refuses; it evicts the oldest set of the reader holding the most
+    # (here every reader holds one: the first by key order), never a
+    # reservation.
     store = live_result_sets.new_store()
-    held = [_commit(store, f"reader-{i}") for i in range(live_result_sets.MAX_PER_SERVER)]
-    with pytest.raises(ResultReferenceCapacity) as caught:
-        store.mint(reader_key="late", binding={}, members=(), header_claim=None,
-                   multi_user=False, payload=b"[]", payload_bytes=2, payload_rows=0)
-    assert caught.value.data["reason"] == "server_references"
-    assert caught.value.data["limits"]["references_per_server"] == 16
-    for i, set_id in enumerate(held):
-        assert store.lookup(set_id, reader_key=f"reader-{i}").id == set_id
+    held = [_commit(store, f"reader-{i:02d}") for i in range(live_result_sets.MAX_PER_SERVER)]
+    late = store.commit(store.mint(reader_key="late", binding={}, members=(), header_claim=None,
+                                   multi_user=False, payload=b"[]", payload_bytes=2,
+                                   payload_rows=0))
+    assert store.count() == 1024 and store.lookup(late.id, reader_key="late").id == late.id
+    assert _reason(store, held[0], "reader-00") == "evicted"
+    for i, set_id in enumerate(held[1:], 1):
+        assert store.lookup(set_id, reader_key=f"reader-{i:02d}").id == set_id
 
 
-def test_server_bytes_are_capped_at_64_mib() -> None:
+def test_server_bytes_are_capped_at_128_mib() -> None:
+    # Re-pinned by PACT read-live-handles (M1): 128 MiB per server.
     store = live_result_sets.new_store()
     big = live_result_sets.MAX_SET_BYTES
     drafts = [
@@ -624,7 +690,7 @@ def test_server_bytes_are_capped_at_64_mib() -> None:
                    multi_user=False, payload=b"x", payload_bytes=big, payload_rows=1)
         for i in range(live_result_sets.MAX_TOTAL_BYTES // big)
     ]
-    assert len(drafts) == 8
+    assert len(drafts) == 16
     store.release(drafts[0].id)
     store.mint(reader_key="r-next", binding={}, members=(), header_claim=None,
                multi_user=False, payload=b"x", payload_bytes=1, payload_rows=1)
@@ -637,7 +703,7 @@ def test_reservations_count_until_released() -> None:
                    multi_user=False, payload=b"[]", payload_bytes=2, payload_rows=0)
         for i in range(live_result_sets.MAX_PER_SERVER)
     ]
-    assert store.pending_count() == 16 and store.count() == 0
+    assert store.pending_count() == 1024 and store.count() == 0
     with pytest.raises(ResultReferenceCapacity):
         store.mint(reader_key="r9", binding={}, members=(), header_claim=None,
                    multi_user=False, payload=b"[]", payload_bytes=2, payload_rows=0)
@@ -678,7 +744,8 @@ def test_the_byte_cap_counts_unwrapped_rows() -> None:
     assert caught.value.reason == "too_large"
 
 
-def test_a_set_lives_300_seconds_and_reads_never_extend_it() -> None:
+def test_a_set_lives_600_seconds_and_reads_never_extend_it() -> None:
+    # Re-pinned by PACT read-live-handles (3.5): 10 minutes from mint.
     clock = [1_000_000.0]
     store = live_result_sets.new_store(clock=lambda: clock[0])
     set_id = _commit(store, "r")
@@ -1082,7 +1149,9 @@ def test_store_refusals_through_the_tools(world) -> None:
     live_result_sets.install_live_store(live_result_sets.new_store())
     lost = _refused(mcp, "map", {"input": {"ref": set_id}})
     assert lost["data"]["reason"] == "store_lost"
-    assert "retain=true" in lost["fix_hint"]
+    # Re-pinned by PACT read-live-handles: every read is kept, so the hint
+    # no longer names retain=true.
+    assert lost["fix_hint"] == live_result_sets.FIX_HINT
     assert len(world["adapter"].calls) == 1
 
 
@@ -1684,7 +1753,10 @@ def test_a_cut_expand_goes_on_by_next_with_no_second_adapter_call(world) -> None
     from tests.substrate.mcp._result_payload import payload
 
     first = payload(_cut_expand(world))["external_live"]
-    assert first["truncated"] is True and "result_reference" not in first
+    # Re-pinned by PACT read-live-handles (4.1.1): every live answer is kept,
+    # and its own handle backs the next token.
+    assert first["truncated"] is True and first["result_reference"]["retained"] is True
+    assert live_result_sets.next_set_id(first["next"]) == first["result_reference"]["id"]
     kept = first["rows_returned"]
     assert first["next_from_row"] == kept + 1
     assert world["store"].count() == 1, "the cut answer is kept for its token"
@@ -1759,7 +1831,7 @@ def test_an_expired_or_lost_next_token_says_so_and_names_the_call_that_asks_agai
     expired = _refused(world["mcp"], "expand", {"next": token})
     assert expired["code"] == "continuation_token_invalid"
     assert expired["data"]["reason"] == "expired"
-    assert "expired" in expired["message"] and "300 seconds" in expired["message"]
+    assert "expired" in expired["message"] and "600 seconds" in expired["message"]
     redo = f'call expand(input="{world["hub"]}", live={{"relation":"lrs_rows","args":{{'
     assert expired["fix_hint"].startswith(redo), expired["fix_hint"]
     assert '"q":"x"' in expired["fix_hint"]
@@ -1854,3 +1926,63 @@ def test_an_unknown_or_forged_next_token_is_refused_by_name(world) -> None:
     mixed = _refused(world["mcp"], "expand", {"next": token, "limit": 5})
     assert mixed["code"] == "next_with_read_arguments"
     assert len(world["adapter"].calls) == 1
+
+
+# ============================================================ a kept raw answer asks expand's check again
+
+
+def _deny_expand_only(tool: str) -> None:
+    """SIMULATED: the dispatch gate's verdict when the principal may call
+    filter, map and aggregate but not expand. The real gate decides per tool
+    name; this stands in for that decision."""
+    if tool == "expand":
+        from okg.substrate.errors import SubstrateError
+
+        err = SubstrateError("denied")
+        err.code = "nomos_identity_denied"
+        raise err
+
+
+@pytest.mark.postgres
+def test_a_kept_raw_answer_is_not_read_after_the_gate_denies_expand(world) -> None:
+    """The set was minted by expand, so a later read asks expand's decision:
+    no row once the dispatch gate denies expand, none from `expand(next=)`,
+    no adapter call, and the set reads again when the gate allows."""
+    mcp = world["mcp"]
+    from tests.substrate.mcp._result_payload import payload
+
+    set_id = _retain(world)["result_reference"]["id"]
+    token = payload(_cut_expand(world))["external_live"]["next"]
+    reads = [(tool, {"input": {"ref": set_id}, **KEPT_READS[tool]}) for tool in KEPT_READS]
+    reads.append(("aggregate", {"input": {"ref": set_id}, "by": [], "metrics": ["count"]}))
+    served = {tool: _ok(mcp, tool, arguments) for tool, arguments in reads}
+    calls = len(world["adapter"].calls)
+    mcp._okg_dispatch_principal_gate = _deny_expand_only
+    try:
+        for tool, arguments in reads + [("expand", {"next": token})]:
+            error = _refused(mcp, tool, arguments)
+            assert error["code"] == "nomos_identity_denied", (tool, error)
+    finally:
+        del mcp._okg_dispatch_principal_gate
+    assert len(world["adapter"].calls) == calls, "no adapter call"
+    for tool, arguments in reads:
+        again = _ok(mcp, tool, arguments)
+        assert again.get("items") == served[tool].get("items")
+        assert again.get("groups") == served[tool].get("groups")
+
+
+@pytest.mark.postgres
+def test_a_kept_raw_answer_is_not_read_after_expand_leaves_the_surface(world) -> None:
+    """SIMULATED: a real session's tool list only grows, so this replaces
+    `okg_visible_tools` to show the kept raw read asks whether expand is served."""
+    mcp = world["mcp"]
+    set_id = _retain(world)["result_reference"]["id"]
+    served = mcp.okg_visible_tools
+    mcp.okg_visible_tools = lambda: frozenset({"filter", "map", "aggregate", "inspect"})
+    try:
+        for tool in KEPT_READS:
+            error = _refused(mcp, tool, {"input": {"ref": set_id}, **KEPT_READS[tool]})
+            assert error["data"]["reason"] == "expand_not_served", (tool, error)
+    finally:
+        mcp.okg_visible_tools = served
+    assert _ok(mcp, "aggregate", {"input": {"ref": set_id}, "by": [], "metrics": ["count"]})

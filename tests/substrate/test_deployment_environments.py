@@ -467,6 +467,8 @@ def test_okg_ci_staging_composes_fail_closed_definition_and_readiness(
     ) == (1000, 1000)
     assert environment.readiness.override_authority == "staging_fail_closed"
     assert environment.manifest.effective_raw["readiness"] == {
+        "profile": "ci",
+        "environment_policy": "ci",
         "override_authority": "staging_fail_closed",
         "source_groups": {
             "ci": {

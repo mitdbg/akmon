@@ -611,6 +611,17 @@ class ChronosGraphWriteMixin:
         ))
         step_started = time.perf_counter()
         prior_edges_by_id = self._prior_edges_by_id(session, edge_ids_for_prior)
+        # Edges held back for another source's record (waiting table): an
+        # identical re-emit of one must write nothing, so a poll that changes
+        # nothing cuts no generation.
+        prior_waiting_by_id = (
+            self._waiting_edges_by_id(
+                session,
+                [int(row["edge_id"]) for row in edge_upserts],
+            )
+            if edge_upserts and self._edge_deferrals_registered()
+            else {}
+        )
         add_timing("load_prior_edges", step_started)
         if derived_reapplication or source == "_publisher_derived":
             step_started = time.perf_counter()
@@ -720,9 +731,19 @@ class ChronosGraphWriteMixin:
         edge_upserts = [
             row for row in edge_upserts
             if int(row["edge_id"]) in delete_edge_ids
-            or not self._edge_upsert_semantic_noop(
-                row,
-                prior_edges_by_id.get(int(row["edge_id"])),
+            or (
+                not self._edge_upsert_semantic_noop(
+                    row,
+                    prior_edges_by_id.get(int(row["edge_id"])),
+                )
+                # A graph row beats a waiting row, so only an edge that is
+                # not in the graph is judged against its waiting row.
+                and not (
+                    int(row["edge_id"]) not in prior_edges_by_id
+                    and self._edge_upsert_semantic_noop(
+                        row, prior_waiting_by_id.get(int(row["edge_id"])),
+                    )
+                )
             )
         ]
         add_timing("noop_filter", step_started)
@@ -1071,6 +1092,22 @@ class ChronosGraphWriteMixin:
             step_started = time.perf_counter()
             self._require_edge_declarers_table()
             add_timing("edge_declarers.ensure_table", step_started)
+        # A retraction takes the producer's own waiting edges with it; the
+        # rows are found before the transaction so that a retraction which
+        # touches only the waiting table still opens one.
+        waiting_withdrawals: list[dict[str, Any]] = []
+        if (
+            state.delete_edge_ids or scoped_node_deletes_for_apply
+        ) and self._edge_deferrals_registered():
+            waiting_withdrawals = self._waiting_keys_to_withdraw(
+                session,
+                source=source,
+                edge_ids=sorted(state.delete_edge_ids),
+                node_ids=[
+                    str(row["node_id"])
+                    for row in scoped_node_deletes_for_apply
+                ],
+            )
         if (
             node_upserts
             or substitute_node_upserts
@@ -1079,6 +1116,7 @@ class ChronosGraphWriteMixin:
             or edge_upserts
             or scoped_edge_deletes_for_apply
             or track_edge_declarers
+            or waiting_withdrawals
         ):
             with (
                 session.transaction() if not in_transaction else nullcontext()
@@ -1392,6 +1430,15 @@ class ChronosGraphWriteMixin:
                         session.upsert_rows(NODE_TABLE, node_upserts)
                         add_chronos_operation_timings("transaction.upsert_nodes")
                         add_timing("transaction.upsert_nodes", step_started)
+                if waiting_withdrawals:
+                    from okg.substrate.graph_store_internal.edge_deferrals import (
+                        EDGE_DEFERRALS_TABLE,
+                    )
+
+                    session.delete_keys(EDGE_DEFERRALS_TABLE, waiting_withdrawals)
+                    timings_ms["transaction.edge_deferrals.withdrawn"] = float(
+                        len(waiting_withdrawals)
+                    )
                 if edge_upserts:
                     step_started = time.perf_counter()
                     if can_apply_mixed:
@@ -2730,6 +2777,73 @@ class ChronosGraphWriteMixin:
             ) from exc
         db.execute("SELECT set_config('lock_timeout', ?, true)", [str(previous)])
         self._assert_paired_workspace_writable(branch)
+
+    def _edge_deferrals_registered(self) -> bool:
+        """Whether ``okg.graph_edge_deferrals`` is registered; reads only."""
+        from okg.substrate.graph_store_internal.edge_deferrals import (
+            EDGE_DEFERRALS_TABLE,
+        )
+
+        backend = getattr(self.context, "_backend", None)
+        if backend is None or not hasattr(backend, "tables"):
+            return False
+        if EDGE_DEFERRALS_TABLE not in backend.tables:
+            backend.refresh_registries()
+        return EDGE_DEFERRALS_TABLE in backend.tables
+
+    @staticmethod
+    def _waiting_edges_by_id(
+        session: Any,
+        edge_ids: list[int] | tuple[int, ...],
+    ) -> dict[int, Mapping[str, Any]]:
+        """The waiting rows (cross-source edges held back) for these edges."""
+        if not edge_ids:
+            return {}
+        rows = session.query(
+            """
+            SELECT edge_id, src, dst, edge_type, attrs,
+                   provenance, confidence, source,
+                   source_record_id, source_revision
+              FROM okg.graph_edge_deferrals
+             WHERE edge_id = ANY(:edge_ids)
+            """,
+            {"edge_ids": list(edge_ids)},
+        )
+        return {int(row["edge_id"]): row for row in rows}
+
+    @staticmethod
+    def _waiting_keys_to_withdraw(
+        session: Any,
+        *,
+        source: str | None,
+        edge_ids: list[int],
+        node_ids: list[str],
+    ) -> list[dict[str, Any]]:
+        """Waiting rows a retraction takes with it.
+
+        The producer's own retraction treats its waiting rows as its records:
+        an edge it retracts, and any edge of its own incident to a node it
+        retracts, leave the waiting table as they would leave the graph.
+        Another producer's waiting rows are never touched.
+        """
+        keys: dict[int, dict[str, Any]] = {}
+        scope = "" if source is None else " AND source = :source"
+        params: dict[str, Any] = {} if source is None else {"source": source}
+        if edge_ids:
+            for row in session.query(
+                "SELECT edge_id FROM okg.graph_edge_deferrals "
+                f"WHERE edge_id = ANY(:edge_ids){scope}",
+                {**params, "edge_ids": list(edge_ids)},
+            ):
+                keys[int(row["edge_id"])] = {"edge_id": int(row["edge_id"])}
+        if node_ids:
+            for row in session.query(
+                "SELECT edge_id FROM okg.graph_edge_deferrals "
+                f"WHERE (src = ANY(:node_ids) OR dst = ANY(:node_ids)){scope}",
+                {**params, "node_ids": list(node_ids)},
+            ):
+                keys[int(row["edge_id"])] = {"edge_id": int(row["edge_id"])}
+        return list(keys.values())
 
     def _edge_declarers_table_registered(self) -> bool:
         """Whether ``okg.graph_edge_declarers`` is registered; reads only."""

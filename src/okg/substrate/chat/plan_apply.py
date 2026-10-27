@@ -706,6 +706,16 @@ def _observe(
             or f"{inputs.mcp_server_id}{LIVE_CONNECTION_SUFFIX}"
         )
         entry = _registered(client, server_id)
+        if entry is None:
+            # The earlier release's live id (``okg-<d>-live``, #3960). Sync
+            # keeps it when no live slot is declared (it may be foreign), so
+            # readback must still see it, or a live connection registered out
+            # of band would read as "absent" after the rename.
+            from okg.substrate.chat.sync import legacy_mcp_server_ids
+
+            legacy_live = legacy_mcp_server_ids(inputs.deployment)["live_connection"]
+            if legacy_live != server_id:
+                entry = _registered(client, legacy_live)
         seen["live_connection:present"] = entry is not None
         if entry is not None:
             config = entry.get("config") or {}

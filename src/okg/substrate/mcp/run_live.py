@@ -326,7 +326,7 @@ def _predicate(step: run_steps.Step) -> Any:
 _ROWS_ARGUMENTS = {
     "filter": frozenset({"input", "where", "predicate", "limit", "select"}),
     "map": frozenset({"input", "where", "predicate", "limit", "select", "projection"}),
-    "aggregate": frozenset({"input", "where", "predicate", "limit", "by", "metrics"}),
+    "aggregate": frozenset({"input", "where", "predicate", "limit", "by", "metrics", "order_by"}),
 }
 
 
@@ -415,12 +415,63 @@ def _aggregate(
     for column in named:
         if source.rows and all(column not in row for row in source.rows):
             raise _unknown_column(step, "by/metrics", column, source, number)
+    labels = [_lrs.metric_label(m) for m in metrics]
+    order = _rows_order(step, by_raw, by, labels)
     report = _lrs.group_report(rows, by, metrics)
     one_source = sources[0] if sources and len(set(sources)) == 1 else "run_rows"
-    groups = _lrs.fenced_groups(report.groups, by, "", source=one_source)
-    labels = [_lrs.metric_label(m) for m in metrics]
+    ordered_groups = report.groups
+    limit = step.arguments.get("limit")
+    limit = limit if isinstance(limit, int) and not isinstance(limit, bool) else None
+    ranked_facts: dict[str, Any] = {}
+    from okg.substrate.mcp import aggregate_order as _ao
+
+    if order is not None:
+        from okg.substrate.external_backed.resolver import _fence_payload
+
+        def value_of(group: Any) -> Any:
+            return _ao.live_value(group, order, by)
+
+        ranked = _ao.rank(report.groups, order, value=value_of, key=lambda group: group[0])
+        ordered_groups = ranked.groups
+        ranked_facts = _ao.page_facts(
+            ranked, order, offset=0, page=limit if limit is not None else len(ranked),
+            complete=not source.partial, value=value_of,
+            # A tie value that is a key is served as the keys are: fenced (M8).
+            tie_value=lambda value: _fence_payload(value, source=one_source, fence_keys=True),
+        )
+    groups = _lrs.fenced_groups(ordered_groups, by, "", source=one_source)
+    if order is not None:
+        # `rank` is a column of the held groups (C4): a later step filters on it.
+        groups = [{"rank": index + 1, **group} for index, group in enumerate(groups)]
     cover = f"{_plural(len(rows), 'row')} of step {number} ({source.cover})"
-    notes = [*notes, f"! totals cover: {cover}; nothing outside these calls is counted"]
+    said_cover = f"{cover}; nothing outside these calls is counted"
+    if source.partial:
+        # A value the system cut, or that failed or never started, left rows
+        # out: say how short each metric may be (PACT live-kept-answer-cut).
+        said_cover += (
+            f"; step {number} did not read every value, so totals count only the "
+            "rows read" + _lrs.cut_bounds_text(metrics, grouped=bool(by))
+        )
+    notes = [*notes, f"! totals cover: {said_cover}"]
+    if order is not None:
+        said = {"order_by": ranked_facts["order_by"], "total_count": len(groups),
+                "ranking_complete": ranked_facts["ranking_complete"],
+                "by": by, **({"tie_at_page_end": ranked_facts["tie_at_page_end"]}
+                             if "tie_at_page_end" in ranked_facts else {})}
+        notes.append("! " + str(_ao.head_line(said)))
+        if source.partial:
+            notes.append(
+                f"! the ranking covers only the values read: step {number} did not "
+                "read every value, so a group may be missing or low"
+            )
+        tie = _ao.tie_line(said)
+        if tie is not None:
+            notes.append(tie)
+    else:
+        note = _ao.order_note(labels, cut=limit is not None and len(groups) > limit)
+        if note is not None:
+            ranked_facts["order_note"] = note
+            notes.append(str(_ao.order_note_line({"order_note": note})))
     if report.absent:
         notes.append(f"! {_lrs.absent_sentence(report.absent)}")
     if report.inexact:
@@ -447,9 +498,80 @@ def _aggregate(
             **({"values_skipped": report.skipped} if any(
                 sum(r.values()) for r in report.skipped.values()
             ) else {}),
+            **ranked_facts,
         },
         partial=source.partial, cover=cover, groups=groups, group_source=one_source,
     )
+
+
+def _order_name(name: str) -> str:
+    """An order_by name over held rows, as `by` and `metrics` name it: a bare
+    `count` is the metric, `max(size)` is `max(attrs.size)`, `size` is
+    `attrs.size`."""
+    if name == "count":
+        return name
+    if "(" in name and name.endswith(")"):
+        return str(_metric(name))
+    return str(_attrs_field(name))
+
+
+def check_rows_order(step: run_steps.Step) -> None:
+    """An aggregate over held rows: its order_by checked from the step's own
+    `by` and `metrics` when the steps are classified, before any step runs,
+    so a typo costs no upstream call (review m3). A malformed `by` or
+    `metrics` is left to the step itself, which refuses it as today."""
+    if step.arguments.get("order_by") is None:
+        return
+    by_raw = step.arguments.get("by") or []
+    metrics_raw = step.arguments.get("metrics") or ["count"]
+    if not isinstance(by_raw, list) or not isinstance(metrics_raw, list):
+        return
+    try:
+        by = _lrs.check_by([_attrs_field(item) for item in by_raw])
+        metrics = _lrs.check_metrics([_metric(item) for item in metrics_raw])
+    except SubstrateError:
+        return  # the step refuses its own by/metrics when it runs, as today
+    _rows_order(step, by_raw, by, [_lrs.metric_label(m) for m in metrics])
+
+
+def _rows_order(
+    step: run_steps.Step, by_raw: list[Any], by: list[str], labels: list[str],
+) -> Any:
+    """The order of an aggregate over held rows (PACT read-aggregate-order-by),
+    or None: normalised as its `by` and `metrics` are, then checked by the
+    shared rule against the printed labels."""
+    from okg.substrate.mcp.aggregate_order import check_order_by
+    from okg.substrate.mcp.live_reader import split_order_direction
+
+    raw = step.arguments.get("order_by")
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise run_steps.RunRefusal(
+            f"run: step {step.index}: order_by names one metric or by column",
+            'e.g. "order_by": "count desc"',
+        )
+    whole = _order_name(raw.strip())
+    if whole in by or whole in labels:
+        text, bare = whole, raw.strip()
+    else:
+        name, descending, doubled = split_order_direction(raw)
+        bare = name
+        text = raw.strip() if doubled else (
+            f"{_order_name(name)} {'desc' if descending else 'asc'}"
+        )
+    if bare == "count" and "count" in by_raw:
+        raise run_steps.RunRefusal(
+            f"run: step {step.index}: order_by count is the metric, and by also "
+            "names a column count; write it as attrs.count",
+            'rank by the column with "order_by": "attrs.count desc"',
+        )
+    try:
+        return check_order_by(text, by=by, metrics=labels, live=True)
+    except SubstrateError as exc:
+        raise run_steps.RunRefusal(
+            f"run: step {step.index}: {exc}", getattr(exc, "fix_hint", "") or "",
+        ) from exc
 
 
 # --------------------------------------------------------------------------- #

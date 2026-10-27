@@ -73,7 +73,7 @@ def _cycle(**overrides: Any) -> dict[str, Any]:
             "status": "disabled", "reason": "no_materializers",
             "failed_views": [], "failed_view_count": 0,
         },
-        "attribute_effective_view_refresh": {"status": "materialized"},
+        "attribute_overlay_refresh": {"reason": "materialized"},
         "lenses": [],
         "post_publish_consistency_checks": [],
         "per_source_status": {},
@@ -638,12 +638,6 @@ def test_status_table_classifies_the_known_failure_states_as_problems() -> None:
 # Report-shaped failure states from the publisher (review of PR 2345)
 # ---------------------------------------------------------------------------
 
-_INTEGRITY_RECEIPT = {
-    "advanced": False,
-    "reason": "post_checkpoint_finalization_failed",
-    "error_type": "OperationalError",
-}
-
 
 @pytest.mark.parametrize(
     ("overrides", "needle"),
@@ -703,14 +697,6 @@ _INTEGRITY_RECEIPT = {
                 "degraded_view_count": 1, "degraded_views": ["paper_counts"],
             }},
             "paper_counts", id="view-refresh-degraded",
-        ),
-        pytest.param(
-            {"attribute_effective_view_refresh": {
-                "status": "materialized",
-                "integrity_receipt": _INTEGRITY_RECEIPT,
-            }},
-            "post_checkpoint_finalization_failed",
-            id="integrity-receipt-no-status",
         ),
         pytest.param(
             {"brand_new_stage": {"status": "reticulating"}},
@@ -1283,6 +1269,27 @@ def _stage_failure_texts(rebuild: dict[str, Any]) -> list[str]:
 @pytest.mark.parametrize("status", ["nothing_to_rebuild", "rebuilt"])
 def test_successful_index_rebuild_prints_no_stage_failure(status: str) -> None:
     assert _stage_failure_texts({**_REBUILD_BASE, "status": status}) == []
+
+
+def test_index_rebuild_that_waited_for_an_old_snapshot_and_rebuilt_prints_no_warning() -> None:
+    """okg#3956: the retry record's per-check key must not read as a status."""
+    waits = {
+        "max_retries": 3,
+        "retry_wait_seconds": 1.0,
+        "retries": 2,
+        "waited_seconds": 3.0,
+        "checks": [
+            {"check": 1, "blocking": [{"pid": 4242, "xact_seconds": 6.1}],
+             "decision": "waited", "wait_seconds": 1.0},
+            {"check": 2, "blocking": [{"pid": 4242, "xact_seconds": 7.2}],
+             "decision": "waited", "wait_seconds": 2.0},
+        ],
+    }
+    rebuild = {**_REBUILD_BASE, "status": "rebuilt", "old_snapshot_waits": waits}
+    warnings = collect_run_warnings(
+        _cycle(post_publish_index_rebuild=rebuild), deployment="demo",
+    )
+    assert warnings == [], warnings
 
 
 @pytest.mark.parametrize("status", ["nothing_to_rebuild", "rebuilt"])

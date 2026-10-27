@@ -9,6 +9,7 @@ from okg.substrate.graph_store_internal.common import (
     EDGE_TABLE,
     NODE_TABLE,
 )
+from okg.substrate.graph_store_internal.node_history import ChronosGraphNodeHistoryMixin
 from okg.substrate.merge_guard import DeleteOptIn, MergeDecision
 
 
@@ -54,8 +55,12 @@ class GenerationCheckpointAbsent(KeyError):
     """
 
 
-class ChronosGraphReadBranchMixin:
-    """Branch checkout/read operations and branch-level graph actions."""
+class ChronosGraphReadBranchMixin(ChronosGraphNodeHistoryMixin):
+    """Branch checkout/read operations and branch-level graph actions.
+
+    Node version history (``node_version_history``) is a read, so it comes in
+    through this mixin and keeps the root store a thin facade.
+    """
 
     context: Any
 

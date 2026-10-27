@@ -296,7 +296,10 @@ class Predicate(_Model):
     ] = None
     field: Optional[str] = None
     value: Any = None
-    values: Optional[list[Any]] = None
+    #: A list, or a value list from a live handle, {"ref": "<l1 id>",
+    #: "field": "<column>"} (PACT read-live-handles, 4.1.8; the read grammar
+    #: refuses it unless the input is a live handle).
+    values: Optional[Union[list[Any], dict[str, str]]] = None
     clause: Optional["Predicate"] = None
     clauses: Optional[Annotated[list["Predicate"], Field(min_length=1)]] = None
 
@@ -746,7 +749,10 @@ def refuse_unknown_search_filter_keys(filter: Any) -> None:
 
 ExpandInput = Union[str, NodeAnchor]
 AggregateInput = Union[str, AggregateScope, NodeAnchor, RefInput]
-#: `filter`/`map` input: a scope, or a result reference's members.
+#: `filter`/`map` input: a scope, or a result reference's members. A handle
+#: sent as a string (PACT read-live-handles) is rewritten to `{"ref": id}` by
+#: the read grammar before validation, and the lean surface publishes this
+#: argument untyped, so the model stays object-only.
 SetInput = Union[SetScope, RefInput]
 
 #: `map`/`filter` projection: an ordered field list, or {alias: field}.
@@ -765,8 +771,13 @@ DIRECTIONS: tuple[str, ...] = ("out", "in")
 #: v1 computes one metric. `aggregate` raised on anything else; the schema
 #: now says so before the call is made.
 #: "count"; over a kept live answer also "sum(attrs.<field>)", "min(...)",
-#: "max(...)" (`live_result_sets.check_metrics` refuses any other by name).
-AggregateMetric = Annotated[str, Field(pattern=r"^(count|(sum|min|max)\(attrs\.[^().]+\))$")]
+#: "max(...)" (`live_result_sets.check_metrics` refuses any other by name);
+#: over a map's handle a computed column too, "sum(calc.<name>)" (PACT
+#: read-map-compute).
+AggregateMetric = Annotated[
+    str,
+    Field(pattern=r"^(count|(sum|min|max)\((attrs\.[^().]+|calc\.[a-z][a-z0-9_]{0,31})\))$"),
+]
 
 
 # ── inspect targets ───────────────────────────────────────────────────
@@ -972,6 +983,44 @@ class TGen(_Model):
     to: Optional[str] = None
 
 
+#: History reads (PACT okg-attribute-history-read): a page holds 50 versions
+#: or entries by default and at most 500, and names at most 50 attributes.
+HISTORY_DEFAULT_LIMIT = 50
+HISTORY_MAX_LIMIT = 500
+HISTORY_MAX_ATTR_KEYS = 50
+HistoryLimit = Annotated[int, Field(ge=1, le=HISTORY_MAX_LIMIT)]
+HistoryAttrKeys = Annotated[
+    list[Annotated[str, Field(min_length=1)]],
+    Field(min_length=1, max_length=HISTORY_MAX_ATTR_KEYS),
+]
+
+
+# One node's versions, newest first; `from`/`to` take what `generation_id`
+# takes (`to` defaults to the pin, `from` to the oldest). `attr_keys` names
+# the values returned. A comment, not a docstring: a docstring would be
+# served as the schema's description on every surface.
+class TNodeHistory(_Model):
+    kind: Literal["node_history"]
+    node_id: Annotated[str, Field(min_length=1)]
+    attr_keys: Optional[HistoryAttrKeys] = None
+    from_: Optional[Union[int, str]] = Field(default=None, alias="from")
+    to: Optional[Union[int, str]] = None
+    limit: Optional[HistoryLimit] = None
+    cursor: Optional[str] = None
+
+
+# The nodes of one subtype added, retracted or changed between two
+# generations (`to_generation` defaults to the pin).
+class TSubtypeDiff(_Model):
+    kind: Literal["subtype_diff"]
+    subtype: Annotated[str, Field(min_length=1)]
+    from_generation: Union[int, str]
+    to_generation: Optional[Union[int, str]] = None
+    attr_keys: Optional[HistoryAttrKeys] = None
+    limit: Optional[HistoryLimit] = None
+    cursor: Optional[str] = None
+
+
 class TLedger(_Model):
     """Admission-ledger reads. `record_id` narrows the `record` kind;
     `alias_suggestions` takes only `limit`."""
@@ -1005,6 +1054,8 @@ INSPECT_TARGET_MEMBERS: tuple[tuple[type, tuple[str, ...]], ...] = (
     (TAttr, ("attr", "attribute", "attribute_provenance")),
     (TSession, ("session",)),
     (TGen, ("generation", "generation_delta")),
+    (TNodeHistory, ("node_history",)),
+    (TSubtypeDiff, ("subtype_diff",)),
     (TLedger, ("admission", "record", "alias_suggestions")),
     (TRecordTemplates, ("record_templates",)),
 )
@@ -1013,7 +1064,8 @@ INSPECT_TARGET_KINDS: tuple[str, ...] = (
     "graph", "coverage", "ontology", "session_start", "record_prefixes",
     "subtype", "view", "surface", "node", "nodes", "text", "texts", "image", "attr", "session",
     "generation",
-    "generation_delta", "admission", "record", "record_templates",
+    "generation_delta", "node_history", "subtype_diff",
+    "admission", "record", "record_templates",
     "alias_suggestions",
 )
 

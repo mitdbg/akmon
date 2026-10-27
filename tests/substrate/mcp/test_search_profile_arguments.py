@@ -143,16 +143,18 @@ def test_the_reserved_all_profile_works_without_a_readable_manifest() -> None:
         assert scope.subtypes is None
 
 
-def test_the_attrs_scope_predicate_survives_both_pushdown_renderers(
+def test_the_attrs_scope_predicate_survives_the_pushdown_renderer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The scope clause must be an `in` node, not an `or` tree.
 
-    Both pushdown renderers DROP any `or`: `_attr_free_pushdown_clauses` keeps
-    only eq/in/exists, and the effective-view renderer has no `or` branch. An
-    `or` scope clause would therefore vanish silently while the envelope still
-    reported `scoped_subtypes` — the disclosure would be a lie, on the one
-    method whose scope is not proven end-to-end in the Postgres lane.
+    The pushdown renderer DROPS any `or`: `_attr_free_pushdown_clauses` keeps
+    only eq/in/exists (the effective-view renderer that had no `or` branch
+    either went with the materialized read path, PACT
+    lane-s-storage-cutover). An `or` scope clause would therefore vanish
+    silently while the envelope still reported `scoped_subtypes` — the
+    disclosure would be a lie, on the one method whose scope is not proven
+    end-to-end in the Postgres lane.
     """
     from okg.substrate.mcp.server import (
         _PUSHDOWN_SAFE_OPS,
@@ -171,10 +173,9 @@ def test_the_attrs_scope_predicate_survives_both_pushdown_renderers(
     assert clause["op"] in _PUSHDOWN_SAFE_OPS
     assert "or" not in _PUSHDOWN_SAFE_OPS
 
-    # Renderer 2: the effective-view WHERE builder, whose op set is hardcoded
-    # INDEPENDENTLY of _PUSHDOWN_SAFE_OPS. Drive the real function, so deleting
-    # its `in` branch reds this test. No database is contacted -- the builder
-    # is pure string/param assembly.
+    # The real renderer, driven through the server's seam, so deleting its
+    # `in` case reds this test. No database is contacted -- the builder is
+    # pure predicate assembly.
     # A localhost DSN that is never connected to: build_server only derives
     # role DSNs at construction, and it refuses to guess them for a non-local
     # host. Nothing here opens a socket.
@@ -189,22 +190,19 @@ def test_the_attrs_scope_predicate_survives_both_pushdown_renderers(
     server = build_server(
         dsn="postgresql://postgres@127.0.0.1:1/none", deployment_name="d",
     )
-    render = server._okg_effective_view_where
+    render = server._okg_attr_scan_pushdown_predicate
 
-    sql, params = render("nodes", clause)
-    assert "subtype = ANY(" in sql
-    assert list(params.values()) == [["chunk", "entity"]]
+    assert render(kind="nodes", input={}, predicates=(clause,)) == clause
 
     # The `or` form means the same thing to a reader and renders to NOTHING.
     # Pinned so nobody reintroduces it.
-    or_sql, _ = render("nodes", {
+    assert render(kind="nodes", input={}, predicates=({
         "op": "or",
         "clauses": [
             {"op": "eq", "field": "subtype", "value": "chunk"},
             {"op": "eq", "field": "subtype", "value": "entity"},
         ],
-    })
-    assert or_sql.strip() == ""
+    },)) is None
 
 
 def test_mcp_search_tool_refuses_a_profile_on_an_inapplicable_method() -> None:
@@ -424,3 +422,77 @@ def test_an_explicit_bound_on_a_non_lexical_method_still_raises() -> None:
         assert method in str(exc.value)
     # And on the lexical path it is accepted.
     assert assert_diversity_rank_mode(2, rank_by="self", method="lexical") is None
+
+
+# The lexical supplement's graph read (the only read path since PACT
+# lane-s-storage-cutover) must get every argument its caller takes. In S2 it
+# once returned before it used `reader_sql` (hidden rows filled its 200-row
+# cap) and `budget_ms` (the literal-read budget never applied). The check is
+# the caller's whole signature: every parameter must reach
+# `_graph_lexical_candidates` unchanged, unless it is listed here with the
+# reason. A new caller parameter fails the test until someone classifies it.
+_CALLER_ONLY = {"conn", "session"}  # the connection and session: passed positionally
+#: caller parameter -> why it does not arrive under its own name.
+_NOT_FORWARDED_BY_NAME = {
+    # split into `terms` (the words of the query)
+    "query": "terms",
+    # given whole as `filter`; its `attr_filters` is also passed as `attr_filters`
+    "filter": "filter and attr_filters",
+}
+#: The two arguments the S2 defect dropped, named so their removal from the
+#: caller fails too.
+_GUARDED = ("reader_sql", "budget_ms")
+
+
+def _caller_parameters() -> list[str]:
+    import importlib
+    import inspect
+
+    search_mod = importlib.import_module("okg.substrate.mcp.search")
+    caller = inspect.signature(search_mod._effective_view_lexical_candidates).parameters
+    return [name for name in caller if name not in _CALLER_ONLY]
+
+
+def test_graph_lexical_candidates_accepts_every_forwarded_argument():
+    import importlib
+    import inspect
+
+    search_mod = importlib.import_module("okg.substrate.mcp.search")
+
+    graph = inspect.signature(search_mod._graph_lexical_candidates).parameters
+    assert set(_GUARDED) <= set(_caller_parameters())
+    for name in _caller_parameters():
+        if name in _NOT_FORWARDED_BY_NAME:
+            continue
+        assert name in graph, f"graph branch does not accept {name}"
+
+
+def test_graph_lexical_candidates_gets_every_argument_the_caller_takes(monkeypatch):
+    import importlib
+
+    search_mod = importlib.import_module("okg.substrate.mcp.search")
+
+    seen: dict = {}
+
+    def fake(conn, session, **kwargs):
+        seen.update(kwargs)
+        return None
+
+    monkeypatch.setattr(search_mod, "_graph_lexical_candidates", fake)
+    forwarded = [n for n in _caller_parameters() if n not in _NOT_FORWARDED_BY_NAME]
+    sentinels = {name: object() for name in forwarded}
+    attr_filters = {"k": "v"}
+    result = search_mod._effective_view_lexical_candidates(
+        object(), object(), query="alpha", filter={"attr_filters": attr_filters},
+        **sentinels,
+    )
+    assert result is None
+    for name, sentinel in sentinels.items():
+        assert name in seen, f"the graph branch is not given {name}"
+        assert seen[name] is sentinel, f"{name} changed on the way to the graph branch"
+    # The special cases, by what they become.
+    assert seen["terms"] == ["alpha"]
+    assert seen["attr_filters"] == attr_filters
+    assert seen["filter"] == {"attr_filters": attr_filters}
+    for name in _GUARDED:
+        assert seen[name] is sentinels[name], name

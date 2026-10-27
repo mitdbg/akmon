@@ -25,6 +25,10 @@ from . import (
     DeploymentManifest,
     _substitute_manifest_placeholders,
 )
+from .readiness_profile import (
+    COMPOSED_ONLY_READINESS_KEYS,
+    DEFINITION_READINESS_KEYS,
+)
 
 
 ENVIRONMENT_API_VERSION = "okg.environment/v1"
@@ -78,6 +82,10 @@ _DEFINITION_KEYS = frozenset(
         "viz_path",
         "link_config",
         "refreshers",
+        # Only `readiness.profile` (issue #3958): how strictly the deployment
+        # is judged is a statement about the graph, so it travels with the
+        # definition. The rest of the composed block is environment-owned.
+        "readiness",
         "modules",
         "modules_config",
         "module_providers",
@@ -1035,6 +1043,66 @@ def _definition_path(value: str, *, descriptor_path: Path) -> Path:
     return candidate.resolve()
 
 
+def _validate_definition_readiness(
+    raw: Mapping[str, Any],
+    definition_path: Path,
+) -> None:
+    """A definition's ``readiness`` block may carry only ``profile``.
+
+    ``override_authority``, ``source_groups`` and ``environment_policy`` are
+    environment-owned (the descriptor's ``readiness`` block supplies them), so
+    a definition that sets one is refused structurally, like any other
+    environment-owned field. The profile's *value* is not checked here: an
+    unknown name must not stop the environment loading (MCP and ingest need
+    it); lint reports it and the status command reports it red.
+    """
+    if "readiness" not in raw:
+        return
+    block = raw["readiness"]
+    if not isinstance(block, Mapping):
+        raise DeploymentConfigError(
+            f"{definition_path} readiness must be a mapping that carries only "
+            f"{list(DEFINITION_READINESS_KEYS)}"
+        )
+    extra = sorted(str(key) for key in set(block) - set(DEFINITION_READINESS_KEYS))
+    if extra:
+        raise DeploymentConfigError(
+            f"{definition_path} readiness declares environment-owned or "
+            f"unknown field(s) {extra}; a definition may declare only "
+            f"{list(DEFINITION_READINESS_KEYS)} (the environment descriptor "
+            "owns override_authority, source_groups and the policy)"
+        )
+
+
+def _composed_readiness_block(
+    definition_raw: Mapping[str, Any],
+    readiness: ReadinessResource,
+) -> dict[str, Any]:
+    """The composed manifest's ``readiness`` block.
+
+    Merges the definition's ``readiness.profile`` with the environment's
+    ``override_authority`` and ``source_groups`` and records the descriptor's
+    ``readiness.policy`` as ``environment_policy`` (a composed-only key; see
+    ``COMPOSED_ONLY_READINESS_KEYS``). Nothing is replaced: a key the
+    environment does not set is left out, never defaulted.
+    """
+    declared = definition_raw.get("readiness")
+    block: dict[str, Any] = {
+        key: declared[key]
+        for key in DEFINITION_READINESS_KEYS
+        if isinstance(declared, Mapping) and key in declared
+    }
+    block[COMPOSED_ONLY_READINESS_KEYS[0]] = readiness.policy
+    if readiness.override_authority is not None:
+        block["override_authority"] = readiness.override_authority
+    if readiness.source_groups:
+        block["source_groups"] = {
+            profile: {group: list(sources) for group, sources in groups.items()}
+            for profile, groups in readiness.source_groups.items()
+        }
+    return block
+
+
 def _validate_definition(raw: Mapping[str, Any], *, definition_path: Path) -> str:
     imported = sorted(set(raw) & _DEFINITION_IMPORT_KEYS)
     if imported:
@@ -1053,6 +1121,7 @@ def _validate_definition(raw: Mapping[str, Any], *, definition_path: Path) -> st
         path=definition_path,
         field="definition",
     )
+    _validate_definition_readiness(raw, definition_path)
     api_version = _required_string(raw, "api_version", path=definition_path)
     if api_version != DEFINITION_API_VERSION:
         raise DeploymentConfigError(
@@ -1937,27 +2006,7 @@ def _compose_manifest(
     }
     runtime_config["source_sync"] = source_sync
     graph_raw["runtime"] = runtime_config
-    if readiness.override_authority is not None or readiness.source_groups:
-        graph_raw["readiness"] = {
-            **(
-                {"override_authority": readiness.override_authority}
-                if readiness.override_authority is not None
-                else {}
-            ),
-            **(
-                {
-                    "source_groups": {
-                        profile: {
-                            group: list(sources)
-                            for group, sources in groups.items()
-                        }
-                        for profile, groups in readiness.source_groups.items()
-                    }
-                }
-                if readiness.source_groups
-                else {}
-            ),
-        }
+    graph_raw["readiness"] = _composed_readiness_block(definition_raw, readiness)
     substituted = _substitute_manifest_placeholders(
         graph_raw,
         definition_path.parent,

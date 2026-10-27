@@ -204,54 +204,13 @@ branch_naming:
       The two sibling tables in this cluster DID converge, because their only
       SQL functions (ordinals 0008/0012) are LANGUAGE plpgsql and migration
       0026 re-issues them as the last writer.
-  - relation: okg.attribute_effective_integrity_receipts
-    column: branch_id
-    owner: db-schema-freeze-readiness
-    reason: >-
-      Blocked by applied ordinal 0013_attribute_integrity_receipts:44-46, which
-      creates attribute_effective_integrity_receipt_scope_idx over
-      (deployment_name, branch_id, namespace, ordinal DESC). Same mechanism as
-      okg.history_generation_pins above: an index's column list is resolved
-      before its name is checked, so the rename aborts a FRESH install at 0013.
-      Secondary, and deliberately NOT claimed as a blocker: a rename also
-      forces one full receipt re-anchor, because attribute_integrity.py:1156
-      builds the hashed receipt body from a hardcoded "branch_id" key and :867
-      hashes pg_attribute.attname over _IDENTITY_RELATIONS (:822) into
-      schema_digest, itself a hashed field of that body. That cost is real but
-      PRECEDENTED and self-healing --- 0015's own header records the same
-      digest invalidation as routine ("every existing receipt already fails the
-      fast path and forces one full re-anchor"), the chain check looks back
-      exactly one link, and the receipt is a proof cache rather than an
-      authority. So the re-anchor is a reason to SEQUENCE the rename with the
-      payload-key rename, not a reason it cannot happen; the ordinal index is
-      the reason it cannot happen here.
-  - relation: okg.attribute_effective_integrity_state
-    column: branch_id
-    owner: db-schema-freeze-readiness
-    reason: >-
-      Renames as one batch with okg.attribute_effective_integrity_receipts
-      above: all three tables are in _IDENTITY_RELATIONS
-      (attribute_integrity.py:822), so renaming any one of them changes
-      schema_digest for all three, and splitting the batch would invalidate the
-      receipt chain twice for no benefit.
-  - relation: okg.attribute_effective_integrity_transitions
-    column: branch_id
-    owner: db-schema-freeze-readiness
-    reason: Same rename batch as okg.attribute_effective_integrity_receipts.
-  - relation: okg.attribute_effective_view_intervals
-    column: branch_id
-    owner: schema-single-source-ddl
-    reason: >-
-      Runtime-ensured only (created by attributes.py, audit F2) --- it has no
-      schema.sql declaration and no ordered migration to carry the rename, so
-      it converges when its DDL moves into the canonical files.
   - relation: okg.generation_ordinals
     column: branch_id
     owner: schema-single-source-ddl
     reason: >-
-      Runtime-ensured only (created by generation_ordinal.py, audit F2); joined
-      to attribute_effective_view_intervals.branch_id, so the two rename
-      together once both have canonical DDL.
+      Runtime-ensured only (created by generation_ordinal.py, audit F2), so it
+      has no schema.sql declaration and no ordered migration to carry the
+      rename; it converges when its DDL moves into the canonical files.
 deployment_scoping:
   # Ten base tables and the okg.llm_call_stats view CONVERGED in migration 0026
   # (schema-identity-convergence) and their rows are deleted. okg.verifier_runs

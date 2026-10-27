@@ -439,6 +439,11 @@ def _native_view_markdown_node(
         _raise_native_view_http_error(exc, view_id=view_id, pin=pin)
         raise AssertionError("unreachable")
 
+    from okg.substrate.derived_artifacts.read_views import (
+        current_registry_view_ids,
+    )
+
+    registry_ids = current_registry_view_ids(ctx.deployment_name)
     artifact = markdown.artifact
     markdown_body = str(markdown.slot.payload_value() or "")
     view_name = str(
@@ -460,6 +465,10 @@ def _native_view_markdown_node(
             f"derived-artifact://manifest/{artifact.manifest_id}"
         ),
         "manifest_hash": artifact.manifest_hash,
+        "retired": (
+            None if registry_ids is None
+            else artifact.view_id not in registry_ids
+        ),
         "definition_id": artifact.definition_id,
         "required_slots": list(artifact.required_slots),
         "renderer_ref": markdown.slot.renderer_ref,
@@ -4326,6 +4335,7 @@ def build_router(
                         summary.target_generation_id
                     ),
                     "freshness": summary.freshness,
+                    "retired": summary.retired,
                     "manifest_uri": (
                         f"derived-artifact://manifest/{summary.manifest_id}"
                     ),
@@ -4620,6 +4630,7 @@ def build_router(
                     summary.target_generation_id
                 ),
                 "freshness": summary.freshness,
+                "retired": summary.retired,
                 "definition_id": summary.definition_id,
                 "manifest_uri": (
                     f"derived-artifact://manifest/{summary.manifest_id}"

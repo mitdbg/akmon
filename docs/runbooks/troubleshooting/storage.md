@@ -112,12 +112,12 @@ lock, then fails and changes nothing. Two holders are expected:
 
 ## Reclaim index space left by a failed publish
 
-A full publish writes `okg.attribute_effective_view_intervals` inside one
-transaction. When it fails or is cancelled, PostgreSQL rolls the rows back but
-keeps the index pages they used; VACUUM then empties the table and never
-shrinks an index. On one deployment this left 4.4 GB of index over
-two empty tables (the second, `okg.attr_index`, was dropped by migration
-`0043_attr_index_teardown`). `okg doctor
+A publish writes okg-schema tables inside one transaction. When it fails or
+is cancelled, PostgreSQL rolls the rows back but keeps the index pages they
+used; VACUUM then empties the table and never shrinks an index. On one
+deployment this left 4.4 GB of index over two empty tables (both since
+dropped, by migrations `0043_attr_index_teardown` and
+`0046_attribute_copies_teardown`). `okg doctor
 --check disk` reports such tables as `index_larger_than_table`.
 
 Rebuild them with the supported command. Dry run first:
@@ -216,7 +216,18 @@ environment of the publisher worker, `okg run --once` and `okg ingest`. To
 tune it, set `OKG_POST_PUBLISH_INDEX_REBUILD_RATIO` (at least 1.0),
 `OKG_POST_PUBLISH_INDEX_REBUILD_MIN_BYTES`,
 `OKG_POST_PUBLISH_INDEX_REBUILD_LOCK_TIMEOUT_SECONDS` (default 5) and
-`OKG_POST_PUBLISH_INDEX_REBUILD_BUDGET_SECONDS` (default 30). A value that is
+`OKG_POST_PUBLISH_INDEX_REBUILD_BUDGET_SECONDS` (default 30). When another
+session holds an old snapshot (`reason: old_snapshot_open`), the run waits and
+checks again before it gives up: at most
+`OKG_POST_PUBLISH_INDEX_REBUILD_OLD_SNAPSHOT_RETRIES` times in all (default 3;
+0 stops at once), after
+`OKG_POST_PUBLISH_INDEX_REBUILD_OLD_SNAPSHOT_RETRY_WAIT_SECONDS` (default 1,
+doubling: 1, 2, 4 s), and never past the budget. The waits come before the
+publisher lock is taken. The payload lists each check under
+`old_snapshot_waits`. A transaction that stays open makes every cycle that
+has rebuild work wait the full 7 s before the run gives up; set the retries to
+0 to stop at once. A retry count must be a whole number and the wait finite
+and above 0. A value that is
 not a number is reported as `status: error`; it is never replaced by the
 default.
 

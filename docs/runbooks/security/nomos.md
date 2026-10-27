@@ -226,7 +226,9 @@ nomos:
 ```
 
 The exception must name a profile, reason, owner, and future `expires_at`;
-expired or incomplete exceptions do not satisfy readiness. Operator output
+expired or incomplete exceptions do not satisfy readiness. The `standard`
+readiness profile is not in that fixed list: a `standard` deployment needs a
+blocking mode only when its own `readiness_profiles` lists `standard`. Operator output
 from `okg deployment ready`, `okg doctor --check nomos`, and Nomos rollout
 audit commands reports the effective mode, where that mode came from, whether
 it blocks actions, and the exception that allowed audit mode to pass.

@@ -61,7 +61,7 @@ constraints matter.
 | Source facts | `okg.source_watermarks`, `okg.source_record_sets`, `okg.node_facts`, `okg.edge_facts`, `okg.fact_batch_receipts`, `okg.source_retirement_receipts` | Imported source state and normalized facts before publication |
 | Admission | `okg.producer_profiles`, `okg.admission_envelopes`, `okg.admission_events`, `okg.admission_record_refs`, `okg.envelope_violations` | Who submitted a change, what was accepted, and why a record was rejected |
 | Access decisions | `okg.nomos_policy_bundles`, `okg.nomos_policy_activations`, `okg.nomos_identity_providers`, `okg.nomos_subject_bindings`, `okg.nomos_permission_grants`, `okg.nomos_decisions` | Policy, identity, permissions, and decision evidence |
-| Search and attributes | `okg.attribute_observations`, `okg.attribute_effective_attrs`, `okg.attribute_versions`, `okg.declared_attr_indexes`, `okg.generation_ordinals` | Typed attribute history and the declared attribute indexes |
+| Search and attributes | `okg.attribute_observations`, `okg.attribute_effective_attrs`, `okg.declared_attr_indexes`, `okg.generation_ordinals` | Typed attribute history and the declared attribute indexes |
 | Consistency checks | `okg.consistency_check_definitions`, `okg.consistency_candidates`, `okg.consistency_candidate_coverage`, `okg.consistency_gate_results` | Candidate comparisons and publication check results |
 | Vector sets | [Below](#vector-sets) | Semantic search vectors |
 | Blob store | `okg.blobs` (kind `image` only), read by `okg_mcp` through `okg.image_blobs` | Bytes the graph names by id, or a named render error; `okg db prune-blobs --kind image` deletes rows no retained generation references, after a grace window |

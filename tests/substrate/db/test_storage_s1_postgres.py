@@ -417,12 +417,12 @@ def test_statistics_objects_follow_the_declarations_on_a_sized_fixture(
 ) -> None:
     dsn = clean_runtime
     identity = s.seed(dsn, {"grp": "num", _QUOTED_KEY: "num"})
-    rows = 20_000
-    for start in range(0, rows, 5000):
+    rows, chunk = 2_000, 1_000     # 200 groups of 10 rows; ANALYZE reads every row
+    for start in range(0, rows, chunk):
         s.apply(dsn, [
             NodeFact(f"s1:sized:{i:06d}", "thing", {"grp": i % 200, _QUOTED_KEY: i % 7},
                      {"r": i}, {"v": 1})
-            for i in range(start, start + 5000)
+            for i in range(start, start + chunk)
         ])
     s.publish(dsn, identity)
     table = _node_table(dsn)
@@ -457,7 +457,9 @@ def test_statistics_objects_follow_the_declarations_on_a_sized_fixture(
     assert row is not None, "no expression statistics after ANALYZE"
     n_distinct = float(row["n_distinct"])
     estimate = -n_distinct * float(row["reltuples"]) if n_distinct < 0 else n_distinct
-    assert 20 <= estimate <= 2000, row
+    # 200 distinct values: a statistics object that sees every row as distinct
+    # estimates `rows` and fails the upper bound.
+    assert 20 <= estimate <= rows // 4, row
 
     # An unowned prefixed object on the node table is dropped; one on another
     # table is foreign: reported, never touched.
@@ -762,3 +764,48 @@ def test_rollback_removes_every_s1_object(
     assert _statistics(dsn) == {}
     report = management.database_health_report(dsn)
     assert report["ok"] is True, report["findings"]
+
+
+# --------------------------------------------------------------------------- #
+# Node-id trigram index (issue 4053, PACT read-absent-names-4053)              #
+# --------------------------------------------------------------------------- #
+
+_ID_TRGM = cold_history.NODE_ID_TRGM_SPEC
+_ID_TRGM_DEFINITION = "USING gin (node_id gin_trgm_ops) WHERE (deleted = false)"
+
+
+def test_node_id_trigram_index_is_built_on_a_fresh_database_and_online_on_upgrade(
+    clean_runtime: str,
+) -> None:
+    dsn = clean_runtime
+    _seed_small(dsn)
+    name = cold_history._full_index_name(_node_table(dsn), _ID_TRGM.suffix)
+    fresh = _index(dsn, name)
+    # A fresh database: schema reconciliation made the spec's definition.
+    assert fresh is not None and fresh["valid"], fresh
+    assert fresh["definition"].endswith(_ID_TRGM_DEFINITION), fresh
+
+    # An upgraded database without it: doctor reports it missing as a
+    # warning (an unmigrated deployment does not fail doctor while the
+    # rollout waits), and the online step of `okg migrate` builds it
+    # CONCURRENTLY, once.
+    _drop(dsn, name)
+    missing = _doctor_codes(dsn).get("graph_read_index_missing", [])
+    assert [f["index_name"] for f in missing] == [name], missing
+    assert missing[0]["severity"] == "warning", missing
+    report_ok = management.database_health_report(dsn)
+    assert not any(
+        f.get("index_name") == name and f.get("severity") == "error"
+        for f in report_ok["findings"]
+    )
+    report = cold_history.converge_interval_read_indexes(dsn, lock_timeout_ms=5000)
+    assert report["status"] == "converged", report
+    assert [item["index_name"] for item in report["created"]] == [name]
+    built = _index(dsn, name)
+    assert built is not None and built["valid"]
+    assert built["definition"].endswith(_ID_TRGM_DEFINITION), built
+    again = cold_history.converge_interval_read_indexes(dsn, lock_timeout_ms=5000)
+    assert again["created"] == []
+    migrate(dsn)
+    assert _index(dsn, name)["oid"] == built["oid"]
+    assert "graph_read_index_missing" not in _doctor_codes(dsn)

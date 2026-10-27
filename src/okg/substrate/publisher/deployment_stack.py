@@ -8,6 +8,7 @@ view materializers, consistency checks, and lens edit policies.
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -41,7 +42,6 @@ class DeploymentPublisherStack:
     enqueue_embeddings: bool = False
     native_view_min_refresh_interval_ms: int = 0
     native_view_materialization_delay_ms: int = 0
-    attribute_effective_view_empty_overlay_fast_path: bool = False
     history_retention_policy: dict[str, Any] | None = None
     # Opt-in flag for the resolution-aware reuse scheduler (PACT
     # consistency-resolution-aware-reuse, task.reuse.scheduler). Read from
@@ -74,9 +74,6 @@ class DeploymentPublisherStack:
             ),
             "native_view_materialization_delay_ms": (
                 self.native_view_materialization_delay_ms
-            ),
-            "attribute_effective_view_empty_overlay_fast_path": (
-                self.attribute_effective_view_empty_overlay_fast_path
             ),
             "history_retention_policy": self.history_retention_policy,
             "hard_statement_timeout_ms": (
@@ -214,13 +211,6 @@ def publisher_kwargs_from_env() -> dict[str, Any]:
         except ValueError:
             # Invalid override values fall back to the publisher default.
             pass
-    attr_view_empty_env = os.environ.get(
-        "OKG_ATTRIBUTE_EFFECTIVE_VIEW_EMPTY_OVERLAY_FAST_PATH",
-    )
-    if attr_view_empty_env:
-        publisher_kwargs["attribute_effective_view_empty_overlay_fast_path"] = (
-            attr_view_empty_env in {"1", "true", "TRUE", "yes", "YES"}
-        )
     return publisher_kwargs
 
 
@@ -387,7 +377,6 @@ def _build_deployment_publisher_stack_uncached(
             enqueue_embeddings=False,
             native_view_min_refresh_interval_ms=0,
             native_view_materialization_delay_ms=0,
-            attribute_effective_view_empty_overlay_fast_path=False,
             history_retention_policy=None,
             resolution_aware_reuse_enabled=False,
         )
@@ -452,7 +441,10 @@ def _build_deployment_publisher_stack_uncached(
             # `dangling_policy` comes from deployment.yaml's consistency.dangling_edges
             # (default "block"); deployments that ingest history with intentional
             # dangling references (git-history affects->deleted-file) set "prune".
-            TransformConsistencyGate(dangling_policy=load_dangling_policy(dep_dir)),
+            TransformConsistencyGate(
+                dangling_policy=load_dangling_policy(dep_dir),
+                edge_deferral=load_deferral_policy(dep_dir),
+            ),
             *load_consistency_gates(dep_dir),
             # No stored node of a live type (#3666): its own check id, so the
             # transform gate keeps its incremental basis. One catalog query
@@ -480,9 +472,6 @@ def _build_deployment_publisher_stack_uncached(
         ),
         native_view_materialization_delay_ms=(
             native_view_policy["materialization_delay_ms"]
-        ),
-        attribute_effective_view_empty_overlay_fast_path=bool(
-            native_view_policy["attribute_effective_view_empty_overlay_fast_path"]
         ),
         history_retention_policy=(
             dict(history_retention)
@@ -605,7 +594,6 @@ def load_native_view_refresh_policy(deployment_dir: Path | str) -> dict[str, Any
     policy: dict[str, Any] = {
         "min_refresh_interval_ms": 0,
         "materialization_delay_ms": 0,
-        "attribute_effective_view_empty_overlay_fast_path": False,
     }
     if not manifest.is_file():
         return policy
@@ -626,14 +614,14 @@ def load_native_view_refresh_policy(deployment_dir: Path | str) -> dict[str, Any
         except (TypeError, ValueError):
             continue
         policy[target_key] = max(0, parsed)
-    value = block.get("attribute_effective_view_empty_overlay_fast_path")
-    if value is not None:
-        if isinstance(value, bool):
-            policy["attribute_effective_view_empty_overlay_fast_path"] = value
-        elif isinstance(value, str):
-            policy["attribute_effective_view_empty_overlay_fast_path"] = (
-                value in {"1", "true", "TRUE", "yes", "YES"}
-            )
+    if "attribute_effective_view_empty_overlay_fast_path" in block:
+        # PACT lane-s-storage-drop-copies: the snapshot this key short-cut is
+        # gone, so the key has no effect. Say so instead of ignoring it.
+        logging.getLogger(__name__).warning(
+            "%s: native_views.attribute_effective_view_empty_overlay_fast_path "
+            "is retired and has no effect; remove it from the manifest",
+            manifest,
+        )
     return policy
 
 
@@ -649,6 +637,103 @@ def load_dangling_policy(deployment_dir: Path | str) -> str:
     block = manifest.consistency if manifest is not None else None
     policy = block.get("dangling_edges") if isinstance(block, dict) else None
     return policy if policy in ("block", "prune") else "block"
+
+
+def load_deferral_policy(deployment_dir: Path | str) -> Any:
+    """Read the cross-source edge deferral policy from ``consistency``.
+
+    ``defer_dangling_edges`` is ``auto`` (the default), ``true`` or ``false``.
+    ``auto`` defers on ``dangling_edges: block`` deployments and keeps today's
+    prune on ``prune`` deployments until the ``prune-baseline`` task has sized
+    what prune drops today (decision D1). ``max_deferred_edges_per_run``,
+    ``max_deferred_edge_fraction`` and ``deferred_edge_warn_after`` (a number
+    of hours, or a string such as ``24h`` or ``7d``) set decision D2's limits.
+    A malformed value is refused, not defaulted.
+    """
+    from okg.substrate.graph_store_internal.edge_deferrals import (
+        DEFAULT_MAX_DEFERRED_FRACTION,
+        DEFAULT_UNPUBLISHED_OWNER_CEILING,
+        CAP_MODES,
+        DEFAULT_CAP_MODE,
+        DEFAULT_MAX_DEFERRED_PER_RUN,
+        DEFAULT_WARN_AFTER_SECONDS,
+        DeferralPolicy,
+    )
+
+    manifest = _lenient_manifest(deployment_dir)
+    block = manifest.consistency if manifest is not None else None
+    block = block if isinstance(block, dict) else {}
+    mode = block.get("defer_dangling_edges", "auto")
+    if mode == "auto" or mode is None:
+        enabled = load_dangling_policy(deployment_dir) == "block"
+    elif isinstance(mode, bool):
+        enabled = mode
+    else:
+        raise ValueError(
+            "consistency.defer_dangling_edges must be auto, true or false, "
+            f"got {mode!r}"
+        )
+    per_run = block.get("max_deferred_edges_per_run", DEFAULT_MAX_DEFERRED_PER_RUN)
+    fraction = block.get(
+        "max_deferred_edge_fraction", DEFAULT_MAX_DEFERRED_FRACTION,
+    )
+    if isinstance(per_run, bool) or not isinstance(per_run, int) or per_run < 0:
+        raise ValueError(
+            "consistency.max_deferred_edges_per_run must be a non-negative "
+            f"integer, got {per_run!r}"
+        )
+    if (
+        isinstance(fraction, bool)
+        or not isinstance(fraction, (int, float))
+        or not 0 <= fraction <= 1
+    ):
+        raise ValueError(
+            "consistency.max_deferred_edge_fraction must be a number from 0 "
+            f"to 1, got {fraction!r}"
+        )
+    cap_mode = block.get("deferred_cap_mode", DEFAULT_CAP_MODE)
+    if cap_mode not in CAP_MODES:
+        raise ValueError(
+            f"consistency.deferred_cap_mode must be one of {list(CAP_MODES)}, "
+            f"got {cap_mode!r}"
+        )
+    return DeferralPolicy(
+        enabled=enabled,
+        cap_mode=cap_mode,
+        unpublished_owner_ceiling=_non_negative_int(
+            block.get(
+                "max_deferred_edges_unpublished_owner",
+                DEFAULT_UNPUBLISHED_OWNER_CEILING,
+            ),
+            "consistency.max_deferred_edges_unpublished_owner",
+        ),
+        max_per_run=per_run,
+        max_fraction=float(fraction),
+        warn_after_seconds=_duration_seconds(
+            block.get("deferred_edge_warn_after"),
+            default=DEFAULT_WARN_AFTER_SECONDS,
+            field="consistency.deferred_edge_warn_after",
+        ),
+    )
+
+
+def _non_negative_int(value: Any, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{field} must be a non-negative integer, got {value!r}")
+    return value
+
+
+def _duration_seconds(value: Any, *, default: int, field: str) -> int:
+    if value is None:
+        return default
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+        return int(value * 3600)
+    if isinstance(value, str) and value[:-1].isdigit() and value[-1] in "hd":
+        return int(value[:-1]) * (3600 if value[-1] == "h" else 86400)
+    raise ValueError(
+        f"{field} must be a number of hours or a string such as 24h or 7d, "
+        f"got {value!r}"
+    )
 
 
 def load_resolution_aware_reuse_enabled(deployment_dir: Path | str) -> bool:

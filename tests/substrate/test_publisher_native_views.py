@@ -891,15 +891,9 @@ def test_native_view_refresh_coalesces_until_forced_final(
     clean_runtime: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pinned to OKG_IVM_INTERVAL_VIEW=0: the final assertion (forced final
-    publish writes snapshot rows for its generation) is the FULL-snapshot
-    path's contract. Under the interval arm the snapshot is changed-only by
-    design, so a forced refresh of unchanged facts legitimately writes 0
-    rows for that generation (the interval table carries them; covered by
-    tests/substrate/test_effective_attribute_view_intervals.py). Red at
-    the shipped default since #624 flipped the env default; made an
-    explicit flag-off pin by fix-ivm-fresh-db-publish."""
-    monkeypatch.setenv("OKG_IVM_INTERVAL_VIEW", "0")
+    """An intermediate publish coalesces the native views; a forced final
+    one refreshes them. (The effective-view snapshot assertions this test
+    also made went with the view, PACT lane-s-storage-drop-copies.)"""
     view_id, materializer = _materializer()
 
     first = Publisher(
@@ -948,31 +942,6 @@ def test_native_view_refresh_coalesces_until_forced_final(
     assert final["native_view_refresh"]["status"] == "materialized"
     assert final["views"][0]["view_id"] == view_id
     assert final["views"][0]["freshness"] in {"fresh", "carried_forward"}
-    assert second["attribute_effective_view_refresh"]["status"] == "deferred"
-    assert second["attribute_effective_view_refresh"]["reason"] == (
-        "intermediate_publish"
-    )
-    assert final["attribute_effective_view_refresh"]["status"] == "materialized"
-
-    with psycopg.connect(clean_runtime, autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT count(*)
-              FROM okg.attribute_effective_view
-             WHERE generation_id = %s
-            """,
-            (str(second["generation_id"]),),
-        )
-        assert cur.fetchone()[0] == 0
-        cur.execute(
-            """
-            SELECT count(*)
-              FROM okg.attribute_effective_view
-             WHERE generation_id = %s
-            """,
-            (str(final["generation_id"]),),
-        )
-        assert cur.fetchone()[0] > 0
 
 
 def test_native_view_min_refresh_coalesces_final_until_forced(
@@ -1023,53 +992,6 @@ def test_native_view_min_refresh_coalesces_final_until_forced(
     assert forced["status"] == "published"
     assert forced["native_view_refresh"]["status"] == "materialized"
     assert forced["views"][0]["view_id"] == view_id
-
-
-def test_attribute_view_empty_overlay_policy_skips_snapshot_copy(
-    clean_runtime: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The deployment policy plumbing reaches the materialize. The skip
-    itself only applies when the interval arm does NOT own the publish
-    (issue #647, fix-ivm-fresh-db-publish: under the interval arm the fast
-    path is refused so the interval sync has a snapshot to fold) — pin the
-    flag-off contract here; the mutual exclusion is pinned by
-    tests/substrate/test_effective_attribute_view_intervals.py."""
-    monkeypatch.setenv("OKG_IVM_INTERVAL_VIEW", "0")
-    with psycopg.connect(clean_runtime, autocommit=True) as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM okg.attribute_observations")
-            cur.execute("DELETE FROM okg.attribute_effective_attrs")
-            cur.execute("DELETE FROM okg.attribute_effective_view")
-        _seed_view_cites_catalog(conn)
-        _seed_publication_node(
-            conn,
-            f"publication:empty-overlay-{uuid4().hex[:12]}",
-        )
-
-    result = Publisher(
-        clean_runtime,
-        "default",
-        attribute_effective_view_empty_overlay_fast_path=True,
-        catalog_identity=bind_test_catalog_writer(clean_runtime, "default"),
-    ).cycle(native_view_refresh_final=True, force_native_view_refresh=True)
-
-    assert result["status"] == "published"
-    assert result["attribute_effective_view_refresh"]["status"] == "materialized"
-    assert result["attribute_effective_view_refresh"]["reason"] == (
-        "empty_overlay_identity"
-    )
-    assert result["attribute_effective_view_refresh"]["node_rows"] == 0
-    with psycopg.connect(clean_runtime, autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT count(*)
-              FROM okg.attribute_effective_view
-             WHERE generation_id = %s
-            """,
-            (str(result["generation_id"]),),
-        )
-        assert cur.fetchone()[0] == 0
 
 
 def test_forced_noop_native_view_refresh_reuses_consistency_gate_result(
@@ -1461,10 +1383,20 @@ def test_native_view_relation_carry_forward_reuses_view_slot_manifest(
     first = Publisher(clean_runtime, "default", materializers=[materializer], catalog_identity=bind_test_catalog_writer(clean_runtime, "default")).cycle()
     second_generation_id = int(first["compat_generation_id"]) + 1
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        catalog_version_id = conn.execute(
+            "SELECT max(catalog_version_id) FROM okg.catalog_versions "
+            "WHERE status = 'applied'"
+        ).fetchone()[0]
+        # a generation with an empty graph delta and an unchanged catalog
         second = NativeViewStage(
             [materializer],
             deployment_name="default",
-        ).run(conn, generation_id=second_generation_id)[0]
+        ).run(
+            conn,
+            generation_id=second_generation_id,
+            catalog_version_id=catalog_version_id,
+            graph_delta_empty=True,
+        )[0]
         ChronosGraphStore.from_connection(conn).checkpoint_generation(
             second_generation_id,
             deployment_name="default",
@@ -1594,12 +1526,17 @@ def test_native_view_empty_dirty_scope_carries_forward_after_delta(
         counting_refreshable_manifest_ids,
     )
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        catalog_version_id = conn.execute(
+            "SELECT max(catalog_version_id) FROM okg.catalog_versions "
+            "WHERE status = 'applied'"
+        ).fetchone()[0]
         outcomes = NativeViewStage(
             [materializer],
             deployment_name="default",
         ).run(
             conn,
             generation_id=int(first["compat_generation_id"]) + 1,
+            catalog_version_id=catalog_version_id,
             reads_affected_view_ids=frozenset({view_id}),
             reads_deltas={
                 view_id: (
@@ -2685,3 +2622,827 @@ def test_view_refresh_report_distinguishes_no_failures_from_no_run(
     assert refresh["failed_views"] == []
     # ...and honest about what that zero means.
     assert refresh["view_stage_ran"] is False
+
+
+# --- PACT view-output-carry-forward-3981: reuse needs proof ------------------
+#
+# A fleet summary view over host attributes, run through Publisher.cycle. The
+# view is undeclared unless a test says otherwise, so it is assumed to read any
+# graph type; nothing outside the graph is read unless a test declares it.
+
+
+def _fleet_catalog(
+    conn: psycopg.Connection,
+    *,
+    live_relation: str | None = None,
+) -> int:
+    """An applied catalog version with host and rack subtypes.
+
+    ``live_relation`` declares that live relation on ``host``.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO okg.catalog_versions (status, applied_at) "
+            "VALUES ('applied', now()) RETURNING catalog_version_id"
+        )
+        cv = cur.fetchone()[0]
+        for subtype in ("host", "rack", "view"):
+            metadata = (
+                {
+                    "live_relations": {
+                        live_relation: {
+                            "action": "host_now",
+                            "principal_mode": "service",
+                            "deadline_seconds": 5.0,
+                            "retention_class": "warm",
+                        }
+                    }
+                }
+                if live_relation and subtype == "host"
+                else {}
+            )
+            cur.execute(
+                "INSERT INTO okg.subtypes (name, catalog_version_id, metadata) "
+                "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                (subtype, cv, psycopg.types.json.Jsonb(metadata)),
+            )
+            cur.execute(
+                """
+                INSERT INTO okg.subtype_ancestors
+                  (catalog_version_id, subtype_name, ancestor_name, depth)
+                VALUES (%s, %s, %s, 0)
+                ON CONFLICT DO NOTHING
+                """,
+                (cv, subtype, subtype),
+            )
+        cur.execute(
+            "INSERT INTO okg.narrowings (parent_subtype, edge_type, child_subtype, "
+            "catalog_version_id) VALUES ('host', 'in_rack', 'rack', %s) "
+            "ON CONFLICT DO NOTHING",
+            (cv,),
+        )
+    return int(cv)
+
+
+def _fleet_set(conn: psycopg.Connection, subtype: str, name: str, **attrs) -> None:
+    """Write (or change) one host or rack node."""
+    from okg.substrate.library.sources.base import NodeFact
+
+    revision = uuid4().hex
+    ChronosGraphStore.from_connection(conn).apply_facts(
+        [
+            NodeFact(
+                node_id=f"{subtype}:{name}",
+                subtype=subtype,
+                attrs=dict(attrs),
+                source_record_id={"id": f"{subtype}:{name}"},
+                source_revision={"v": revision},
+            )
+        ],
+        source="test.fleet",
+    )
+
+
+class _FleetView:
+    """A fleet summary view and the calls its corpus received."""
+
+    def __init__(
+        self,
+        *,
+        reads_subtypes: tuple[str, ...] = (),
+        external_inputs: tuple[str, ...] = (),
+        takes_published_at: bool = False,
+        sample_relation: str | None = None,
+    ) -> None:
+        self.view_id = f"test.publisher.fleet.{uuid4().hex[:12]}"
+        self.corpus_calls: list[int] = []
+        self.published_ats: list[datetime] = []
+        view_id = self.view_id
+        calls = self.corpus_calls
+        stamps = self.published_ats
+
+        def view_def_factory() -> ViewDefinition:
+            return ViewDefinition(
+                view_id=view_id,
+                planner=_planner,
+                assembler=_assembler,
+                view_def_hash=stable_hash({"view_id": view_id, "fleet": 1}),
+            )
+
+        def summary(conn: psycopg.Connection, generation_id: int) -> str:
+            calls.append(generation_id)
+            rows = ChronosGraphStore.from_connection(
+                conn, ensure_schema=False
+            ).checkout().query(
+                "SELECT attrs FROM okg.graph_nodes WHERE subtype = :subtype "
+                "ORDER BY node_id",
+                {"subtype": "host"},
+            )
+            cpus = sum(int((row["attrs"] or {}).get("cpus", 0)) for row in rows)
+            text = f"hosts={len(rows)} cpus={cpus}"
+            if sample_relation:
+                load = conn.execute(
+                    "SELECT coalesce(sum((payload->>'load')::int), 0) FROM ("
+                    "  SELECT DISTINCT ON (node_id) payload"
+                    "    FROM okg.call_sample_warm"
+                    "   WHERE relation = %s AND status = 'ok'"
+                    "   ORDER BY node_id, observed_at DESC) newest",
+                    (sample_relation,),
+                ).fetchone()[0]
+                text += f" load={load}"
+            return text
+
+        if takes_published_at:
+
+            def build_corpus(
+                conn: psycopg.Connection,
+                *,
+                generation_id: int,
+                published_at: datetime,
+            ) -> dict[str, Anchor]:
+                stamps.append(published_at)
+                return {
+                    "summary": Anchor.from_content(
+                        "summary",
+                        f"{summary(conn, generation_id)} "
+                        f"at={published_at.isoformat()}",
+                    )
+                }
+
+        else:
+
+            def build_corpus(
+                conn: psycopg.Connection,
+                *,
+                generation_id: int,
+            ) -> dict[str, Anchor]:
+                return {
+                    "summary": Anchor.from_content(
+                        "summary", summary(conn, generation_id)
+                    )
+                }
+
+        self.materializer = ViewMaterializer(
+            view_def_factory=view_def_factory,
+            build_corpus=build_corpus,
+            name=view_id,
+            reads_subtypes=reads_subtypes,
+            **({"external_inputs": external_inputs} if external_inputs else {}),
+        )
+
+    def cycle(self, dsn: str, *, force: bool = False):
+        return Publisher(
+            dsn,
+            "default",
+            materializers=[self.materializer],
+            catalog_identity=bind_test_catalog_writer(dsn, "default"),
+        ).cycle(
+            native_view_refresh_final=True,
+            force_native_view_refresh=force,
+        )
+
+    def forced(self, dsn: str):
+        return self.cycle(dsn, force=True)
+
+    def read(self, dsn: str):
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            markdown = read_view_slot(
+                conn,
+                deployment_name="default",
+                view_id=self.view_id,
+                slot_name="markdown",
+            )
+            return markdown.artifact, markdown.slot.payload_value()
+
+
+def _fleet_seed(dsn: str, **hosts: int) -> int:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        cv = _fleet_catalog(conn)
+        for name, cpus in hosts.items():
+            _fleet_set(conn, "host", name, cpus=cpus)
+    return cv
+
+
+def _freshness(result: dict) -> str:
+    return result["views"][0]["freshness"]
+
+
+def test_undeclared_fleet_view_rebuilds_after_a_host_attribute_changes(
+    clean_runtime: str,
+) -> None:
+    view = _FleetView()
+    _fleet_seed(clean_runtime, a=4, b=8)
+
+    first = view.cycle(clean_runtime)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        _fleet_set(conn, "host", "a", cpus=16)
+    second = view.cycle(clean_runtime)
+
+    artifact, markdown = view.read(clean_runtime)
+    assert _freshness(first) == "fresh"
+    assert _freshness(second) == "fresh"
+    assert "cpus=24" in markdown
+    assert artifact.target_generation_id == second["compat_generation_id"]
+    assert artifact.manifest_metadata["inputs_valid_through_generation"] == (
+        second["compat_generation_id"]
+    )
+
+
+def test_undeclared_fleet_view_is_carried_on_a_forced_generation_without_graph_change(
+    clean_runtime: str,
+) -> None:
+    view = _FleetView()
+    _fleet_seed(clean_runtime, a=4, b=8)
+
+    first = view.cycle(clean_runtime)
+    calls_after_first = len(view.corpus_calls)
+    forced = view.forced(clean_runtime)
+
+    artifact, markdown = view.read(clean_runtime)
+    assert forced["status"] == "published"
+    assert forced["compat_generation_id"] != first["compat_generation_id"]
+    assert _freshness(forced) == "carried_forward"
+    assert len(view.corpus_calls) == calls_after_first
+    assert "cpus=12" in markdown
+    assert artifact.target_generation_id == forced["compat_generation_id"]
+    assert artifact.manifest_metadata["inputs_valid_through_generation"] == (
+        forced["compat_generation_id"]
+    )
+    # the carry names the first build as the origin of its content
+    assert artifact.manifest_metadata["origin"]["generation_id"] == (
+        first["compat_generation_id"]
+    )
+
+
+def test_fleet_view_is_rebuilt_on_a_generation_cut_by_a_catalog_change_alone(
+    clean_runtime: str,
+) -> None:
+    view = _FleetView()
+    _fleet_seed(clean_runtime, a=4)
+
+    first = view.cycle(clean_runtime)
+    calls_after_first = len(view.corpus_calls)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        _fleet_catalog(conn)  # a new applied catalog version, no graph change
+    second = view.forced(clean_runtime)
+
+    assert _freshness(first) == "fresh"
+    assert second["compat_generation_id"] != first["compat_generation_id"]
+    assert _freshness(second) != "carried_forward"
+    assert len(view.corpus_calls) == calls_after_first + 1
+
+
+def test_declared_reads_view_is_carried_until_a_type_it_reads_changes(
+    clean_runtime: str,
+) -> None:
+    view = _FleetView(reads_subtypes=("host",))
+    _fleet_seed(clean_runtime, a=4)
+
+    first = view.cycle(clean_runtime)
+    calls_after_first = len(view.corpus_calls)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        cv = conn.execute(
+            "SELECT max(catalog_version_id) FROM okg.catalog_versions "
+            "WHERE status = 'applied'"
+        ).fetchone()[0]
+    second_generation = int(first["compat_generation_id"]) + 1
+    third_generation = second_generation + 1
+    stage = NativeViewStage([view.materializer], deployment_name="default")
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        # a generation whose change set touched only a type the view does not
+        # read: no declared read is affected
+        other_type = stage.run(
+            conn, generation_id=second_generation, catalog_version_id=cv,
+        )[0]
+        calls_after_other_type = len(view.corpus_calls)
+        ChronosGraphStore.from_connection(conn).checkpoint_generation(
+            second_generation,
+            deployment_name="default",
+            status="published",
+            catalog_version_id=cv,
+        )
+        _fleet_set(conn, "host", "a", cpus=32)
+        host_changed = stage.run(
+            conn,
+            generation_id=third_generation,
+            catalog_version_id=cv,
+            reads_affected_view_ids=frozenset({view.view_id}),
+            reads_deltas={
+                view.view_id: ({"host": ["host:a"]}, {}, True, {}, {})
+            },
+        )[0]
+
+    assert other_type.freshness == "carried_forward"
+    assert calls_after_other_type == calls_after_first
+    assert host_changed.freshness == "fresh"
+    assert len(view.corpus_calls) == calls_after_first + 1
+
+
+@pytest.mark.parametrize("reads", [(), ("host",)], ids=["undeclared", "declared"])
+def test_view_is_rebuilt_after_a_generation_it_did_not_run_for(
+    clean_runtime: str,
+    reads: tuple[str, ...],
+) -> None:
+    """Built at generation 1; the view is coalesced at generation 2 while a
+    host changes; nothing changes at generation 3. The change set of
+    generation 3 is empty, but the view's last output is two generations old,
+    so it must be rebuilt."""
+    view = _FleetView(reads_subtypes=reads)
+    _fleet_seed(clean_runtime, a=4)
+
+    first = view.cycle(clean_runtime)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        _fleet_set(conn, "host", "a", cpus=64)
+    coalesced = Publisher(
+        clean_runtime,
+        "default",
+        materializers=[view.materializer],
+        native_view_materialization_delay_ms=60_000,
+        catalog_identity=bind_test_catalog_writer(clean_runtime, "default"),
+    ).cycle(native_view_refresh_final=False)
+    third = view.forced(clean_runtime)
+
+    artifact, markdown = view.read(clean_runtime)
+    assert coalesced["native_view_refresh"]["status"] == "coalesced"
+    assert coalesced["compat_generation_id"] != first["compat_generation_id"]
+    assert third["compat_generation_id"] != coalesced["compat_generation_id"]
+    assert _freshness(third) != "carried_forward"
+    assert "cpus=64" in markdown
+    assert artifact.target_generation_id == third["compat_generation_id"]
+
+
+def test_published_at_aware_view_shows_the_second_published_at(
+    clean_runtime: str,
+) -> None:
+    view = _FleetView(takes_published_at=True)
+    _fleet_seed(clean_runtime, a=4)
+
+    first = view.cycle(clean_runtime)
+    _, first_markdown = view.read(clean_runtime)
+    second = view.forced(clean_runtime)
+    artifact, second_markdown = view.read(clean_runtime)
+
+    assert _freshness(second) != "carried_forward"
+    assert len(view.published_ats) == 2
+    assert view.published_ats[0] != view.published_ats[1]
+    assert f"at={view.published_ats[0].isoformat()}" in first_markdown
+    assert f"at={view.published_ats[1].isoformat()}" in second_markdown
+    assert artifact.target_generation_id == second["compat_generation_id"]
+    assert artifact.manifest_metadata["external_inputs_state"]["publish_time"] == {
+        "as_of": view.published_ats[1].isoformat()
+    }
+    assert first["compat_generation_id"] != second["compat_generation_id"]
+
+
+def _live_sample(
+    conn: psycopg.Connection,
+    node_id: str,
+    *,
+    status: str = "ok",
+    load: int = 0,
+    observed_at: datetime,
+    relation: str = "host_now",
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO okg.call_sample_warm (
+          deployment_name, node_id, relation, observed_at, status,
+          principal, decision, trace_id, session_id, policy, declared_policy,
+          payload, payload_bytes
+        ) VALUES (
+          'default', %s, %s, %s, %s, 'svc', 'allow', 't', 's', 'inline',
+          'inline', %s, 10
+        )
+        """,
+        (
+            node_id,
+            relation,
+            observed_at,
+            status,
+            psycopg.types.json.Jsonb({"load": load}),
+        ),
+    )
+
+
+def test_live_relation_view_rebuilds_on_a_forced_refresh_after_a_new_sample(
+    clean_runtime: str,
+) -> None:
+    view = _FleetView(
+        external_inputs=("live:host_now",), sample_relation="host_now"
+    )
+    base = datetime.now(UTC) - timedelta(hours=1)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        _fleet_catalog(conn, live_relation="host_now")
+        _fleet_set(conn, "host", "a", cpus=4)
+        _live_sample(conn, "host:a", load=1, observed_at=base)
+
+    first = view.cycle(clean_runtime)
+    _, first_markdown = view.read(clean_runtime)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        _live_sample(
+            conn, "host:a", load=5, observed_at=base + timedelta(minutes=30)
+        )
+    second = view.forced(clean_runtime)
+    artifact, second_markdown = view.read(clean_runtime)
+
+    assert "load=1" in first_markdown
+    assert _freshness(first) == "fresh"
+    assert _freshness(second) == "fresh"
+    assert "load=5" in second_markdown
+    assert artifact.target_generation_id == second["compat_generation_id"]
+    state = artifact.manifest_metadata["external_inputs_state"]["live:host_now"]
+    assert state["targets"] == 1 and state["failed"] == 0
+    assert artifact.manifest_metadata["inputs_as_of"] == state["as_of"]
+
+
+def test_predecessor_generation_is_per_branch(clean_runtime: str) -> None:
+    """A generation published on another branch is never the predecessor of a
+    default-branch generation, so its manifests are never carried from."""
+    from okg.substrate.publisher.native_view_stage import _predecessor_generation
+
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        cv = _fleet_catalog(conn)
+        store = ChronosGraphStore.from_connection(conn)
+        store.checkpoint_generation(
+            1_001, branch="default", deployment_name="default",
+            catalog_version_id=cv, metadata={"target_generation_id": 1_001},
+        )
+        store.create_branch("experiment:x")
+        store.checkpoint_generation(
+            1_002, branch="experiment:x", deployment_name="default",
+            catalog_version_id=cv, metadata={"target_generation_id": 1_002},
+        )
+        default = _predecessor_generation(
+            conn, deployment_name="default", branch_name="default",
+            generation_id=1_003,
+        )
+        branch = _predecessor_generation(
+            conn, deployment_name="default", branch_name="experiment:x",
+            generation_id=1_003,
+        )
+        none_yet = _predecessor_generation(
+            conn, deployment_name="default", branch_name="default",
+            generation_id=1_001,
+        )
+
+    assert default is not None and default.generation_id == 1_001
+    assert default.catalog_version_id == cv
+    assert branch is not None and branch.generation_id == 1_002
+    assert none_yet is None
+
+
+# --- PACT view-output-carry-forward-3981: what a manifest records ------------
+
+
+def _utc(minutes_ago: int) -> datetime:
+    return (datetime.now(UTC) - timedelta(minutes=minutes_ago)).replace(
+        microsecond=0
+    )
+
+
+def test_inputs_recorded_origin_and_valid_through_follow_the_carry_chain(
+    clean_runtime: str,
+) -> None:
+    """Built at generation 1, carried at 2 and 3: manifest 3 names the
+    generation-1 origin and is valid through generation 3."""
+    view = _FleetView()
+    _fleet_seed(clean_runtime, a=4)
+
+    first = view.cycle(clean_runtime)
+    second = view.forced(clean_runtime)
+    third = view.forced(clean_runtime)
+
+    artifact, _ = view.read(clean_runtime)
+    metadata = artifact.manifest_metadata
+    assert _freshness(second) == "carried_forward"
+    assert _freshness(third) == "carried_forward"
+    assert artifact.target_generation_id == third["compat_generation_id"]
+    assert metadata["inputs_valid_through_generation"] == (
+        third["compat_generation_id"]
+    )
+    assert metadata["origin"]["generation_id"] == first["compat_generation_id"]
+    assert "external_inputs_state" not in metadata
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        first_manifest = conn.execute(
+            "SELECT manifest_id FROM okg.derived_output_manifests "
+            "WHERE definition_id = %s AND target_generation_id = %s",
+            (f"view:{view.view_id}", first["compat_generation_id"]),
+        ).fetchone()[0]
+    assert metadata["origin"]["manifest_id"] == str(first_manifest)
+
+
+def _live_view_with_hosts(dsn: str, hosts: dict[str, int]) -> _FleetView:
+    view = _FleetView(
+        external_inputs=("live:host_now",), sample_relation="host_now"
+    )
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        _fleet_catalog(conn, live_relation="host_now")
+        for name, cpus in hosts.items():
+            _fleet_set(conn, "host", name, cpus=cpus)
+    return view
+
+
+def _live_state(view: _FleetView, dsn: str) -> tuple[dict, str | None]:
+    artifact, _ = view.read(dsn)
+    return (
+        artifact.manifest_metadata["external_inputs_state"]["live:host_now"],
+        artifact.manifest_metadata["inputs_as_of"],
+    )
+
+
+def test_inputs_recorded_live_inputs_as_of_is_the_oldest_newest_sample(
+    clean_runtime: str,
+) -> None:
+    view = _live_view_with_hosts(clean_runtime, {"a": 1, "b": 1, "c": 1})
+    t1, t2, t3 = _utc(50), _utc(30), _utc(10)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        # an older sample per host must not count: only the newest one does
+        _live_sample(conn, "host:a", observed_at=_utc(90))
+        _live_sample(conn, "host:a", observed_at=t1)
+        _live_sample(conn, "host:b", observed_at=t2)
+        _live_sample(conn, "host:c", observed_at=t3)
+
+    view.cycle(clean_runtime)
+
+    state, as_of = _live_state(view, clean_runtime)
+    assert datetime.fromisoformat(as_of) == t1
+    assert datetime.fromisoformat(state["as_of"]) == t1
+    assert (state["targets"], state["with_success"]) == (3, 3)
+    assert (state["missing"], state["failed"]) == (0, 0)
+
+
+def test_inputs_recorded_counts_failed_and_missing_targets(
+    clean_runtime: str,
+) -> None:
+    view = _live_view_with_hosts(clean_runtime, {"a": 1, "b": 1, "c": 1})
+    t1 = _utc(40)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        _live_sample(conn, "host:a", observed_at=t1)
+        _live_sample(conn, "host:b", status="error", observed_at=_utc(20))
+        # host:c has no sample at all
+
+    view.cycle(clean_runtime)
+
+    state, as_of = _live_state(view, clean_runtime)
+    assert datetime.fromisoformat(as_of) == t1
+    assert (state["targets"], state["with_success"]) == (3, 1)
+    assert state["failed"] == 1
+    assert state["missing"] == 1
+
+
+def test_inputs_recorded_forced_rebuild_over_failed_samples_keeps_the_old_time(
+    clean_runtime: str,
+) -> None:
+    view = _live_view_with_hosts(clean_runtime, {"a": 1, "b": 1})
+    t1, t2 = _utc(60), _utc(50)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        _live_sample(conn, "host:a", observed_at=t1)
+        _live_sample(conn, "host:b", observed_at=t2)
+    view.cycle(clean_runtime)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        _live_sample(conn, "host:a", status="timeout", observed_at=_utc(5))
+        _live_sample(conn, "host:b", status="error", observed_at=_utc(4))
+
+    view.forced(clean_runtime)
+
+    state, as_of = _live_state(view, clean_runtime)
+    # every newest attempt failed, so nothing newer than t1 and t2 exists
+    assert datetime.fromisoformat(as_of) == t1
+    assert state["failed"] == 2
+    assert state["missing"] == 0
+    artifact, _ = view.read(clean_runtime)
+    published_at = datetime.fromisoformat(
+        artifact.published_at.isoformat()
+    )
+    assert datetime.fromisoformat(as_of) < published_at
+
+
+# --- PACT view-output-carry-forward-3981: retired views ----------------------
+
+
+def test_retired_view_is_labelled_on_every_list_and_refused_by_show(
+    clean_runtime: str,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+    from types import SimpleNamespace
+
+    import okg.substrate.cli.view as cli_view_module
+    import okg.substrate.deployments as deployments_module
+    from okg.substrate.derived_artifacts import list_view_artifacts
+
+    kept, dropped = _FleetView(), _FleetView()
+    _fleet_seed(clean_runtime, a=4)
+    published = Publisher(
+        clean_runtime,
+        "default",
+        materializers=[kept.materializer, dropped.materializer],
+        catalog_identity=bind_test_catalog_writer(clean_runtime, "default"),
+    ).cycle()
+    (tmp_path / "views_registry.yaml").write_text(
+        "deployment: default\n"
+        "views:\n"
+        f"  - view_def_id: {kept.view_id}\n"
+        "    view_def_factory: views.fleet:factory\n"
+        "    build_corpus: views.fleet:build_corpus\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        deployments_module, "find_deployment_dir", lambda _name: tmp_path
+    )
+
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        summaries = {
+            item.view_id: item
+            for item in list_view_artifacts(conn, deployment_name="default")
+        }
+        manifests_before = conn.execute(
+            "SELECT count(*) FROM okg.derived_output_manifests "
+            "WHERE definition_id = %s",
+            (f"view:{dropped.view_id}",),
+        ).fetchone()[0]
+    assert summaries[dropped.view_id].retired is True
+    assert summaries[kept.view_id].retired is False
+    assert summaries[dropped.view_id].to_json()["retired"] is True
+
+    # okg view list
+    cli_view_module._load_main_helpers()
+    monkeypatch.setattr(
+        cli_view_module, "_resolve_deployment_dsn", lambda _args: clean_runtime
+    )
+    capsys.readouterr()
+    rc = cli_view_module._cmd_view_list(
+        SimpleNamespace(deployment="default", generation=None, dsn=clean_runtime),
+        as_json=True,
+    )
+    assert rc == 0
+    listed = {
+        item["view_id"]: item["retired"]
+        for item in json.loads(capsys.readouterr().out)["items"]
+    }
+    assert listed == {dropped.view_id: True, kept.view_id: False}
+    cli_view_module._cmd_view_list(
+        SimpleNamespace(deployment="default", generation=None, dsn=clean_runtime),
+        as_json=False,
+    )
+    text = capsys.readouterr().out
+    assert any(
+        line.startswith(dropped.view_id) and "retired" in line
+        for line in text.splitlines()
+    )
+
+    # okg view show refuses it by name
+    rc = cli_view_module._cmd_view_show(
+        SimpleNamespace(
+            deployment="default",
+            view=dropped.view_id,
+            slot="markdown",
+            generation=None,
+            definition_id=None,
+            audience="reader",
+            tenant="tenant",
+            dsn=clean_runtime,
+        ),
+        as_json=True,
+    )
+    assert rc == 1
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert error["data"]["reason"] == "native_read_view_retired"
+    assert "retired" in error["message"]
+
+    # the portal views list
+    from tests.substrate.viz.test_native_view_reads import (
+        _client_for_native_view,
+    )
+
+    client, ctx = _client_for_native_view(
+        clean_runtime,
+        generation_id=int(published["compat_generation_id"]),
+        tmp_path=tmp_path,
+    )
+    try:
+        response = client.get("/viz/api/portal/views")
+        assert response.status_code == 200, response.text
+        portal = {
+            item["view_id"]: item["retired"] for item in response.json()["items"]
+        }
+        # the reader node of an ungoverned view says so, too (a governed view
+        # is refused without a principal, as before)
+        from types import SimpleNamespace
+
+        import okg.viz.endpoints as endpoints_module
+
+        def stub_slot(conn, *, deployment_name, view_id, generation_id, slot_name):
+            return SimpleNamespace(
+                artifact=SimpleNamespace(
+                    view_id=view_id, output_contract={}, target_generation_id=1,
+                    run_status="completed", manifest_id=uuid4(),
+                    manifest_hash="h", definition_id=f"view:{view_id}",
+                    required_slots=("markdown",),
+                ),
+                slot=SimpleNamespace(payload_value=lambda: "body", renderer_ref="r"),
+            )
+
+        monkeypatch.setattr(endpoints_module, "_read_viz_view_slot", stub_slot)
+        with psycopg.connect(clean_runtime, autocommit=True) as node_conn:
+            for view_id, expected in ((dropped.view_id, True), (kept.view_id, False)):
+                node = endpoints_module._native_view_markdown_node(
+                    node_conn, ctx, view_id=view_id,
+                )
+                assert node["attrs"]["retired"] is expected
+    finally:
+        ctx.pool.close()
+    assert portal == {dropped.view_id: True, kept.view_id: False}
+
+    # no manifest is deleted
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM okg.derived_output_manifests "
+            "WHERE definition_id = %s",
+            (f"view:{dropped.view_id}",),
+        ).fetchone()[0] == manifests_before >= 1
+
+
+# --- PACT view-output-carry-forward-3981: what counts as an empty graph delta -
+
+
+def _fleet_edge(conn: psycopg.Connection, src: str, dst: str) -> None:
+    from okg.substrate.library.sources.base import EdgeFact
+
+    ChronosGraphStore.from_connection(conn).apply_facts(
+        [
+            EdgeFact(
+                src=src,
+                dst=dst,
+                edge_type="in_rack",
+                source_record_id={"id": f"{src}>{dst}"},
+                source_revision={"v": uuid4().hex},
+            )
+        ],
+        source="test.fleet",
+    )
+
+
+def _fleet_retract(conn: psycopg.Connection, subtype: str, name: str) -> None:
+    from okg.substrate.library.sources.base import NodeFact
+
+    ChronosGraphStore.from_connection(conn).apply_facts(
+        [
+            NodeFact(
+                node_id=f"{subtype}:{name}",
+                subtype=subtype,
+                attrs={},
+                source_record_id={"id": f"{subtype}:{name}"},
+                source_revision={"v": uuid4().hex},
+                op="R",
+            )
+        ],
+        source="test.fleet",
+    )
+
+
+@pytest.mark.parametrize("change", ["edge_only", "host_retracted", "rack_deleted"])
+def test_undeclared_fleet_view_is_rebuilt_on_an_edge_only_or_retraction_only_change(
+    clean_runtime: str,
+    change: str,
+) -> None:
+    """A view that declares no reads is assumed to read any graph type, so an
+    edge that appears, a node that is retracted and a node of another type that
+    is deleted each count as a graph change and rebuild it."""
+    view = _FleetView()
+    _fleet_seed(clean_runtime, a=4, b=8)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        _fleet_set(conn, "rack", "r1", row=1)
+    view.cycle(clean_runtime)
+    calls_after_first = len(view.corpus_calls)
+
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        if change == "edge_only":
+            _fleet_edge(conn, "host:a", "rack:r1")
+        elif change == "host_retracted":
+            _fleet_retract(conn, "host", "a")
+        else:
+            _fleet_retract(conn, "rack", "r1")
+    second = view.cycle(clean_runtime)
+
+    _, markdown = view.read(clean_runtime)
+    assert _freshness(second) != "carried_forward"
+    assert len(view.corpus_calls) == calls_after_first + 1
+    if change == "host_retracted":
+        assert "hosts=1 cpus=8" in markdown
+
+
+def test_graph_delta_empty_needs_a_change_set_that_listed_its_edges() -> None:
+    nodes: dict = {}
+    edges: dict = {}
+    assert Publisher._graph_delta_empty(None) is False
+    assert Publisher._graph_delta_empty((nodes, edges, False, {}, {}, None)) is False
+    assert Publisher._graph_delta_empty((nodes, edges, True, {}, {}, None)) is True
+    assert Publisher._graph_delta_empty(
+        ({"host": ["host:a"]}, edges, True, {}, {}, None)
+    ) is False
+    assert Publisher._graph_delta_empty(
+        (nodes, {"in_rack": [1]}, True, {}, {}, None)
+    ) is False

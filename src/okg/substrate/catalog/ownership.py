@@ -2301,7 +2301,7 @@ def _git_output(args: list[str], cwd: Path) -> str | None:
 
 
 def _git_dirty(cwd: Path) -> bool | None:
-    out = _git_output(["status", "--short"], cwd)
+    out = _git_output(["--no-optional-locks", "status", "--short"], cwd)
     if out is None:
         return None
     return bool(out.strip())

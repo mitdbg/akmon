@@ -44,6 +44,13 @@ Index-read pages are exact: their count is every candidate decided, when
 that finished in time (else a lower bound), and they page by offset. Walk
 pages count what they decided (a lower bound) and page by token.
 
+Passage types (PACT false-complete-record-grep-4220). A search profile that
+lists a passage type is read through its record: the record types that
+declare it join the scope, whole (their own text and every passage), and
+the reply says so (`adjusted`). Rows are re-checked under the types read.
+A `where` naming a passage type in a list or under `or` is refused for
+both grep forms (`search._refuse_grep_where_passage_type`).
+
 Not served (refused by name, `validate_within`): under access rules (Nomos
 `audit` or `enforce`; matching reads stored text before the reader's
 check, as `text_match` refuses), `path:` terms (use `path_prefix`), a
@@ -150,6 +157,16 @@ def _refusal(message: str, *, fix_hint: str, **data: Any) -> SubstrateError:
     return err
 
 
+def _parents(declared: Sequence[tuple[str, str, str]], children: Sequence[str]) -> list[str]:
+    """The record types that declare any of `children` as their passage."""
+    wanted = set(children)
+    return sorted({parent for parent, _e, child in declared if child in wanted})
+
+
+def _named(names: Sequence[str]) -> str:
+    return ", ".join(f"`{name}`" for name in names)
+
+
 def validate_within(
     within: Any,
     *,
@@ -252,24 +269,76 @@ class _Scope:
         self.params: dict[str, Any] = {"bp": branch_point(conn, session)}
         subtype = filter.get("subtype")
         if subtype is not None and str(subtype) in children:
+            owners = _parents(self.declared, [str(subtype)])
+            # Named under the caller's scope: a profile that leaves the
+            # record type out refuses it (`subtype_outside_profile`) unless
+            # the call also passes profile="all".
+            outside = scope.subtypes is not None and any(o not in scope.subtypes for o in owners)
             raise _refusal(
                 f"within='record' reads passages through their record; "
                 f"{subtype!r} is a passage type",
-                fix_hint="name the record type the passages belong to, or drop within",
+                fix_hint=(
+                    "drop within to list the passages, or "
+                    + ("pass profile='all' and " if outside else "")
+                    + f"name the record type the passages belong to ({_named(owners)})"
+                ),
                 reason="passage_type",
+                record_types=owners,
+                profile_all_needed=outside,
             )
         residual = filter.get("where")
+        # A `where` naming a passage type beside other conditions is refused
+        # before this (`search._refuse_grep_where_passage_type`).
+        profiled: Optional[list[str]] = None
+        lent: list[str] = []
+        if scope.subtypes is not None:
+            # A passage type the profile lists is read through its record:
+            # the record types declaring it join the scope, as the record
+            # form reads whole records. Dropping it alone left a profile
+            # that lists `document_chunk` but not `document` reading no
+            # document at all, and the page said "0 of 0 · complete".
+            lent = [name for name in scope.subtypes if name in children]
+            profiled = sorted(
+                (set(scope.subtypes) - set(children)) | set(_parents(self.declared, lent))
+            )
         types: Optional[set[str]] = None
         for named in (
             [str(subtype)] if subtype is not None else None,
             search_where.admitted_types(residual) if residual is not None else None,
-            list(scope.subtypes) if scope.subtypes is not None else None,
+            profiled,
         ):
             if named is not None:
                 types = set(named) if types is None else types & set(named)
-        # A passage type a profile lists is read through its record, never
-        # as a record of its own.
+        # A passage type is never read as a record of its own.
         self.types = sorted(types - set(children)) if types is not None else None
+        # The scope the rows are re-checked under (`_admitted`): the types
+        # read. The profile's own list would drop every record type the
+        # mapping above added, after it was read, and the count would still
+        # be exact ("0 of 0 · complete" again under any `where`,
+        # `attr_filters` or excluded path glob).
+        self.row_scope = scope
+        if lent and self.types is not None:
+            served = [
+                p for p in _parents(self.declared, lent)
+                if p in self.types and p not in scope.subtypes
+            ]
+            if served:
+                from dataclasses import replace
+
+                from okg.substrate.mcp.response_bounds import note_adjusted
+
+                self.row_scope = replace(scope, subtypes=tuple(self.types))
+                units = sorted({c for p, _e, c in self.declared if p in served})
+                # Whole records: their own text and every passage they
+                # declare, which can be more than the profile listed.
+                note_adjusted([{
+                    "rule": "grep_record_passage_profile",
+                    "sent": f"profile `{scope.profile}` type {_named(lent)}",
+                    "served": (
+                        f"whole {_named(served)} records, through which passages are "
+                        f"searched: each record's own text and all its passages ({_named(units)})"
+                    ),
+                }])
         clauses = []
         if self.types is not None:
             self.params["gr_types"] = self.types
@@ -602,7 +671,7 @@ def search_grep_record(
         if ordered and sc.row_check:
             fetched = _record_rows(conn, session, sc, ordered)
             rows_by_id.update(fetched)
-            ordered = _admitted(fetched, ordered, filter=filter, scope=scope)
+            ordered = _admitted(fetched, ordered, filter=filter, scope=sc.row_scope)
         kept = set(ordered)
         for node_id in batch:
             if len(matched) >= need:
@@ -634,7 +703,7 @@ def search_grep_record(
                             if ordered and sc.row_check:
                                 ordered = _admitted(
                                     _record_rows(conn, session, sc, ordered), ordered,
-                                    filter=filter, scope=scope,
+                                    filter=filter, scope=sc.row_scope,
                                 )
                             extra += len(ordered)
                         complete_count = True

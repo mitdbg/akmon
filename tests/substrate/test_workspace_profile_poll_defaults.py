@@ -31,7 +31,7 @@ def test_every_other_source_polls_with_its_change_probe() -> None:
     entries = _entries()
     assert NOT_POLLED <= set(entries)
     polled = sorted(set(entries) - NOT_POLLED)
-    assert len(polled) == 12
+    assert len(polled) == 13
     for name in polled:
         sync = entries[name]["sync"]
         assert sync["triggers"] == ["poll", "manual", "reconcile"], name

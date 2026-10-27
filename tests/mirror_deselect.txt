@@ -149,3 +149,9 @@ tests/docs/test_docs_task_navigation.py::test_ci_and_quality_runbooks_are_off_th
 tests/substrate/test_deployment_views_helper.py::test_helper_imports_deployment_views_and_restores_state  # imports deployments/okg-workspace/views, which does not ship
 tests/substrate/test_environment_ui_auth_review_fixes.py::test_install_time_and_running_ui_agree_on_sensitivity_for_shipped_environments  # reads ops/environments/, which does not ship
 tests/substrate/test_environment_ui_auth_review_fixes.py::test_shipped_ui_environments_name_the_token_variable_and_no_value  # reads ops/environments/, which does not ship
+
+# --- Found by the v0.4.0-rc1 release proof (8dfd1ff4b6), 2026-10-26 -------
+tests/substrate/mcp/test_instructions_git_id_nodes.py::test_the_okg_workspace_manifest_declares_git_files_and_history  # pins okg-workspace's real manifest
+tests/substrate/mcp/test_instructions_doc_text_nodes.py::test_the_okg_workspace_manifest_declares_a_file_text_source  # pins okg-workspace's real source registry
+tests/substrate/test_readiness_profile_declaration.py::test_the_workspace_manifests_declare_dogfood  # reads deployments/okg-workspace/{deployment,definition}.yaml
+tests/substrate/test_readiness_profile_declaration.py::test_the_declared_manifests_raise_neither_readiness_code  # private deployment manifests (every param is private)

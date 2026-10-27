@@ -157,6 +157,82 @@ def test_a_stored_read_is_not_touched() -> None:
     assert live_resolver.detect(LiveTypeRegistry(), "filter", _long({"type": "site"})) is None
 
 
+# -- a JSON-string `input` (#3989, PACT live-string-input-detect-3989) -----------
+#
+# `aggregate`, `expand`, and (PACT read-live-handles) `filter` and `map` take a
+# string `input`; every other argument is refused as a string by argument
+# validation, loudly, before the grammar rewrite or the resolver run. The
+# helper is keyed to those four.
+
+
+def test_a_json_object_string_input_is_decoded_and_a_node_id_is_left() -> None:
+    sent = {"input": ' {"subtype": "site"}', "by": ["subtype"]}
+    out = live_resolver.decode_json_arguments("aggregate", sent)
+    assert out == {"input": {"subtype": "site"}, "by": ["subtype"]}
+    assert sent["input"] == ' {"subtype": "site"}'
+    expanded = live_resolver.decode_json_arguments("expand", {"input": '{"node_id": "system:example"}'})
+    assert expanded["input"] == {"node_id": "system:example"}
+    # A node id, an object, no input, a `[`-string that is no JSON (an id), and
+    # a tool whose `input` is never a string: the same mapping, untouched.
+    for tool, plain in (
+        ("expand", {"input": "site:Z2_XX_S0001"}),
+        ("aggregate", {"input": {"subtype": "site"}}),
+        ("aggregate", {"by": ["x"]}),
+        ("expand", {"input": "[abc]"}),
+        ("search", {"input": '{"subtype": "site"}'}),
+    ):
+        assert live_resolver.decode_json_arguments(tool, plain) is plain, (tool, plain)
+    # Re-pinned by PACT read-live-handles (N7): `filter` and `map` take a
+    # string `input` now (a handle), so their JSON strings are decoded too.
+    for tool in ("filter", "map"):
+        decoded = live_resolver.decode_json_arguments(tool, {"input": '{"subtype": "site"}'})
+        assert decoded == {"input": {"subtype": "site"}}, tool
+
+
+@pytest.mark.parametrize("tool,text,problem", [
+    ("aggregate", '{"subtype": "site"', "not valid JSON"),
+    ("expand", '{"node_id": ', "not valid JSON"),
+    ("aggregate", "[1, 2]", "decodes to a list"),
+    pytest.param("aggregate", "[" * 200000, "nested too deeply", id="deep-list"),
+    pytest.param("aggregate", '{"a":' * 100000, "nested too deeply", id="deep-object"),
+])
+def test_a_broken_or_list_json_string_input_is_refused_by_name(tool, text, problem) -> None:
+    with pytest.raises(live_resolver.JsonStringRefused, match=problem) as caught:
+        live_resolver.decode_json_arguments(tool, {"input": text})
+    assert caught.value.tool == tool
+
+
+def test_resolve_detects_a_string_input_as_live_and_refuses_a_broken_one(monkeypatch) -> None:
+    import anyio
+
+    reached: list[str] = []
+
+    async def stop(server: Any, name: str, subtype: str) -> None:
+        reached.append(subtype)
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(live_resolver, "check_caller", stop)
+
+    class Server:
+        _okg_live_types = REGISTRY
+
+    scope = {"subtype": "site"}
+
+    def run(value: Any) -> None:
+        anyio.run(live_resolver.resolve, Server(), "aggregate", {"input": value, "by": ["subtype"]})
+
+    # The object form and the string form both reach the live gate.
+    for value in (scope, json.dumps(scope)):
+        reached.clear()
+        with pytest.raises(RuntimeError, match="stop"):
+            run(value)
+        assert reached == ["site"], value
+    with pytest.raises(LiveReadRefused) as caught:
+        run(json.dumps(scope)[:-1])
+    assert caught.value.data["reason"] == "input_string_not_object"
+    assert reached == ["site"]
+
+
 @pytest.mark.parametrize("value", [
     "COLD|HOT", "A&B", "x\\y", "(T)", "a=b", "T*", "a b", "x<y", "x>y", "!x", "a\tb",
 ])
@@ -905,6 +981,109 @@ def test_a_stored_read_payload_is_identical_with_the_resolver_installed(lab) -> 
     lab.mcp._okg_live_types = REGISTRY
     after = [_stable(lab.call(tool, args).content[0].text) for tool, args in calls]
     assert after == before
+    assert lab.example.total() == 0
+
+
+def _reply(
+    lab: Lab, tool: str, arguments: dict[str, Any], key: str = "groups",
+) -> tuple[Any, list[dict[str, Any]]]:
+    """The rows a call answered (`groups`, or `neighbors` by node id), without
+    the reply's clock readings, and the adapter calls this one call made."""
+
+    start = lab.example.total()
+    body = lab.ok(tool, arguments)
+    rows = body[key]
+    if key == "neighbors":
+        rows = [row["node_id"] for row in rows]
+    return rows, lab.example.calls[start:]
+
+
+_AGG = {"by": ["attrs.tier"], "metrics": ["count"]}
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("scope", [
+    {"subtype": "site"},
+    {"kind": "nodes", "subtype": "site"},
+    # The shorthand filter the grammar rewrite lowers: a string input must be
+    # lowered too (decoded before the rewrite, not after it).
+    {"subtype": "site", "filter": {"attrs.kind": "HOT"}},
+])
+def test_a_json_string_aggregate_input_reads_live_exactly_like_the_object(lab, scope) -> None:
+    lab.example.sites = _sites(10)
+    lab.example.expressions["kind=HOT"] = [
+        row["site"] for row in lab.example.sites if row["kind"] == "HOT"
+    ]
+    as_object, object_calls = _reply(lab, "aggregate", {"input": scope, **_AGG})
+    as_string, string_calls = _reply(lab, "aggregate", {"input": json.dumps(scope), **_AGG})
+    assert object_calls, "the object form must read the live system"
+    assert string_calls == object_calls
+    assert as_string == as_object
+    assert as_object, "the live set has groups"
+
+
+@pytest.mark.postgres
+def test_a_json_string_expand_input_reads_live_exactly_like_the_object(lab) -> None:
+    lab.example.sites = _sites(10)
+    arguments = {"edge_type": "sites", "limit": 5}
+    as_object, object_calls = _reply(
+        lab, "expand", {"input": {"node_id": "system:example"}, **arguments}, "neighbors",
+    )
+    as_string, string_calls = _reply(
+        lab, "expand", {"input": '{"node_id": "system:example"}', **arguments}, "neighbors",
+    )
+    assert object_calls and as_object
+    assert string_calls == object_calls
+    assert as_string == as_object
+
+
+@pytest.mark.postgres
+def test_a_json_string_kept_set_reference_grows_the_set_exactly_like_the_object(lab) -> None:
+    """The kept set lacks `disk_only`: the object form reads it for each kept
+    site; the string form must too, not answer `(absent)` with no call."""
+
+    results = {}
+    for form in ("object", "string"):
+        cold = _sparse(lab)
+        for name in cold:
+            lab.example.attrs[name]["disk_only"] = True
+        first = lab.ok("filter", {
+            "where": {"type": "site", "attrs.kind": "COLD"}, "select": ["node_id"], "limit": 1,
+        })
+        scope: Any = {"ref": first["result_reference"]["id"]}
+        before = lab.example.made("attributes")
+        groups, _ = _reply(lab, "aggregate", {
+            "input": scope if form == "object" else json.dumps(scope),
+            "by": ["attrs.disk_only"], "metrics": ["count"],
+        })
+        results[form] = (groups, lab.example.made("attributes") - before)
+    assert results["object"][1] == len(cold) > 0
+    assert results["string"] == results["object"]
+    assert [g["count"] for g in results["object"][0]] == [len(cold)]
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("tool,text", [
+    ("aggregate", '{"subtype": "site"'),
+    ("aggregate", '{"subtype": "page"'),
+    ("aggregate", "[1, 2]"),
+    pytest.param("aggregate", "[" * 20000, id="deep-list"),
+])
+def test_an_undecodable_json_string_input_is_refused_never_an_empty_stored_set(lab, tool, text) -> None:
+    lab.example.sites = _sites(10)
+    body = lab.refused(tool, {"input": text, "by": ["subtype"], "metrics": ["count"]})
+    assert body["error"]["code"] == "invalid_operator_arguments", body
+    assert body["error"]["data"]["validation_kinds"] == ["json_string"], body
+    assert lab.example.total() == 0
+
+
+@pytest.mark.postgres
+def test_a_stored_read_with_a_json_string_input_is_unchanged(lab) -> None:
+    arguments = {"by": ["subtype"], "metrics": ["count"]}
+    as_object, _ = _reply(lab, "aggregate", {"input": {"subtype": "page"}, **arguments})
+    as_string, _ = _reply(lab, "aggregate", {"input": '{"subtype": "page"}', **arguments})
+    assert as_string == as_object
+    assert as_object, "the stored page type has rows"
     assert lab.example.total() == 0
 
 

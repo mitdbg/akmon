@@ -217,6 +217,10 @@ def test_doctor_integrity_coverage_reports_per_kind(
     from okg.substrate.cli import doctor as cli_doctor
 
     args = argparse.Namespace(dsn=clean_runtime, deployment=deployment)
+    # The handler loads its _emit_ok binding lazily on first call and would
+    # overwrite the patch below if no earlier test on this worker had run a
+    # doctor handler, so load the helpers first, then patch that binding.
+    cli_doctor._load_main_helpers()
     captured: dict = {}
     original_emit = cli_doctor._emit_ok
     cli_doctor._emit_ok = lambda payload, **kwargs: captured.update(payload)
@@ -278,6 +282,10 @@ def test_doctor_integrity_coverage_credits_producer_authority(
     from okg.substrate.cli import doctor as cli_doctor
 
     args = argparse.Namespace(dsn=clean_runtime, deployment=deployment)
+    # The handler loads its _emit_ok binding lazily on first call and would
+    # overwrite the patch below if no earlier test on this worker had run a
+    # doctor handler, so load the helpers first, then patch that binding.
+    cli_doctor._load_main_helpers()
     captured: dict = {}
     original_emit = cli_doctor._emit_ok
     cli_doctor._emit_ok = lambda payload, **kwargs: captured.update(payload)

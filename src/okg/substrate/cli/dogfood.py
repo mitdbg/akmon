@@ -26,7 +26,6 @@ from okg.substrate.cli._options import add_deployment_arg
 from okg.substrate.cli._output import emit_result
 from okg.substrate.cli.deployment import (
     _READY_DOGFOOD_MAX_PRODUCER_AGE_SECONDS,
-    _READY_DOGFOOD_MAX_SOURCE_AGE_SECONDS,
     _deployment_ready_env_status,
     _deployment_ready_live_checks,
     _dogfood_local_profile_command_prefix,
@@ -39,6 +38,7 @@ from okg.substrate.cli.deployment_identifier import (
     require_graph_deployment_name as _require_graph_deployment_name,
 )
 from okg.substrate.db.wal_settings import GRAPH_WAL_SETTINGS, graph_wal_command_args
+from okg.substrate.deployments.readiness_profile import MAX_SOURCE_AGE_SECONDS
 from okg.substrate.errors import SubstrateError
 from okg.substrate.runtime.host_headroom import (
     RECLAIM_RUNBOOK as _HOST_STORAGE_RECLAIM_RUNBOOK,
@@ -152,8 +152,12 @@ def _add_status_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--max-source-age-seconds",
         type=int,
-        default=_READY_DOGFOOD_MAX_SOURCE_AGE_SECONDS,
-        help="Maximum age for required agent-context source watermarks",
+        default=None,
+        help=(
+            "Maximum age for required source watermarks (default: the "
+            "deployment's readiness profile limit: dogfood 1 h, ci 6 h, "
+            "standard 14 days)"
+        ),
     )
     parser.add_argument(
         "--max-producer-age-seconds",
@@ -430,6 +434,14 @@ def _cmd_dogfood_status(args: argparse.Namespace, *, as_json: bool) -> int:
         _emit_status(payload, as_json=as_json)
         return 1
 
+    # Issue #3958: the profile this deployment is judged by comes from its
+    # own declaration (readiness.profile, else a composed environment
+    # policy, else standard), never from a hard-coded dogfood.
+    profile = (
+        _deployment_readiness_profile(Path(str(env_payload["deployment_dir"])))
+        if env_payload.get("deployment_dir")
+        else None
+    )
     if not env_payload.get("ok") or not resolved_dsn:
         payload = _status_payload(
             deployment=deployment,
@@ -437,11 +449,24 @@ def _cmd_dogfood_status(args: argparse.Namespace, *, as_json: bool) -> int:
             live={},
             resolved_dsn=False,
             include_details=bool(getattr(args, "details", False)),
+            **_profile_payload_kwargs(profile),
         )
         _emit_status(payload, as_json=as_json)
         return 1
 
     deployment_dir = Path(str(env_payload["deployment_dir"]))
+    assert profile is not None  # deployment_dir is set on this path.
+    if profile.get("problem"):
+        # A profile that cannot be resolved runs NO profile's checks: any
+        # verdict would be a guess about which contract applies.
+        payload = _profile_problem_payload(
+            deployment=deployment,
+            environment=env_payload,
+            profile=profile,
+        )
+        _emit_status(payload, as_json=as_json)
+        return 1
+    profile_name = str(profile["name"])
     run_doctor = (
         str(getattr(args, "dogfood_subcmd", "")) == "doctor"
         or bool(getattr(args, "details", False))
@@ -455,9 +480,9 @@ def _cmd_dogfood_status(args: argparse.Namespace, *, as_json: bool) -> int:
         ),
         "max_source_age_seconds": int(
             getattr(args, "max_source_age_seconds", None)
-            or _READY_DOGFOOD_MAX_SOURCE_AGE_SECONDS
+            or MAX_SOURCE_AGE_SECONDS[profile_name]
         ),
-        "readiness_profile": "dogfood",
+        "readiness_profile": profile_name,
         "max_producer_age_seconds": int(
             getattr(args, "max_producer_age_seconds", None)
             or _READY_DOGFOOD_MAX_PRODUCER_AGE_SECONDS
@@ -480,6 +505,7 @@ def _cmd_dogfood_status(args: argparse.Namespace, *, as_json: bool) -> int:
         deployment=deployment,
         deployment_dir=deployment_dir,
         dsn=resolved_dsn,
+        readiness_profile=profile_name,
     )
     from okg.substrate.deployment_apply import deployment_apply_health
 
@@ -511,15 +537,174 @@ def _cmd_dogfood_status(args: argparse.Namespace, *, as_json: bool) -> int:
         dsn=resolved_dsn,
     )
     live["runtime_config"] = _declared_runtime_config(deployment_dir)
+    defaulted = _profile_defaulted_warning(profile, deployment_dir)
+    if defaulted is not None:
+        live.setdefault("warnings", []).append(defaulted)
     payload = _status_payload(
         deployment=deployment,
         environment=env_payload,
         live=live,
         resolved_dsn=True,
         include_details=bool(getattr(args, "details", False)),
+        **_profile_payload_kwargs(profile),
     )
     _emit_status(payload, as_json=as_json)
     return 0 if payload["ok"] else 1
+
+
+def _deployment_readiness_profile(deployment_dir: Path) -> dict[str, Any]:
+    """The resolver's answer for this deployment directory (#3958).
+
+    A manifest that cannot be read for its profile is a problem like any
+    other: no profile's checks run, and the payload names why.
+    """
+    from okg.substrate.cli.deployment import _ready_resolved_readiness_profile
+
+    try:
+        return _ready_resolved_readiness_profile(deployment_dir)
+    except Exception as exc:  # noqa: BLE001 - reported as a named problem.
+        return {
+            "name": None,
+            "source": None,
+            "manifest_value": None,
+            "environment_policy": None,
+            "problem": {
+                "code": "deployment.readiness.profile_unreadable",
+                "message": (
+                    "the manifest could not be read for readiness.profile: "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+                "field": "readiness.profile",
+                "files": [str(deployment_dir / "deployment.yaml")],
+            },
+        }
+
+
+def _profile_payload_kwargs(profile: Mapping[str, Any] | None) -> dict[str, Any]:
+    """`_status_payload` keyword arguments for a resolved profile.
+
+    With no resolution (no deployment directory was resolved) or with a
+    problem, the profile is ``None`` and no printed command names one: a
+    `--checks` value nobody resolved would be a guess.
+    """
+    if profile is None:
+        return {"readiness_profile": None}
+    return {
+        "readiness_profile": (
+            None if profile.get("problem") else str(profile.get("name"))
+        ),
+        "profile_resolution": profile,
+    }
+
+
+def _profile_defaulted_warning(
+    profile: Mapping[str, Any],
+    deployment_dir: Path,
+) -> dict[str, Any] | None:
+    """Warn when a deployment that looks like a dogfood one declared nothing.
+
+    The profile stays ``standard`` and trust is unchanged: a signal never
+    chooses the profile. It only tells the operator that the stricter
+    contract they may expect is not the one being applied.
+    """
+    from okg.substrate.cli.deployment import _ready_manifest_and_origin
+    from okg.substrate.deployments.readiness_profile import (
+        SOURCE_DEFAULT,
+        dogfood_signals,
+    )
+
+    if profile.get("source") != SOURCE_DEFAULT:
+        return None
+    manifest, _composed = _ready_manifest_and_origin(deployment_dir)
+    signals = dogfood_signals(manifest)
+    if not signals:
+        return None
+    return {
+        "id": "readiness.profile_defaulted",
+        "status": "warning",
+        "ok": None,
+        "message": (
+            "this deployment declares no readiness.profile and is judged as "
+            "standard, but it carries dogfood signals ("
+            + ", ".join(signals)
+            + "); declare readiness.profile in deployment.yaml"
+        ),
+        "details": {"profile": dict(profile), "signals": signals},
+    }
+
+
+def _profile_problem_payload(
+    *,
+    deployment: str,
+    environment: Mapping[str, Any],
+    profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The status payload when the readiness profile cannot be resolved.
+
+    No profile's live checks ran, so the payload claims nothing about the
+    graph: trust is ``unavailable``, one blocker names both values and both
+    files, and ``next_action`` names the field to edit. No printed command
+    carries a ``--checks`` value, because none is known to apply.
+    """
+    problem = _mapping(profile.get("problem"))
+    files = [str(path) for path in problem.get("files") or []]
+    message = (
+        f"{problem.get('message')}. readiness.profile: "
+        f"{profile.get('manifest_value')!r}; environment policy: "
+        f"{profile.get('environment_policy')!r}; files: "
+        + (", ".join(files) or "none")
+    )
+    recovery_commands = _default_recovery_commands(
+        deployment, readiness_profile=None,
+    )
+    quoted = shlex.quote(deployment)
+    payload: dict[str, Any] = {
+        "schema": DOGFOOD_STATUS_SCHEMA,
+        "deployment": deployment,
+        "ok": False,
+        "trust_level": "unavailable",
+        "readiness_profile": dict(profile),
+        "environment": dict(environment),
+        "read_authority": {
+            "ok": False,
+            "reason": "readiness_profile_unresolved",
+        },
+        "runtime_config": {},
+        "runtime_worker": {
+            "ok": False,
+            "status": "unknown",
+            "code_identity": {
+                "status": "not_observed",
+                "ok": None,
+                "reasons": ["readiness_profile_unresolved"],
+            },
+        },
+        "blockers": [{
+            "id": "readiness.profile.unavailable",
+            "status": "blocker",
+            "ok": False,
+            "message": message,
+            "details": {
+                "code": problem.get("code"),
+                "field": problem.get("field"),
+                "files": files,
+                "manifest_value": profile.get("manifest_value"),
+                "environment_policy": profile.get("environment_policy"),
+            },
+        }],
+        "warnings": [],
+        "unknowns": [],
+        "recovery_commands": recovery_commands,
+        "next_action": {
+            "code": "fix_readiness_profile",
+            "owner": "operator",
+            "field": problem.get("field"),
+            "files": files,
+            "why": str(problem.get("message") or ""),
+            "command": f"{okg_prefix()} deployment lint {quoted} --json",
+        },
+    }
+    return payload
 
 
 def _cmd_dogfood_control(args: argparse.Namespace, *, as_json: bool) -> int:
@@ -1298,8 +1483,6 @@ def _render_launchd_adapter(
   <dict>
     <key>PYTHONUNBUFFERED</key>
     <string>1</string>
-    <key>OKG_IVM_INTERVAL_VIEW</key>
-    <string>1</string>
     <key>OKG_IVM_CONSOLE_COUNT_ROLLUP</key>
     <string>1</string>
 {dsn_xml.rstrip()}
@@ -1499,7 +1682,6 @@ User={user}
 Group={group}
 WorkingDirectory={repo_root}
 Environment="PYTHONUNBUFFERED=1"
-Environment="OKG_IVM_INTERVAL_VIEW=1"
 EnvironmentFile={env_file}
 Environment="OKG_IVM_CONSOLE_COUNT_ROLLUP=1"
 ExecStart=/usr/bin/env OKG_IVM_CONSOLE_COUNT_ROLLUP=1 {' '.join(shlex.quote(part) for part in argv)}
@@ -1737,7 +1919,6 @@ services:
         condition: service_healthy
     environment:
       PYTHONUNBUFFERED: "1"
-      OKG_IVM_INTERVAL_VIEW: "1"
       OKG_IVM_CONSOLE_COUNT_ROLLUP: "1"
       OKG_DSN: {_yaml_quote(service_dsn)}
     volumes:
@@ -2037,7 +2218,11 @@ def _unavailable_payload(
                 f"{quoted} --json"
             ),
         },
-        "recovery_commands": _default_recovery_commands(deployment),
+        # No profile was resolved on this path (#3958), so no printed
+        # command names one: no `--checks`, no dogfood service render.
+        "recovery_commands": _default_recovery_commands(
+            deployment, readiness_profile=None,
+        ),
     }
 
 
@@ -2048,7 +2233,16 @@ def _status_payload(
     live: Mapping[str, Any],
     resolved_dsn: bool,
     include_details: bool,
+    readiness_profile: str | None = "dogfood",
+    profile_resolution: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """The status payload for one readiness run.
+
+    ``readiness_profile`` is the profile the live checks ran under (#3958);
+    ``None`` means it could not be resolved, and no printed command then
+    names one. ``profile_resolution`` is the resolver's answer, echoed as the
+    payload's ``readiness_profile`` block when given.
+    """
     raw_blockers = _list_of_mappings(live.get("blockers"))
     raw_warnings = _list_of_mappings(live.get("warnings"))
     # Issue #1290: probes that were never measured. They are not blockers
@@ -2114,13 +2308,24 @@ def _status_payload(
     # worker should be running are not applicable to it; every other check
     # still counts.
     runtime_config = _mapping(live.get("runtime_config"))
-    runtime_disabled = runtime_config.get("status") == "disabled"
+    # Issue #3958: under `standard` only, an undeclared runtime reads as the
+    # runtime's own default, disabled. Safe because `okg runtime worker`
+    # refuses to start unless the runtime is enabled, so no okg-started
+    # worker can exist; one observed anyway is a stale-context blocker.
+    runtime_undeclared_default = (
+        readiness_profile == "standard"
+        and runtime_config.get("status") == "not_declared"
+    )
+    runtime_disabled = (
+        runtime_config.get("status") == "disabled" or runtime_undeclared_default
+    )
     not_applicable: list[str] = []
     if runtime_disabled:
         raw_blockers, raw_warnings, not_applicable = _runtime_disabled_checks(
             raw_blockers,
             raw_warnings,
             process_audit=process_audit,
+            undeclared=runtime_undeclared_default,
         )
     if process_audit.get("ok") is not True and not any(
         str(row.get("id") or "") == "runtime.worker_processes"
@@ -2170,6 +2375,7 @@ def _status_payload(
             runtime_worker,
             process_audit=process_audit,
             not_applicable=not_applicable,
+            undeclared=runtime_undeclared_default,
         )
     runtime_worker["code_identity"] = code_identity
     recovery_plan = _mapping(live.get("source_sync_recovery_plan"))
@@ -2185,6 +2391,7 @@ def _status_payload(
         live=live,
         blockers=raw_blockers,
         unknowns=raw_unknowns,
+        readiness_profile=readiness_profile,
     )
     blockers = _summarize_checks(raw_blockers)
     warnings = _summarize_checks(raw_warnings)
@@ -2194,12 +2401,17 @@ def _status_payload(
         deployment,
         source_sync_status=source_sync_status,
         environment=environment,
+        readiness_profile=readiness_profile,
     )
     payload: dict[str, Any] = {
         "schema": DOGFOOD_STATUS_SCHEMA,
         "deployment": deployment,
         "ok": trust_level == "ready",
         "trust_level": trust_level,
+    }
+    if profile_resolution is not None:
+        payload["readiness_profile"] = dict(profile_resolution)
+    payload.update({
         "environment": dict(environment),
         "read_authority": {
             "ok": read_authority_ok,
@@ -2242,7 +2454,7 @@ def _status_payload(
         "runtime_health_policy": _runtime_health_policy_payload(
             recovery_commands,
         ),
-    }
+    })
     if recovery_plan:
         payload["source_sync_recovery_plan"] = recovery_plan
     if include_details:
@@ -2260,6 +2472,7 @@ def _trust_level(
     live: Mapping[str, Any],
     blockers: list[dict[str, Any]],
     unknowns: list[dict[str, Any]] | None = None,
+    readiness_profile: str | None = "dogfood",
 ) -> str:
     if not environment.get("ok") or not resolved_dsn:
         return "unavailable"
@@ -2297,6 +2510,12 @@ def _trust_level(
     )
     if not graph_readable:
         return "unavailable"
+    if readiness_profile != "dogfood" and "deployment.code_drift" not in blocker_ids:
+        # Issue #3958: only dogfood makes code drift a blocker; under every
+        # other profile drift is a warning, and a warning does not move
+        # trust. (Under dogfood the rule below is unchanged: each drift state
+        # it reads is exactly one the drift check reports as a blocker.)
+        return "stale_context" if blockers else "ready"
     code_drift = _mapping(live.get("code_drift"))
     code_drift_status = str(code_drift.get("status") or "")
     if code_drift_status in {"error", "misconfigured"}:
@@ -2405,6 +2624,13 @@ _RUNTIME_DISABLED_NOTE = (
     "worker process or DBOS queue history is expected"
 )
 
+_RUNTIME_UNDECLARED_NOTE = (
+    "the runtime is not declared (no runtime.enabled in deployment.yaml); "
+    "under the standard readiness profile that reads as the runtime's own "
+    "default, disabled, so no runtime worker process or DBOS queue history "
+    "is expected"
+)
+
 # The one queue shape a runtime that never ran produces: the DBOS workflow
 # table does not exist. The okg job queues are still measured beside it.
 _DBOS_HISTORY_ABSENT_REASONS = frozenset({"dbos.workflow_status missing"})
@@ -2417,6 +2643,14 @@ def _declared_runtime_config(deployment_dir: Path) -> dict[str, Any]:
     absent block or key is `not_declared` and an invalid block is
     `unreadable`; both keep the worker requirement, because a status check
     must not relax on a declaration it could not read.
+
+    One exception (issue #3958): under the `standard` readiness profile,
+    `not_declared` reads as the runtime's own default, disabled
+    (`_status_payload`). That is safe because `okg runtime worker` refuses to
+    start unless the runtime is enabled, so no okg-started worker can exist;
+    a worker observed anyway is the `runtime.undeclared_but_running`
+    blocker. Under dogfood and ci, and for `unreadable` in every profile, the
+    worker requirement stays.
     """
     from okg.substrate.runtime.config import RuntimeConfig
 
@@ -2450,6 +2684,7 @@ def _runtime_disabled_checks(
     warnings: list[dict[str, Any]],
     *,
     process_audit: Mapping[str, Any],
+    undeclared: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """Reclassify the runtime-only checks for a runtime disabled by config.
 
@@ -2459,7 +2694,18 @@ def _runtime_disabled_checks(
     table always reports depth 0. If a future queue view reports queued work
     beside missing DBOS history, it stays a (stale-context) blocker rather
     than disappearing with the not-applicable row.
+
+    ``undeclared`` is the `standard` reading of a missing runtime block as
+    disabled (#3958). It adds the ``runtime.enabled_not_declared`` warning,
+    and a worker observed running is a ``runtime.undeclared_but_running``
+    blocker (stale context) whose text names the missing block, since the
+    ``runtime.enabled is false`` wording would be untrue.
     """
+    off_phrase = (
+        "the runtime block is not declared (read as disabled)"
+        if undeclared
+        else "runtime.enabled is false"
+    )
     split = bool(process_audit.get("split_executor"))
     kept: list[dict[str, Any]] = []
     # Several worker roots at once is a hazard whatever the configuration
@@ -2485,7 +2731,7 @@ def _runtime_disabled_checks(
                     "ok": False,
                     "message": (
                         f"{depth} queued job(s) are waiting and "
-                        "runtime.enabled is false, so no runtime worker "
+                        f"{off_phrase}, so no runtime worker "
                         "will drain them; run the ingest by hand"
                     ),
                     # Not the queue row's own `status: unavailable`: the
@@ -2500,7 +2746,32 @@ def _runtime_disabled_checks(
                 })
             continue
         kept.append(row)
-    if process_audit.get("ok") is True:
+    if undeclared:
+        warnings = [*warnings, {
+            "id": "runtime.enabled_not_declared",
+            "status": "warning",
+            "ok": None,
+            "message": (
+                "deployment.yaml declares no runtime.enabled; under the "
+                "standard profile that reads as the runtime's own default, "
+                "disabled, so no runtime worker is required. Declare "
+                "runtime.enabled to make the intent explicit"
+            ),
+        }]
+    if process_audit.get("ok") is True and undeclared:
+        kept.append({
+            "id": "runtime.undeclared_but_running",
+            "status": "blocker",
+            "ok": False,
+            "message": (
+                "the runtime block is not declared in deployment.yaml (read "
+                "as disabled), but a runtime worker process is running for "
+                "this deployment; declare runtime.enabled: true to run it, "
+                "or stop the worker"
+            ),
+            "details": dict(process_audit),
+        })
+    elif process_audit.get("ok") is True:
         warnings = [*warnings, {
             "id": "runtime.disabled_but_running",
             "status": "warning",
@@ -2520,7 +2791,7 @@ def _runtime_disabled_checks(
             "status": "warning",
             "ok": None,
             "message": (
-                "runtime.enabled is false, and the check for a stray "
+                f"{off_phrase}, and the check for a stray "
                 "runtime worker process could not run: "
                 f"{process_audit.get('reason') or 'process listing failed'}"
             ),
@@ -2534,18 +2805,27 @@ def _runtime_disabled_worker_status(
     *,
     process_audit: Mapping[str, Any],
     not_applicable: list[str],
+    undeclared: bool = False,
 ) -> dict[str, Any]:
     out = dict(worker)
     out["observed_status"] = worker.get("status")
-    out["status"] = "disabled_by_config"
+    out["status"] = (
+        "not_declared_default_disabled" if undeclared else "disabled_by_config"
+    )
     out["ok"] = None
     out["measured"] = True
-    out["note"] = _RUNTIME_DISABLED_NOTE
+    out["note"] = (
+        _RUNTIME_UNDECLARED_NOTE if undeclared else _RUNTIME_DISABLED_NOTE
+    )
     out["not_applicable_checks"] = list(not_applicable)
     if process_audit.get("ok") is True:
         out["note"] += (
             "; a runtime worker process is nevertheless running "
-            "(see warning runtime.disabled_but_running)"
+            + (
+                "(see blocker runtime.undeclared_but_running)"
+                if undeclared
+                else "(see warning runtime.disabled_but_running)"
+            )
         )
     return out
 
@@ -2556,6 +2836,7 @@ def _attach_nomos_active_state(
     deployment: str,
     deployment_dir: Path,
     dsn: str,
+    readiness_profile: str = "dogfood",
 ) -> dict[str, Any]:
     manifest_path = deployment_dir / "deployment.yaml"
     if not manifest_path.exists():
@@ -2566,7 +2847,7 @@ def _attach_nomos_active_state(
         dsn=dsn,
         manifest=manifest,
         deployment_dir=deployment_dir,
-        readiness_profile="dogfood",
+        readiness_profile=readiness_profile,
     )
     enriched = dict(live)
     enriched["nomos_runtime"] = nomos_runtime
@@ -2870,6 +3151,14 @@ def _source_status_counts(sources: Mapping[str, Any]) -> dict[str, int]:
 def _source_freshness_summary(freshness: Mapping[str, Any]) -> dict[str, Any]:
     if not freshness:
         return {}
+    if freshness.get("status") == "not_checked":
+        # Issue #3958: a standard deployment with no baseline sources. Not
+        # `ok: True` (nothing was found fresh) and not `ok: False` (nothing
+        # was required): the reason says which.
+        return {
+            "status": "not_checked",
+            "reason": freshness.get("reason"),
+        }
     groups = _mapping(freshness.get("groups"))
     group_summary: dict[str, dict[str, Any]] = {}
     for name, group in groups.items():
@@ -2890,6 +3179,7 @@ def _source_freshness_summary(freshness: Mapping[str, Any]) -> dict[str, Any]:
         "max_source_age_seconds": freshness.get("max_source_age_seconds"),
         "missing": list(freshness.get("missing") or []),
         "stale": list(freshness.get("stale") or []),
+        "undeclared": list(freshness.get("undeclared") or []),
         "groups": group_summary,
     }
 
@@ -2992,8 +3282,12 @@ def _next_action(payload: Mapping[str, Any]) -> dict[str, Any]:
     runtime_processes = _mapping(payload.get("runtime_processes"))
     runtime_worker = _mapping(payload.get("runtime_worker"))
     worker_status = str(runtime_worker.get("status") or "")
-    # A runtime disabled by configuration has no worker to start (#2987).
-    runtime_disabled = worker_status == "disabled_by_config"
+    # A runtime disabled by configuration has no worker to start (#2987),
+    # nor has an undeclared one under the standard profile (#3958).
+    runtime_disabled = worker_status in {
+        "disabled_by_config",
+        "not_declared_default_disabled",
+    }
     if runtime_processes.get("ok") is not True and (
         not runtime_disabled or runtime_processes.get("split_executor")
     ):
@@ -3124,8 +3418,11 @@ def _recovery_commands(
     *,
     source_sync_status: Mapping[str, Any],
     environment: Mapping[str, Any],
+    readiness_profile: str | None = "dogfood",
 ) -> dict[str, Any]:
-    commands = _default_recovery_commands(deployment)
+    commands = _default_recovery_commands(
+        deployment, readiness_profile=readiness_profile,
+    )
     source_commands = _mapping(source_sync_status.get("recovery_commands"))
     commands.update(source_commands)
     commands.update(
@@ -3679,9 +3976,39 @@ def _control_apply_command(deployment: str, action: str) -> str:
     )
 
 
-def _default_recovery_commands(deployment: str) -> dict[str, str]:
+def _default_recovery_commands(
+    deployment: str,
+    *,
+    readiness_profile: str | None = "dogfood",
+) -> dict[str, str]:
+    """The recovery commands a status payload offers.
+
+    Issue #3958: the readiness gate re-runs the checks of the profile this
+    deployment is judged by, and the service-render entries (the dogfood
+    worker supervisor) are offered only under dogfood. With no resolved
+    profile (``None``) no command names one.
+    """
     quoted = shlex.quote(deployment)
     prefix = _dogfood_local_profile_command_prefix()
+    commands = _all_default_recovery_commands(quoted, prefix)
+    if readiness_profile is None:
+        commands.pop("dogfood_ready_gate")
+    else:
+        commands["dogfood_ready_gate"] = (
+            f"{prefix}{okg_prefix()} deployment ready {quoted} "
+            f"--checks {shlex.quote(readiness_profile)} --json"
+        )
+    if readiness_profile != "dogfood":
+        for key in (
+            "service_render_launchd",
+            "service_render_systemd",
+            "service_render_docker_compose",
+        ):
+            commands.pop(key)
+    return commands
+
+
+def _all_default_recovery_commands(quoted: str, prefix: str) -> dict[str, str]:
     return {
         "dogfood_status": (
             f"{prefix}{okg_prefix()} dogfood status --deployment {quoted} --json"

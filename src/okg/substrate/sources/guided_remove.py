@@ -734,7 +734,9 @@ def _commit_mode(dep: Path, registry_path: Path) -> tuple[str, str]:
 
 def _registry_uncommitted(dep: Path, registry_path: Path) -> list[str]:
     """`git status` lines for a tracked registry file; raises when git fails."""
-    proc = _git(dep, "status", "--porcelain", "--", str(registry_path))
+    proc = _git(
+        dep, "--no-optional-locks", "status", "--porcelain", "--", str(registry_path),
+    )
     if proc.returncode != 0:
         raise RuntimeError(
             "git status failed: " + (_last_stderr_line(proc) or f"exit {proc.returncode}")

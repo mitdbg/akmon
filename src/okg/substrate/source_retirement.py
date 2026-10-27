@@ -233,6 +233,70 @@ def _retirement_edges(
     ]
 
 
+def _without_edges_that_wait(
+    conn: psycopg.Connection,
+    graph: Any,
+    edges: list[dict[str, Any]],
+    subjects: tuple[str, ...],
+    node_ids: list[str],
+) -> list[dict[str, Any]]:
+    """Drop another source's edge onto a retiring node when it can wait.
+
+    Cross-source endpoint wedge: retiring the source that owns a record used
+    to retract every producer's edge onto it. An edge whose producer's
+    clause lets it wait for the record is left in place; the next publish
+    moves it to the waiting table. Other edges keep today's rule.
+    """
+    from okg.substrate.graph_store_internal.edge_deferrals import (
+        source_deferral_rules,
+        waiting_table_registered,
+    )
+    from okg.substrate.producer_authority import classify_edge_deferral
+
+    if not waiting_table_registered(graph):
+        return edges
+    retiring = set(node_ids)
+    foreign = [
+        edge for edge in edges
+        if edge.get("source") and edge["source"] not in subjects
+        and (edge["src"] in retiring or edge["dst"] in retiring)
+    ]
+    if not foreign:
+        return edges
+    others = sorted({
+        end for edge in foreign for end in (edge["src"], edge["dst"])
+        if end not in retiring
+    })
+    subtypes = {
+        str(row["node_id"]): str(row["subtype"])
+        for row in (
+            graph.query(
+                "SELECT node_id, subtype FROM okg.graph_nodes "
+                "WHERE node_id = ANY(:ids)", {"ids": others},
+            ) if others else []
+        )
+    }
+    rules_by_source: dict[str, Any] = {}
+    kept_ids: set[int] = set()
+    for edge in foreign:
+        source = str(edge["source"])
+        if source not in rules_by_source:
+            rules_by_source[source] = source_deferral_rules(conn, source)
+        rules = rules_by_source[source]
+        if rules is None:
+            continue
+        record = {
+            "src": edge["src"], "dst": edge["dst"],
+            "edge_type": edge["edge_type"],
+            "src_subtype": subtypes.get(str(edge["src"])),
+            "dst_subtype": subtypes.get(str(edge["dst"])),
+            "attrs": edge.get("attrs") or {},
+        }
+        if classify_edge_deferral(record, rules) is not None:
+            kept_ids.add(int(edge["edge_id"]))
+    return [edge for edge in edges if int(edge["edge_id"]) not in kept_ids]
+
+
 def _derived_frontier(graph: Any, node_ids: set[str]) -> list[dict[str, Any]]:
     if not node_ids:
         return []
@@ -307,7 +371,10 @@ def _plan_from_graph(
     )
     nodes = _source_nodes(graph, subjects)
     node_ids = [str(row["node_id"]) for row in nodes]
-    edges = _retirement_edges(graph, subjects, node_ids)
+    edges = _without_edges_that_wait(
+        conn, graph, _retirement_edges(graph, subjects, node_ids),
+        subjects, node_ids,
+    )
     frontier = _derived_frontier(graph, set(node_ids))
     collisions = _shared_source_collisions(nodes, subjects)
     refusal_codes: set[str] = set()
@@ -802,6 +869,23 @@ def _apply_plan(
                     "chunk_count": result.summary.terminal_chunk_count,
                 }
             )
+        # The retired source's own waiting edges are its records too.
+        from okg.substrate.graph_store_internal.edge_deferrals import (
+            EDGE_DEFERRALS_TABLE,
+            waiting_table_registered,
+        )
+
+        if waiting_table_registered(session):
+            waiting = session.query(
+                f"SELECT edge_id FROM {EDGE_DEFERRALS_TABLE} "
+                "WHERE source = ANY(:subjects)",
+                {"subjects": list(plan.source_subject_ids)},
+            )
+            if waiting:
+                session.delete_keys(
+                    EDGE_DEFERRALS_TABLE,
+                    [{"edge_id": int(row["edge_id"])} for row in waiting],
+                )
         if fault_after_graph:
             raise RuntimeError("injected source-retirement fault after graph edits")
 

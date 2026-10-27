@@ -466,8 +466,10 @@ CASES: list[tuple[str, str, dict, str]] = [
       "predicate": {"op": "and", "clauses": [
           {"op": "not", "clause": {"op": "or", "clauses": [_EDGE_EQ, _EDGE_EQ]}}]}},
      PASSES),
+    # PACT read-live-handles (N7): `filter` takes a string `input` (a handle),
+    # so a JSON-object string is decoded first, as #3989 did for aggregate.
     ("filter", "input-as-json-string",
-     {"input": '{"kind": "nodes"}', "predicate": _EQ}, BAD),
+     {"input": '{"kind": "nodes"}', "predicate": _EQ}, PASSES),
     ("filter", "predicate-as-json-string",
      {"input": {"kind": "nodes"}, "predicate": json.dumps(_EQ)}, BAD),
     ("filter", "op-outside-set",

@@ -121,31 +121,6 @@ def test_native_view_refresh_axes_render_policy_only_when_enabled(tmp_path):
     assert off == on
 
 
-def test_attribute_view_empty_overlay_axis_renders_policy_only_when_enabled(tmp_path):
-    _, off = _render(
-        tmp_path / "a",
-        config=orch.BenchConfig(
-            attribute_effective_view_empty_overlay_fast_path=False,
-        ),
-        exp_id="ave",
-    )
-    _, on = _render(
-        tmp_path / "b",
-        config=orch.BenchConfig(
-            attribute_effective_view_empty_overlay_fast_path=True,
-        ),
-        exp_id="ave",
-    )
-
-    assert "native_views" not in off
-    assert (
-        on["native_views"]["attribute_effective_view_empty_overlay_fast_path"]
-        is True
-    )
-    on.pop("native_views")
-    assert off == on
-
-
 def test_source_sync_compaction_axis_renders_watcher_policy(tmp_path):
     off_dir = tmp_path / "a"
     on_dir = tmp_path / "b"

@@ -33,35 +33,24 @@ Density: ordinals are dense at mint time. Deleting a middle generation
 (``delete_generation``) leaves a gap, which is harmless for an interval stab --
 monotonicity is preserved and nothing is ever renumbered.
 
-Stranded ordinals (okg#1587): before that fix, an interval-tracked publish that
-failed after its ordinal committed -- in the retention prune, the integrity
-preflight, or ``checkpoint_generation`` -- left an ordinal row naming a
-checkpoint that was never created. The publisher now assigns the ordinal inside
-the same transaction as the checkpoint, so new gaps of this kind cannot form.
-Existing ones are TOLERATED, not repaired. Readers look an ordinal up by a real
-checkpoint id or compare ordinals by order. Two read the position just below a
-new ordinal: the interval sync reads the rows live there, and
-a stab at a stranded position still returns the rows live at it; the
-attribute-integrity receipt chain detects the gap and re-anchors once
-(okg#1603, pinned by ``tests/substrate/test_attribute_receipt_retention.py``).
-The visible effect is that the retention window and the disk report count the
-stranded row as a generation. Renumbering to close a gap would be unsafe
-(interval rows and receipts are keyed by ordinal), so there is no repair.
+Stranded ordinals (okg#1587): before that fix, a publish that failed after its
+ordinal committed -- in a later stage or in ``checkpoint_generation`` -- left an
+ordinal row naming a checkpoint that was never created. The publisher now
+assigns the ordinal inside the same transaction as the checkpoint, so new gaps
+of this kind cannot form. Existing ones are TOLERATED, not repaired. Readers
+look an ordinal up by a real checkpoint id or compare ordinals by order, and a
+stab of the overlay ranges at a stranded position still returns the rows live
+at it. Renumbering to close a gap would be unsafe (overlay ranges are keyed by
+ordinal), so there is no repair.
 
-SCOPE: this module is the PREREQUISITE primitive only. It is intentionally NOT
-yet wired into the live ``checkpoint_generation`` publish path, and is NOT yet
-consumed by any read path. Minting on the live path is coupled with a
-one-time production backfill of existing generations (a deployment with N
-un-ordinaled generations must be seeded 0..N-1 BEFORE new publishes start
-minting, or the new gens would mis-order against history). That rollout, plus
-the representation change (PK rekey + interval rows + read rewrite on the ~23GB
-table, ``task.interval-row-representation``), is deliberately deferred for
-review.
+The publisher assigns each published ROOT-branch generation its ordinal in the
+publication transaction, and ``checkpoint_generation`` mints it idempotently
+(seeding a branch's un-ordinaled history once, in causal order). The overlay
+validity ranges (``okg.attribute_overlay_ranges``) are the reader.
 """
 from __future__ import annotations
 
-import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any
 
 from okg.substrate.errors import SubstrateError
@@ -237,67 +226,16 @@ def _is_structural_fork(db: Any, branch: str) -> bool:
     return parent not in _ROOT_PARENTS and parent != branch
 
 
-def is_interval_tracked_branch(db: Any, branch: str) -> bool:
-    """Public: is ``branch`` eligible for the incremental interval effective-view?
+def is_ordinal_tracked_branch(db: Any, branch: str) -> bool:
+    """Public: does ``branch`` mint the gap-free ordinal sequence?
 
-    Only ROOT branches (the main publishing line) are interval-tracked: they mint a
-    gap-free ordinal sequence, so the interval table + running counter are sound. A
-    STRUCTURAL fork (forked from a non-root parent -- e.g. an ingest/merge_back
-    quarantine branch) is NOT tracked: it has no recorded base ordinal, so the
-    interval path is skipped and the fork falls back to the per-generation snapshot
-    (a full re-materialize on that branch), which is correct but not incrementally
-    accelerated (incremental fork-seeding deferred). Keeps fork publishes correct +
-    fail-safe when OKG_IVM_INTERVAL_VIEW is on.
+    Only ROOT branches (the main publishing line) do: the publisher assigns
+    their ordinal and syncs their overlay ranges in the publication
+    transaction. A STRUCTURAL fork (forked from a non-root parent -- e.g. an
+    ingest/merge_back quarantine branch) has no recorded base ordinal, so the
+    publisher assigns it none.
     """
     return not _is_structural_fork(db, branch)
-
-
-def interval_representation_flag_enabled(
-    env: Mapping[str, str] | None = None,
-) -> bool:
-    """Public: is the interval representation ENABLED by configuration?
-
-    The branch-independent half of :func:`interval_representation_enabled`, for
-    callers that hold an environment mapping but no database handle (deployment
-    upgrade phases) or that want the cheap check before building one.
-
-    Two conditions, both required:
-
-    * ``OKG_IVM_INTERVAL_VIEW`` is on -- the operator-facing cutover flag.
-    * ``OKG_IVM_GENERATION_ORDINAL`` is not ``0`` -- the ordinal kill switch
-      (issue #1514). The interval sync and the
-      attribute-integrity receipts are all KEYED by the ordinal, so "mint
-      nothing but sync anyway" is not a coherent state: disabling the ordinal
-      disables the representation that consumes it. ``0`` exactly, matching the
-      switch's other half in
-      ``ChronosGraphStore._maybe_mint_generation_ordinal``.
-    """
-    source: Mapping[str, str] = os.environ if env is None else env
-    return (
-        source.get("OKG_IVM_INTERVAL_VIEW", "1") == "1"
-        and source.get("OKG_IVM_GENERATION_ORDINAL", "1") != "0"
-    )
-
-
-def interval_representation_enabled(db: Any, branch: str) -> bool:
-    """Public: does the interval representation OWN this branch's publish?
-
-    THE single predicate for that question. The publisher (which mints the
-    ordinal and syncs the interval front) and the effective-attribute
-    materializer (which DROPS the snapshot carry-forward on the strength of
-    that sync) must answer it identically. When they disagreed, the
-    materializer wrote a changed-only snapshot for a generation whose interval
-    rows were never synced, and the unchanged majority existed in neither
-    place.
-
-    Configuration (see :func:`interval_representation_flag_enabled`) AND an
-    interval-tracked branch (a ROOT branch, see
-    :func:`is_interval_tracked_branch`). Either off means the correct,
-    non-accelerated per-generation full snapshot arm.
-    """
-    return interval_representation_flag_enabled() and is_interval_tracked_branch(
-        db, branch
-    )
 
 
 def _branch_start_ordinal(db: Any, context: Any, branch: str) -> int | None:

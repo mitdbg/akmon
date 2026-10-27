@@ -81,7 +81,6 @@ def _looks_like_compaction_sql(statement: str, physical_table: str) -> bool:
         "history_compaction_plans",
         "compacted_generations",
         "vacuum full",
-        "delete from okg.attribute_effective_view_intervals",
         f"delete from {physical_table.lower()}",
     )
     return any(pattern in normalized for pattern in destructive_patterns)

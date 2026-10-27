@@ -224,7 +224,6 @@ class BenchConfig:
     branching: bool = False
     native_view_min_refresh_interval_ms: int = 0
     native_view_materialization_delay_ms: int = 0
-    attribute_effective_view_empty_overlay_fast_path: bool = False
     source_sync_compaction_window_seconds: int = 0
     source_sync_watch_debounce_seconds: float = 0.01
     source_sync_head_poll_interval_seconds: float = 0.25
@@ -479,7 +478,6 @@ def _parse_bench_config(exp_id: str, raw: object) -> BenchConfig:
         "branching",
         "native_view_min_refresh_interval_ms",
         "native_view_materialization_delay_ms",
-        "attribute_effective_view_empty_overlay_fast_path",
         "source_sync_compaction_window_seconds",
         "source_sync_watch_debounce_seconds",
         "source_sync_head_poll_interval_seconds",
@@ -534,15 +532,6 @@ def _parse_bench_config(exp_id: str, raw: object) -> BenchConfig:
         raise ValueError(
             f"{exp_id!r}: config.native_view_materialization_delay_ms "
             "must be a non-negative int"
-        )
-    attr_view_empty_overlay_fast_path = raw.get(
-        "attribute_effective_view_empty_overlay_fast_path",
-        False,
-    )
-    if not isinstance(attr_view_empty_overlay_fast_path, bool):
-        raise ValueError(
-            f"{exp_id!r}: config.attribute_effective_view_empty_overlay_fast_path "
-            "must be a bool"
         )
     source_sync_compaction_window = raw.get(
         "source_sync_compaction_window_seconds",
@@ -642,9 +631,6 @@ def _parse_bench_config(exp_id: str, raw: object) -> BenchConfig:
         branching=branching,
         native_view_min_refresh_interval_ms=native_view_min_refresh,
         native_view_materialization_delay_ms=native_view_delay,
-        attribute_effective_view_empty_overlay_fast_path=(
-            attr_view_empty_overlay_fast_path
-        ),
         source_sync_compaction_window_seconds=source_sync_compaction_window,
         source_sync_watch_debounce_seconds=float(source_sync_watch_debounce),
         source_sync_head_poll_interval_seconds=float(
@@ -1188,9 +1174,6 @@ def _write_deployment_files(exp: Experiment) -> None:
         ),
         "native_view_materialization_delay_ms": (
             cfg.native_view_materialization_delay_ms
-        ),
-        "attribute_effective_view_empty_overlay_fast_path": (
-            cfg.attribute_effective_view_empty_overlay_fast_path
         ),
         "source_sync_compaction_window_seconds": (
             cfg.source_sync_compaction_window_seconds
@@ -5319,7 +5302,7 @@ def _derived_outputs_fingerprint(
     }
 
 
-# attribute_effective_view columns that are NOT part of the semantic effective
+# Effective-attribute row columns that are NOT part of the semantic effective
 # state and MUST be excluded from the digest: `materialized_at` is a wall-clock
 # stamp that varies run-to-run, and `generation_id` is the partition key (the
 # opaque okg:...:gen ref) which differs between the incremental and rebuild
@@ -5360,139 +5343,29 @@ def _semantic_attribute_effective_rows(
     return out
 
 
-# Where a published generation's FULL effective-attribute state lives. Read from
-# the `effective_interval_view_sync` marker the publisher writes on every
-# checkpoint (publisher.py, issue #1927):
-#   ran=True -> the interval table owns it: stab
-#       okg.attribute_effective_view_intervals at the generation's ordinal. The
-#       per-generation snapshot then holds only the rows that changed in that
-#       cycle (no carry-forward), so it is NOT the generation's state.
-#   reason="interval_representation_not_enabled" -> the per-generation
-#       snapshot is complete: read okg.attribute_effective_view for it.
-# Anything else (no marker, a blocked publish, a deferred intermediate publish)
-# names no complete surface, and the proof refuses instead of guessing.
-_ATTRIBUTE_REPRESENTATIONS = ("auto", "snapshot", "interval")
-_ATTRIBUTE_SNAPSHOT_ONLY_REASON = "interval_representation_not_enabled"
-
-
-def _attribute_representation_for_generation(
-    generation_id: int | str,
-    metadata: Mapping[str, Any] | None,
-) -> str:
-    """Which representation holds ``generation_id``'s full effective-attribute
-    state, from its checkpoint metadata. Raises ValueError when the metadata
-    does not say; never falls back to the snapshot (issue #1539, decision 92a:
-    reading the changed-only snapshot of an interval-owned generation made the
-    proof compare 238 rows against 6749)."""
-    marker = (metadata or {}).get("effective_interval_view_sync")
-    if not isinstance(marker, Mapping):
-        raise ValueError(
-            f"generation {generation_id!r}: checkpoint metadata carries no "
-            "effective_interval_view_sync marker, so neither the snapshot nor "
-            "the interval table can be trusted to hold its effective attributes"
-        )
-    if marker.get("ran") is True:
-        return "interval"
-    if marker.get("reason") == _ATTRIBUTE_SNAPSHOT_ONLY_REASON:
-        return "snapshot"
-    raise ValueError(
-        f"generation {generation_id!r}: interval sync did not run "
-        f"(reason={marker.get('reason')!r}); no representation holds its full "
-        "effective attributes, so it cannot be fingerprinted"
-    )
-
-
-def _generation_checkpoint_metadata(
-    cur: Any,
-    generation_id: int | str,
-) -> Mapping[str, Any] | None:
-    """The Chronos checkpoint metadata of ``generation_id``, or None when no
-    checkpoint has that id (the caller then refuses)."""
-    cur.execute(
-        """
-        SELECT metadata
-          FROM public._chronos_branch_interval_checkpoints
-         WHERE checkpoint_id = %(gen)s
-         LIMIT 1
-        """,
-        {"gen": str(generation_id)},
-    )
-    row = cur.fetchone()
-    if row is None:
-        return None
-    metadata = row["metadata"] if isinstance(row, Mapping) else row[0]
-    if isinstance(metadata, str):
-        metadata = json.loads(metadata)
-    return metadata if isinstance(metadata, Mapping) else None
-
-
 def _attribute_effective_rows(
     conn: Any,
     *,
     generation_id: int | str,
-    representation: str,
 ) -> list[dict[str, Any]]:
-    """Every effective-attribute row of one generation, read through the
-    substrate's paired readers (the same columns for both representations),
-    across every namespace the representation holds for it."""
-    from okg.substrate.attributes import (  # noqa: PLC0415
-        _INTERVAL_READ_COLS,
-        ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,
-        ATTRIBUTE_EFFECTIVE_VIEW_TABLE,
-        effective_interval_stab_rows,
-        effective_snapshot_read_rows,
-    )
+    """Every overlay row of one generation, across every namespace.
 
-    gen = str(generation_id)
-    if representation == "interval":
-        from okg.substrate.graph_store import ChronosGraphStore  # noqa: PLC0415
-        from okg.substrate.graph_store_internal.generation_ordinal import (  # noqa: PLC0415
-            resolve_generation_ordinal_row,
+    PACT lane-s-storage-drop-copies: the effective attributes of a
+    generation are its graph rows (fingerprinted by ``_graph_fingerprint``)
+    with its accepted overlays merged over them, so the overlay rows in
+    ``okg.attribute_effective_attrs`` are the surface left to compare. The
+    observation id is a per-run identifier and is not read."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT target_kind, target_id, namespace, attr_key, value,
+                   value_hash, producer
+              FROM okg.attribute_effective_attrs
+             WHERE generation_id = %(gen)s
+            """,
+            {"gen": str(generation_id)},
         )
-
-        db = ChronosGraphStore.from_connection(conn, ensure_schema=False).context.db
-        branch_id, ordinal = resolve_generation_ordinal_row(db, gen)
-        namespaces_sql = sql.SQL(
-            "SELECT DISTINCT namespace FROM {} WHERE branch_id = %(br)s "
-            "AND from_ord <= %(g)s AND %(g)s < to_ord"
-        ).format(sql.SQL(ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE))
-        params: dict[str, Any] = {"br": branch_id, "g": ordinal}
-
-        def read(target_kind: str, namespace: str) -> list[tuple[Any, ...]]:
-            return effective_interval_stab_rows(
-                conn,
-                db,
-                generation_id=gen,
-                target_kind=target_kind,  # type: ignore[arg-type]
-                namespace=namespace,
-            )
-    elif representation == "snapshot":
-        namespaces_sql = sql.SQL(
-            "SELECT DISTINCT namespace FROM {} WHERE generation_id = %(gen)s"
-        ).format(sql.SQL(ATTRIBUTE_EFFECTIVE_VIEW_TABLE))
-        params = {"gen": gen}
-
-        def read(target_kind: str, namespace: str) -> list[tuple[Any, ...]]:
-            return effective_snapshot_read_rows(
-                conn,
-                generation_id=gen,
-                target_kind=target_kind,  # type: ignore[arg-type]
-                namespace=namespace,
-            )
-    else:
-        raise ValueError(f"unknown attribute representation {representation!r}")
-
-    with conn.cursor() as cur:
-        cur.execute(namespaces_sql, params)
-        namespaces = sorted(str(row[0]) for row in cur.fetchall())
-    rows: list[dict[str, Any]] = []
-    for namespace in namespaces:
-        for target_kind in ("node", "edge"):
-            for values in read(target_kind, namespace):
-                row = dict(zip(_INTERVAL_READ_COLS, values, strict=True))
-                row["target_kind"] = target_kind
-                row["namespace"] = namespace
-                rows.append(row)
+        rows = [dict(row) for row in cur.fetchall()]
     rows.sort(key=_stable_json)
     return rows
 
@@ -5500,56 +5373,41 @@ def _attribute_effective_rows(
 def _attribute_effective_fingerprint(
     dsn: str,
     generation_id: int | str,
-    *,
-    representation: str = "auto",
 ) -> dict[str, Any]:
-    """Fingerprint one generation's effective attributes.
+    """Fingerprint one generation's attribute overlays.
 
     This is the read surface that resolves each node/edge's attribute
     observations into their effective (winning) value, a peer of the
     node/edge/view_cites/derived_output surfaces in the rebuild-equivalence
-    proof. ``representation="auto"`` (the proof) reads the surface the
-    generation's own checkpoint marker names (see
-    ``_attribute_representation_for_generation``) and raises when it names
-    none. ``"snapshot"`` / ``"interval"`` force a surface, for a caller that
-    knows it (a generation with no checkpoint, such as a test overlay). Both
-    surfaces go through the substrate's paired readers, so a snapshot-owned
-    and an interval-owned generation with the same state digest identically.
-    A deployment that never materialized attributes (no snapshot table)
-    reports ``present=False`` and count 0."""
-    if representation not in _ATTRIBUTE_REPRESENTATIONS:
-        raise ValueError(f"unknown attribute representation {representation!r}")
-    with (
-        psycopg.connect(dsn) as conn,
-        conn.cursor(row_factory=dict_row) as cur,
-    ):
-        cur.execute("SELECT to_regclass('okg.attribute_effective_view') AS reg")
-        reg = cur.fetchone()
-        if reg is None or reg["reg"] is None:
-            return {
-                "count": 0,
-                "digest": _stable_digest_rows([]),
-                "generation_id": generation_id,
-                "present": False,
-                "representation": None,
-            }
-        resolved = representation
-        if resolved == "auto":
-            resolved = _attribute_representation_for_generation(
-                generation_id,
-                _generation_checkpoint_metadata(cur, generation_id),
+    proof. The generation must carry an overlay materialization marker
+    (``okg.attribute_overlay_generations``); without one its overlays were
+    never materialized and the proof refuses instead of reading an empty
+    set. A deployment with no overlay table reports ``present=False`` and
+    count 0."""
+    with psycopg.connect(dsn) as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "SELECT to_regclass('okg.attribute_effective_attrs') AS reg"
             )
-        rows = _attribute_effective_rows(
-            conn,
-            generation_id=generation_id,
-            representation=resolved,
+            reg = cur.fetchone()
+            if reg is None or reg["reg"] is None:
+                return {
+                    "count": 0,
+                    "digest": _stable_digest_rows([]),
+                    "generation_id": generation_id,
+                    "present": False,
+                }
+        from okg.substrate.attributes import (  # noqa: PLC0415
+            require_overlay_generation_marker,
         )
+
+        require_overlay_generation_marker(conn, generation_id)
+        rows = _attribute_effective_rows(conn, generation_id=generation_id)
     return {
         "count": len(rows),
         "digest": _attribute_effective_digest(rows),
         "generation_id": generation_id,
         "present": True,
-        "representation": resolved,
     }
 
 
@@ -5682,7 +5540,7 @@ def _build_rebuild_equivalence_report(
         # engine must reproduce it identically to a from-scratch rebuild; a
         # divergence (stale value, wrong producer winner) must fail the proof.
         # NOTE: count 0 on both sides passes vacuously -- the attribute-emitting
-        # bench experiment separately asserts attribute_effective_view count > 0,
+        # bench experiment separately asserts overlay count > 0,
         # so this dimension is non-vacuous where it claims coverage.
         "attr_effective_count_equal": (
             incremental_attrs["count"] == rebuild_attrs["count"]
@@ -5709,9 +5567,6 @@ def _build_rebuild_equivalence_report(
                 "count": incremental_attrs["count"],
                 "digest": incremental_attrs["digest"],
                 "present": incremental_attrs.get("present", True),
-                # Which table was read ("interval" or "snapshot") and for
-                # which generation, so the evidence shows the surface.
-                "representation": incremental_attrs.get("representation"),
                 "generation_id": incremental_attrs.get("generation_id"),
             },
             # Was `final_generation_id` the incremental worker's last word?
@@ -5729,7 +5584,6 @@ def _build_rebuild_equivalence_report(
                 "count": rebuild_attrs["count"],
                 "digest": rebuild_attrs["digest"],
                 "present": rebuild_attrs.get("present", True),
-                "representation": rebuild_attrs.get("representation"),
                 "generation_id": rebuild_attrs.get("generation_id"),
             },
             # The terminal-wait receipt: generation fingerprinted, per-source

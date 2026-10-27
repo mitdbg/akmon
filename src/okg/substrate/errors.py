@@ -210,12 +210,6 @@ class GateTimeout(SubstrateError):
 
 # ---------- fact / projection correctness ----------
 
-class EffectiveIntervalBackfillRequired(SubstrateError):
-    """An existing published graph has no trustworthy interval read model."""
-
-    code = "effective_interval_backfill_required"
-
-
 class NarrowingViolation(SubstrateError):
     code = "narrowing_violation"
 

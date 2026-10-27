@@ -30,8 +30,7 @@ Why exactly ``public`` and nothing else:
   ``okg/substrate/mcp/sql_safety.py`` requires that a bare ``v_nodes`` NOT
   resolve to ``okg.v_nodes``. Adding ``okg`` here would create resolutions no
   deployment has today, which is the opposite of leaving them unchanged.
-* The ten functions pinned to ``SET search_path = pg_catalog, okg`` in
-  ``okg/substrate/attribute_integrity.py``, and the audit in
+* Functions pinned to ``SET search_path = pg_catalog, okg``, and the audit in
   ``external_actions/store.py`` that checks for exactly that string, are
   unaffected: a function-level ``SET search_path`` replaces the session's for
   the duration of the call, and the audit reads ``pg_proc.proconfig`` rather

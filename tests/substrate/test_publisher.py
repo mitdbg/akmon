@@ -1411,7 +1411,9 @@ def test_p2_reconcile_failure_rolls_back_and_refuses_checkpoint(
     clean_runtime: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """P2: a cycle-level reconcile failure leaves no ordinal/checkpoint."""
+    """P2: a failure inside the publication transaction (here the
+    overlay-range sync, which replaced the interval reconcile) leaves no
+    ordinal/checkpoint."""
     with psycopg.connect(clean_runtime, autocommit=True) as conn, \
          conn.cursor() as cur:
         _seed_concept_catalog(cur)
@@ -1423,16 +1425,18 @@ def test_p2_reconcile_failure_rolls_back_and_refuses_checkpoint(
 
     pub = Publisher(clean_runtime, "test-pub", catalog_identity=bind_test_catalog_writer(clean_runtime, "test-pub"))
 
-    def fail_reconcile(*_args, **_kwargs):
-        raise SubstrateError("induced interval reconcile failure")
+    import okg.substrate.attributes as attributes
+
+    def fail_sync(*_args, **_kwargs):
+        raise SubstrateError("induced overlay range sync failure")
 
     monkeypatch.setattr(
-        pub,
-        "_reconcile_effective_interval_view",
-        fail_reconcile,
+        attributes,
+        "sync_overlay_ranges_for_generation",
+        fail_sync,
     )
 
-    with pytest.raises(SubstrateError, match="induced interval reconcile"):
+    with pytest.raises(SubstrateError, match="induced overlay range sync"):
         pub.cycle()
 
     with psycopg.connect(clean_runtime, autocommit=True) as conn, \
@@ -2533,8 +2537,6 @@ def test_pre_view_prune_then_view_output_stamps_the_live_count(
     assert receipt["edges_checkpoint_visible_net"] == (
         live_edges - int(first["edge_count"])
     )
-    integrity = second["attribute_effective_view_refresh"]["integrity_receipt"]
-    assert integrity.get("advanced") is True, integrity
 
 
 def test_write_after_the_counts_on_a_native_view_cycle_is_never_cut_uncounted(
@@ -2809,7 +2811,7 @@ def test_write_after_an_incremental_materialize_waits_for_the_commit(
         except BaseException as exc:  # noqa: BLE001 - asserted below
             writer["error"] = exc
 
-    real_materialize = attributes.materialize_effective_attribute_view_for_generation
+    real_materialize = attributes.sync_overlay_ranges_for_generation
 
     def materialize_then_write(*args, **kwargs):
         result = real_materialize(*args, **kwargs)
@@ -2832,7 +2834,7 @@ def test_write_after_an_incremental_materialize_waits_for_the_commit(
 
     monkeypatch.setattr(
         attributes,
-        "materialize_effective_attribute_view_for_generation",
+        "sync_overlay_ranges_for_generation",
         materialize_then_write,
     )
 
@@ -3034,7 +3036,7 @@ def test_protected_write_lock_is_released_before_the_post_commit_steps(
     monkeypatch.setenv("OKG_COUNT_STAMP_SELF_HEAL_EVERY", "20")
     _published_baseline_then_one_write(dsn)
     seen: dict[str, bool] = {}
-    real_materialize = attributes.materialize_effective_attribute_view_for_generation
+    real_materialize = attributes.sync_overlay_ranges_for_generation
     real_bind = source_retirement.bind_source_retirements_to_published_generation
 
     def materialize_seeing_lock(*args, **kwargs):
@@ -3047,7 +3049,7 @@ def test_protected_write_lock_is_released_before_the_post_commit_steps(
 
     monkeypatch.setattr(
         attributes,
-        "materialize_effective_attribute_view_for_generation",
+        "sync_overlay_ranges_for_generation",
         materialize_seeing_lock,
     )
     monkeypatch.setattr(
@@ -3076,14 +3078,14 @@ def test_failure_after_the_lock_point_releases_the_branch_lock(
     _published_baseline_then_one_write(dsn)
     seen: dict[str, bool] = {}
 
-    def fail(conn, **_kwargs):
+    def fail(conn, *_args, **_kwargs):
         seen["held"] = not _branch_write_lock_free(dsn)
         if kind == "sql_error":
             conn.execute("SELECT 1/0")
         raise RuntimeError("failure after the lock point")
 
     monkeypatch.setattr(
-        attributes, "materialize_effective_attribute_view_for_generation", fail,
+        attributes, "sync_overlay_ranges_for_generation", fail,
     )
     with pytest.raises(Exception):
         _publisher_for(dsn).cycle()
@@ -3206,12 +3208,12 @@ def test_caller_held_branch_lock_is_reentered_not_released(
     monkeypatch.setenv("OKG_COUNT_STAMP_SELF_HEAL_EVERY", "20")
     _published_baseline_then_one_write(dsn)
     if fail:
-        def fail_materialize(conn, **_kwargs):
+        def fail_materialize(conn, *_args, **_kwargs):
             conn.execute("SELECT 1/0")
 
         monkeypatch.setattr(
             attributes,
-            "materialize_effective_attribute_view_for_generation",
+            "sync_overlay_ranges_for_generation",
             fail_materialize,
         )
     with psycopg.connect(dsn, autocommit=True) as conn:
@@ -3244,7 +3246,7 @@ def test_writer_waiting_on_the_lock_proceeds_when_the_cycle_fails(
     dsn = clean_runtime
     monkeypatch.setenv("OKG_COUNT_STAMP_SELF_HEAL_EVERY", "20")
     sfx = _published_baseline_then_one_write(dsn)
-    real_materialize = attributes.materialize_effective_attribute_view_for_generation
+    real_materialize = attributes.sync_overlay_ranges_for_generation
     writer: dict[str, Any] = {}
 
     def write() -> None:
@@ -3256,8 +3258,8 @@ def test_writer_waiting_on_the_lock_proceeds_when_the_cycle_fails(
 
     thread = threading.Thread(target=write, daemon=True)
 
-    def materialize_then_fail(conn, **kwargs):
-        real_materialize(conn, **kwargs)
+    def materialize_then_fail(conn, *args, **kwargs):
+        real_materialize(conn, *args, **kwargs)
         thread.start()
         time.sleep(1.0)
         writer["waited"] = "done" not in writer
@@ -3265,7 +3267,7 @@ def test_writer_waiting_on_the_lock_proceeds_when_the_cycle_fails(
 
     monkeypatch.setattr(
         attributes,
-        "materialize_effective_attribute_view_for_generation",
+        "sync_overlay_ranges_for_generation",
         materialize_then_fail,
     )
     with pytest.raises(Exception):
@@ -3416,7 +3418,8 @@ def test_first_publish_prune_counts_the_pruned_branch_once(
     assert "delta_counts_after_pre_view_gate" in out["timings_ms"]
     assert out["edge_count"] == 1, out
     # Base 9c9de0a37 took 3 full counts here; before this fix #2305 took 4.
-    assert len(scans) == 3, scans
+    # okg#3112 S3 removed the interval reconcile's full count at ordinal 0.
+    assert len(scans) == 2, scans
 
 
 # ---------------------------------------------------------------------------

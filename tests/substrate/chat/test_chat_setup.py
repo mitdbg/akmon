@@ -1481,3 +1481,23 @@ def test_plain_sync_with_no_container_instance_keeps_the_probe_url(
 
     assert code == 0
     assert seen["synced"] == ["http://127.0.0.1:8101/mcp"]
+
+
+def test_graph_tool_runs_match_the_server_id_in_either_scheme() -> None:
+    """#3960: a turn's graph calls are found under the old and the new id.
+
+    The probe takes the server id from its own tool id, so during a
+    migration it reads `okg-<d>_<tool>` before sync and `okg_<d>_<tool>`
+    after; a call to another server is never counted.
+    """
+    from okg.substrate.chat.setup import _graph_tool_runs
+
+    output = [
+        {"type": "function_call", "name": "okg-cms-kb-public_search", "call_id": "a"},
+        {"type": "function_call", "name": "okg_cms_kb_public_inspect", "call_id": "b"},
+        {"type": "function_call", "name": "other_search", "call_id": "c"},
+    ]
+    old = _graph_tool_runs(output, server_id="okg-cms-kb-public")
+    new = _graph_tool_runs(output, server_id="okg_cms_kb_public")
+    assert [r["tool"] for r in old] == ["okg-cms-kb-public_search"]
+    assert [r["tool"] for r in new] == ["okg_cms_kb_public_inspect"]

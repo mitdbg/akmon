@@ -161,7 +161,11 @@ def tracking_repository_provenance(deployment_dir: Path) -> RepositoryProvenance
             continue
         checked_roots.add(repository_root)
         dirty = _git(
-            repository_root, "status", "--porcelain", "--untracked-files=all"
+            repository_root,
+            "--no-optional-locks",
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
         )
         if dirty:
             raise SubstrateError(
@@ -253,7 +257,13 @@ def _distribution_repository_provenance(
             operation="resolve_deployment_repository",
             reason=str(exc),
         ) from exc
-    dirty = _git(deployment_root, "status", "--porcelain", "--untracked-files=all")
+    dirty = _git(
+        deployment_root,
+        "--no-optional-locks",
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+    )
     if dirty:
         raise SubstrateError(
             "repository provenance inputs are not committed",

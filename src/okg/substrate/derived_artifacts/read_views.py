@@ -8,7 +8,7 @@ from those tables rather than from compatibility ``view`` nodes.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Mapping
 from uuid import UUID
@@ -134,6 +134,10 @@ class ViewArtifactSummary:
     promoted_at: datetime | None
     published_at: datetime | None
     latest_published_generation_id: int
+    # True when the deployment's current views_registry.yaml no longer lists
+    # this view; False when it does; None when the registry cannot be read
+    # (no deployment directory, no registry file, or one that does not parse).
+    retired: bool | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -141,6 +145,7 @@ class ViewArtifactSummary:
             "deployment_name": self.deployment_name,
             "view_id": self.view_id,
             "view_name": self.view_name,
+            "retired": self.retired,
             "manifest_id": str(self.manifest_id),
             "target_generation_id": self.target_generation_id,
             "manifest_hash": self.manifest_hash,
@@ -427,13 +432,58 @@ def list_view_slots(
         return [_row_to_slot(row) for row in cur.fetchall()]
 
 
+_REGISTRY_FROM_DEPLOYMENT: Any = object()
+_REGISTRY_IDS_CACHE: dict[tuple[str, int, int], frozenset[str]] = {}
+
+
+def current_registry_view_ids(deployment_name: str) -> frozenset[str] | None:
+    """View ids the deployment's current views_registry.yaml lists.
+
+    None when that cannot be known: the deployment directory is not found,
+    it has no views_registry.yaml, or the file does not parse. A caller must
+    not read None as "no views" -- it labels nothing retired.
+    """
+
+    from okg.substrate.deployments import find_deployment_dir
+    from okg.substrate.errors import SubstrateError
+    from okg.substrate.views.registry import load_views_registry
+
+    deployment_dir = find_deployment_dir(deployment_name)
+    if deployment_dir is None:
+        return None
+    registry_path = deployment_dir / "views_registry.yaml"
+    try:
+        stat = registry_path.stat()
+    except OSError:
+        return None
+    # The parse is cached per file version, so a list call does not re-read
+    # and re-parse the YAML every time.
+    key = (str(registry_path), stat.st_mtime_ns, stat.st_size)
+    if key in _REGISTRY_IDS_CACHE:
+        return _REGISTRY_IDS_CACHE[key]
+    try:
+        entries = load_views_registry(deployment_dir)
+    except SubstrateError:
+        return None
+    ids = frozenset(entry.view_def_id for entry in entries)
+    if len(_REGISTRY_IDS_CACHE) >= 64:
+        _REGISTRY_IDS_CACHE.clear()
+    _REGISTRY_IDS_CACHE[key] = ids
+    return ids
+
+
 def list_view_artifacts(
     conn: psycopg.Connection[Any],
     *,
     deployment_name: str,
     generation_id: int | None = None,
+    registry_view_ids: Any = _REGISTRY_FROM_DEPLOYMENT,
 ) -> list[ViewArtifactSummary]:
     """List completed native view manifests for a deployment.
+
+    Each entry says whether the view is ``retired``: absent from the current
+    views_registry.yaml (read from the deployment unless ``registry_view_ids``
+    is passed; None there means "unknown"). No manifest is removed.
 
     ``generation_id=None`` returns the latest completed published
     manifest per definition and marks entries stale when the manifest
@@ -526,10 +576,19 @@ def list_view_artifacts(
             """,
             params,
         )
-        return [
+        summaries = [
             _row_to_summary(row, reference_generation_id=generation_id)
             for row in cur.fetchall()
         ]
+    if registry_view_ids is _REGISTRY_FROM_DEPLOYMENT:
+        registry_view_ids = current_registry_view_ids(deployment_name)
+    if registry_view_ids is None:
+        return summaries
+    current = frozenset(registry_view_ids)
+    return [
+        replace(summary, retired=summary.view_id not in current)
+        for summary in summaries
+    ]
 
 
 def get_view_slot(

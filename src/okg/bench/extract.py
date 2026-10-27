@@ -671,7 +671,7 @@ _PUBLISH_PHASE_COMPONENTS = {
     "view_materialization_ms": (
         "native_views", "lenses", "view_derived_fact_load",
         "view_cite_retractions", "view_derived_fact_apply",
-        "attribute_effective_view_materialize",
+        "attribute_overlay_ranges_sync",
         "attribute_effective_attrs_materialize", "lens_promotion",
     ),
     # Fixed per-publish setup overhead, re-paid on EVERY per-layer publish
@@ -829,8 +829,8 @@ def _publish_timing_from_progress_row(
         "publish_skipped": bool(payload.get("publish_skipped")),
         "reason": payload.get("reason"),
         "native_view_refresh": payload.get("native_view_refresh"),
-        "attribute_effective_view_refresh": payload.get(
-            "attribute_effective_view_refresh"
+        "attribute_overlay_refresh": payload.get(
+            "attribute_overlay_refresh"
         ),
         "native_views": payload.get("native_views"),
         "lenses": payload.get("lenses"),
@@ -870,8 +870,8 @@ def _publish_timing_from_workflow_report_item(
         "publish_skipped": bool(item.get("publish_skipped")),
         "reason": item.get("reason"),
         "native_view_refresh": item.get("native_view_refresh"),
-        "attribute_effective_view_refresh": item.get(
-            "attribute_effective_view_refresh"
+        "attribute_overlay_refresh": item.get(
+            "attribute_overlay_refresh"
         ),
         "native_views": item.get("native_views"),
         "lenses": item.get("lenses"),
@@ -2052,8 +2052,8 @@ def extract(exp_id: str) -> None:
                         ),
                         "timings_ms": item.get("timings_ms"),
                         "native_view_refresh": item.get("native_view_refresh"),
-                        "attribute_effective_view_refresh": item.get(
-                            "attribute_effective_view_refresh"
+                        "attribute_overlay_refresh": item.get(
+                            "attribute_overlay_refresh"
                         ),
                         "native_views": item.get("native_views"),
                         "lenses": item.get("lenses"),

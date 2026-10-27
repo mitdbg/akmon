@@ -716,23 +716,6 @@ def test_a_passage_unit_search_refuses_retain(world, monkeypatch) -> None:
     assert world["store"].count() == 0
 
 
-@pytest.mark.parametrize("producer", sorted(PRODUCERS))
-def test_a_pin_whose_effective_view_is_not_ready_refuses_retain(
-    world, monkeypatch, producer,
-) -> None:
-    with psycopg.connect(world["dsn"], autocommit=True) as conn:
-        conn.execute(
-            "DELETE FROM okg.attribute_effective_view WHERE generation_id = %s",
-            (world["gen"],),
-        )
-    with _server(world, monkeypatch) as mcp:
-        error = _refused(mcp, "search", {"query": TERM, **PRODUCERS[producer]})
-        plain = _ok(mcp, "search", {"query": TERM})
-    assert error["code"] == "result_reference_unsupported"
-    assert error["data"]["reason"] == "effective_view_not_ready"
-    assert plain["results"], "a search without retain still serves"
-    assert world["store"].count() == 0
-
 
 # ================================================================ consumers
 
@@ -1003,34 +986,24 @@ def test_an_overlay_added_on_a_member_refuses_naming_attributes(world, monkeypat
     assert _member_statements(seen) == []
 
 
-@pytest.mark.parametrize("world", SOURCES, indirect=True)
 def test_a_member_gone_at_the_pin_refuses_member_missing_with_a_count(world, monkeypatch) -> None:
-    """The member's pinned rows are hard-deleted from both effective-view
-    sources a consumer reads (the per-generation snapshot and the shared
-    interval table), so it is unreadable at the same pin whichever source
-    serves; its overlay rows are untouched, so the attribute digest still
-    matches and the refusal is step 9, not `binding_mismatch`."""
+    """The member's graph row is marked deleted (every consumer reads the
+    graph rows at the pin since PACT lane-s-storage-cutover), so it is
+    unreadable at the same pin; its overlay rows are untouched, so the
+    attribute digest still matches and the refusal is step 9, not
+    `binding_mismatch`."""
+    from okg.substrate.mcp.semantic_readiness import resolve_node_segment
+
     with _server(world, monkeypatch) as mcp:
         ref_id = _retain(mcp, limit=4)["result_reference"]["id"]
         gone = _members(world, ref_id)[2]["node_id"]
         with psycopg.connect(world["dsn"], autocommit=True) as conn:
             deleted = conn.execute(
-                "DELETE FROM okg.attribute_effective_view"
-                " WHERE generation_id = %s AND target_id = %s",
-                (world["gen"], gone),
+                f"UPDATE {resolve_node_segment(conn)} SET deleted = TRUE"
+                " WHERE node_id = %s AND deleted = FALSE",
+                (gone,),
             ).rowcount
-            interval = conn.execute(
-                "SELECT to_regclass('okg.attribute_effective_view_intervals')",
-            ).fetchone()[0]
-            if interval is not None:
-                deleted += conn.execute(
-                    "DELETE FROM okg.attribute_effective_view_intervals"
-                    " WHERE target_kind = 'node' AND target_id = %s",
-                    (gone,),
-                ).rowcount
         assert deleted >= 1
-        if world["source"] == "interval":
-            assert interval is not None, "the interval source has no table"
         error = _refused(mcp, "map", {"input": {"ref": ref_id}})
     assert error["data"] == {"reason": "member_missing", "count": 1}
     assert gone not in json.dumps(error)
@@ -1187,6 +1160,19 @@ def test_measure_200_member_hydration_and_attribute_digest(
 #: record text. TERM itself is the caller's own query, echoed back.
 _ROW_STRINGS = ("doc:", "chunk:", "cladding", "weld", "summary.", "Opening words",
                 "secret finding", "masked finding", ".md")
+#: A reference id is `r1.<epoch>.<expiry>.<nonce>.<mac>`; the epoch, nonce and
+#: mac are random base64url text, so any of them can begin with "md" and put a
+#: ".md" into the reply by chance (the flake in #3997). The reference is the one
+#: thing the reply is meant to carry, so it is cut out before the row-text scan;
+#: the exact id shape keeps a row string from hiding inside it.
+_REFERENCE_ID = re.compile(
+    r"r1\.[A-Za-z0-9_-]{8}\.[0-9]{1,12}\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{22}")
+
+
+def _without_reference_ids(text: str) -> str:
+    return _REFERENCE_ID.sub("<reference>", text)
+
+
 _METADATA_CASES = {
     "empty": {"query": ABSENT_TERM},
     "bounded": {"query": TERM, "limit": 5},
@@ -1207,9 +1193,11 @@ def test_a_metadata_search_returns_no_row_only_the_reference_and_counts(
         cards = _ok(mcp, "search", {**arguments, "view": "cards", "retain": True})
     assert served.isError is False
     text = result_text(served)
+    assert _REFERENCE_ID.search(text), text
+    scanned = [_without_reference_ids(text), _without_reference_ids(json.dumps(page))]
     for leaked in _ROW_STRINGS:
-        assert leaked not in text, (leaked, text)
-        assert leaked not in json.dumps(page), (leaked, page)
+        for body in scanned:
+            assert leaked not in body, (leaked, body)
     assert "results" not in page and "parent_summaries" not in page
     assert page["view"] == "metadata"
     members = _members(world, page["result_reference"]["id"])
@@ -1407,11 +1395,20 @@ def test_every_metadata_page_fits_its_budget(bulk, monkeypatch, budget, fmt) -> 
 def test_300_metadata_searches_inside_the_lifetime_evict_only_the_readers_own(
     world, monkeypatch,
 ) -> None:
-    """Review H4: one reader's 300 metadata searches inside the lifetime are
-    never refused; at its 128-reference cap the 129th evicts its oldest,
-    whose id then refuses `evicted`; another reader's reference is kept."""
+    """Review H4: one reader's metadata searches inside the lifetime are
+    never refused; at its reference cap the next one evicts its oldest,
+    whose id then refuses `evicted`; another reader's reference is kept.
+
+    The clock is frozen, so the count of searches is only a multiple of the
+    cap. The store runs here with a cap of 8 and 20 searches (the original:
+    cap 128, 300 searches); the shipped cap is checked to be 128 below."""
+    assert result_references.GRAPH_LIMITS.max_per_reader == 128
+    cap, searches = 8, 20
     frozen = time.time()
-    store = ResultReferenceStore(clock=lambda: frozen)
+    store = ResultReferenceStore(
+        clock=lambda: frozen,
+        limits=dataclasses.replace(result_references.GRAPH_LIMITS, max_per_reader=cap),
+    )
     result_references.install_store(store)
     world["store"] = store
     other = {"note": "second reader"}
@@ -1419,23 +1416,24 @@ def test_300_metadata_searches_inside_the_lifetime_evict_only_the_readers_own(
         theirs = _ok(mcp, "search", {"query": TERM, "retain": True, "limit": 3,
                                      "authority": other})["result_reference"]["id"]
         ids: list[str] = []
-        for index in range(300):
+        for index in range(searches):
             result = _serve(mcp, "search", {"query": TERM, "view": "metadata", "limit": 2})
             assert result.isError is False, (index, result_text(result)[:400])
             ids.append(json_payload(result)["result_reference"]["id"])
-            if index == 127:
-                assert store.usage(READER_KEY)["references"] == 128
+            if index == cap - 1:
+                assert store.usage(READER_KEY)["references"] == cap
                 assert _ok(mcp, "map", {"input": {"ref": ids[0]}})["total_count"] == 2
-            if index == 128:
-                # The 129th evicted the 1st, and only it.
+            if index == cap:
+                # The (cap + 1)th evicted the 1st, and only it.
                 evicted = _refused(mcp, "map", {"input": {"ref": ids[0]}})
                 assert evicted["data"] == {"reason": "evicted"}, evicted
                 assert _ok(mcp, "map", {"input": {"ref": ids[1]}})["total_count"] == 2
-        assert len(set(ids)) == 300
-        assert store.usage(READER_KEY)["references"] == 128
-        assert _refused(mcp, "map", {"input": {"ref": ids[171]}})["data"]["reason"] == "evicted"
-        assert _ok(mcp, "map", {"input": {"ref": ids[172]}})["total_count"] == 2
+        assert len(set(ids)) == searches
+        assert store.usage(READER_KEY)["references"] == cap
+        assert _refused(
+            mcp, "map", {"input": {"ref": ids[searches - cap - 1]}})["data"]["reason"] == "evicted"
+        assert _ok(mcp, "map", {"input": {"ref": ids[searches - cap]}})["total_count"] == 2
         assert _ok(mcp, "map", {"input": {"ref": ids[-1]}})["total_count"] == 2
         still = _ok(mcp, "map", {"input": {"ref": theirs}, "authority": other})
     assert still["total_count"] == 3
-    assert store.count() == 129
+    assert store.count() == cap + 1

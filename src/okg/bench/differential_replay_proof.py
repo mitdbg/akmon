@@ -848,9 +848,14 @@ def native_view_scope_boundary_from_diagnostics_commit(
             reused_scope_count=None,
             rewritten_output_count=None,
         )
+    # okg#3112 S3: the publisher no longer materializes the per-generation
+    # attribute snapshot; the read side is the graph rows plus the overlay
+    # rows, which every publish carries forward into the new generation
+    # (`attribute_overlay_refresh`, the result of
+    # materialize_effective_attributes_for_generation).
     attr_refresh = (
-        publish.get("attribute_effective_view_refresh")
-        if isinstance(publish.get("attribute_effective_view_refresh"), Mapping)
+        publish.get("attribute_overlay_refresh")
+        if isinstance(publish.get("attribute_overlay_refresh"), Mapping)
         else {}
     )
     timings = (
@@ -858,31 +863,33 @@ def native_view_scope_boundary_from_diagnostics_commit(
         if isinstance(publish.get("timings_ms"), Mapping)
         else {}
     )
-    attr_status = str(attr_refresh.get("status") or "")
-    node_rows = _int_or_none(attr_refresh.get("node_rows"))
-    edge_rows = _int_or_none(attr_refresh.get("edge_rows"))
-    if attr_status == "materialized" and node_rows is not None and edge_rows is not None:
-        output_count = node_rows + edge_rows
+    carried_forward = _int_or_none(attr_refresh.get("carried_forward"))
+    overlaid = _int_or_none(attr_refresh.get("overlaid"))
+    if (
+        attr_refresh.get("materialized") is True
+        and carried_forward is not None
+        and overlaid is not None
+    ):
+        output_count = carried_forward + overlaid
         native_rows = _native_view_rows(publish.get("native_views"))
         elapsed_ms = (
-            (_float_value(timings.get("attribute_effective_view_materialize")) or 0.0)
-            + (
+            (
                 _float_value(timings.get("attribute_effective_attrs_materialize"))
                 or 0.0
             )
             + (_float_value(timings.get("native_views")) or 0.0)
         )
         return fallback_boundary(
-            "attribute_effective_full_materialization",
+            "attribute_overlay_carry_forward",
             fallback_to="attribute_effective_rows",
-            summary="attribute-effective read-side view materialized for generation",
+            summary="attribute overlay rows carried forward for generation",
             dirty_scope_count=output_count + native_rows["dirty_scope_count"],
             reused_scope_count=native_rows["reused_scope_count"],
             skipped_scope_count=0,
             rewritten_output_count=output_count + native_rows["output_count"],
             output_count=output_count + native_rows["output_count"],
             elapsed_ms=round(elapsed_ms, 3),
-            attribute_effective_view_refresh=dict(attr_refresh),
+            attribute_overlay_refresh=dict(attr_refresh),
             native_view_refresh=(
                 dict(publish.get("native_view_refresh"))
                 if isinstance(publish.get("native_view_refresh"), Mapping)
@@ -892,16 +899,16 @@ def native_view_scope_boundary_from_diagnostics_commit(
         )
 
     return unavailable_boundary(
-        "attribute_effective_view_not_materialized_for_replay_row",
+        "attribute_overlay_not_materialized_for_replay_row",
         summary=(
-            "publish diagnostics did not contain a materialized "
-            "attribute-effective read-side view for this replay row"
+            "publish diagnostics did not contain a materialized attribute "
+            "overlay for this replay row"
         ),
         dirty_scope_count=None,
         reused_scope_count=None,
         rewritten_output_count=None,
-        attribute_effective_status=attr_status or None,
-        attribute_effective_reason=attr_refresh.get("reason"),
+        attribute_overlay_materialized=attr_refresh.get("materialized"),
+        attribute_overlay_reason=attr_refresh.get("reason"),
     )
 
 

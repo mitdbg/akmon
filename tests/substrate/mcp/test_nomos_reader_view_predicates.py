@@ -847,7 +847,9 @@ def test_a_redacted_row_with_an_overlay_is_decided_on_its_served_value(
     reader is served, never the other one: the overlay value on a node
     (filter and lookup; an order follows it), the stored value on an edge. The shadow check (per-row filter beside the class path, refusing
     any difference in rows, class decisions, readable() and the masks) and
-    the per-row path give the same payloads."""
+    the per-row path give the same payloads. On the graph read path, the
+    only one since PACT lane-s-storage-cutover, no stored or overlay value
+    decides which rows its id stream scans."""
     from okg.substrate.mcp import server as srv
 
     deployment = _overlay_deployment(tmp_path, clean_runtime)
@@ -980,10 +982,7 @@ def test_an_unredacted_edge_with_an_overlay_is_decided_in_sql(
 # --------------------------------------------------------------------------- #
 SSN_SECRET = "ssn-secret-0001"
 SSN_CONTROL = "ssn-nobody-0002"
-SALARY_SECRET = "salary-secret-77"
-SALARY_CONTROL = "salary-nobody-88"
 MOVED_IDS = [f"comment:moved:{i}" for i in range(3)]
-GONE_IDS = [f"comment:gone:{i}" for i in range(3)]
 
 
 def _plain_rules(extra: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1087,72 +1086,6 @@ def test_a_classification_overlay_that_hides_a_class_keeps_its_keys_undecided(
     assert node_views and {(v.mode, v._state.overlay) for v in node_views} == {
         ("class", True)}, [(v.mode, v.reason, v._state.overlay) for v in node_views]
     assert not problems, "\n".join(problems[:40])
-
-
-def test_a_join_miss_leaves_every_key_undecided(
-    clean_runtime, tmp_path, monkeypatch,
-):
-    """Review round 2, S2: an effective row whose stored version the reader
-    view's join cannot find has a NULL subtype there; read through the
-    legacy classifier it would reveal `salary` and `grade`, which the comment
-    subtype masks on these redacted rows. Their masked values must not decide
-    in SQL whether they are scanned (their value and a value nobody stored
-    give the same page facts at a lowered scan bound), and an order on
-    `grade` sorts them as no value (after the readable one, by id), not by
-    the stored grades, which run the other way."""
-    from okg.substrate.mcp import server as srv
-    from okg.substrate.nomos.reader_view import AttrMask
-
-    legacy = AttrMask("", False, None)
-    assert legacy.action("salary") == legacy.action("grade") == "reveal"
-    groups = {
-        OPEN: [
-            _node("ticket:hub", "ticket", f"{QUERY} hub ticket."),
-            _node("comment:visible", "comment", f"{QUERY} visible comment.",
-                  salary="salary-visible-11", grade="grade-m"),
-        ],
-        MASKED: [
-            _node(node_id, "comment", f"{QUERY} gone comment {i}.",
-                  salary=SALARY_SECRET, grade=f"grade-{'zyx'[i]}")
-            for i, node_id in enumerate(GONE_IDS)
-        ],
-    }
-    deployment = _publish(tmp_path, clean_runtime, groups=groups,
-                          main=[_edge("ticket:hub", "comment:visible")])
-    _activate(clean_runtime, deployment, _plain_rules([{
-        "rule_id": "redact_masked", "effect": "redact", "actions": ["graph.read.mcp"],
-        "subjects": [READER], "match": {"source_id": MASKED}, "priority": 100,
-        "obligations": [{"type": "redaction"}, {"type": "audit"}],
-    }]))
-    with psycopg.connect(clean_runtime, autocommit=True) as conn:
-        conn.execute(
-            "UPDATE okg.subtypes SET metadata = coalesce(metadata, '{}'::jsonb)"
-            " || '{\"pii_classes\": {\"salary\": \"direct_identifier\","
-            " \"grade\": \"direct_identifier\"},"
-            " \"filterable_attrs\": {\"grade\": \"text\"}}'::jsonb WHERE name = 'comment'"
-        )
-        # The stored versions vanish from the segment the view joins; the
-        # effective snapshot still lists the rows.
-        conn.execute(
-            f"UPDATE {_segment(conn, 'okg.graph_nodes')} SET deleted = TRUE"
-            " WHERE node_id = ANY(%s)", (GONE_IDS,),
-        )
-    _set_mode(monkeypatch, "enforce")
-    mcp = _server(srv, clean_runtime, deployment)
-    try:
-        problems = _bound_parity(mcp, srv, monkeypatch, "attrs.salary", SALARY_SECRET,
-                                 SALARY_CONTROL, GONE_IDS)
-        monkeypatch.setattr(srv, "READ_FILTER_SCAN_CAP", 11_001)
-        ordered = _call(mcp, *_request("filter", {
-            "op": "in", "field": "node_id", "values": ["comment:visible", *GONE_IDS]},
-            limit=50, order_by="attrs.grade asc"))
-    finally:
-        _close(mcp)
-    assert not problems, "\n".join(problems[:40])
-    assert "ok" in ordered, ordered
-    rows = ordered["ok"]["items"]
-    assert all(row["attrs"].get("nomos_redacted") is True for row in rows[1:]), rows
-    assert _ids(ordered) == ["comment:visible", *GONE_IDS], ordered
 
 
 @pytest.mark.parametrize("force", [None, "shadow", "per_row"])
@@ -1272,8 +1205,8 @@ NB_NO_LINEAGE = [f"comment:nolin:{i}" for i in range(3)]
 def _no_bundle_deployment(tmp_path, dsn: str) -> str:
     """No policy bundle is ever activated. Four comments with lineage
     (readable under audit) carry `assignee`, one of them NB_VISIBLE; three
-    comments lose their source lineage (in the effective attrs and the
-    stored row, so the per-row filter hides them) and share NB_SECRET.
+    comments lose their source lineage (in the stored node row, so the
+    per-row filter hides them) and share NB_SECRET.
     `assignee` is a free-text key the comment subtype would drop if a row
     were redacted."""
     from okg.substrate.mcp import open_session
@@ -1294,12 +1227,8 @@ def _no_bundle_deployment(tmp_path, dsn: str) -> str:
             " || '{\"pii_classes\": {\"assignee\": \"free_text\"}}'::jsonb"
             " WHERE name = 'comment'"
         )
-        conn.execute(
-            "UPDATE okg.attribute_versions SET attrs = attrs - 'nomos_source_lineage',"
-            " raw_attrs = CASE WHEN raw_attrs IS NULL THEN NULL"
-            " ELSE raw_attrs - 'nomos_source_lineage' END"
-            " WHERE target_kind = 'node' AND target_id = ANY(%s)", (NB_NO_LINEAGE,),
-        )
+        # The Chronos node row is the only place the lineage lives (overlays
+        # never hold it); the attribute copy that also held it is dropped.
         conn.execute(
             f"UPDATE {_segment(conn, 'okg.graph_nodes')}"
             " SET attrs = attrs - 'nomos_source_lineage', source = NULL"

@@ -200,7 +200,7 @@ def repository_identity(
     # an untracked directory to one `?? .okg/` line, so excluding the receipt
     # PATH would never match and the accepting branch would be unreachable
     # unless the directory happened to be ignored.
-    status = run("status", "--porcelain=v1", "--untracked-files=all")
+    status = run("--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all")
     clean: bool | None = None
     if status is not None:
         entries = [line for line in status.splitlines() if line.strip()]

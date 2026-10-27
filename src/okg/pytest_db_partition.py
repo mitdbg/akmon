@@ -198,10 +198,43 @@ def partition_nodeids(
     return tuple(frozenset(shard) for shard in shards)
 
 
+def owned_entries(
+    entries: Sequence[str],
+    weights: Mapping[str, float],
+    count: int,
+    index: int,
+    reserved: Sequence[float] | None = None,
+) -> list[str]:
+    """The step path entries (``file`` or ``file::node``) shard ``index`` owns.
+
+    The placement is :func:`assign_files` over the files the entries name, so
+    it is the same function the collection hook applies. A runner that passes
+    only these entries to pytest skips collecting the other shards' files.
+    """
+
+    owner = assign_files((_file_of(entry) for entry in entries), weights, count, reserved)
+    return [entry for entry in entries if owner[_file_of(entry)] == index]
+
+
+def universe_option(entries: Iterable[str]) -> str:
+    """The value of ``--okg-db-partition-universe`` for a step's path entries."""
+
+    return ",".join(sorted({_file_of(entry) for entry in entries}))
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("okg-db-partition")
     group.addoption("--okg-db-partition-index", type=int, default=None)
     group.addoption("--okg-db-partition-count", type=int, default=None)
+    group.addoption(
+        "--okg-db-partition-universe",
+        default=None,
+        help=(
+            "Comma-separated files of the WHOLE step. Given when the runner passes "
+            "pytest only this shard's files: placement is computed over this list "
+            "(the same on every shard) instead of over the files collected here."
+        ),
+    )
     group.addoption(
         "--okg-db-partition-weights",
         default=None,
@@ -254,9 +287,24 @@ def pytest_collection_modifyitems(
     index, count = _partition_from_config(config)
     weights, reserved = _weights_from_config(config, count)
     root = Path(config.rootpath)
-    owner = assign_files(
-        (_file_of(item.nodeid, root=root) for item in items), weights, count, reserved
-    )
+    universe = config.getoption("--okg-db-partition-universe")
+    if universe:
+        # The runner passed only this shard's files, so the collected set is a
+        # third of the step; place over the whole step the runner named.
+        owner = assign_files(
+            (name for name in universe.split(",") if name), weights, count, reserved
+        )
+        stray = sorted(
+            {_file_of(item.nodeid, root=root) for item in items}.difference(owner)
+        )
+        if stray:
+            raise pytest.UsageError(
+                "collected files outside --okg-db-partition-universe: " + ", ".join(stray)
+            )
+    else:
+        owner = assign_files(
+            (_file_of(item.nodeid, root=root) for item in items), weights, count, reserved
+        )
     selected: list[_CollectedItem] = []
     deselected: list[_CollectedItem] = []
     for item in items:

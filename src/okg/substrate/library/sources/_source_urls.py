@@ -158,7 +158,8 @@ def dirty_paths(repo_root: Path | str) -> Optional[frozenset[str]]:
         from okg.substrate.library.sources._git_helpers import run_git
 
         out = run_git(
-            Path(repo_root), ["status", "--porcelain", "--untracked-files=all"],
+            Path(repo_root),
+            ["--no-optional-locks", "status", "--porcelain", "--untracked-files=all"],
         )
         paths: set[str] = set()
         for line in out.splitlines():

@@ -137,6 +137,126 @@ def _assert_no_json_blob(text: str) -> None:
         assert "{" not in line and "[" not in line[line.index("]") + 1:], line
 
 
+def _dispatch_raising(exc: BaseException, *, budget: int | None = None) -> dict[str, Any]:
+    bound = _bound()
+
+    def adapter(**_k: Any) -> Any:
+        raise exc
+
+    with result_format_scope("text"):
+        room = (
+            None if budget is None
+            else ResponseRoom(budget_bytes=budget, served_bytes=_served_bytes)
+        )
+        return dispatch_live_relation(
+            bound=bound, args_model=compile_args_model(bound.relation),
+            args={"pattern": "/A/B/*"}, node_id=NODE, gate=_allow,
+            adapter=adapter, write_sample=lambda **_k: object(),
+            generation_id=7, room=room,
+        )
+
+
+def _served(envelope: dict[str, Any], fmt: str = "text") -> Any:
+    from okg.substrate.mcp.response_bounds import served_call_tool_result
+
+    with result_format_scope(fmt):
+        return served_call_tool_result(
+            {**GRAPH, "external_live": envelope}, tool="expand", result_format=fmt,
+        )
+
+
+def test_an_empty_match_reads_as_zero_rows_not_an_error() -> None:
+    """Lane re, issue 4 (a): the external system's "matched nothing" is an
+    answer. The reply says `ok`, 0 rows, and one line names the relation and
+    the argument that matched nothing; no error flag."""
+    from okg.substrate.external_backed.live_dispatch import LiveAdapterError
+
+    envelope = _dispatch_raising(LiveAdapterError(
+        "upstream_empty_result", excerpt="RSE Expression resulted in an empty set.",
+    ), budget=48 * 1024)
+    result = _served(envelope)
+    text = result.content[0].text
+    status = text.splitlines()[0]
+    assert status.startswith(f"expand ok · {NODE} out"), status
+    assert status.endswith(f"live {RELATION} · 0 rows"), status
+    assert (
+        f'0 rows: the external system answered that {RELATION} matched nothing '
+        'for pattern="/A/B/*"'
+    ) in text.splitlines(), text
+    # The system's own words follow, fenced, so a crash can never pass for
+    # a clean 0 rows (review M1).
+    assert "RSE Expression resulted in an empty set." in text
+    assert "error" not in text
+    assert result.isError is False
+
+
+def test_a_not_found_reads_as_zero_rows_with_its_own_line() -> None:
+    """Review M2 (lane ri, E1), decided: "not found" is the system's answer,
+    as its own message says, so it is 0 rows like an empty match, with a line
+    that says "found nothing named so"; no error flag."""
+    from okg.substrate.external_backed.live_dispatch import LiveAdapterError
+
+    envelope = _dispatch_raising(LiveAdapterError(
+        "upstream_not_found", excerpt="Data identifier not found.",
+    ), budget=48 * 1024)
+    result = _served(envelope)
+    text = result.content[0].text
+    assert text.splitlines()[0].startswith(f"expand ok · {NODE} out")
+    assert (
+        f'0 rows: the external system answered that {RELATION} found nothing named so '
+        'for pattern="/A/B/*"; if you expected it, check the name and scope'
+    ) in text.splitlines(), text
+    assert "Data identifier not found." in text
+    assert result.isError is False
+
+
+@pytest.mark.parametrize(("failure", "remedy"), [
+    ("upstream_rejected_arguments", "check the argument's grammar (inspect publishes it)"),
+    ("upstream_unavailable", "the external system refused the connection or returned an error status"),
+    ("response_over_cap", "ask a narrower question with these arguments: pattern"),
+    ("result_unusable", "the adapter returned a result this call cannot shape"),
+])
+def test_a_failed_live_read_says_so_first_and_sets_the_error_flag(
+    failure: str, remedy: str,
+) -> None:
+    """Lane re, issue 4 (b): the graph rows are still served, but the first
+    status line says the live read failed, by its kind and with its remedy,
+    and the served result sets `isError`, so a harness counts it. The kind
+    token is unchanged; the remedy is not printed twice."""
+    from okg.substrate.external_backed.live_dispatch import LiveAdapterError
+    from okg.substrate.mcp.result_text import classify_status_line, parse_status_line
+
+    envelope = _dispatch_raising(LiveAdapterError(failure))
+    assert envelope["state"] == "error"
+    result = _served(envelope)
+    text = result.content[0].text
+    status = text.splitlines()[0]
+    assert status.startswith(f"expand error {failure} · {NODE} out"), status
+    assert f"live {RELATION} failed: " in status and status.endswith(remedy), status
+    assert text.count(failure) == 1 and text.count(remedy) == 1, text
+    assert result.isError is True
+    line = parse_status_line(text)
+    assert (line.status, line.code) == ("error", failure)
+    assert classify_status_line(line) == "refused"
+    # The JSON form carries the same flag.
+    assert _served(envelope, fmt="json").isError is True
+
+
+def test_a_live_timeout_is_a_failed_read_too() -> None:
+    from okg.substrate.external_backed.live_dispatch import LiveAdapterError
+
+    result = _served(_dispatch_raising(LiveAdapterError("timeout")))
+    assert result.content[0].text.startswith("expand error timeout · ")
+    assert result.isError is True
+
+
+def test_a_live_answer_keeps_the_ok_status_and_no_error_flag() -> None:
+    """Must-fail partner: rows served, `ok`, no flag."""
+    result = _served(_dispatch(_rows(3), budget=None))
+    assert result.content[0].text.startswith(f"expand ok · {NODE} out")
+    assert result.isError is False
+
+
 def test_the_text_fit_key_is_the_renderers() -> None:
     assert getattr(result_text, "LIVE_TEXT_SHORTENED_KEY", None) == LIVE_TEXT_SHORTENED_KEY
 
@@ -271,17 +391,29 @@ def test_the_json_form_is_unchanged_by_the_text_fit() -> None:
         )["rows"][: envelope["rows_returned"] + 1]}) > 48 * 1024
 
 
-@pytest.mark.parametrize("retain", [False, True])
-def test_the_reserve_prints_at_least_as_large_as_any_rowless_form(retain: bool) -> None:
+@pytest.mark.parametrize("kept", [False, True])
+def test_the_reserve_prints_at_least_as_large_as_any_rowless_form(kept: bool) -> None:
     """The graph step leaves room for the reserve, measured as text: a
-    denied call and a digest-only answer must both fit in that room."""
+    denied call and a digest-only answer must both fit in that room, with
+    and without the kept answer's handle (PACT read-live-handles: every
+    live call keeps its answer; the reserve does not carry the block)."""
+    from okg.substrate.mcp import live_result_sets, result_references
+
     bound = _bound()
     reserve = live_reserve_envelope(
         bound=bound, args_model=compile_args_model(bound.relation),
-        args={"pattern": "/A/B/*"}, generation_id=7, retain=retain,
+        args={"pattern": "/A/B/*"}, generation_id=7,
     )
-    denied = _dispatch(_rows(3), budget=None, gate=_deny)
-    assert denied["state"] == "denied"
+    store = live_result_sets.new_store()
+
+    def keep(raw: Any, base: Any) -> Any:
+        return live_result_sets.begin_retain(
+            raw, base=base, store=store, reader_key="reader-a", header_claim=None,
+            multi_user=False, binding={"deployment": "default"},
+            relation=bound.relation, node_id=NODE,
+            subject="service:okg-runtime", deployment_name="default",
+            session_id="session-1",
+        )
 
     class NoRowsFit:
         budget_bytes = 10**9
@@ -289,17 +421,33 @@ def test_the_reserve_prints_at_least_as_large_as_any_rowless_form(retain: bool) 
         def fits(self, envelope: dict[str, Any]) -> bool:
             return "rows" not in envelope
 
-    digest = dispatch_live_relation(
-        bound=bound, args_model=compile_args_model(bound.relation),
-        args={"pattern": "/A/B/*"}, node_id=NODE, gate=_allow,
-        adapter=lambda **_k: _rows(50), write_sample=lambda **_k: object(),
-        generation_id=7, room=NoRowsFit(),
-    )
+    def rowless(gate: Any) -> dict[str, Any]:
+        with result_references.draft_scope() as scope:
+            envelope = dispatch_live_relation(
+                bound=bound, args_model=compile_args_model(bound.relation),
+                args={"pattern": "/A/B/*"}, node_id=NODE, gate=gate,
+                adapter=lambda **_k: _rows(50), write_sample=lambda **_k: object(),
+                generation_id=7, room=NoRowsFit(), retain=keep if kept else None,
+            )
+            scope.finish({"external_live": envelope})
+        return envelope
+
+    denied = rowless(_deny)
+    assert denied["state"] == "denied"
+    digest = rowless(_allow)
     assert digest["policy"] == "digest"
+    assert ("result_reference" in digest) is kept
+    if kept:
+        assert digest["result_reference"]["retained"] is True
+        assert denied["result_reference"]["retained"] is False
     with result_format_scope("text"):
         assert _served_bytes(reserve) >= _served_bytes(denied)
         assert _served_bytes(reserve) >= _served_bytes(digest)
     with result_format_scope("json"):
         assert _served_bytes(reserve) >= _served_bytes(denied)
         assert _served_bytes(reserve) >= _served_bytes(digest)
-    assert "! no rows shown of 50; narrow the args to see the rest" in _text(digest)
+    if kept:
+        # The kept answer pages on by its token instead.
+        assert "! no rows shown of 50; next: expand(next=" in _text(digest)
+    else:
+        assert "! no rows shown of 50; narrow the args to see the rest" in _text(digest)

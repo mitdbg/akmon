@@ -20,7 +20,7 @@ Each OKG release attaches its wheel, `okg-<version>-py3-none-any.whl`, to its
 the release page, for example:
 
 ```bash
-export AKMON_VERSION=0.3.0
+export AKMON_VERSION=0.4.0
 curl -fLO "https://github.com/mitdbg/akmon/releases/download/v${AKMON_VERSION}/okg-${AKMON_VERSION}-py3-none-any.whl"
 ```
 

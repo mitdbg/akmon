@@ -47,7 +47,7 @@ PROPERTIES = [
         "observations; rejected, superseded, stale, and external-live values "
         "stay out of default reads; raw source observations remain immutable; "
         "user-graph promotion is explicit; reads resolve off the maintained "
-        "attribute_effective_view, which equals the ground-truth effective "
+        "overlay-range read model, which equals the ground-truth effective "
         "projection whenever it is marked fresh; and the read, retention, "
         "promotion, view-maintenance, and overwrite risk contracts hold.",
         refinement_tests=REFINEMENT_TESTS,

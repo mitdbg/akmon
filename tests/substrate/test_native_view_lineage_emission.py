@@ -178,7 +178,12 @@ def test_unchanged_native_view_outputs_reemit_lineage_for_new_manifest(
         assert f"view-relation:{view_id}:relation" in dirty_ids
 
 
-def _counting_citing_view(view_id: str, cited_node_id: str, counter: dict):
+def _counting_citing_view(
+    view_id: str,
+    cited_node_id: str,
+    counter: dict,
+    reads_subtypes: tuple[str, ...] = (),
+):
     def view_def_factory() -> ViewDefinition:
         return ViewDefinition(
             view_id=view_id,
@@ -195,6 +200,7 @@ def _counting_citing_view(view_id: str, cited_node_id: str, counter: dict):
         view_def_factory=view_def_factory,
         build_corpus=build_corpus,
         name=view_id,
+        reads_subtypes=reads_subtypes,
     )
     materializer.anchor_resolver = (
         lambda anchor_id: cited_node_id if anchor_id == "summary" else None
@@ -231,7 +237,15 @@ def test_view_rebuilds_only_when_its_cited_node_changes(
     other = "publication:reuse-other"
     counter = {"builds": 0}
     view_id = "test.reuse.view"
-    materializer = _counting_citing_view(view_id, cited, counter)
+    # PACT view-output-carry-forward-3981: a view that declares no reads is
+    # rebuilt on ANY graph change, and one that declares `publication` is
+    # rebuilt on any publication change. The `concept` declaration below is
+    # deliberately synthetic: nothing in this test changes a concept, so the
+    # declared-reads gate never fires and only the cited-node check can
+    # trigger the rebuild. That keeps end-to-end coverage of that check.
+    materializer = _counting_citing_view(
+        view_id, cited, counter, reads_subtypes=("concept",)
+    )
 
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
         _seed_view_cites_catalog(conn)

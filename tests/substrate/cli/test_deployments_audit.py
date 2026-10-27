@@ -130,6 +130,8 @@ def _write_deployment(
         "source_registry": "source_registry.yaml",
         "modules": [],
         "enrichers": [],
+        # Declared so the audit counts stay about what each test sets (#3958).
+        "readiness": {"profile": "standard"},
     }
     if postgres_dsn is not None:
         manifest["postgres"] = {"dsn": postgres_dsn}

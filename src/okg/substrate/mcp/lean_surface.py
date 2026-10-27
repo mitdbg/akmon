@@ -78,7 +78,7 @@ _DIET_HIDDEN: dict[str, tuple[str, ...]] = {
     # condition as `where`, which the grammar lowers to `predicate` (PACT
     # live-graph-rucio-sites). Hidden so the published schema keeps its
     # measured size.
-    "map": ("input", "projection", "offset", "generation_id", "authority"),
+    "map": ("input", "projection", "offset", "generation_id", "authority", "predicate"),
     "aggregate": ("input", "offset", "generation_id", "authority", "predicate"),
 }
 
@@ -103,6 +103,10 @@ _DIET_HIDDEN: dict[str, tuple[str, ...]] = {
 #:   `next: aggregate(input={"ref": R}, ...)`, and the refusal for counting
 #:   links names `aggregate(input={"kind": "edges", ...})`. Published
 #:   untyped (`UNTYPED`), with one line, not their ~200-token declared shape.
+#: * `filter.input` (PACT read-live-handles): every live set reply names a
+#:   handle and the descriptions teach `filter(input="<handle>")`; a cut
+#:   kept page ends `next: filter(input={"ref": H}, ...)`. Published untyped
+#:   with one line, as `map.input` is.
 PUBLISHED_AGAIN: dict[str, dict[str, str]] = {
     "search": {
         "offset": "",
@@ -116,14 +120,14 @@ PUBLISHED_AGAIN: dict[str, dict[str, str]] = {
         "view": '"list": head lines only, no passages.',
     },
     "expand": {"offset": "One hop only."},
-    "filter": {"offset": ""},
+    "filter": {"offset": "", "input": "A handle a reply printed."},
     "map": {
         "offset": "",
-        "input": 'The set; {"ref": id} reads a retained result.',
+        "input": 'A handle; {"ref": id} reads a retained result.',
     },
     "aggregate": {
         "offset": "",
-        "input": 'The set: {"ref": id}, {"kind": "edges", "edge_type": "<type>"}, or one record id.',
+        "input": 'A handle, {"kind": "edges", "edge_type": "<type>"}, or one record id.',
     },
 }
 
@@ -131,7 +135,9 @@ PUBLISHED_AGAIN: dict[str, dict[str, str]] = {
 #: published copy is the description alone, so it accepts any value and the
 #: server's own argument model still validates the call. Neither is listed
 #: as required.
-UNTYPED: frozenset[tuple[str, str]] = frozenset({("map", "input"), ("aggregate", "input")})
+UNTYPED: frozenset[tuple[str, str]] = frozenset({
+    ("filter", "input"), ("map", "input"), ("aggregate", "input"),
+})
 
 
 def check_published_again(

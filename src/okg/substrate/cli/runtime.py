@@ -115,7 +115,7 @@ def _cmd_runtime(args: argparse.Namespace, *, as_json: bool) -> int:
         not manifest.runtime.enabled
         and args.rt_subcmd not in {
             "bootstrap", "openshell-policy", "supersede-checkpoint",
-            "finish-undo",
+            "finish-undo", "deferred-edges",
         }
     ):
         # Bootstrap is allowed even when runtime is disabled — it sets
@@ -737,6 +737,56 @@ def _cmd_runtime(args: argparse.Namespace, *, as_json: bool) -> int:
             else:
                 print(f"  nothing changed. To apply:\n    "
                       f"{payload['next_command']}")
+        return 0
+
+    if args.rt_subcmd == "deferred-edges":
+        # Cross-source edges waiting for another source's record
+        # (cross-source-endpoint-wedge). Read-only, operator-only: the id
+        # sample is not served by any read operator.
+        from okg.substrate.db.connection import connect as db_connect
+        from okg.substrate.graph_store_internal.edge_deferrals import (
+            deferred_edges_report,
+        )
+        from okg.substrate.deployments import find_deployment_dir
+        from okg.substrate.publisher.deployment_stack import (
+            load_deferral_policy,
+        )
+
+        deployment_dir = find_deployment_dir(args.deployment)
+        warn_after = (
+            load_deferral_policy(deployment_dir).warn_after_seconds
+            if deployment_dir is not None else 24 * 3600
+        )
+        try:
+            with db_connect(
+                dsn, deployment=args.deployment, autocommit=True,
+            ) as conn:
+                payload = deferred_edges_report(
+                    conn, warn_after_seconds=warn_after,
+                )
+        except SubstrateError as e:
+            return _emit_error(e, as_json=as_json)
+        payload["deployment"] = args.deployment
+        if as_json:
+            print(json.dumps(payload, indent=2, default=str))
+        else:
+            print(f"deployment: {args.deployment}")
+            print(f"waiting edges: {payload['total']}")
+            for group in payload["groups"]:
+                print(
+                    f"  {group['producer']} {group['edge_type']} -> "
+                    f"{group['endpoint_subtype']} [{group['state']}]: "
+                    f"{group['count']}"
+                )
+            if payload["oldest_deferred_at"]:
+                print(f"oldest deferred at: {payload['oldest_deferred_at']}")
+            if payload["warn"]:
+                print("warning: the oldest waiting edge is past the warning age")
+            for item in payload.get("sample", []):
+                print(
+                    f"  {item['src']} {item['edge_type']} {item['dst']} "
+                    f"({item['producer']}, {item['state']})"
+                )
         return 0
 
     if args.rt_subcmd == "finish-undo":

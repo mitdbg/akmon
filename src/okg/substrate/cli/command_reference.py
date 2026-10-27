@@ -248,7 +248,11 @@ def _flag_tokens(
             return option, []
         for item in value:
             _check_value(prog, option, action, item)
-        if isinstance(action, argparse._AppendAction):
+        # nargs="*" with action="extend" is an append action too, but the
+        # one-flag-many-values form is the documented shape for it.
+        if action.nargs not in ("*", "+") and isinstance(
+            action, argparse._AppendAction
+        ):
             return option, [(option, item) for item in value]
         if action.nargs in ("*", "+"):
             for item in value:

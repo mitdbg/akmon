@@ -392,13 +392,16 @@ def _visible_start(
     if not visible:
         # Absent and hidden are one answer, as in inspect(node), with the
         # same close-id hint (#3605).
-        from okg.substrate.mcp.tools import close_node_ids, node_not_visible
+        from okg.substrate.mcp.tools import (
+            close_node_ids, node_not_visible, reader_sees_every_row,
+        )
 
         # `suggest=False` where the caller swallows the refusal: the close-id
         # read would cost a lookup nobody sees.
         raise node_not_visible(
             node_id, session.generation_id,
             close=close_node_ids(conn, session, node_id) if suggest else None,
+            every_row_readable=reader_sees_every_row(session),
         )
     return visible[0]
 
@@ -1427,21 +1430,50 @@ NO_TEXT_NODE_MOVE = (
 )
 
 
-def _text_twin_move(conn: psycopg.Connection, session: Session, node_id: str) -> str:
+def _symbol_line_range(record: Mapping[str, Any]) -> Optional[list[list[int]]]:
+    """The `lines` a code symbol's stored span names, or None (issue #3982).
+
+    Only a `code_symbol` row with whole-number `start_line` and `end_line`
+    attrs, 1 <= start <= end, has one: any other node, and a symbol whose
+    span is missing or malformed, names no range. The attrs are the ones
+    the reader may see."""
+    if record.get("subtype") != "code_symbol":
+        return None
+    attrs = record.get("attrs")
+    if not isinstance(attrs, Mapping):
+        return None
+    start, end = attrs.get("start_line"), attrs.get("end_line")
+    for value in (start, end):
+        if not isinstance(value, int) or isinstance(value, bool):
+            return None
+    if not 1 <= start <= end:
+        return None
+    return [[start, end]]
+
+
+def _text_twin_move(
+    conn: psycopg.Connection, session: Session, node_id: str,
+    *, lines: Optional[list[list[int]]] = None,
+) -> str:
     """Where a text-less node's readable text lives (issue #3467).
 
     A `file:` node's text is only its path and a `symbol:` node has none:
     the readable chunks belong to the `doc:` node derived from the file. Point
     there when a readable one exists, through the file that contains a
-    symbol; otherwise to the node's attrs, as before."""
+    symbol; otherwise to the node's attrs, as before. `lines` (a symbol's
+    stored span, issue #3982) goes into the suggested read so the agent
+    reads that definition and not the whole file."""
     from okg.substrate.mcp.tools import text_twin_document
 
     doc_id = text_twin_document(conn, session, node_id)
     if doc_id is None:
         return NO_TEXT_NODE_MOVE
+    target = f'"kind":"text","node_id":{json.dumps(doc_id)}'
+    if lines:
+        target += f',"lines":{json.dumps(lines, separators=(",", ":"))}'
     return (
         "its text is in the document derived from its file; read it with "
-        f'inspect(target={{"kind":"text","node_id":{json.dumps(doc_id)}}})'
+        f"inspect(target={{{target}}})"
     )
 
 
@@ -1725,7 +1757,9 @@ def prepare_record_text(
                 # points at that record's text, as a chunk with text does.
                 payload["outcome"]["next_move"]
                 if is_chunk and parents
-                else _text_twin_move(conn, session, node_id)
+                else _text_twin_move(
+                    conn, session, node_id, lines=_symbol_line_range(record),
+                )
             ),
         }
         return PreparedRecordText(

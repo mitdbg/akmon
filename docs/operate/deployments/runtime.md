@@ -76,6 +76,17 @@ within one check.
   (`runtime.source_sync.poll.backstop_multiplier: 288`).
   `codeql_data_flow` and `profile_measurements` are not polled; they are
   re-read when `git_files` changes, and by `okg ingest`.
+- The scheduled publisher waits for a queued or running source sync only while
+  it is current: its last publish, no-op or generation is younger than
+  `publisher.max_source_sync_yield_seconds` in `deployment.yaml` (default 600).
+  Past that it publishes beside the sync, still refusing a source run that is
+  writing; it keeps waiting while the branch has no published generation.
+  `okg doctor` reports `source_sync_stuck` for a sync row older than the bound
+  (an error only while the branch has no published generation and no source
+  run is writing) and `publisher_workflow_stale` (naming the newest skip) when
+  nothing has published for the bound plus the 10 minute source-run wait plus
+  two cron intervals. A cycle that ends in a blocked checkpoint still counts as
+  fresh; the publish-block checks report the block.
 - With the runtime on, `okg ingest` hands its work to the worker and waits,
   so run it only while the worker runs. Without one it waits up to an hour,
   then stops with its work still queued, and that work makes

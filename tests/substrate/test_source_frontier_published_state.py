@@ -40,6 +40,7 @@ from okg.substrate.ingest import IngestOptions, run_ingest
 from okg.substrate.mcp.source_coverage import _run_rows
 from okg.substrate.source_sync_diagnostics import source_frontier_report
 from tests.pytest.catalog_fixture_builders import seed_catalog
+from tests.pytest.source_jobs_inline import use_inline_source_jobs
 from tests.substrate.test_ingest_service import (
     _claim_layered_fixture_catalog,
     _commit_layered_fixture_deployment,
@@ -48,6 +49,14 @@ from tests.substrate.test_ingest_service import (
 
 
 pytestmark = pytest.mark.postgres
+
+
+@pytest.fixture(autouse=True)
+def _inline_source_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These tests prove what the source-frontier view reads from
+    # database state, not the source child process;
+    # `tests/substrate/ingest/test_source_jobs.py` proves that boundary.
+    use_inline_source_jobs(monkeypatch)
 
 _SOURCES = ("svc.first", "svc.second")
 

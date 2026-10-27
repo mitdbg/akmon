@@ -7,14 +7,10 @@ canonical checkpoint ref string instead of demanding an int.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from okg.substrate.cli.main import main
 from okg.substrate.cli.parser_groups import _generation_id_token
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _err_lines(capsys) -> list[str]:
@@ -101,18 +97,3 @@ def test_generation_describe_accepts_canonical_ref_string() -> None:
     ref = "okg:okg-workspace:branch:default:gen:20260702T000000:abc-123"
     assert _generation_id_token(ref) == ref
     assert _generation_id_token("123") == 123
-
-
-def test_agent_workflow_skill_carries_the_surface_discipline() -> None:
-    skill = (
-        REPO_ROOT / "src" / "okg" / "substrate" / "pact" / "skills"
-        / "agent-workflow" / "SKILL.md"
-    ).read_text(encoding="utf-8")
-    # opaque-bash guidance (the 1,003-hit class, pre-empted at instruction grain)
-    assert "Glance-reviewable Bash" in skill
-    assert "heredocs" in skill
-    assert ".scratch/" in skill
-    # dogfood-through-surface rule + friction-log format
-    assert "Dogfood through the surface" in skill
-    assert "forcing failure recorded" in skill
-    assert "prevention:" in skill

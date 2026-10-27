@@ -5,17 +5,18 @@ Before accelerate-operator-read-path the publisher stamped ``prev + delta`` into
 the checkpoint, which compounds drift across generations with no self-heal and
 silently undercounts the graph (measured ~28% / ~17% low on okg-workspace:
 732998 vs 1024056 nodes). The status / map read path serves these counts, so a
-drifted count is a fast WRONG number. The publisher now stamps the effective-view
-snapshot's own cardinality (the same rows count(*) sees at the pinned checkpoint),
-so the invariant below holds every generation.
+drifted count is a fast WRONG number. The publisher now stamps a running
+counter (the previous stamp plus this cycle's delta) seeded and re-anchored by
+a full Chronos count: on the first publish, after a blocked generation, and on
+every OKG_COUNT_STAMP_SELF_HEAL_EVERY-th generation. The stamp equals the live
+count every generation unless a baseline was already wrong; inherited drift is
+carried until the next full-count cycle (okg#3112 S3 retired the attribute
+receipt that used to refuse it).
 """
 from __future__ import annotations
 
 import json
-import os
 import uuid
-from pathlib import Path
-from types import SimpleNamespace
 
 import psycopg
 import pytest
@@ -24,20 +25,6 @@ from okg.substrate.graph_store import ChronosGraphStore
 from okg.substrate.consistency.transform_gate import TransformConsistencyGate
 from okg.substrate.library.sources.base import EdgeFact, NodeFact
 from okg.substrate.publisher import Publisher
-from okg.substrate.errors import SubstrateError
-from okg.substrate.attributes import (
-    ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,
-    ATTRIBUTE_EFFECTIVE_VIEW_TABLE,
-    _INTERVAL_PAYLOAD_COLS,
-    classify_effective_attribute_recovery,
-    prepare_corrupt_effective_attribute_recovery,
-)
-from okg.substrate.deployment_upgrade import (
-    CommandResult,
-    UpgradeContext,
-    UpgradeOptions,
-    _phase_attribute_read_model,
-)
 from okg.substrate.db.migrate import migrate
 from tests.pytest.catalog_fixture_builders import seed_catalog
 from tests.pytest.catalog_fixture_builders import bind_test_catalog_writer  # noqa: E402
@@ -257,542 +244,6 @@ def test_checkpoint_counts_equal_live_graph_after_blocked_generation(
         assert sn3 == ln3 == 3, (sn3, ln3)
 
 
-def test_authorized_recovery_publishes_truthful_successor_without_rewriting_bad_checkpoint(
-    clean_runtime: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Deployment recovery heals via a successor, never by editing history."""
-    dsn = clean_runtime
-    migrate(dsn)
-    suffix = uuid.uuid4().hex[:8]
-    first_node = f"case:recovery:1:{suffix}"
-    second_node = f"case:recovery:2:{suffix}"
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        seed_catalog(conn, subtypes=["case"], narrowings=[])
-    _apply(
-        dsn,
-        [NodeFact(first_node, "case", {}, {"id": first_node}, {"v": 1})],
-    )
-    bad_generation = _publish(dsn)
-
-    # Simulate a checkpoint written by the pre-fix publisher. Production
-    # recovery never mutates this metadata; raw SQL is test setup only.
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
-        generation = store.get_generation(bad_generation)
-        bad_metadata = dict(generation.metadata or {})
-        bad_metadata["node_count"] = int(bad_metadata["node_count"]) + 7
-        bad_metadata["count_stamp_cadence"] = 1
-        conn.execute(
-            "UPDATE public._chronos_branch_interval_checkpoints "
-            "SET metadata = %s WHERE checkpoint_id = %s",
-            (json.dumps(bad_metadata), bad_generation),
-        )
-        conn.execute(
-            f"DELETE FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} "
-            "WHERE ctid IN ("
-            f"SELECT ctid FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} "
-            "WHERE to_ord = 9223372036854775807 LIMIT 1)"
-        )
-
-        before = classify_effective_attribute_recovery(
-            conn, deployment_name="default"
-        )
-        assert before["classification"] == "corrupt_state_recovery"
-        # Classification is read-only and therefore stable on a second read.
-        assert classify_effective_attribute_recovery(
-            conn, deployment_name="default"
-        )["binding_digest"] == before["binding_digest"]
-        prepared = prepare_corrupt_effective_attribute_recovery(
-            conn,
-            deployment_name="default",
-            expected_binding_digest=before["binding_digest"],
-        )
-        authorization = prepared["authorization"]
-
-    _apply(
-        dsn,
-        [NodeFact(second_node, "case", {}, {"id": second_node}, {"v": 1})],
-    )
-    tampered = dict(authorization)
-    tampered["pinned_counts"] = {"node": 999, "edge": 0}
-    monkeypatch.setenv(
-        "OKG_COUNT_STAMP_RECOVERY_AUTHORIZATION",
-        json.dumps(tampered, sort_keys=True, separators=(",", ":")),
-    )
-    with pytest.raises(SubstrateError, match="authorization"):
-        _publish(dsn)
-    monkeypatch.setenv(
-        "OKG_COUNT_STAMP_RECOVERY_AUTHORIZATION",
-        json.dumps(authorization, sort_keys=True, separators=(",", ":")),
-    )
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute(
-            "UPDATE okg.effective_attribute_recovery_attempts "
-            "SET stage = 'interval_committed' "
-            "WHERE classification_binding_digest = %s",
-            (authorization["classification_binding_digest"],),
-        )
-    with pytest.raises(SubstrateError, match="prepared journal authority"):
-        _publish(dsn)
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute(
-            "UPDATE okg.effective_attribute_recovery_attempts SET stage = 'prepared' "
-            "WHERE classification_binding_digest = %s",
-            (authorization["classification_binding_digest"],),
-        )
-
-    def crash_between_checkpoint_and_consumption(stage: str) -> None:
-        if stage == "after_successor_checkpoint_before_journal_consumption":
-            raise SubstrateError("injected atomic recovery publication crash")
-
-    monkeypatch.setattr(
-        "okg.substrate.publisher.publisher._COUNT_STAMP_RECOVERY_FAILPOINT",
-        crash_between_checkpoint_and_consumption,
-    )
-    with pytest.raises(SubstrateError, match="atomic recovery publication crash"):
-        _publish(dsn)
-    monkeypatch.setattr(
-        "okg.substrate.publisher.publisher._COUNT_STAMP_RECOVERY_FAILPOINT",
-        None,
-    )
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
-        latest = store.latest_generation(
-            deployment_name="default", status="published"
-        )
-        unconsumed = conn.execute(
-            "SELECT consumed_by_generation_id FROM "
-            "okg.effective_attribute_recovery_attempts "
-            "WHERE classification_binding_digest = %s",
-            (authorization["classification_binding_digest"],),
-        ).fetchone()
-    assert latest is not None and latest.checkpoint_id == bad_generation
-    assert unconsumed == (None,)
-
-    def fail_additive_ordinal_mint(*args, **kwargs) -> None:
-        del args, kwargs
-        raise RuntimeError("injected nonfatal ordinal mint failure")
-
-    monkeypatch.setattr(
-        "okg.substrate.graph_store_internal.generation_ordinal.mint_generation_ordinal",
-        fail_additive_ordinal_mint,
-    )
-    successor = _publish(dsn)
-    assert successor != bad_generation
-
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
-        retained = dict(store.get_generation(bad_generation).metadata or {})
-        successor_metadata = dict(store.get_generation(successor).metadata or {})
-        successor_counts = _stamped_and_live(conn, successor)
-        consumed = conn.execute(
-            "SELECT consumed_by_generation_id, consumed_at "
-            "FROM okg.effective_attribute_recovery_attempts "
-            "WHERE classification_binding_digest = %s",
-            (authorization["classification_binding_digest"],),
-        ).fetchone()
-
-    assert retained == bad_metadata
-    assert int(retained["node_count"]) == 8
-    assert successor_counts == (2, 0, 2, 0)
-    assert consumed is not None and consumed[0] == successor and consumed[1] is not None
-    assert successor_metadata["count_stamp_recovery"] == {
-        "schema": "okg.count_stamp_recovery.v1",
-        "reason": "predecessor_checkpoint_count_mismatch",
-        "recovery_of": bad_generation,
-        "authorization_digest": authorization["authorization_digest"],
-        "classification_binding_digest": authorization[
-            "classification_binding_digest"
-        ],
-        "prepared_binding_digest": authorization["prepared_binding_digest"],
-        "recorded": {"node_count": 8, "edge_count": 0},
-        "pinned": {"node_count": 1, "edge_count": 0},
-    }
-    # The same capability cannot be reused after its exact predecessor advances.
-    with pytest.raises(Exception, match="current predecessor"):
-        _publish(dsn)
-
-
-def test_recovery_binding_ignores_interval_close_but_catches_pinned_content_change(
-    clean_runtime: str,
-) -> None:
-    """The recovery binding must bind the state AT the pinned ordinal, nothing later.
-
-    ``classify_effective_attribute_recovery`` fingerprints the interval rows live
-    at the predecessor's ordinal. A publish cycle that runs the interval sync and
-    then ABORTS before its checkpoint commits leaves the close behind: ``to_ord``
-    goes from OPEN to that cycle's ordinal while the row stays live, and
-    byte-identical, at the pinned ordinal. Hashing ``to_ord`` made that read as
-    derived-row churn, so the publisher refused a prepared authorization with
-    "prepared view changed before successor publication" and burned it
-    permanently. (A BLOCKED generation is NOT such a cycle -- the interval sync is
-    gated on ``blocked_reason is None`` -- so the aborted case is the whole
-    exposure.)
-
-    Scope: this asserts ``interval_identity``, the one field the fix changes.
-    All three arms of the exclusion argument are asserted so the relaxation
-    cannot be gutted into a vacuous check -- a close must NOT move it, a
-    pinned-ordinal payload edit MUST, and a ``to_ord`` retreat to ``<= o`` MUST
-    (by dropping the row from the selection). End-to-end digest stability across
-    a real aborted cycle is covered by
-    ``test_authorized_recovery_publishes_truthful_successor_without_rewriting_bad_checkpoint``;
-    it has to be, because the raw interval writes below deliberately trip the
-    protected-write trigger that dirties the integrity receipt, and that moves
-    other fields of the classification payload.
-    """
-    dsn = clean_runtime
-    migrate(dsn)
-    suffix = uuid.uuid4().hex[:8]
-    old_node = f"case:binding-old:{suffix}"
-    new_node = f"case:binding-new:{suffix}"
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        seed_catalog(conn, subtypes=["case"], narrowings=[])
-    # Two published generations, so the predecessor sits at ordinal 1 and the
-    # front holds rows with DIFFERENT from_ord: old_node's interval is still open
-    # from ordinal 0, new_node's from ordinal 1. The retreat arm below needs a row
-    # with from_ord < pinned_ordinal, because the table's check constraint
-    # forbids from_ord == to_ord.
-    _apply(dsn, [NodeFact(old_node, "case", {}, {"id": old_node}, {"v": 1})])
-    _publish(dsn)
-    _apply(dsn, [NodeFact(new_node, "case", {}, {"id": new_node}, {"v": 1})])
-    _publish(dsn)
-
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        baseline = classify_effective_attribute_recovery(conn, deployment_name="default")
-        pinned_ordinal = int(baseline["ordinal"])
-        assert pinned_ordinal >= 1, ("need a predecessor past ordinal 0", pinned_ordinal)
-        assert baseline["interval_identity"]["row_count"] == 2, (
-            "expected both nodes live at the pinned ordinal",
-            baseline["interval_identity"],
-        )
-
-        # Exactly what a later generation's delta sync does: close the open
-        # intervals at the new ordinal and reopen them, payload unchanged. The
-        # rows stay live, and byte-identical, at pinned_ordinal.
-        payload_cols = ", ".join(_INTERVAL_PAYLOAD_COLS)
-        next_ordinal = pinned_ordinal + 1
-        with conn.transaction():
-            conn.execute(
-                f"INSERT INTO {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} "
-                f"(target_kind, target_id, namespace, branch_id, from_ord, to_ord, "
-                f"{payload_cols}) "
-                f"SELECT target_kind, target_id, namespace, branch_id, %s, "
-                f"9223372036854775807, {payload_cols} "
-                f"FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} "
-                "WHERE branch_id = %s AND namespace = 'default' "
-                "AND to_ord = 9223372036854775807",
-                (next_ordinal, baseline["branch_id"]),
-            )
-            closed = conn.execute(
-                f"UPDATE {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} SET to_ord = %s "
-                "WHERE branch_id = %s AND namespace = 'default' "
-                "AND from_ord <= %s AND to_ord = 9223372036854775807",
-                (next_ordinal, baseline["branch_id"], pinned_ordinal),
-            ).rowcount
-        assert closed >= 1, "no open interval to close -- test setup is vacuous"
-
-        after_close = classify_effective_attribute_recovery(
-            conn, deployment_name="default"
-        )
-        assert after_close["interval_identity"] == baseline["interval_identity"], (
-            "interval close moved the pinned-ordinal identity",
-            baseline["interval_identity"],
-            after_close["interval_identity"],
-        )
-
-        # A real content change at the pinned ordinal still moves it.
-        edited = conn.execute(
-            f"UPDATE {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} SET overlay_count = "
-            "overlay_count + 1 WHERE branch_id = %s AND namespace = 'default' "
-            "AND from_ord <= %s AND %s < to_ord",
-            (baseline["branch_id"], pinned_ordinal, pinned_ordinal),
-        ).rowcount
-        assert edited >= 1, "no pinned-ordinal interval to edit -- test is vacuous"
-        after_edit = classify_effective_attribute_recovery(
-            conn, deployment_name="default"
-        )
-        assert after_edit["interval_identity"] != baseline["interval_identity"], (
-            "pinned-ordinal payload change did NOT move the identity"
-        )
-
-        # The third arm the exclusion comment rests on: a to_ord that RETREATS to
-        # <= o drops the row out of the pinned selection entirely, so row_count
-        # moves even though to_ord itself is no longer hashed. Without this the
-        # `WHERE from_ord <= o AND o < to_ord` predicate could be loosened later
-        # and nothing would notice. Restricted to from_ord < pinned_ordinal: the
-        # table's check constraint forbids from_ord == to_ord.
-        retreated = conn.execute(
-            f"UPDATE {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} SET to_ord = %s "
-            "WHERE branch_id = %s AND namespace = 'default' "
-            "AND from_ord < %s AND %s < to_ord",
-            (pinned_ordinal, baseline["branch_id"], pinned_ordinal, pinned_ordinal),
-        ).rowcount
-        assert retreated >= 1, "no row with from_ord < pinned_ordinal -- test is vacuous"
-        after_retreat = classify_effective_attribute_recovery(
-            conn, deployment_name="default"
-        )
-        assert after_retreat["interval_identity"]["row_count"] == (
-            baseline["interval_identity"]["row_count"] - retreated
-        ), (
-            "a to_ord retreat to <= o left rows in the pinned selection",
-            retreated,
-            baseline["interval_identity"],
-            after_retreat["interval_identity"],
-        )
-
-
-def test_recovery_refuses_derived_state_change_before_first_mutation(
-    clean_runtime: str,
-) -> None:
-    dsn = clean_runtime
-    migrate(dsn)
-    node_id = f"case:recovery-race:{uuid.uuid4().hex[:8]}"
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        seed_catalog(conn, subtypes=["case"], narrowings=[])
-    _apply(dsn, [NodeFact(node_id, "case", {}, {"id": node_id}, {"v": 1})])
-    predecessor = _publish(dsn)
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
-        metadata = dict(store.get_generation(predecessor).metadata or {})
-        metadata["node_count"] = int(metadata["node_count"]) + 1
-        conn.execute(
-            "UPDATE public._chronos_branch_interval_checkpoints "
-            "SET metadata = %s WHERE checkpoint_id = %s",
-            (json.dumps(metadata), predecessor),
-        )
-        classification = classify_effective_attribute_recovery(
-            conn, deployment_name="default"
-        )
-        conn.execute(
-            f"DELETE FROM {ATTRIBUTE_EFFECTIVE_VIEW_TABLE} "
-            "WHERE generation_id = %s AND ctid IN ("
-            f"SELECT ctid FROM {ATTRIBUTE_EFFECTIVE_VIEW_TABLE} "
-            "WHERE generation_id = %s LIMIT 1)",
-            (predecessor, predecessor),
-        )
-        with pytest.raises(SubstrateError, match="changed before mutation"):
-            prepare_corrupt_effective_attribute_recovery(
-                conn,
-                deployment_name="default",
-                expected_binding_digest=classification["binding_digest"],
-                expected_classification=classification,
-            )
-
-
-@pytest.mark.parametrize(
-    "fail_stage",
-    ["after_classification", "after_snapshot_commit", "after_interval_commit"],
-)
-def test_recovery_preparation_crash_retry_converges(
-    clean_runtime: str,
-    monkeypatch: pytest.MonkeyPatch,
-    fail_stage: str,
-) -> None:
-    dsn = clean_runtime
-    migrate(dsn)
-    node_id = f"case:recovery-crash:{fail_stage}:{uuid.uuid4().hex[:8]}"
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        seed_catalog(conn, subtypes=["case"], narrowings=[])
-    _apply(dsn, [NodeFact(node_id, "case", {}, {"id": node_id}, {"v": 1})])
-    predecessor = _publish(dsn)
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
-        metadata = dict(store.get_generation(predecessor).metadata or {})
-        metadata["node_count"] = int(metadata["node_count"]) + 3
-        conn.execute(
-            "UPDATE public._chronos_branch_interval_checkpoints "
-            "SET metadata = %s WHERE checkpoint_id = %s",
-            (json.dumps(metadata), predecessor),
-        )
-        conn.execute(
-            f"DELETE FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} "
-            "WHERE ctid IN ("
-            f"SELECT ctid FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} LIMIT 1)"
-        )
-        classification = classify_effective_attribute_recovery(
-            conn, deployment_name="default"
-        )
-
-        def failpoint(stage: str) -> None:
-            if stage == fail_stage:
-                raise SubstrateError(f"injected {stage}")
-
-        monkeypatch.setattr(
-            "okg.substrate.attributes._EFFECTIVE_ATTRIBUTE_RECOVERY_FAILPOINT",
-            failpoint,
-        )
-        with pytest.raises(SubstrateError, match="injected"):
-            prepare_corrupt_effective_attribute_recovery(
-                conn,
-                deployment_name="default",
-                expected_binding_digest=classification["binding_digest"],
-                expected_classification=classification,
-            )
-        monkeypatch.setattr(
-            "okg.substrate.attributes._EFFECTIVE_ATTRIBUTE_RECOVERY_FAILPOINT",
-            None,
-        )
-        retried = prepare_corrupt_effective_attribute_recovery(
-            conn,
-            deployment_name="default",
-            expected_binding_digest=classification["binding_digest"],
-            expected_classification=classification,
-        )
-    assert retried["prepared"] is True
-    monkeypatch.setenv(
-        "OKG_COUNT_STAMP_RECOVERY_AUTHORIZATION",
-        json.dumps(retried["authorization"], sort_keys=True, separators=(",", ":")),
-    )
-    successor = _publish(dsn)
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        assert _stamped_and_live(conn, successor) == (1, 0, 1, 0)
-
-
-def test_deployment_recovers_misstamped_checkpoint_and_interval_front(
-    clean_runtime: str,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Exercise the real PostgreSQL smoke -> attribute-repair phase chain."""
-    dsn = clean_runtime
-    migrate(dsn)
-    suffix = uuid.uuid4().hex[:8]
-    first_node = f"case:lifecycle:1:{suffix}"
-    second_node = f"case:lifecycle:2:{suffix}"
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        seed_catalog(conn, subtypes=["case"], narrowings=[])
-    _apply(dsn, [NodeFact(first_node, "case", {}, {"id": first_node}, {"v": 1})])
-    bad_generation = _publish(dsn)
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
-        metadata = dict(store.get_generation(bad_generation).metadata or {})
-        metadata["node_count"] = int(metadata["node_count"]) + 5
-        metadata["count_stamp_cadence"] = 1
-        conn.execute(
-            "UPDATE public._chronos_branch_interval_checkpoints "
-            "SET metadata = %s WHERE checkpoint_id = %s",
-            (json.dumps(metadata), bad_generation),
-        )
-    _apply(dsn, [NodeFact(second_node, "case", {}, {"id": second_node}, {"v": 1})])
-
-    from okg.substrate.deployment_upgrade import _phase_generation_recovery
-
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        classification = classify_effective_attribute_recovery(
-            conn, deployment_name="default"
-        )
-
-    def runner(argv: list[str], env: dict[str, str]) -> CommandResult:
-        if "inspect-effective-attribute-recovery" in argv:
-            with psycopg.connect(dsn, autocommit=True) as conn:
-                result = classify_effective_attribute_recovery(
-                    conn, deployment_name="default"
-                )
-            return CommandResult(0, json.dumps(result), "")
-        if "prepare-effective-attribute-recovery" in argv:
-            with psycopg.connect(dsn, autocommit=True) as conn:
-                result = prepare_corrupt_effective_attribute_recovery(
-                    conn,
-                    deployment_name="default",
-                    expected_binding_digest=classification["binding_digest"],
-                )
-            return CommandResult(0, json.dumps(result), "")
-        if "ingest" in argv:
-            previous = os.environ.get("OKG_COUNT_STAMP_RECOVERY_AUTHORIZATION")
-            os.environ["OKG_COUNT_STAMP_RECOVERY_AUTHORIZATION"] = env[
-                "OKG_COUNT_STAMP_RECOVERY_AUTHORIZATION"
-            ]
-            try:
-                published = Publisher(dsn, "default", catalog_identity=bind_test_catalog_writer(dsn, "default")).cycle()
-            finally:
-                if previous is None:
-                    os.environ.pop("OKG_COUNT_STAMP_RECOVERY_AUTHORIZATION", None)
-                else:
-                    os.environ["OKG_COUNT_STAMP_RECOVERY_AUTHORIZATION"] = previous
-            return CommandResult(
-                0,
-                json.dumps({"publishes": [published], "results": [{"status": "OK"}]}),
-                "",
-            )
-        if "generation" in argv and "describe" in argv:
-            generation_id = argv[argv.index("describe") + 1]
-            with psycopg.connect(dsn, autocommit=True) as conn:
-                generation = ChronosGraphStore.from_connection(
-                    conn, ensure_schema=False
-                ).get_generation(generation_id)
-            return CommandResult(
-                0,
-                json.dumps({"metadata": dict(generation.metadata or {})}),
-                "",
-            )
-        if "repair-effective-attribute-intervals" in argv:
-            from okg.substrate.attributes import (
-                repair_effective_attribute_interval_view,
-            )
-
-            with psycopg.connect(dsn, autocommit=True) as conn:
-                repaired = repair_effective_attribute_interval_view(
-                    conn,
-                    deployment_name="default",
-                )
-            return CommandResult(0, json.dumps(repaired), "")
-        raise AssertionError(argv)
-
-    ctx = UpgradeContext(
-        options=UpgradeOptions(deployment="default", skip_backup=True),
-        dsn=dsn,
-        resolution={"target": {}},
-        env={"OKG_DSN": dsn},
-        state_file=tmp_path / "state.json",
-        backup_dir=tmp_path,
-        command_runner=runner,
-        data={"attribute_recovery_classification": classification},
-    )
-    monkeypatch.setattr(
-        "okg.substrate.deployment_upgrade._resolve_upgrade_deployment",
-        lambda ctx: SimpleNamespace(
-            deployment_dir=tmp_path,
-            runtime=SimpleNamespace(smoke_sources=(), smoke_reset_cursor=False),
-        ),
-    )
-    monkeypatch.setattr(
-        "okg.substrate.deployment_upgrade._smoke_publish_proof",
-        lambda ctx, payload: {"ok": True},
-    )
-
-    def crash_after_successor(stage: str) -> None:
-        if stage == "after_successor_publish":
-            raise SubstrateError("injected successor crash")
-
-    monkeypatch.setattr(
-        "okg.substrate.deployment_upgrade._GENERATION_RECOVERY_FAILPOINT",
-        crash_after_successor,
-    )
-    with pytest.raises(SubstrateError, match="successor crash"):
-        _phase_generation_recovery(ctx)
-    monkeypatch.setattr(
-        "okg.substrate.deployment_upgrade._GENERATION_RECOVERY_FAILPOINT",
-        None,
-    )
-    recovered = _phase_generation_recovery(ctx)
-    assert recovered["ok"] is True
-    assert recovered["resumed_after_successor_publish"] is True
-    repaired = _phase_attribute_read_model(ctx)
-    assert repaired["ok"] is True
-    successor = str(recovered["successor_generation"])
-    assert successor != bad_generation
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        assert _stamped_and_live(conn, successor) == (2, 0, 2, 0)
-        retained = dict(
-            ChronosGraphStore.from_connection(conn, ensure_schema=False)
-            .get_generation(bad_generation)
-            .metadata
-            or {}
-        )
-    assert retained == metadata
-
-
 def test_prune_gate_stamps_post_gate_count_on_non_cadence_generation(
     clean_runtime: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -920,30 +371,20 @@ def test_a_deployment_already_carrying_drift_is_corrected_by_a_full_scan_generat
 
     History is never rewritten -- a wrong checkpoint stays wrong, by design. What
     must be true is that the deployment stops SERVING the wrong number, on its
-    own, with no operator intervention. Observed here, it does, in one extra
-    cycle:
+    own, with no operator intervention, within the bounded self-heal cadence.
 
-    * inherited drift cannot propagate silently. The incremental attribute
-      receipt derives a count independently, disagrees with the stamp, and
-      REFUSES the publish. A drifted deployment is loud, not quiet.
-    * that refusal is itself the recovery boundary. The next cycle takes the
-      documented full-scan path (count_stamp_cadence == 0) and re-stamps the true
-      live count, then resumes incremental counting.
+    okg#3112 S3 removed the attribute receipt that used to refuse the first
+    incremental publish over a drifted stamp (its count came from the
+    interval copy this change drops). What bounds inherited drift now is the
+    full-count self-heal alone: every OKG_COUNT_STAMP_SELF_HEAL_EVERY-th
+    published generation recounts the graph and re-stamps the true count
+    (count_stamp_cadence == 0). Observed here with a cadence of 2:
 
-    Be precise about WHY the second bullet holds, because it is a side effect
-    rather than a designed retry. The full-scan re-stamp fires because the
-    refusing cycle leaves the attribute-integrity state DIRTY: the interval-front
-    write commits in an earlier transaction than the receipt proof that raises, so
-    its trigger has already set
-    okg.attribute_effective_integrity_state.dirty = TRUE. The next cycle reads
-    that row and `_integrity_forces_reanchor` makes the count self-heal true. No
-    other disjunct is available on that retry, and in particular the periodic
-    self-heal CANNOT be a backstop: the cadence is read from the last PUBLISHED
-    generation, and a refusing cycle never checkpoints, so a deployment that only
-    ever refuses never advances it. This test sets
-    OKG_COUNT_STAMP_SELF_HEAL_EVERY high so the periodic path cannot be what
-    heals, which is what isolates the refusal-retry path -- and it is also why the
-    cadence == 0 assertion below is the load-bearing one.
+    * the incremental publish right after the drift carries it (the running
+      counter adds this cycle's delta to the bad baseline);
+    * the next publish is the cadence's full-count cycle and stamps the true
+      live count;
+    * counting then resumes on the running counter, truthful again.
     """
     dsn = clean_runtime
     migrate(dsn)
@@ -951,8 +392,9 @@ def test_a_deployment_already_carrying_drift_is_corrected_by_a_full_scan_generat
     with psycopg.connect(dsn, autocommit=True) as conn:
         seed_catalog(conn, subtypes=["case"], narrowings=[])
 
-    # High enough that the periodic self-heal cannot fire during this test.
-    monkeypatch.setenv("OKG_COUNT_STAMP_SELF_HEAL_EVERY", "50")
+    # The first publish stamps cadence 0, so position 1 is incremental and
+    # position 2 is the full-count self-heal.
+    monkeypatch.setenv("OKG_COUNT_STAMP_SELF_HEAL_EVERY", "2")
     ids = [f"case:{i}:{sfx}" for i in range(5)]
     _apply(dsn, [
         NodeFact(nid, "case", {"x": 1}, {"id": nid}, {"v": 1}) for nid in ids
@@ -973,19 +415,23 @@ def test_a_deployment_already_carrying_drift_is_corrected_by_a_full_scan_generat
         )
     assert _stamped_nodes(dsn, gen1) == 3 != _live_nodes(dsn, gen1)
 
-    # (1) the drift is loud: the next incremental publish refuses rather than
-    #     carrying the bad baseline forward.
+    # (1) the next incremental publish carries the bad baseline: 3 + 1, not 6.
     _apply(dsn, [
         NodeFact(f"case:next:{sfx}", "case", {"x": 1},
                  {"id": f"case:next:{sfx}"}, {"v": 1}),
     ])
-    with pytest.raises(SubstrateError, match="disagrees with checkpoint"):
-        _publish(dsn)
+    carried = _publish(dsn)
+    _running_counter_gen(dsn, carried)
+    assert (_stamped_nodes(dsn, carried), _live_nodes(dsn, carried)) == (4, 6)
 
-    # (2) AUTOMATIC recovery: just publish again. No env change, no operator.
+    # (2) AUTOMATIC recovery: the cadence's full-count cycle. No operator.
+    _apply(dsn, [
+        NodeFact(f"case:heal:{sfx}", "case", {"x": 1},
+                 {"id": f"case:heal:{sfx}"}, {"v": 1}),
+    ])
     healed = _publish(dsn)
     stamped, live = _stamped_nodes(dsn, healed), _live_nodes(dsn, healed)
-    assert stamped == live == 6, (stamped, live)
+    assert stamped == live == 7, (stamped, live)
     with psycopg.connect(dsn, autocommit=True) as conn:
         store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
         healed_meta = dict(store.get_generation(healed).metadata or {})
@@ -1002,7 +448,7 @@ def test_a_deployment_already_carrying_drift_is_corrected_by_a_full_scan_generat
     ])
     resumed = _publish(dsn)
     _running_counter_gen(dsn, resumed)
-    assert _stamped_nodes(dsn, resumed) == _live_nodes(dsn, resumed) == 7
+    assert _stamped_nodes(dsn, resumed) == _live_nodes(dsn, resumed) == 8
 
     with psycopg.connect(dsn, autocommit=True) as conn:
         store = ChronosGraphStore.from_connection(conn, ensure_schema=False)

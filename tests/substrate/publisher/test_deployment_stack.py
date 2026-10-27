@@ -101,12 +101,13 @@ def test_publisher_kwargs_from_env_includes_native_view_refresh_knobs(
     monkeypatch.delenv("OKG_GATE_TIMEOUT_MS", raising=False)
     monkeypatch.setenv("OKG_NATIVE_VIEW_MIN_REFRESH_MS", "250")
     monkeypatch.setenv("OKG_NATIVE_VIEW_MATERIALIZATION_DELAY_MS", "100")
+    # Retired with the attribute copies: the variable no longer reaches the
+    # publisher (PACT lane-s-storage-drop-copies).
     monkeypatch.setenv("OKG_ATTRIBUTE_EFFECTIVE_VIEW_EMPTY_OVERLAY_FAST_PATH", "1")
 
     assert publisher_kwargs_from_env() == {
         "native_view_min_refresh_interval_ms": 250,
         "native_view_materialization_delay_ms": 100,
-        "attribute_effective_view_empty_overlay_fast_path": True,
     }
 
 
@@ -130,15 +131,14 @@ def test_build_stack_reads_native_view_refresh_policy(
 
     assert stack.publisher_kwargs()["native_view_min_refresh_interval_ms"] == 250
     assert stack.publisher_kwargs()["native_view_materialization_delay_ms"] == 100
-    assert (
-        stack.publisher_kwargs()["attribute_effective_view_empty_overlay_fast_path"]
-        is False
-    )
 
 
-def test_build_stack_reads_attribute_view_empty_overlay_policy(
-    tmp_path: Path,
+def test_build_stack_warns_on_the_retired_empty_overlay_key(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """PACT lane-s-storage-drop-copies retired the empty-overlay fast path with
+    the snapshot it short-cut: a manifest that still sets the key builds a
+    stack without it and says so in a warning, never silently."""
     deployment = _write_manifest(
         tmp_path,
         "name: test\n"
@@ -147,16 +147,20 @@ def test_build_stack_reads_attribute_view_empty_overlay_policy(
     )
     _clear_deployment_stack_cache()
 
-    stack = build_deployment_publisher_stack(
-        dsn="postgres://invalid",
-        deployment_name="test",
-        deployment_dir=deployment,
-    )
+    with caplog.at_level("WARNING"):
+        stack = build_deployment_publisher_stack(
+            dsn="postgres://invalid",
+            deployment_name="test",
+            deployment_dir=deployment,
+        )
 
-    assert (
-        stack.publisher_kwargs()["attribute_effective_view_empty_overlay_fast_path"]
-        is True
+    assert "attribute_effective_view_empty_overlay_fast_path" not in (
+        stack.publisher_kwargs()
     )
+    assert any(
+        "is retired and has no effect" in record.getMessage()
+        for record in caplog.records
+    ), [record.getMessage() for record in caplog.records]
 
 
 def test_build_stack_carries_history_retention_to_publisher(tmp_path: Path) -> None:

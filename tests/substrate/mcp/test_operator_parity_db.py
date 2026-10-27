@@ -194,8 +194,7 @@ def test_set_aggregate_old_and_new_agree(world: dict, kind: str, by: list[str]) 
     assert [g["count"] for g in new["groups"]] == [g["count"] for g in old["groups"]]
 
 
-_AGGREGATE_SQL = re.compile(r"count\(\*\) AS n FROM .*effective_aggregate", re.S)
-_NARROW_BASE = re.compile(r"FROM (okg\.attribute_effective_view(?:_intervals)?) WHERE")
+_AGGREGATE_SQL = re.compile(r"count\(\*\) AS n .*effective_aggregate", re.S)
 
 
 @pytest.fixture
@@ -212,7 +211,6 @@ def executed_sql(monkeypatch) -> list[tuple[str, Any]]:
     return seen
 
 
-@pytest.mark.parametrize("interval_view", ["1", "0"])
 @pytest.mark.parametrize("scope,by", [
     ({"kind": "nodes"}, ["subtype"]),
     ({"kind": "nodes", "subtype": "item",
@@ -221,32 +219,19 @@ def executed_sql(monkeypatch) -> list[tuple[str, Any]]:
     ({"kind": "edges"}, ["edge_type"]),
     ({"kind": "edges", "edge_type": "links"}, ["src", "edge_type"]),
 ])
-def test_an_aggregate_reading_no_attrs_skips_the_payload_join(
-    world: dict, executed_sql: list, monkeypatch, interval_view: str, scope: dict, by: list,
+def test_an_aggregate_reading_no_attrs_reads_no_overlay(
+    world: dict, executed_sql: list, scope: dict, by: list,
 ) -> None:
-    """#3235 speed fix: with no attrs in `by` or the filter, the aggregate
-    reads the pinned base table alone. The same statement with the payload
-    join put back counts the same groups, and the legacy path agrees."""
-    monkeypatch.setenv("OKG_IVM_INTERVAL_VIEW", interval_view)
+    """#3235 speed fix, on the graph path (S2 design 2.5): with no attrs in
+    `by` or the filter, the aggregate is one GROUP BY over the graph rows,
+    which reads no overlay row (overlays change no stable column), and the
+    legacy path agrees."""
     new = world["tools"]["aggregate"](input=scope, by=by, metrics=["count"], limit=50)
-    statements = [(q, p) for q, p in executed_sql if _AGGREGATE_SQL.search(q)]
-    assert len(statements) == 1, [q for q, _ in statements]
-    narrow_sql, params = statements[0]
-    assert "attribute_versions" not in narrow_sql
-    assert "attribute_effective_attrs" not in narrow_sql
-    joined_sql, replaced = _NARROW_BASE.subn(
-        r"FROM \1 JOIN okg.attribute_versions "
-        r"USING (target_kind, target_id, attrs_hash) WHERE",
-        narrow_sql,
-    )
-    assert replaced == 1, narrow_sql
-    with psycopg.connect(world["dsn"], autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute(narrow_sql, params)
-        narrow_rows = sorted(cur.fetchall(), key=repr)
-        cur.execute(joined_sql, params)
-        joined_rows = sorted(cur.fetchall(), key=repr)
-    assert narrow_rows, "the aggregate counted nothing; the comparison proves nothing"
-    assert narrow_rows == joined_rows
+    statements = [q for q, _ in executed_sql if _AGGREGATE_SQL.search(q)]
+    assert len(statements) == 1, statements
+    assert "attribute_effective_attrs" not in statements[0]
+    assert " AS split" not in statements[0]
+    assert new["groups"], "the aggregate counted nothing; the comparison proves nothing"
     old = _old(world, legacy.aggregate_set, input=scope, by=by, metrics=["count"], limit=50)
     assert sorted((tuple(g[f] for f in by), g["count"]) for g in new["groups"]) == sorted(
         (tuple(g[f] for f in by), g["count"]) for g in old["groups"]
@@ -258,16 +243,16 @@ def test_an_aggregate_reading_no_attrs_skips_the_payload_join(
     ({"kind": "nodes", "filter": {"op": "eq", "field": "attrs.status", "value": "open"}},
      ["subtype"]),
 ])
-def test_an_aggregate_reading_attrs_keeps_the_payload_join_and_overlay(
+def test_an_aggregate_reading_attrs_reads_the_overlay(
     world: dict, executed_sql: list, scope: dict, by: list,
 ) -> None:
-    """The failure case for the narrowing: an attrs aggregate must still read
-    the payload and the live overlay, or it would count stored, not
-    effective, values (d's effective status is "open")."""
+    """The failure case for the narrowing: an attrs aggregate must read the
+    overlay (the split aggregate's merged branch), or it would count graph,
+    not effective, values (d's effective status is "open")."""
     out = world["tools"]["aggregate"](input=scope, by=by, metrics=["count"], limit=50)
     statements = [q for q, _ in executed_sql if _AGGREGATE_SQL.search(q)]
     assert len(statements) == 1, statements
-    assert "JOIN okg.attribute_versions" in statements[0]
+    assert " AS split" in statements[0]
     assert "okg.attribute_effective_attrs" in statements[0]
     if by == ["attrs.status"]:
         counts = {g["attrs.status"]: g["count"] for g in out["groups"]}
@@ -327,14 +312,24 @@ def test_filtered_expand_old_and_new_agree(world: dict, dest_filter: Any, order_
 
 
 def _relation(world: dict, conn) -> tuple[str, dict[str, Any]]:
-    mcp = world["mcp"]
-    params: dict[str, Any] = {}
-    base, source, gen_where, gen_params = mcp._okg_effective_view_source(
-        conn, world["gen"], target_kind="node",
-    )
-    from_clause = mcp._okg_effective_view_runtime_source(
-        base_table=base, source_clause=source, gen_where=gen_where, gen_params=gen_params,
-        target_kind="node", generation_id=world["gen"], relation="rel", params=params,
+    """The effective relation the page compiles over: every visible graph
+    row at the pin with its overlays merged (PACT lane-s-storage-cutover;
+    ``graph_read.merged_relation_sql``)."""
+    from okg.substrate.attributes import RESERVED_EFFECTIVE_ATTR_KEYS
+    from okg.substrate.bm25_node_search import branch_point
+    from okg.substrate.mcp import graph_read
+    from okg.substrate.mcp.semantic_readiness import resolve_node_segment
+
+    session = open_session(conn, deployment_name="default",
+                           requested_generation=world["gen"])
+    params: dict[str, Any] = {
+        "graph_bp": branch_point(conn, session),
+        "overlay_gen": str(world["gen"]),
+        "overlay_reserved": sorted(RESERVED_EFFECTIVE_ATTR_KEYS),
+        "tk": "node",
+    }
+    from_clause = graph_read.merged_relation_sql(
+        kind="nodes", segment=resolve_node_segment(conn), relation="rel",
     )
     return from_clause, params
 
@@ -672,13 +667,17 @@ def test_nul_operand_returns_no_rows_and_never_reaches_the_database(
 # ------------------------------------------------------------------ one path
 
 
-def test_missing_snapshot_is_refused_by_name_and_never_reaches_run_sql(
+def test_a_missing_overlay_marker_is_refused_by_name_and_never_reaches_run_sql(
     world: dict, monkeypatch,
 ) -> None:
-    monkeypatch.setenv("OKG_IVM_INTERVAL_VIEW", "0")
+    """A pin whose overlay marker is gone cannot be read from the graph rows
+    (PACT lane-s-storage-cutover): every operator refuses it by name, and
+    none is rerouted to run_sql."""
+    from okg.substrate.attributes import OVERLAY_GENERATION_MARKER_TABLE
+
     with psycopg.connect(world["dsn"], autocommit=True) as conn:
         conn.execute(
-            "DELETE FROM okg.attribute_effective_view WHERE generation_id = %s",
+            f"DELETE FROM {OVERLAY_GENERATION_MARKER_TABLE} WHERE generation_id = %s",
             (world["gen"],),
         )
     calls: list[str] = []
@@ -701,9 +700,8 @@ def test_missing_snapshot_is_refused_by_name_and_never_reaches_run_sql(
     for name, attempt in attempts.items():
         with pytest.raises(SubstrateError) as refused:
             attempt()
-        assert refused.value.code == "unsupported_operator_form", name
-        assert refused.value.data["generation_id"] == world["gen"], name
-        assert refused.value.data["target_kind"] in {"node", "edge"}, name
+        assert refused.value.code == "overlay_generation_unmaterialized", name
+        assert refused.value.data["generation_id"] == str(world["gen"]), name
     assert calls == []
 
 

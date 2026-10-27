@@ -1,8 +1,9 @@
-"""Retained live answers: one large live result, read again without the adapter.
+"""Live handles: the rows of a live read, read again without the adapter.
 
-``expand(live={..., "retain": true})`` keeps the full row set of one live
-call whose state is ``ok`` for 300 seconds, under a signed random id, for
-the reader (and, on a multi-user server, the principal) that made the call.
+Every live set read (PACT read-live-handles) keeps the full row set of one
+live call whose state is ``ok`` for 600 seconds, under a signed random id, for
+the reader and logical session (and, on a multi-user server, the principal)
+that made the call.
 ``filter``, ``map`` and ``aggregate`` read it with ``input={"ref": id}``.
 A live answer CUT to fit its reply is kept the same way without being
 asked, and its reply names one ``expand(next="<token>")`` call that pages
@@ -17,9 +18,10 @@ original ``observed_at`` and ``digest``.
 
 Storage is a sibling of the graph result-reference store
 (:mod:`okg.substrate.mcp.result_references`) with its own id version
-(``l1``), its own MAC label and its own limits: 300 s, 50,000 rows and
-8 MiB per set, 4 sets per reader and per principal, 16 sets and 64 MiB per
-server. A set is stored once, as compact JSON of the UNWRAPPED rows in
+(``l1``), its own MAC label and its own limits: 600 s, 50,000 rows and
+8 MiB per set, 64 sets and 32 MiB per reader and session, 128 sets per
+principal, 1,024 sets and 128 MiB per server (PACT read-multi-handle-input),
+the busiest session's oldest set evicted when the server is full. A set is stored once, as compact JSON of the UNWRAPPED rows in
 upstream row and key order; the caps count those bytes. Key order is kept
 because the untrusted-text wrapping renames colliding keys in order, and
 each served page is wrapped again with that same wrapping.
@@ -50,17 +52,24 @@ from okg.substrate.mcp import result_references as _rr
 #: Every live id starts with this; a graph reference id starts with ``r1.``.
 ID_VERSION = "l1"
 ID_PREFIX = ID_VERSION + "."
-LIFETIME_SECONDS = 300
+#: PACT read-live-handles (3.5): 10 minutes from mint; a read does not extend it.
+LIFETIME_SECONDS = 600
 MAX_ROWS = 50_000
 MAX_SET_BYTES = 8 * 1024 * 1024
-MAX_PER_READER = 4
-MAX_PER_PRINCIPAL = 4
-MAX_PER_SERVER = 16
-MAX_TOTAL_BYTES = 64 * 1024 * 1024
+#: Per quota key: the reader plus its logical session, or the reader alone on
+#: a stateless transport (M1). The name is kept for its callers. PACT
+#: read-multi-handle-input (Jason, board d275, 2026-10-25) raised the counts
+#: from 16/32/64 so a hand chain's 60 kept answers, its chain handle and the
+#: handles its reads mint fit one session; the byte caps are unchanged.
+MAX_PER_READER = 64
+MAX_PER_QUOTA_BYTES = 32 * 1024 * 1024
+MAX_PER_PRINCIPAL = 128
+MAX_PER_SERVER = 1024
+MAX_TOTAL_BYTES = 128 * 1024 * 1024
 #: Groups one aggregate page serves at most.
 MAX_GROUPS = 50
 MAX_BY_FIELDS = 4
-FIX_HINT = "call expand(live=..., retain=true) again"
+FIX_HINT = "run the read that made the handle again"
 #: One owner: the sample module, whose call counts exclude these reads.
 SERVED_FROM = RETAINED_ANSWER_READ
 
@@ -77,11 +86,17 @@ LIMITS = _rr.StoreLimits(
     copy_on_lookup=False,
     reserve_on_mint=True,
     fix_hint=FIX_HINT,
+    max_quota_bytes=MAX_PER_QUOTA_BYTES,
+    fair_eviction=True,
+    noun="handle",
 )
 
 #: Why a requested set was not kept, as `retained: false` reports it.
 NOT_KEPT_REASONS = (
     "too_large", "state_not_ok", "rows_not_a_list", "rows_not_objects", "capacity",
+    # PACT read-map-compute: an upstream row carries a key that starts with
+    # a NUL and "calc", where a kept row keeps its computed columns.
+    "reserved_key",
 )
 
 #: Predicate operators a read accepts: the graph `filter` grammar. `contains`
@@ -95,6 +110,8 @@ _LEAF_OPS = frozenset({
 #: starts with a NUL, so it can never be an upstream field's name.
 RECORD_COLUMNS = ("node_id", "subtype")
 _RECORD_KEY = "\x00"
+#: The start of every key a computed row adds (`map_compute.MARK`).
+_CALC_MARK = "\x00calc"
 
 
 class LiveResultDenied(SubstrateError):
@@ -176,6 +193,11 @@ def capture(raw: Any) -> tuple[bytes, int]:
         raise NotRetained("rows_not_a_list")
     if not all(isinstance(row, dict) for row in raw):
         raise NotRetained("rows_not_objects")
+    if any(isinstance(key, str) and key.startswith(_CALC_MARK) for row in raw for key in row):
+        # PACT read-map-compute: a kept row keeps its computed columns under
+        # keys that start with a NUL and "calc"; an upstream row carrying one
+        # would read as computed, so it is not kept.
+        raise NotRetained("reserved_key")
     if len(raw) > MAX_ROWS:
         raise NotRetained("too_large")
     try:
@@ -280,10 +302,133 @@ class RetainedSet:
     #: came from a kept listing, that listing's relation and arguments.
     each: Optional[str] = None
     each_from: Optional[dict[str, Any]] = None
+    #: A handle derived from another (PACT read-live-handles): the handle it
+    #: came from, and the original call's row count, for `original_call`.
+    derived_from: Optional[str] = None
+    original_rows: Optional[int] = None
+    #: A chain read's combined set (PACT read-multi-handle-input): the first
+    #: and last read time of its answers, `09:40:12-09:52:19Z`.
+    read_window: Optional[str] = None
+    #: The external system's cut of the call that made the set (PACT
+    #: live-kept-answer-cut): rows it sent, and how many of how many calls
+    #: it cut (a direct call is 1 of 1). None when the answer was whole.
+    upstream_cut: Optional[dict[str, int]] = None
 
     @property
     def relation_name(self) -> str:
         return str(self.relation.name)
+
+
+#: The group columns a groups handle stores under these keys, in column order
+#: (`c0`, `c1`, ...), so a label such as ``sum(attrs.size)`` is never read as
+#: a nested upstream path.
+GROUP_COLUMN_PREFIX = "c"
+
+
+@dataclass(frozen=True)
+class LiveGroupsSet:
+    """A live aggregate's groups, kept as a handle (PACT read-live-handles,
+    4.1.7). Its rows are groups: the `by` fields as written, the metric
+    labels, and `rank` on a ranked aggregate, stored under `c<i>` keys.
+
+    `grouped` is the set it grouped with its rows dropped: every read of the
+    groups asks the re-checks that set's own read asks (the caller, the
+    binding, the gates), so the groups never widen what their set allowed.
+    """
+
+    rows_json: bytes
+    row_count: int
+    columns: tuple[str, ...]
+    grouped: Any
+    from_id: Optional[str]
+    order: str
+    digest: str
+    #: Whether a ranked aggregate ranked every group (part 2's
+    #: `ranking_complete`), None when the groups are not ranked: a map over
+    #: the groups carries it (PACT read-map-compute 6.3).
+    ranking_complete: Optional[bool] = None
+
+    @property
+    def relation_name(self) -> str:
+        return str(self.grouped.relation_name)
+
+    @property
+    def relation(self) -> Any:
+        return self.grouped.relation
+
+    @property
+    def observed_at(self) -> str:
+        return str(self.grouped.observed_at)
+
+    @property
+    def node_id(self) -> str:
+        return str(self.grouped.node_id)
+
+    @property
+    def subject(self) -> Any:
+        return self.grouped.subject
+
+    @property
+    def deployment_name(self) -> str:
+        return str(getattr(self.grouped, "deployment_name", "") or "")
+
+    @property
+    def refetch(self) -> Any:
+        return getattr(self.grouped, "refetch", None)
+
+    @property
+    def args_fingerprint(self) -> str:
+        return str(getattr(self.grouped, "args_fingerprint", "") or "")
+
+    @property
+    def query(self) -> Any:
+        return getattr(self.grouped, "query", None)
+
+    @property
+    def upstream_cut(self) -> Optional[dict[str, int]]:
+        """The grouped set's cut: groups of a short set are short too."""
+        return getattr(self.grouped, "upstream_cut", None)
+
+    def key_of(self, column: str) -> Optional[str]:
+        """The stored key of a column named as the reply prints it."""
+
+        try:
+            return f"{GROUP_COLUMN_PREFIX}{self.columns.index(column)}"
+        except ValueError:
+            return None
+
+
+def groups_set(
+    groups: Sequence[Mapping[str, Any]], *, columns: Sequence[str], source: Any,
+    from_id: Optional[str], order: str, ranking_complete: Optional[bool] = None,
+) -> LiveGroupsSet:
+    """The kept form of a live aggregate's whole group list (every group,
+    not the page), with the grouped set's rows dropped (`grouped`)."""
+
+    import dataclasses as _dc
+    import hashlib as _hashlib
+
+    names = list(columns)
+    rows = [
+        {f"{GROUP_COLUMN_PREFIX}{i}": group.get(name) for i, name in enumerate(names)}
+        for group in groups
+    ]
+    blob = encode_rows(rows)
+    stripped = (
+        _dc.replace(source, rows_json=b"") if _dc.is_dataclass(source) else source
+    )
+    return LiveGroupsSet(
+        rows_json=blob, row_count=len(rows), columns=tuple(names), grouped=stripped,
+        from_id=from_id, order=order, ranking_complete=ranking_complete,
+        digest="sha256:" + _hashlib.sha256(blob).hexdigest(),
+    )
+
+
+def checked_set(payload: Any) -> Any:
+    """The set whose re-checks a read of `payload` asks: a groups handle's
+    grouped set, otherwise the payload itself."""
+
+    return payload.grouped if isinstance(payload, LiveGroupsSet) else payload
 
 
 def reference_block(
@@ -337,7 +482,7 @@ NEXT_MAC_LABEL = b"okg/live-next/v1"
 _NEXT_MAC_CHARS = 22
 #: Kept answers whose redo call is remembered after they are gone, so an
 #: expired or evicted token's refusal can name the call that asks again.
-MAX_REMEMBERED_CALLS = 1024
+MAX_REMEMBERED_CALLS = 4096
 
 
 def next_token(set_id: str, offset: int) -> str:
@@ -423,26 +568,63 @@ def redo_call(
     return {"tool": "expand", "arguments": {"input": node_id, "live": live}}
 
 
-def remember_call(set_id: str, reader_key: str, call: Mapping[str, Any]) -> None:
-    """Remember a kept answer's redo call past its set's life (bounded)."""
+#: A remembered recipe holds at most this many calls and bytes (3.6); a
+#: longer chain is remembered as "run the read that made it again".
+MAX_RECIPE_STEPS = 8
+MAX_RECIPE_BYTES = 16 * 1024
 
+
+def remember_recipe(
+    set_id: str, reader_key: str, recipe: Optional[Sequence[Mapping[str, Any]]],
+) -> None:
+    """Remember the calls that made a handle, past its life (bounded, least
+    recently used first). `recipe` is the producing calls in order, the
+    first one reading no handle; None when they are not known. A chain
+    longer than :data:`MAX_RECIPE_STEPS` calls or :data:`MAX_RECIPE_BYTES`
+    is remembered as unknown."""
+
+    calls: Optional[list[dict[str, Any]]] = None
+    if recipe:
+        calls = [dict(call) for call in recipe]
+        size = len(json.dumps(calls, default=str))
+        if len(calls) > MAX_RECIPE_STEPS or size > MAX_RECIPE_BYTES:
+            calls = None
     with _CALLS_LOCK:
-        _REDO_CALLS[set_id] = (reader_key, dict(call))
+        _REDO_CALLS[set_id] = (reader_key, calls)
         _REDO_CALLS.move_to_end(set_id)
         while len(_REDO_CALLS) > MAX_REMEMBERED_CALLS:
             _REDO_CALLS.popitem(last=False)
 
 
-def remembered_call(set_id: str, reader_key: str) -> Optional[dict[str, Any]]:
-    """The redo call remembered for `set_id`, for the reader that made it."""
+def remembered_recipe(set_id: str, reader_key: str) -> tuple[bool, Optional[list[dict[str, Any]]]]:
+    """`(known, recipe)` for `set_id` and the reader that made it. `known`
+    False: nothing is remembered (never issued here, another reader's, or
+    forgotten under load); `recipe` None with `known` True: the chain was
+    too long or not known at mint."""
 
     import hmac as _hmac
 
     with _CALLS_LOCK:
         found = _REDO_CALLS.get(set_id)
     if found is None or not _hmac.compare_digest(found[0], reader_key):
+        return False, None
+    return True, (None if found[1] is None else [dict(call) for call in found[1]])
+
+
+def remember_call(set_id: str, reader_key: str, call: Mapping[str, Any]) -> None:
+    """Remember a kept answer's one redo call past its set's life (bounded)."""
+
+    remember_recipe(set_id, reader_key, [call])
+
+
+def remembered_call(set_id: str, reader_key: str) -> Optional[dict[str, Any]]:
+    """The one redo call remembered for `set_id`, for the reader that made
+    it; None for a chain or nothing remembered."""
+
+    _known, recipe = remembered_recipe(set_id, reader_key)
+    if recipe is None or len(recipe) != 1:
         return None
-    return dict(found[1])
+    return recipe[0]
 
 
 #: Why a next token's kept answer cannot be read, in the reader's words.
@@ -452,8 +634,8 @@ NEXT_GONE_MESSAGES = {
         f"is kept {LIFETIME_SECONDS} seconds)"
     ),
     "evicted": (
-        f"the kept live answer this next token pages was dropped for newer "
-        f"ones (a reader keeps {MAX_PER_READER})"
+        "the kept live answer this next token pages was evicted to make "
+        "room for newer handles"
     ),
     "store_lost": (
         "the kept live answer this next token pages is gone: the server "
@@ -607,6 +789,7 @@ def begin_retain(
     deployment_name: str,
     session_id: str,
     each_from: Optional[Mapping[str, Any]] = None,
+    quota_key: Optional[str] = None,
 ) -> RetainHandle:
     """Draft a set for an `ok` call's answer, or say why it is not kept.
 
@@ -633,12 +816,16 @@ def begin_retain(
         query=dict(base.get("query") or {}),
         each=str(base["each"]) if base.get("each") else None,
         each_from=dict(each_from) if each_from else None,
+        upstream_cut=kept_cut(base.get("upstream_cut")),
     )
     try:
         draft = store.mint(
             reader_key=reader_key, binding=binding, members=(),
             header_claim=header_claim, multi_user=multi_user,
             payload=retained, payload_bytes=len(blob), payload_rows=count,
+            # The reader plus its logical session: what the caps count and
+            # what a read is checked against (PACT read-live-handles, N5).
+            quota_key=quota_key,
         )
     except _rr.ResultReferenceCapacity as exc:
         reason = (exc.data or {}).get("reason")
@@ -689,11 +876,26 @@ def _attrs_key(value: Any, *, argument: str) -> str:
 
 def _condition_key(value: Any, *, argument: str) -> str:
     """The key a condition, `by` or metric field reads: an upstream field's
-    name, or a record column's name behind NUL (:data:`RECORD_COLUMNS`)."""
+    name, or a record column's name behind NUL (:data:`RECORD_COLUMNS`). A
+    computed column `calc.<name>` (PACT read-map-compute) is read like a
+    record column: its key, behind NUL, is the row key its value is kept
+    under (`map_compute.VALUE_PREFIX`)."""
 
     if isinstance(value, str) and value in RECORD_COLUMNS:
         return _RECORD_KEY + value
+    if isinstance(value, str) and _CALC_NAME.fullmatch(value):
+        return _RECORD_KEY + value
     return _attrs_key(value, argument=argument)
+
+
+#: A computed column as a call names it (PACT read-map-compute).
+_CALC_NAME = re.compile(r"calc\.[a-z][a-z0-9_]{0,31}")
+
+
+def is_calc_key(key: str) -> bool:
+    """Whether a condition key names a computed column."""
+
+    return key.startswith(_RECORD_KEY + "calc.")
 
 
 def column_label(key: str) -> str:
@@ -817,9 +1019,12 @@ def check_by(by: Any) -> list[str]:
 #: rows, which the agent otherwise added by hand).
 METRIC_FUNCTIONS = ("sum", "min", "max")
 MAX_METRICS = 4
-_METRIC_FORM = re.compile(r"^(sum|min|max)\((attrs\.[^()]*)\)$")
+_METRIC_FORM = re.compile(
+    r"^(sum|min|max)\((attrs\.[^()]*|calc\.[a-z][a-z0-9_]{0,31})\)$",
+)
 METRICS_HINT = (
-    "pass metrics=['count'], or e.g. ['sum(attrs.<field>)'] (also min, max)"
+    "pass metrics=['count'], or e.g. ['sum(attrs.<field>)'] (also min, max; "
+    "a computed column as sum(calc.<name>))"
 )
 
 
@@ -860,10 +1065,93 @@ def _args_text(query: Mapping[str, Any], listed: Optional[str] = None) -> str:
     return ", ".join(parts)
 
 
-def totals_cover(retained: "RetainedSet", rows_counted: int) -> str:
+def kept_cut(block: Any) -> Optional[dict[str, int]]:
+    """A kept set's record of the external system's cut, from the envelope's
+    `upstream_cut` block, or None when the answer was whole (or the block
+    names no rows). A direct call is one call, so its cut is 1 of 1; a
+    fan-out names its own counts."""
+
+    if not isinstance(block, Mapping) or block.get("rows") is None:
+        return None
+    calls = block.get("calls")
+    return {
+        "rows": int(block["rows"]),
+        "calls_cut": int(block.get("calls_cut") or 0) if calls is not None else 1,
+        "calls": int(calls) if calls is not None else 1,
+    }
+
+
+def listing_cuts(coverage: Any) -> Optional[list[str]]:
+    """What cut a live-type listing (`coverage["cuts"]`), or None when its
+    listing was whole. A typed read's listing is cut when the external
+    system cut it or it stopped at its own limit (`live_calls.listing`)."""
+
+    if not isinstance(coverage, Mapping) or not coverage.get("cut"):
+        return None
+    return [str(c) for c in coverage.get("cuts") or []] or ["the listing stopped at its limit"]
+
+
+def totals_short(retained: Any, coverage: Any = None) -> dict[str, Any]:
+    """The JSON fields of a total over a set that is short (PACT
+    live-kept-answer-cut): the kept answer's `upstream_cut`, a typed
+    listing's `listing_cut`, or nothing for a whole set."""
+
+    out: dict[str, Any] = {}
+    cut = getattr(retained, "upstream_cut", None)
+    if cut:
+        out["upstream_cut"] = dict(cut)
+    listing = listing_cuts(coverage)
+    if listing:
+        out["listing_cut"] = listing
+    return out
+
+
+def _labels_text(labels: Sequence[str]) -> str:
+    return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
+
+
+def cut_bounds_text(
+    metrics: Sequence[tuple[str, Optional[str]]], *, grouped: bool = False,
+) -> str:
+    """What each metric of a total over a short set is. A count can only
+    grow with the rows not received (`at least`). A sum, min or max can move
+    either way, since a row not received may hold any value, a negative one
+    included (`over the rows received only`); so does a metric that shows
+    null because no received row held a number. With `by`, a group only
+    unreceived rows hold is missing too."""
+
+    at_least = [metric_label(m) for m in metrics if m[1] is None]
+    over = [metric_label(m) for m in metrics if m[1] is not None]
+    parts = []
+    if at_least:
+        parts.append(
+            f"{_labels_text(at_least)} is at least the value shown"
+            + (" in each group" if grouped else "")
+        )
+    if over:
+        parts.append(
+            f"{_labels_text(over)} {'is' if len(over) == 1 else 'are'} over the "
+            "rows received only"
+        )
+    if grouped:
+        parts.append("a group held only by rows not received is missing")
+    return "".join(f"; {part}" for part in parts)
+
+
+def totals_cover(
+    retained: "RetainedSet", rows_counted: int, *,
+    metrics: Sequence[tuple[str, Optional[str]]] = (),
+    grouped: bool = False,
+    coverage: Any = None,
+) -> str:
     """What a total over a kept answer covers, in one line (a listing
     of 142 items matched by a pattern was reported as all 223). It names the
-    call and, for a fan-out over a kept listing, that listing's pattern."""
+    call and, for a fan-out over a kept listing, that listing's pattern.
+
+    Over a short set (PACT live-kept-answer-cut) it says what cut it: the
+    external system, counted in calls (a kept answer's `upstream_cut`), or a
+    typed listing's cut (`coverage`); then what each of `metrics` is
+    (:func:`cut_bounds_text`)."""
 
     query = retained.query or {}
     text = (
@@ -880,7 +1168,40 @@ def totals_cover(retained: "RetainedSet", rows_counted: int) -> str:
                 f" from {source['relation']}({_args_text(source.get('query') or {})})"
             )
         text += ")"
-    return text + "; nothing outside these calls is counted"
+    text += "; nothing outside these calls is counted"
+    short = totals_short(retained, coverage)
+    cut = short.get("upstream_cut")
+    if cut:
+        text += (
+            f"; the external system cut {cut['calls_cut']} of {cut['calls']} calls, "
+            "so totals count only the rows it sent"
+        )
+    if short.get("listing_cut"):
+        text += (
+            f"; the live listing was cut ({', '.join(short['listing_cut'])}), so "
+            "totals count only the rows listed"
+        )
+    if short:
+        text += cut_bounds_text(metrics, grouped=grouped)
+    return text
+
+
+def partial_rows_text(
+    metrics: Sequence[tuple[str, Optional[str]]], *, grouped: bool, counted: int,
+    not_computed: int,
+) -> str:
+    """What a total over rows a computed column left out covers (PACT
+    read-map-compute 6.7): how many rows of how many, then what each metric
+    is, in the cut wording (:func:`cut_bounds_text`): a count can only grow,
+    a sum, min or max can move either way. Empty when no row was left out."""
+
+    if not not_computed:
+        return ""
+    return (
+        f"; over {counted:,} of {counted + not_computed:,} rows; {not_computed:,} "
+        "not computed (a computed column this call reads has no value there)"
+        + cut_bounds_text(metrics, grouped=grouped)
+    )
 
 
 def metric_label(metric: tuple[str, Optional[str]]) -> str:
@@ -952,6 +1273,14 @@ class GroupReport:
     #: The sum metrics that met a non-integer value: the metric is still the
     #: exact integer sum; those values are in `<metric> floats`.
     inexact: list[str]
+    #: The sum metrics that added a whole-number float of 2^53 or more
+    #: (PACT read-multi-handle-input, L7): exact as received, but the
+    #: outside system may have rounded it before sending.
+    large_floats: list[str] = field(default_factory=list)
+
+
+#: A whole-number float at or past this may already be a rounded integer.
+FLOAT_EXACT_LIMIT = 2 ** 53
 
 
 def group_report(
@@ -970,10 +1299,7 @@ def group_report(
     field is in the `(absent)` group, apart from a stored null. A group
     whose column holds no number gets null for that metric."""
 
-    keys = [
-        _RECORD_KEY + field if field in RECORD_COLUMNS else field.split(".", 1)[1]
-        for field in by
-    ]
+    keys = [_condition_key(field, argument="by") for field in by]
     counts: collections.Counter[tuple[str, ...]] = collections.Counter()
     values: dict[tuple[str, ...], tuple[Any, ...]] = {}
     found: dict[tuple[str, ...], dict[str, list[Any]]] = {}
@@ -1004,6 +1330,7 @@ def group_report(
     ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     out: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     inexact: set[str] = set()
+    large: set[str] = set()
     for text, count in ordered:
         computed: dict[str, Any] = {}
         for metric in metrics:
@@ -1026,6 +1353,11 @@ def group_report(
                 )
                 floats = [n for n in numbers if isinstance(n, float) and not n.is_integer()]
                 computed[label] = integers
+                if any(
+                    isinstance(n, float) and n.is_integer() and abs(n) >= FLOAT_EXACT_LIMIT
+                    for n in numbers
+                ):
+                    large.add(label)
                 if floats:
                     inexact.add(label)
                     computed[float_part_label(label)] = math.fsum(floats)
@@ -1035,7 +1367,15 @@ def group_report(
     return GroupReport(
         groups=out, skipped=skipped, absent=dict(absent),
         inexact=[metric_label(m) for m in metrics if metric_label(m) in inexact],
+        large_floats=[metric_label(m) for m in metrics if metric_label(m) in large],
     )
+
+
+def not_exact_labels(report: GroupReport) -> list[str]:
+    """`sum_not_exact`: sums that met a non-integer value or a whole-number
+    float of 2^53 or more, in metric order."""
+
+    return list(dict.fromkeys([*report.inexact, *report.large_floats]))
 
 
 def group_metrics(
@@ -1115,6 +1455,14 @@ def inexact_sentence(labels: Sequence[str]) -> str:
     )
 
 
+#: Said when a sum added a whole-number float of 2^53 or more (L7).
+def large_float_sentence(labels: Sequence[str]) -> str:
+    return (
+        ", ".join(labels) + " added whole-number floats of 2^53 or more: exact as "
+        "received, but the outside system may have rounded them before sending"
+    )
+
+
 _LIVE_MESSAGES = {
     "binding_mismatch": (
         "the retained live answer was made under a different binding than this read"
@@ -1189,6 +1537,11 @@ def project(
         for alias, field_name in pairs:
             if field_name in RECORD_COLUMNS:
                 item[alias] = record.get(field_name)
+                continue
+            if _CALC_NAME.fullmatch(field_name):
+                # A computed column (PACT read-map-compute), as `records`
+                # serves it (`map_compute.served_value`).
+                item[alias] = record.get(_RECORD_KEY + field_name)
                 continue
             name = field_name.split(".", 1)[1]
             item[alias] = served.get(served_key.get(name, name))
@@ -1267,7 +1620,13 @@ __all__ = [
     "is_next_token",
     "largest_next_token",
     "metric_label",
+    "large_float_sentence",
+    "not_exact_labels",
     "totals_cover",
+    "kept_cut",
+    "cut_bounds_text",
+    "listing_cuts",
+    "totals_short",
     "next_set_id",
     "next_token",
     "next_token_placeholder",

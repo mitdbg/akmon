@@ -18,8 +18,9 @@ PACT lane-h-3112-step1. Native PostgreSQL.
   waiting publish, a held publisher lock or a source run, skips a table with a leftover invalid index, cleans up after a
   failed rebuild under the lock, handles an empty table without re-analyzing
   it, and has a kill switch (``test_post_publish_*``). The bloated table is
-  ``okg.attribute_versions`` (before okg#3112 step 4b removed it, it was
-  ``okg.attr_index``).
+  ``okg.attribute_overlay_ranges``, put in the judged list by a fixture
+  (before PACT lane-s-storage-drop-copies it was ``okg.attribute_versions``,
+  and before okg#3112 step 4b ``okg.attr_index``).
 
 Scale is small so the file fits a CI lane; the size floor is lowered per call.
 """
@@ -347,10 +348,23 @@ def test_a_concurrent_migrate_defers_the_online_step_and_succeeds(clean_runtime:
     run_key = _run_key_name(dsn)
     with psycopg.connect(dsn, autocommit=True) as other:
         other.execute("SELECT pg_advisory_lock(hashtext(%s))", (cold_history._INDEX_DDL_LOCK,))
+        begun = time.monotonic()
         result = migrate(dsn)
+        took = time.monotonic() - begun
+        other_pid = other.info.backend_pid
     step = result.graph_read_indexes
     assert step["status"] == "deferred" and step["reason"] == "another_index_change_running", step
     assert run_key not in _graph_indexes(dsn)
+    # It does not wait out the reconciler's 60 s preemption budget (twice:
+    # on entry and before the schema transaction) for a holder it cannot
+    # cancel: it says who holds the lock and goes on.
+    report = result.declared_attr_index_preemption
+    assert report["status"] == "not_acquired", report
+    assert report["reason"] == "held_by_another_index_change", report
+    assert report["holders"] == [other_pid], report
+    assert report["cancelled_pids"] == [], report
+    assert report["waited_seconds"] < 10, report
+    assert took < 30, took
     assert migrate(dsn).graph_read_indexes["status"] == "converged"
     assert _graph_indexes(dsn)[run_key]["valid"]
 
@@ -460,53 +474,61 @@ def test_reads_served_by_the_retired_indexes_still_use_an_index(clean_runtime: s
 # --------------------------------------------------------------------------- #
 
 
-#: A table the post-publish rebuild judges, written in bulk by a publish.
-_BLOAT = "okg.attribute_versions"
+#: A table the post-publish rebuild judges. PACT lane-s-storage-drop-copies
+#: dropped the three attribute copies, the only okg-schema tables a publish
+#: rewrote in bulk, so ``_POST_PUBLISH_OKG_TABLES`` is empty in production;
+#: these tests put the overlay ranges in it (``_judged_overlay_ranges``) to
+#: drive the okg-schema half of the rebuild. Three indexes, no foreign key.
+_BLOAT = "okg.attribute_overlay_ranges"
+
+
+@pytest.fixture(autouse=True)
+def _judged_overlay_ranges(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(index_reclaim, "_POST_PUBLISH_OKG_TABLES", (_BLOAT,))
 
 
 def _bloat(dsn: str, rows: int = 40_000) -> None:
-    """Allocate attribute_versions index pages for rows that roll back (a
-    failed write)."""
+    """Allocate overlay-range index pages (all three indexes: every row is
+    open) for rows that roll back (a failed write)."""
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO okg.attribute_versions
-              (target_kind, target_id, attrs_hash, attrs)
-            SELECT 'node', 'bloat:' || g, sha256(convert_to('v' || g, 'UTF8')),
-                   jsonb_build_object('path', 'v' || g)
+            INSERT INTO okg.attribute_overlay_ranges
+              (chronos_branch_id, target_kind, target_id, namespace, attr_key,
+               from_ord, to_ord, observation_id, value, value_hash)
+            SELECT 'bloat', 'node', 'bloat:' || g, 'default', 'path', 0,
+                   9223372036854775807, 'obs:' || g,
+                   jsonb_build_object('path', 'v' || g), 'v' || g
               FROM generate_series(1, %s) g
             """,
             (rows,),
         )
         conn.rollback()
+
+
+def _commit_rows(dsn: str, rows: int = 2) -> None:
+    """Committed range rows that all share ``target_kind``, so a unique
+    concurrent build on that column fails and leaves an invalid index (a
+    publish writes no range row without an overlay)."""
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(
+            """
+            INSERT INTO okg.attribute_overlay_ranges
+              (chronos_branch_id, target_kind, target_id, namespace, attr_key,
+               from_ord, to_ord, observation_id, value, value_hash)
+            SELECT 'kept', 'node', 'kept:' || g, 'default', 'path', 0,
+                   9223372036854775807, 'obs:kept:' || g,
+                   jsonb_build_object('path', 'k' || g), 'k' || g
+              FROM generate_series(1, %s) g
+            """,
+            (rows,),
+        )
 
 
 def _bloat_two_tables(dsn: str, rows: int = 40_000) -> None:
-    """Like :func:`_bloat`, plus open intervals for the same rolled-back
-    versions, so two tables carry an index to rebuild (attribute_versions has
-    only its primary key; the rebuild needs a second step to yield before)."""
-    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO okg.attribute_versions
-              (target_kind, target_id, attrs_hash, attrs)
-            SELECT 'node', 'bloat:' || g, sha256(convert_to('v' || g, 'UTF8')),
-                   jsonb_build_object('path', 'v' || g)
-              FROM generate_series(1, %s) g
-            """,
-            (rows,),
-        )
-        cur.execute(
-            """
-            INSERT INTO okg.attribute_effective_view_intervals
-              (target_kind, target_id, namespace, branch_id, from_ord, attrs_hash)
-            SELECT 'node', 'bloat:' || g, 'default', 'main', 1,
-                   sha256(convert_to('v' || g, 'UTF8'))
-              FROM generate_series(1, %s) g
-            """,
-            (rows,),
-        )
-        conn.rollback()
+    """Like :func:`_bloat`: the table carries three indexes, so the rebuild
+    takes more than one step and has a step to yield before."""
+    _bloat(dsn, rows)
 
 
 def _bloat_oids(dsn: str) -> dict[str, int]:
@@ -514,7 +536,7 @@ def _bloat_oids(dsn: str) -> dict[str, int]:
         cur.execute(
             "SELECT n.nspname || '.' || c.relname, i.indexrelid::bigint FROM pg_index i "
             "JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_namespace n ON n.oid = c.relnamespace "
-            "WHERE i.indrelid = 'okg.attribute_versions'::regclass"
+            "WHERE i.indrelid = 'okg.attribute_overlay_ranges'::regclass"
         )
         return {str(r[0]): int(r[1]) for r in cur.fetchall()}
 
@@ -523,7 +545,7 @@ def _invalid_bloat_indexes(dsn: str) -> list[str]:
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT indexrelid::regclass::text FROM pg_index "
-            "WHERE indrelid = 'okg.attribute_versions'::regclass "
+            "WHERE indrelid = 'okg.attribute_overlay_ranges'::regclass "
             "AND NOT (indisvalid AND indisready AND indislive)"
         )
         return [str(r[0]) for r in cur.fetchall()]
@@ -562,7 +584,7 @@ def test_post_publish_rebuild_returns_bloated_space_only_after_a_successful_publ
     rebuilt = _rebuild(dsn, summary)
     assert rebuilt["status"] == "rebuilt", rebuilt
     names = {item["index"] for item in rebuilt["rebuilt"]}
-    assert "okg.attribute_versions_pkey" in names, names
+    assert "okg.attribute_overlay_ranges_pkey" in names, names
     assert rebuilt["reclaimed_bytes"] > 1_000_000, rebuilt
     for item in rebuilt["rebuilt"]:
         assert item["bytes_after"] < item["bytes"], item
@@ -571,7 +593,7 @@ def test_post_publish_rebuild_returns_bloated_space_only_after_a_successful_publ
     assert rebuilt["max_publisher_lock_hold_seconds"] >= 0
     assert rebuilt["leftover_invalid_indexes"] == []
     assert _invalid_bloat_indexes(dsn) == []
-    # Exactly the rebuilt attribute_versions indexes have new OIDs (REINDEX
+    # Exactly the rebuilt attribute_overlay_ranges indexes have new OIDs (REINDEX
     # CONCURRENTLY swaps in a new index under the old name).
     changed = {name for name, oid in _bloat_oids(dsn).items() if oids.get(name) != oid}
     assert changed == {name for name in names if name in oids}, (changed, names)
@@ -662,16 +684,17 @@ def test_post_publish_rebuild_skips_a_table_with_a_leftover_invalid_index(clean_
     dsn = clean_runtime
     summary = _published(dsn)
     _bloat(dsn)
+    _commit_rows(dsn)
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
-        # A leftover of an interrupted concurrent build on attribute_versions.
+        # A leftover of an interrupted concurrent build on attribute_overlay_ranges.
         with pytest.raises(psycopg.errors.UniqueViolation):
-            cur.execute("CREATE UNIQUE INDEX CONCURRENTLY attribute_versions_3112_ccnew ON okg.attribute_versions (target_kind)")
+            cur.execute("CREATE UNIQUE INDEX CONCURRENTLY attribute_overlay_ranges_3112_ccnew ON okg.attribute_overlay_ranges (target_kind)")
     oids = _bloat_oids(dsn)
     report = _rebuild(dsn, summary)
     leftovers = report["leftover_invalid_indexes"]
-    assert [bad["index"] for bad in leftovers] == ["okg.attribute_versions_3112_ccnew"], report
+    assert [bad["index"] for bad in leftovers] == ["okg.attribute_overlay_ranges_3112_ccnew"], report
     assert leftovers[0]["drop_command"].startswith("DROP INDEX CONCURRENTLY ")
-    assert "attribute_versions_3112_ccnew" in leftovers[0]["drop_command"]
+    assert "attribute_overlay_ranges_3112_ccnew" in leftovers[0]["drop_command"]
     assert not any(item["table"] == _BLOAT for item in report.get("rebuilt") or []), report
     assert _bloat_oids(dsn) == oids
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
@@ -695,7 +718,7 @@ def test_post_publish_rebuild_failure_leaves_no_invalid_index(
         holder = psycopg.connect(dsn)
         try:
             holder.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            holder.execute("SELECT count(*) FROM okg.attribute_versions").fetchone()
+            holder.execute("SELECT count(*) FROM okg.attribute_overlay_ranges").fetchone()
             seen.setdefault("calls", 0)
             seen["calls"] += 1
             real(cur, schema, index)
@@ -798,7 +821,7 @@ def test_post_publish_rebuild_runs_inside_a_real_publish_cycle(
         key: value for key, value in report.items() if key != "thresholds"
     }
     rebuilt = {item["index"] for item in report["rebuilt"]}
-    assert "okg.attribute_versions_pkey" in rebuilt, rebuilt
+    assert "okg.attribute_overlay_ranges_pkey" in rebuilt, rebuilt
     changed = {name for name, oid in _bloat_oids(dsn).items() if oids.get(name) != oid}
     assert changed == {name for name in rebuilt if name in oids}
     assert _invalid_bloat_indexes(dsn) == []
@@ -865,7 +888,7 @@ def test_post_publish_rebuild_handles_an_empty_table_without_reanalyzing(
     dsn = clean_runtime
     _bloat(dsn, rows=60_000)
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM okg.attribute_versions")
+        cur.execute("SELECT count(*) FROM okg.attribute_overlay_ranges")
         assert cur.fetchone()[0] == 0
     summary = {"status": "published", "generation_id": "g"}
     first = _rebuild(dsn, summary)
@@ -890,11 +913,11 @@ def test_post_publish_rebuild_handles_an_empty_table_without_reanalyzing(
 
 
 def _reader(dsn: str) -> Any:
-    """A REPEATABLE READ reader with an open snapshot that has read attribute_versions
+    """A REPEATABLE READ reader with an open snapshot that has read attribute_overlay_ranges
     (so it also holds a lock a DROP INDEX CONCURRENTLY waits for)."""
     holder = psycopg.connect(dsn)
     holder.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-    holder.execute("SELECT count(*) FROM okg.attribute_versions").fetchone()
+    holder.execute("SELECT count(*) FROM okg.attribute_overlay_ranges").fetchone()
     return holder
 
 
@@ -916,7 +939,7 @@ def test_post_publish_rebuild_skips_while_an_old_snapshot_is_open(clean_runtime:
         _advance_xid(dsn)  # a write commits after the reader's snapshot
         _wait_until_old_snapshot(dsn, holder.info.backend_pid)
         for _ in range(3):
-            runs.append(_rebuild(dsn, summary, lock_timeout_seconds=1.0))
+            runs.append(_rebuild(dsn, summary, lock_timeout_seconds=1.0, old_snapshot_retries=0))
     finally:
         holder.rollback()
         holder.close()
@@ -998,7 +1021,7 @@ def test_guards_without_pg_read_all_stats(clean_runtime: str) -> None:
     def build() -> None:
         try:
             with psycopg.connect(dsn, autocommit=True) as conn:
-                conn.execute("CREATE INDEX CONCURRENTLY attribute_versions_3112_lowpriv ON okg.attribute_versions (target_id)")
+                conn.execute("CREATE INDEX CONCURRENTLY attribute_overlay_ranges_3112_lowpriv ON okg.attribute_overlay_ranges (target_id)")
         except BaseException as exc:  # noqa: BLE001 -- surfaced below
             build_errors.append(exc)
 
@@ -1008,7 +1031,7 @@ def test_guards_without_pg_read_all_stats(clean_runtime: str) -> None:
         _advance_xid(dsn)
         thread.start()
         deadline = time.monotonic() + 30
-        while "okg.attribute_versions_3112_lowpriv" not in _invalid_bloat_indexes(dsn):
+        while "okg.attribute_overlay_ranges_3112_lowpriv" not in _invalid_bloat_indexes(dsn):
             assert time.monotonic() < deadline, "the concurrent build never started"
             time.sleep(0.2)
         holder_pid = holder.info.backend_pid
@@ -1031,7 +1054,7 @@ def test_guards_without_pg_read_all_stats(clean_runtime: str) -> None:
         thread.join(timeout=60)
     assert not build_errors, build_errors
     with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute("DROP INDEX okg.attribute_versions_3112_lowpriv")
+        conn.execute("DROP INDEX okg.attribute_overlay_ranges_3112_lowpriv")
 
 
 def test_post_publish_rebuild_bounds_its_lock_hold_and_leaves_no_permanent_copy(
@@ -1078,14 +1101,15 @@ def test_post_publish_rebuild_drops_a_crashed_runs_copy(clean_runtime: str) -> N
     dsn = clean_runtime
     summary = _published(dsn)
     _bloat(dsn)
+    _commit_rows(dsn)
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
         with pytest.raises(psycopg.errors.UniqueViolation):
             cur.execute(
-                "CREATE UNIQUE INDEX CONCURRENTLY attribute_versions_pkey_ccnew ON okg.attribute_versions (target_kind)"
+                "CREATE UNIQUE INDEX CONCURRENTLY attribute_overlay_ranges_pkey_ccnew ON okg.attribute_overlay_ranges (target_kind)"
             )
-    assert _invalid_bloat_indexes(dsn) == ["okg.attribute_versions_pkey_ccnew"]
+    assert _invalid_bloat_indexes(dsn) == ["okg.attribute_overlay_ranges_pkey_ccnew"]
     report = _rebuild(dsn, summary)
-    assert report["cleaned_up_leftovers"] == ["okg.attribute_versions_pkey_ccnew"], report
+    assert report["cleaned_up_leftovers"] == ["okg.attribute_overlay_ranges_pkey_ccnew"], report
     assert report["leftover_invalid_indexes"] == [] and report["status"] == "rebuilt", report
     assert _invalid_bloat_indexes(dsn) == []
 
@@ -1106,7 +1130,7 @@ def test_post_publish_rebuild_ignores_a_build_in_progress(clean_runtime: str) ->
     def build() -> None:
         try:
             with psycopg.connect(dsn, autocommit=True) as conn:
-                conn.execute("CREATE INDEX CONCURRENTLY attribute_versions_3112_building ON okg.attribute_versions (target_id)")
+                conn.execute("CREATE INDEX CONCURRENTLY attribute_overlay_ranges_3112_building ON okg.attribute_overlay_ranges (target_id)")
         except BaseException as exc:  # noqa: BLE001 -- surfaced below
             errors.append(exc)
 
@@ -1114,23 +1138,23 @@ def test_post_publish_rebuild_ignores_a_build_in_progress(clean_runtime: str) ->
     thread.start()
     try:
         deadline = time.monotonic() + 30
-        while "okg.attribute_versions_3112_building" not in _invalid_bloat_indexes(dsn):
+        while "okg.attribute_overlay_ranges_3112_building" not in _invalid_bloat_indexes(dsn):
             assert time.monotonic() < deadline, "the concurrent build never started"
             time.sleep(0.2)
         report = _rebuild(dsn, summary)
         assert _BLOAT in report["builds_in_progress"], report
         assert all(
-            "attribute_versions_3112_building" not in bad["index"]
+            "attribute_overlay_ranges_3112_building" not in bad["index"]
             for bad in report["leftover_invalid_indexes"]
         ), report
-        assert "okg.attribute_versions_3112_building" in _invalid_bloat_indexes(dsn)
+        assert "okg.attribute_overlay_ranges_3112_building" in _invalid_bloat_indexes(dsn)
     finally:
         holder.rollback()
         holder.close()
         thread.join(timeout=60)
     assert not errors, errors
     with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute("DROP INDEX okg.attribute_versions_3112_building")
+        conn.execute("DROP INDEX okg.attribute_overlay_ranges_3112_building")
 
 
 def test_post_publish_rebuild_stops_at_its_time_budget(clean_runtime: str) -> None:
@@ -1190,16 +1214,19 @@ def test_post_publish_rebuild_reanalyzes_a_table_last_analyzed_while_empty(
     failed that way, `assert 6 == 0`)."""
     dsn = clean_runtime
     with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute("ALTER TABLE okg.attribute_versions SET (autovacuum_enabled = off)")
-        conn.execute("ANALYZE okg.attribute_versions")
+        conn.execute("ALTER TABLE okg.attribute_overlay_ranges SET (autovacuum_enabled = off)")
+        conn.execute("ANALYZE okg.attribute_overlay_ranges")
+    # Rows written after the empty ANALYZE (a publish writes ranges only for
+    # overlays, which this fixture has none of).
+    _commit_rows(dsn, 1000)
     summary = _published(dsn)
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute("VACUUM okg.attribute_versions")
+        cur.execute("VACUUM okg.attribute_overlay_ranges")
         cur.execute(
-            "SELECT count(*) FROM pg_stats WHERE schemaname = 'okg' AND tablename = 'attribute_versions'"
+            "SELECT count(*) FROM pg_stats WHERE schemaname = 'okg' AND tablename = 'attribute_overlay_ranges'"
         )
         assert cur.fetchone()[0] == 0
-        cur.execute("SELECT reltuples FROM pg_class WHERE oid = 'okg.attribute_versions'::regclass")
+        cur.execute("SELECT reltuples FROM pg_class WHERE oid = 'okg.attribute_overlay_ranges'::regclass")
         assert cur.fetchone()[0] > 0
     _bloat(dsn)
     report = _rebuild(dsn, summary)
@@ -1207,3 +1234,230 @@ def test_post_publish_rebuild_reanalyzes_a_table_last_analyzed_while_empty(
     assert _BLOAT in report["analyzed"], report
     again = _rebuild(dsn, summary)
     assert again["status"] == "nothing_to_rebuild" and again["analyzed"] == [], again
+
+
+
+
+# --------------------------------------------------------------------------- #
+# okg#3956: a bounded retry when the stop reason is old_snapshot_open          #
+# --------------------------------------------------------------------------- #
+
+_REAL_OLD_SNAPSHOTS = index_reclaim._old_snapshots
+
+
+def _old_reader(dsn: str) -> Any:
+    """A reader whose snapshot the guard counts as old (open > 1 s, a write
+    committed after it)."""
+    holder = _reader(dsn)
+    time.sleep(1.5)
+    _advance_xid(dsn)
+    _wait_until_old_snapshot(dsn, holder.info.backend_pid)
+    return holder
+
+
+def _publisher_lock_is_free(dsn: str) -> bool:
+    """True when a second session takes the publisher lock at once."""
+    keys = publisher_publish_advisory_keys(_DEPLOYMENT)
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        got = bool(conn.execute("SELECT pg_try_advisory_lock(%s, %s)", keys).fetchone()[0])
+        if got:
+            conn.execute("SELECT pg_advisory_unlock(%s, %s)", keys)
+        return got
+
+
+def _spy_old_snapshots(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    on_first_block: Any = None,
+    on_later_check: Any = None,
+) -> dict[str, int]:
+    """Wrap the old-snapshot guard so a test acts at exact points, with no
+    timer: ``on_first_block()`` runs right after the first check that found an
+    old snapshot; ``on_later_check(n)`` runs at the start of check ``n`` (2 and
+    up), which is after the wait and before the publisher lock is tried."""
+    state = {"calls": 0, "blocked": 0}
+
+    def spy(cur: Any, older_than_seconds: float) -> list[dict[str, Any]]:
+        state["calls"] += 1
+        if state["calls"] > 1 and on_later_check is not None:
+            on_later_check(state["calls"])
+        found = _REAL_OLD_SNAPSHOTS(cur, older_than_seconds)
+        if found and not state["blocked"]:
+            state["blocked"] = 1
+            if on_first_block is not None:
+                on_first_block()
+        return found
+
+    monkeypatch.setattr(index_reclaim, "_old_snapshots", spy)
+    return state
+
+
+def test_post_publish_rebuild_retries_an_old_snapshot_that_ends_in_time(
+    clean_runtime: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The old snapshot ends after the first check: the run waits, checks
+    again, takes the publisher lock and rebuilds, instead of stopping with
+    `old_snapshot_open` as before. The publisher lock is free at the start of
+    every later check, that is, during the waits."""
+    dsn = clean_runtime
+    index_reclaim._OLD_SNAPSHOT_STREAK.clear()
+    summary = _published(dsn)
+    _bloat(dsn)
+    oids = _bloat_oids(dsn)
+    holder = _old_reader(dsn)
+    pid = holder.info.backend_pid
+    free: list[bool] = []
+
+    def end_reader() -> None:
+        holder.rollback()
+        holder.close()
+
+    try:
+        _spy_old_snapshots(
+            monkeypatch, on_first_block=end_reader,
+            on_later_check=lambda _n: free.append(_publisher_lock_is_free(dsn)),
+        )
+        done = _rebuild(dsn, summary, lock_timeout_seconds=1.0)
+    finally:
+        if not holder.closed:
+            holder.rollback()
+            holder.close()
+    assert done["status"] == "rebuilt", done
+    log = done["old_snapshot_waits"]
+    assert log["retries"] == 1 and log["waited_seconds"] == pytest.approx(1.0), log
+    assert log["checks"][0]["decision"] == "waited", log
+    # The reader is one of the blockers, not necessarily the only one: another
+    # session of this database (for example an autovacuum worker) can
+    # hold an old snapshot at the same moment (#4073).
+    assert pid in [item["pid"] for item in log["checks"][0]["blocking"]], log
+    assert free and all(free), free
+    assert "old_snapshot_streak" not in done and "reason" not in done, done
+    assert _bloat_oids(dsn) != oids
+
+
+def test_post_publish_rebuild_gives_up_on_an_old_snapshot_after_its_bound(
+    clean_runtime: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A snapshot that outlasts the retries ends the run with the same
+    reason as before, now with every check and wait on record. A second
+    session gets the publisher lock at once at the start of each later check."""
+    dsn = clean_runtime
+    index_reclaim._OLD_SNAPSHOT_STREAK.clear()
+    summary = _published(dsn)
+    _bloat(dsn)
+    oids = _bloat_oids(dsn)
+    holder = _old_reader(dsn)
+    free: list[bool] = []
+    try:
+        _spy_old_snapshots(
+            monkeypatch,
+            on_later_check=lambda _n: free.append(_publisher_lock_is_free(dsn)),
+        )
+        started = time.monotonic()
+        stopped = _rebuild(
+            dsn, summary, lock_timeout_seconds=1.0,
+            old_snapshot_retries=2, old_snapshot_retry_wait_seconds=0.2,
+        )
+        elapsed = time.monotonic() - started
+        # Budget too short for the next wait: it is not taken, the stop is final.
+        _spy_old_snapshots(monkeypatch)
+        short = _rebuild(
+            dsn, summary, lock_timeout_seconds=1.0, budget_seconds=3.0,
+            old_snapshot_retries=3, old_snapshot_retry_wait_seconds=5.0,
+        )
+    finally:
+        holder.rollback()
+        holder.close()
+    assert stopped["status"] == "stopped" and stopped["reason"] == "old_snapshot_open", stopped
+    log = stopped["old_snapshot_waits"]
+    assert log["retries"] == 2 and log["waited_seconds"] == pytest.approx(0.6), log
+    assert [check["decision"] for check in log["checks"]] == [
+        "waited", "waited", "gave_up_retries_exhausted",
+    ], log
+    assert free == [True, True], free
+    assert elapsed < 10.0
+    assert stopped["max_publisher_lock_hold_seconds"] == 0.0
+    assert stopped["old_snapshot_streak"] == 1
+    assert short["reason"] == "old_snapshot_open", short
+    assert short["old_snapshot_waits"]["retries"] == 0, short
+    assert short["old_snapshot_waits"]["checks"][0]["decision"] == "gave_up_time_budget", short
+    assert short["seconds"] < 6.0, short
+    assert _bloat_oids(dsn) == oids
+
+
+def test_post_publish_rebuild_stops_when_a_publish_takes_the_lock_during_a_wait(
+    clean_runtime: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A publish that starts while the run waits takes the free publisher lock
+    at once (it never waits for the rebuild); the next check sees it running
+    and the run stops with `publish_running`."""
+    dsn = clean_runtime
+    summary = _published(dsn)
+    _bloat(dsn)
+    oids = _bloat_oids(dsn)
+    holder = _old_reader(dsn)
+    publisher = psycopg.connect(dsn, autocommit=True)
+    took: list[bool] = []
+
+    def end_reader() -> None:
+        holder.rollback()
+        holder.close()
+
+    def publish_starts(n: int) -> None:
+        if n == 2:
+            took.append(bool(publisher.execute(
+                "SELECT pg_try_advisory_lock(%s, %s)",
+                publisher_publish_advisory_keys(_DEPLOYMENT),
+            ).fetchone()[0]))
+
+    try:
+        _spy_old_snapshots(monkeypatch, on_first_block=end_reader, on_later_check=publish_starts)
+        stopped = _rebuild(dsn, summary, lock_timeout_seconds=1.0)
+    finally:
+        publisher.close()
+        if not holder.closed:
+            holder.rollback()
+            holder.close()
+    assert took == [True], took
+    assert stopped["status"] == "stopped" and stopped["reason"] == "publish_running", stopped
+    assert stopped["old_snapshot_waits"]["retries"] == 1, stopped
+    assert stopped["max_publisher_lock_hold_seconds"] == 0.0
+    assert _bloat_oids(dsn) == oids
+
+
+def test_post_publish_rebuild_does_not_retry_other_stop_reasons(clean_runtime: str) -> None:
+    """Only `old_snapshot_open` is waited out: a running publish and an
+    exhausted budget stop the run at once, with no retry record."""
+    dsn = clean_runtime
+    summary = _published(dsn)
+    _bloat(dsn)
+    oids = _bloat_oids(dsn)
+    retry = {"old_snapshot_retries": 3, "old_snapshot_retry_wait_seconds": 5.0}
+    with psycopg.connect(dsn, autocommit=True) as holder, holder.cursor() as cur:
+        cur.execute("SELECT pg_advisory_lock(%s, %s)", publisher_publish_advisory_keys(_DEPLOYMENT))
+        started = time.monotonic()
+        running = _rebuild(dsn, summary, **retry)
+        assert time.monotonic() - started < 4.0
+    assert running["status"] == "stopped" and running["reason"] == "publish_running", running
+    assert "old_snapshot_waits" not in running, running
+    budget = _rebuild(dsn, summary, budget_seconds=0.0, **retry)
+    assert budget["reason"] == "time_budget" and "old_snapshot_waits" not in budget, budget
+    assert _bloat_oids(dsn) == oids
+
+
+@pytest.mark.parametrize("value", [2.5, -1, float("nan"), float("inf")])
+def test_old_snapshot_retry_count_must_be_a_whole_number(value: float) -> None:
+    from okg.substrate.errors import SubstrateError
+
+    with pytest.raises(SubstrateError, match="whole number"):
+        index_reclaim._retry_count(value)
+    assert index_reclaim._retry_count(2.0) == 2 and index_reclaim._retry_count(0) == 0
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf")])
+def test_old_snapshot_retry_wait_must_be_finite_and_positive(value: float) -> None:
+    from okg.substrate.errors import SubstrateError
+
+    with pytest.raises(SubstrateError, match="finite number above 0"):
+        index_reclaim._retry_wait(value)
+    assert index_reclaim._retry_wait(0.5) == 0.5

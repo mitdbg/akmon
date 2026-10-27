@@ -485,6 +485,12 @@ def classify_steps(steps: list[Step]) -> None:
                 f'write "where": "${source_step}" in place of "input": "${source_step}"',
             )
         step.kind = "rows"
+        if step.operator == "aggregate":
+            # PACT read-aggregate-order-by (review m3): an order_by typo is
+            # refused before any step runs.
+            from okg.substrate.mcp.run_live import check_rows_order
+
+            check_rows_order(step)
         for key, _field in _walk_refs([step.arguments.get(k) for k in _CONDITION_KEYS]):
             if is_step_key(key):
                 raise RunRefusal(

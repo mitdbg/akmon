@@ -21,6 +21,7 @@ lanes:
       - tests/captioning/test_doc_corpus_pdf_embedded.py
       - tests/captioning/test_doc_corpus_visual_artifacts.py
       - tests/captioning/test_vision_config.py
+      - tests/cli
       - tests/deployment
       - tests/deployments
       - tests/docs
@@ -37,6 +38,7 @@ lanes:
       - tests/substrate
       - tests/test_coverage_area_floors.py
       - tests/test_mirror_scope.py
+      - tests/test_optional_deployments.py
       - tests/views
       markers: not postgres and not slow and not perf and not optional_deployment
         and not browser and not dbos_integration and not integration

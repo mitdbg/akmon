@@ -78,3 +78,5 @@ source_defaults: source-defaults/
 invariants: invariants.yaml
 dashboards: dashboards/
 deployment_defaults: deployment-defaults.yaml
+files:
+  - extractors.yaml

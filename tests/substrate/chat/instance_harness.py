@@ -108,10 +108,20 @@ def chat_block(**overrides: Any):
 
 
 def free_port(host: str = "127.0.0.1") -> int:
-    """A port the kernel says is free right now."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind((host, 0))
-        return int(probe.getsockname()[1])
+    """A port the kernel says is free right now, never the fixture's MCP port.
+
+    A host whose ephemeral range starts low (1024-65535) can hand out
+    ``chat.mcp.port`` itself; ``stand_up`` then rightly refuses the instance
+    port as the deployment's own mcp-serve port, and a test that wanted a
+    free port fails for a reason it did not test.
+    """
+    reserved = {VALID_CHAT["mcp"]["port"]}
+    while True:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind((host, 0))
+            port = int(probe.getsockname()[1])
+        if port not in reserved:
+            return port
 
 
 def wait_until(predicate, *, timeout: float = 10.0, interval: float = 0.05) -> bool:

@@ -620,19 +620,98 @@ class TransformConsistencyGate:
 
     name = "transform_consistency_gate"
 
-    def __init__(self, *, dangling_policy: str = "block") -> None:
+    #: Whether the scoped checks' stores commit the connection after each
+    #: query. True everywhere except inside the edge-deferral promotion trial.
+    _store_autocommit: bool = True
+
+    def __init__(
+        self,
+        *,
+        dangling_policy: str = "block",
+        edge_deferral: Any = None,
+    ) -> None:
         if dangling_policy not in ("block", "prune"):
             raise ValueError(
                 f"dangling_policy must be 'block' or 'prune', got {dangling_policy!r}"
             )
+        from okg.substrate.graph_store_internal.edge_deferrals import (
+            DeferralPolicy,
+        )
+
         self.dangling_policy = dangling_policy
+        # Cross-source edge deferral (pact cross-source-endpoint-wedge): off
+        # unless the deployment stack turns it on from the manifest.
+        self.edge_deferral = edge_deferral or DeferralPolicy()
 
     def cache_identity(self) -> dict[str, str]:
         """Stable semantics included in the publisher's no-op cache key."""
-        return {
+        identity = {
             "check_id": _CHECK_ID,
             "dangling_policy": self.dangling_policy,
         }
+        if self.edge_deferral.enabled:
+            identity["edge_deferral"] = "defer"
+        return identity
+
+    def _run_edge_deferral_step(
+        self,
+        conn: psycopg.Connection[Any],
+        *,
+        target_generation_id: int | str,
+        catalog_version_id: int,
+        deployment_name: str,
+        branch_name: str,
+        activations: tuple[_FamilyActivation, ...],
+        candidate_edge_ids: list[int] | None,
+        dirty_node_ids: list[str] | None,
+    ) -> dict[str, Any]:
+        """Steps 0-2 of the cross-source edge deferral (design.md 3.3).
+
+        Runs before the gate's own checks, on both gate paths, so a deferrable
+        dangling edge never reaches the dangling policy and a promoted edge is
+        evaluated with the rest of the graph.
+        """
+        from okg.substrate.graph_store_internal.edge_deferrals import (
+            run_edge_deferral_step,
+        )
+
+        # These checks run inside the promotion trial's transaction. Their
+        # stores must not commit the connection on the way (autocommit off),
+        # or a failure after them could not roll the trial write back.
+        def scoped(edge_ids: list[int]) -> tuple[list[int], list[int]]:
+            self._store_autocommit = False
+            try:
+                return self._eval_chronos_scoped_edges(
+                    conn, target_generation_id, catalog_version_id,
+                    edge_ids=edge_ids, branch_name=branch_name,
+                    activations=activations,
+                )
+            finally:
+                self._store_autocommit = True
+
+        def cardinality(edge_ids: list[int], node_ids: list[str]) -> list[int]:
+            self._store_autocommit = False
+            try:
+                return self._eval_cardinality_scoped(
+                    conn, target_generation_id, catalog_version_id,
+                    edge_ids=edge_ids, node_ids=node_ids,
+                    branch_name=branch_name, activations=activations,
+                )
+            finally:
+                self._store_autocommit = True
+
+        return run_edge_deferral_step(
+            conn,
+            policy=self.edge_deferral,
+            deployment_name=deployment_name,
+            branch_name=branch_name,
+            catalog_version_id=catalog_version_id,
+            target_generation_id=target_generation_id,
+            candidate_edge_ids=candidate_edge_ids,
+            dirty_node_ids=dirty_node_ids,
+            check_scoped_edges=scoped,
+            check_cardinality=cardinality,
+        ).as_dict()
 
     def _published_induction_basis(
         self,
@@ -1068,6 +1147,16 @@ class TransformConsistencyGate:
             branch_name=branch_name,
         )
         activations = _family_activations(conn, catalog_version_id)
+        deferral = self._run_edge_deferral_step(
+            conn,
+            target_generation_id=target_generation_id,
+            catalog_version_id=catalog_version_id,
+            deployment_name=deployment_name,
+            branch_name=branch_name,
+            activations=activations,
+            candidate_edge_ids=None,
+            dirty_node_ids=None,
+        )
         dangling, narrowing, node_subtype, cardinality = self._eval_chronos(
             conn, target_generation_id, catalog_version_id,
             branch_name=branch_name, activations=activations,
@@ -1168,6 +1257,7 @@ class TransformConsistencyGate:
                     len(pruned) > _EDGE_ID_SAMPLE_LIMIT
                 ),
                 "pruned_dangling_edge_attribution": prune_attribution,
+                "edge_deferrals": deferral,
                 "orphan_retracted_derived_edge_ids": (
                     orphans_retracted[:_EDGE_ID_SAMPLE_LIMIT]
                 ),
@@ -1301,6 +1391,22 @@ class TransformConsistencyGate:
             frontier_node_ids=set(dirty_node_ids),
         )
         activations = _family_activations(conn, catalog_version_id)
+        deferral = self._run_edge_deferral_step(
+            conn,
+            target_generation_id=target_generation_id,
+            catalog_version_id=catalog_version_id,
+            deployment_name=deployment_name,
+            branch_name=branch_name,
+            activations=activations,
+            candidate_edge_ids=self._candidate_edge_ids(
+                conn,
+                target_generation_id,
+                dirty_edge_ids=dirty_edge_ids,
+                dirty_node_ids=topology_dirty_node_ids,
+                branch_name=branch_name,
+            ),
+            dirty_node_ids=dirty_node_ids,
+        )
         edge_ids = self._candidate_edge_ids(
             conn,
             target_generation_id,
@@ -1531,6 +1637,7 @@ class TransformConsistencyGate:
                     len(pruned) > _EDGE_ID_SAMPLE_LIMIT
                 ),
                 "pruned_dangling_edge_attribution": prune_attribution,
+                "edge_deferrals": deferral,
                 "orphan_retracted_derived_edge_ids": (
                     orphans_retracted[:_EDGE_ID_SAMPLE_LIMIT]
                 ),
@@ -2235,7 +2342,9 @@ class TransformConsistencyGate:
 
         if not edge_ids:
             return [], []
-        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
+        store = ChronosGraphStore.from_connection(
+            conn, ensure_schema=False, autocommit=self._store_autocommit,
+        )
         try:
             session = store.checkout_generation(gen)
         except Exception:  # noqa: BLE001 - pending publish evaluates branch head
@@ -2307,7 +2416,9 @@ class TransformConsistencyGate:
             return []
         from okg.substrate.graph_store import ChronosGraphStore
 
-        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
+        store = ChronosGraphStore.from_connection(
+            conn, ensure_schema=False, autocommit=self._store_autocommit,
+        )
         try:
             session = store.checkout_generation(gen)
         except Exception:  # noqa: BLE001 - pending publish evaluates branch head

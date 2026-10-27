@@ -1,0 +1,11 @@
+name: document_versions
+version: 1.0.0
+description: >-
+  Versioned documents with ordered blocks, values and annotations. A
+  document is identified by an entity (its owner), a family (which kind of
+  document that owner keeps) and a version; every version keeps its own
+  blocks, and one version per (entity, family) is the latest. The shape fits
+  any document that is reissued over time: a regulatory report, a wiki
+  page, a specification.
+provides:
+  subtypes_file: schema.yaml

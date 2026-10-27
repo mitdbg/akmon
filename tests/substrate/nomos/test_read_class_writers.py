@@ -51,8 +51,26 @@ EXPECTED: dict[str, dict[str, int]] = {
     # (item 92a) the edge-declarer table in reapply_edge_declarations (a
     # merge-back rollback), whose graph rows _settle_ranked_edges in
     # writes.py then writes (stamped)
+    # The waiting-edge table (okg.graph_edge_deferrals, cross-source-endpoint-
+    # wedge) is the second other_table write here: reapply_edge_deferrals puts
+    # waiting rows back after a merge-back rollback.
     "substrate/graph_store_internal/generations.py": {
-        "apply_table_edits:copy": 1, "apply_table_edits:other_table": 1,
+        "apply_table_edits:copy": 1, "apply_table_edits:other_table": 2,
+    },
+    # Edges waiting for another source's record (cross-source-endpoint-wedge).
+    # Two calls write the waiting table only (a deferred edge, and a held-row
+    # state update): other_table. The third lands an edge in okg.graph_edges
+    # on promotion: it writes edge_row(waiting_row), which is the EDGE_ROW_
+    # COLUMNS of a row the table holds, nomos_read_class and
+    # nomos_read_class_version included. The waiting row was built by
+    # waiting_row(edge) from a row read with EDGE_SELECT, which names the same
+    # columns, so the class the producer's write was stamped with at
+    # admission travels there and back unchanged (a whole-row copy, never a
+    # recompute). tests/substrate/nomos/test_waiting_edge_read_class_db.py
+    # proves a promoted edge has the class a direct write would have, and is
+    # hidden from a reader a restricting policy excludes.
+    "substrate/graph_store_internal/edge_deferrals.py": {
+        "upsert_rows:other_table": 2, "upsert_rows:copy": 1,
     },
     # run undo: stored base or head rows read with _rows_by_key_for_keys
     # (whole rows), and since item 92a the declarer table in the same call.

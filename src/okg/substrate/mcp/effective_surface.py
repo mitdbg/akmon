@@ -173,12 +173,15 @@ class ServedSetMismatch(SubstrateError):
 # would be the wrong key now that `served` is a deployment-declared list: a
 # deployment can serve `record` without being "the write profile".
 
-#: Served whenever `inspect` is served. Graph, schema, lineage and the
-#: caller's own session state.
+#: Served whenever `inspect` is served. Graph, schema, lineage, history
+#: (`node_history`, `subtype_diff`: PACT okg-attribute-history-read, decided
+#: by the same Nomos read filter as `node`) and the caller's own session
+#: state.
 READ_INSPECT_KINDS: frozenset[str] = frozenset({
     "graph", "coverage", "ontology", "session_start",
     "subtype", "view", "node", "nodes", "text", "texts", "attr",
     "session", "generation", "generation_delta",
+    "node_history", "subtype_diff",
 })
 
 #: Served on a write/admin launch. Admission ledger and curation queue.

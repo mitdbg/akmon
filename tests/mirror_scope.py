@@ -48,6 +48,7 @@ PRIVATE_ROOTS: tuple[str, ...] = (
     "docs/runbooks/quality/",
     "docs/runbooks/ci/",
     "scripts/ci/",
+    "scripts/okg_lanes.py",
     "src/okg/bench/agent_memory/",
     "bench/agent_memory/",
     "experiments/",

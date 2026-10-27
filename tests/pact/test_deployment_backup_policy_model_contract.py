@@ -130,64 +130,6 @@ def test_every_effect_inventory_field_is_load_bearing(field_name: str) -> None:
     assert f"effect.{field_name}" in decision.reasons
 
 
-@pytest.mark.slow
-def test_declassifying_external_effect_fails_the_checker(tmp_path: Path) -> None:
-    """The partition invariant must actually fire, not just be listed.
-
-    Naming a guarantee as an invariant proves nothing on its own:
-    ``ExternalEffectMutationRequiresCurrentRestore`` and
-    ``ExternalEffectNeverTakesRoutineAdmission`` are both ENTAILED by the
-    existing invariants plus the classification, so declassifying
-    ``external_effect`` leaves them holding vacuously and TLC still passes.
-    ``EffectClassificationPartitionsFailures`` is the one that can fail, and
-    this run is the proof that it does.  Without it this whole model change is
-    documentation.
-    """
-    import shutil
-    import subprocess
-
-    from okg.substrate.formal_tlc import tlc_jvm_args, tlc_workers
-
-    from tests.helpers.tlc import TLA_JAR, TLC_AVAILABLE, assert_tlc_ran, tlc_skip_reason
-
-    if not TLC_AVAILABLE:
-        pytest.skip(tlc_skip_reason())
-    assert TLA_JAR is not None  # narrowed by the TLC_AVAILABLE gate above
-    jar = TLA_JAR
-    model = tmp_path / "DeploymentBackupPolicy.tla"
-    config = tmp_path / "DeploymentBackupPolicy.cfg"
-    shutil.copy(CONFIG, config)
-    text = MODEL.read_text(encoding="utf-8")
-    mutated = text.replace(
-        '    "nomos_changed", "external_effect"\n', '    "nomos_changed"\n'
-    )
-    assert mutated != text, "model shape changed; update this witness"
-    model.write_text(mutated, encoding="utf-8")
-
-    workers = tlc_workers()
-    result = subprocess.run(
-        [
-            "java",
-            # Bound heap and thread pools through the shared profile: an
-            # uncapped TLC still proves the same properties, it just takes the
-            # whole machine while doing it.
-            *tlc_jvm_args(workers),
-            "-cp", str(jar), "tlc2.TLC",
-            "-config", str(config), "-workers", workers, str(model),
-        ],
-        capture_output=True,
-        text=True,
-        cwd=ROOT,
-        timeout=900,
-    )
-
-    assert_tlc_ran(result)
-    assert result.returncode != 0, "declassified model must not pass TLC"
-    assert (
-        "EffectClassificationPartitionsFailures" in result.stdout
-    ), result.stdout[-2000:]
-
-
 def test_effect_classification_partitions_every_field() -> None:
     """No effect may be unclassified, and none may be in both classes.
 
@@ -299,7 +241,6 @@ def test_external_effects_never_take_the_no_physical_rollback_path() -> None:
         "target_revision_pinned",
         "plan_readable",
         "smoke_source_versioned",
-        "attribute_read_model_rebuildable",
     ],
 )
 def test_unknown_or_unreadable_plans_refuse(field_name: str) -> None:

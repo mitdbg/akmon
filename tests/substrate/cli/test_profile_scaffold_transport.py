@@ -317,14 +317,20 @@ def test_builtin_profile_smoke_matrix_scaffolds_lints_and_plans(
         manifest_path.read_text(encoding="utf-8"),
     )
     manifest_config.pop("profile", None)
-    registry_config = fastyaml.safe_load(
-        registry_path.read_text(encoding="utf-8"),
-    )
+    source_registry = load_source_registry(registry_path)
+    # The registry is checked as the loader expands it. A source default may
+    # keep a run-time path anchor such as `${deployment_dir}` in the file,
+    # because the installer cannot know where the deployment will sit; the
+    # loader fills it in, so only a placeholder left after loading is an error.
+    expanded_registry = {
+        source_id: entry.raw for source_id, entry in source_registry.items()
+    }
     unresolved_placeholders = [
         *_unresolved_placeholder_paths(manifest_config, path="deployment"),
-        *_unresolved_placeholder_paths(registry_config, path="source_registry"),
+        *_unresolved_placeholder_paths(
+            expanded_registry, path="source_registry.sources",
+        ),
     ]
-    source_registry = load_source_registry(registry_path)
 
     assert manifest.name == plan.deployment_name, profile_name
     assert composed.subtypes, profile_name

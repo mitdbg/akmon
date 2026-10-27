@@ -82,8 +82,6 @@ deployment_up:
         dump: 1012
         backup: 4200
         total: 7200
-native_views:
-  attribute_effective_view_empty_overlay_fast_path: true
 runtime:
   enabled: true
   # See the sibling fixture: the DBOS admin server's fixed default port would

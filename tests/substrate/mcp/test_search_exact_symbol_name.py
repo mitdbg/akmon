@@ -432,19 +432,152 @@ def test_a_name_without_a_three_character_run_is_not_read(
 
     short = run(query)
     assert statements == [], "a name with no trigram must not read the segment"
-    # No statement ran, so nothing is cut: no note, and the page is the page
-    # of the same code with the step off.
+    # No text statement ran, so nothing is cut: no note.
     assert "exact_name_cap" not in short
+    # Issue 4053: without access rules the name check of the attrs index (an
+    # equality, never a scan) still finds the one record that bears the name
+    # exactly; under access rules the check never runs (the page as before).
+    found = query == "ab_c" and not enforce
+    named = [row["node_id"] for row in short["results"] if row.get("match_kind") == "exact_name"]
+    assert named == (["symbol:short"] if found else [])
+    # The mention row on the page holds every one of these tokens whole, so
+    # no absence is ever claimed for them.
+    assert "exact_name_absent" not in short
+    if not found:
+        # Otherwise the page is the page of the same code with the step off.
+        monkeypatch.setattr(search_module, "exact_name_query", lambda _query: None)
+        without_step = run(query)
+        assert _facts_of(short) == _facts_of(without_step)
+
+
+def _spy_statements(monkeypatch) -> list[str]:
+    """The exact-name statements run from now on (the read shares `_bounded`)."""
+    import okg.substrate.mcp.grep_search as grep_search
+
+    real = grep_search._bounded
+    statements: list[str] = []
+
+    def spy(conn, sql, params):
+        if "excluded_subtypes" in params:
+            statements.append(sql)
+        return real(conn, sql, params)
+
+    monkeypatch.setattr(grep_search, "_bounded", spy)
+    return statements
+
+
+def _index_warnings(caplog, index: str) -> list[str]:
+    return [
+        record.getMessage() for record in caplog.records
+        if record.levelname == "WARNING" and "exact-name search step" in record.getMessage()
+        and index in record.getMessage()
+    ]
+
+
+@pytest.mark.parametrize("query", ["WidgetKit", "widget_kit_2"])
+@pytest.mark.parametrize("enforce", [False, True])
+def test_without_the_attrs_index_names_are_matched_through_the_text(
+    clean_runtime: str, tmp_path, monkeypatch, search_module, caplog,
+    enforce: bool, query: str,
+) -> None:
+    # PACT search-exact-name-cost-4035: on a graph whose attrs GIN index is
+    # missing or invalid, the step runs the statement it ran before (the
+    # trigram text match), so neither a code name nor an id-shaped name
+    # (`widget_kit_2`) loses its exact match, and a warning says so.
+    deployment = _symbol_graph(
+        clean_runtime, tmp_path,
+        visible=[
+            _symbol("symbol:s", query, f"pkg.{query}"),
+            _mention("ref:one", f"{query} is imported here"),
+        ],
+    )
+    if enforce:
+        _enforce(clean_runtime, deployment, monkeypatch)
+
+    def run():
+        if enforce:
+            return _enforced_run(clean_runtime, deployment, query, completeness="exact")[0]
+        return _run(clean_runtime, deployment, query, completeness="exact")
+
+    calls: list[str] = []
+
+    def absent(_conn, segment):
+        calls.append(segment)
+        return False
+
+    monkeypatch.setattr(search_module, "_attrs_gin_present", absent)
+    statements = _spy_statements(monkeypatch)
+    caplog.set_level("WARNING", logger=search_module.__name__)
+    page = run()
+    assert calls, "the read must ask for the attrs index"
+    assert page["results"][0]["node_id"] == "symbol:s"
+    assert page["results"][0]["match_kind"] == "exact_name"
+    assert len(statements) == 1
+    assert "attrs @> " not in statements[0]
+    text_match = " LIKE " if search_module.exact_id_query(query) is None else "~*"
+    assert text_match in statements[0]
+    assert _index_warnings(caplog, "node_attrs_gin"), caplog.text
+
+
+@pytest.mark.parametrize("query", ["WidgetKit", "widget_kit_2"])
+def test_without_either_index_the_step_is_skipped_with_a_warning(
+    clean_runtime: str, tmp_path, monkeypatch, search_module, caplog, query: str,
+) -> None:
+    # Failure case: no attrs index and no trigram index. The statement would
+    # scan the whole segment, so it does not run; the page is the page
+    # without the step, and the log names both indexes.
+    import okg.substrate.mcp.grep_search as grep_search
+    from okg.substrate.bm25_node_search import SearchIndexUnavailable
+
+    deployment = _symbol_graph(
+        clean_runtime, tmp_path,
+        visible=[
+            _symbol("symbol:s", query, f"pkg.{query}"),
+            _mention("ref:one", f"{query} is imported here"),
+        ],
+    )
+
+    def absent(_conn):
+        raise SearchIndexUnavailable("node-text trigram index absent")
+
+    monkeypatch.setattr(search_module, "_attrs_gin_present", lambda _conn, _seg: False)
+    monkeypatch.setattr(grep_search, "resolve_trgm_segment", absent)
+    statements = _spy_statements(monkeypatch)
+    caplog.set_level("WARNING", logger=search_module.__name__)
+    page = _run(clean_runtime, deployment, query, completeness="exact")
+    assert statements == []
+    assert all(row.get("match_kind") != "exact_name" for row in page["results"])
+    assert "exact_name_cap" not in page
+    assert _index_warnings(caplog, "node_attrs_gin")
+    assert _index_warnings(caplog, "node_text_trgm_visible")
     monkeypatch.setattr(search_module, "exact_name_query", lambda _query: None)
-    without_step = run(query)
-    assert _facts_of(short) == _facts_of(without_step)
-    assert all(row.get("match_kind") != "exact_name" for row in short["results"])
+    monkeypatch.setattr(search_module, "exact_id_query", lambda _query: None)
+    without_step = _run(clean_runtime, deployment, query, completeness="exact")
+    assert without_step["results"], "the control page must have rows"
+    assert _facts_of(page) == _facts_of(without_step)
+
+
+def test_the_real_index_check_finds_the_migrated_attrs_index(
+    clean_runtime: str, tmp_path, monkeypatch, search_module,
+) -> None:
+    # Control for the tests that stub the check: `okg migrate` builds the
+    # index, so the real check says it is there and the statement uses it.
+    deployment = _symbol_graph(
+        clean_runtime, tmp_path,
+        visible=[_symbol("symbol:s", "WidgetKit", "pkg.WidgetKit")],
+    )
+    statements = _spy_statements(monkeypatch)
+    page = _run(clean_runtime, deployment, "WidgetKit")
+    assert page["results"][0]["match_kind"] == "exact_name"
+    assert len(statements) == 1 and "attrs @> " in statements[0]
 
 
 @pytest.mark.parametrize("enforce", [False, True])
-def test_a_graph_without_the_trigram_index_skips_the_read(
+def test_a_code_name_does_not_need_the_trigram_index(
     clean_runtime: str, tmp_path, monkeypatch, search_module, enforce: bool,
 ) -> None:
+    # The name read goes through the attrs index; only an id-shaped query
+    # (which also reads texts for its variants) needs the trigram index.
     import okg.substrate.mcp.grep_search as grep_search
     from okg.substrate.bm25_node_search import SearchIndexUnavailable
 
@@ -470,12 +603,109 @@ def test_a_graph_without_the_trigram_index_skips_the_read(
 
     monkeypatch.setattr(grep_search, "resolve_trgm_segment", absent)
     page = run()
-    assert all(row.get("match_kind") != "exact_name" for row in page["results"])
+    assert page["results"][0]["node_id"] == "symbol:s"
+    assert page["results"][0]["match_kind"] == "exact_name"
+    assert "exact_name_absent" not in page
+
+
+@pytest.mark.parametrize("enforce", [False, True])
+def test_a_graph_without_the_trigram_index_skips_the_id_read(
+    clean_runtime: str, tmp_path, monkeypatch, search_module, caplog, enforce: bool,
+) -> None:
+    import okg.substrate.mcp.grep_search as grep_search
+    from okg.substrate.bm25_node_search import SearchIndexUnavailable
+
+    deployment = _symbol_graph(
+        clean_runtime, tmp_path,
+        visible=[
+            _symbol("symbol:s", "widget_kit_2", "pkg.widget_kit_2"),
+            _mention("ref:one", "widget_kit_2 is imported here"),
+        ],
+    )
+    if enforce:
+        _enforce(clean_runtime, deployment, monkeypatch)
+
+    def run():
+        if enforce:
+            return _enforced_run(
+                clean_runtime, deployment, "widget_kit_2", completeness="exact",
+            )[0]
+        return _run(clean_runtime, deployment, "widget_kit_2", completeness="exact")
+
+    assert search_module.exact_id_query("widget_kit_2") is not None
+
+    def absent(_conn):
+        raise SearchIndexUnavailable("node-text trigram index absent")
+
+    monkeypatch.setattr(grep_search, "resolve_trgm_segment", absent)
+    caplog.set_level("WARNING", logger=search_module.__name__)
+    page = run()
+    assert "exact_name_absent" not in page
     assert "exact_name_cap" not in page
+    assert _index_warnings(caplog, "node_text_trgm_visible"), caplog.text
     monkeypatch.setattr(search_module, "exact_name_query", lambda _query: None)
+    monkeypatch.setattr(search_module, "exact_id_query", lambda _query: None)
     without_step = run()
     assert without_step["results"], "the control page must have rows"
-    assert _facts_of(page) == _facts_of(without_step)
+    if enforce:
+        # Under access rules the name check never runs: the page as before.
+        assert all(row.get("match_kind") != "exact_name" for row in page["results"])
+        assert _facts_of(page) == _facts_of(without_step)
+    else:
+        # Issue 4053: the name check reads the attrs index, not the trigram
+        # one, so the symbol that bears the name is still found first.
+        assert _ids(page)[0] == "symbol:s"
+        assert page["results"][0]["match_kind"] == "exact_name"
+        assert all(
+            row.get("match_kind") != "exact_name" for row in without_step["results"]
+        )
+
+
+@pytest.mark.parametrize(("query", "node_id", "subtype"), [
+    ("WidgetKit", "widget:bare", "widget"),
+    # An id-shaped name runs the id statement; its name is found the same way.
+    ("PROJ_9_9_9", "release:bare", "release"),
+])
+def test_a_record_whose_text_lacks_its_name_is_found_by_name(
+    clean_runtime: str, tmp_path, monkeypatch, query: str, node_id: str, subtype: str,
+) -> None:
+    # PACT search-exact-name-cost-4035: the record's type has only `text` as
+    # a searchable field, so its stored text never spells its name. The old
+    # read (a text pattern) missed it; the attrs index finds it by `name`.
+    deployment = _symbol_graph(
+        clean_runtime, tmp_path,
+        visible=[
+            node(node_id, subtype, "an entry that never spells its own name", name=query),
+            _mention("ref:one", f"{query} is mentioned here"),
+        ],
+    )
+    statements = _spy_statements(monkeypatch)
+    page = _run(clean_runtime, deployment, query)
+    assert _ids(page)[:1] == [node_id], _ids(page)
+    assert page["results"][0]["match_kind"] == "exact_name"
+    assert len(statements) == 1
+    assert "attrs @> " in statements[0]
+
+
+def test_an_array_name_that_holds_the_query_is_not_an_exact_name(
+    clean_runtime: str, tmp_path,
+) -> None:
+    # `attrs @> {"name": q}` also holds for a name array that contains q; the
+    # equality on the text value still decides (failure case).
+    deployment = _symbol_graph(
+        clean_runtime, tmp_path,
+        visible=[
+            node("symbol:list", "code_symbol", "WidgetKit Gadget listed",
+                 name=["WidgetKit", "Gadget"], qualified_name=["pkg.WidgetKit"]),
+            _symbol("symbol:real", "WidgetKit", "pkg.WidgetKit"),
+        ],
+    )
+    page = _run(clean_runtime, deployment, "WidgetKit", limit=10)
+    kinds = {
+        row["node_id"]: row.get("match_kind") for row in page["results"]
+        if row.get("match_kind") == "exact_name"
+    }
+    assert kinds == {"symbol:real": "exact_name"}
 
 
 # ---------- hidden rows never decide what the page says about its count ----------

@@ -11,7 +11,6 @@ from typing import Any
 
 import psycopg
 from psycopg import sql
-from psycopg.types.json import Jsonb
 
 from okg.substrate.errors import GenerationCompacted
 from okg.substrate.generation_resolver import resolve_okg_generation
@@ -183,63 +182,7 @@ def run_proof(dsn: str, deployment: str) -> dict[str, Any]:
     with psycopg.connect(dsn) as conn:
         store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
         physical = _physical_tables(conn)
-        ordinals = {
-            str(checkpoint): int(ordinal)
-            for checkpoint, ordinal in conn.execute(
-                "SELECT checkpoint_id, ordinal FROM okg.generation_ordinals "
-                "WHERE checkpoint_id = ANY(%s)",
-                (checkpoint_ids,),
-            ).fetchall()
-        }
-        with conn.cursor() as cur:
-            for revision, checkpoint in enumerate(checkpoint_ids):
-                ordinal = ordinals[checkpoint]
-                to_ord = ordinals[checkpoint_ids[revision + 1]] if revision < 39 else 9223372036854775807
-                for key in range(5):
-                    cur.execute(
-                        """
-                        INSERT INTO okg.attribute_effective_view_intervals
-                          (target_kind, target_id, namespace, branch_id, from_ord,
-                           to_ord, subtype, attrs, overlay_count)
-                        VALUES ('node', %s, 'proof', 'default', %s, %s,
-                                'analysis_chunk', %s, 0)
-                        """,
-                        (f"transient:{key}", ordinal, to_ord, Jsonb({"revision": revision})),
-                    )
-                    cur.execute(
-                        """
-                        INSERT INTO okg.attribute_effective_view_intervals
-                          (target_kind, target_id, namespace, branch_id, from_ord,
-                           to_ord, edge_type, attrs, overlay_count)
-                        VALUES ('edge', %s, 'proof', 'default', %s, %s,
-                                'references', %s, 0)
-                        """,
-                        (f"reference:{key}", ordinal, to_ord, Jsonb({"revision": revision})),
-                    )
-        conn.commit()
-        effective_table = "okg.attribute_effective_view_intervals"
-        head_ordinal = ordinals[checkpoint_ids[-1]]
-        current_before["effective"] = conn.execute(
-            """
-            SELECT target_kind, target_id, attrs FROM okg.attribute_effective_view_intervals
-             WHERE namespace = 'proof' AND branch_id = 'default'
-               AND from_ord <= %s AND %s < to_ord ORDER BY target_id
-            """,
-            (head_ordinal, head_ordinal),
-        ).fetchall()
-        protected_effective_before = {
-            checkpoint: conn.execute(
-                """
-                SELECT target_kind, target_id, attrs FROM okg.attribute_effective_view_intervals
-                 WHERE namespace = 'proof' AND branch_id = 'default'
-                   AND from_ord <= %s AND %s < to_ord ORDER BY target_id
-                """,
-                (ordinals[checkpoint], ordinals[checkpoint]),
-            ).fetchall()
-            for checkpoint in protected_ids
-        }
         before_rows = {logical: _count(conn, table) for logical, table in physical.items()}
-        before_rows[effective_table] = _count(conn, effective_table)
         before_classifier_rows = {
             "full_nodes": int(
                 conn.execute(
@@ -253,12 +196,6 @@ def run_proof(dsn: str, deployment: str) -> dict[str, Any]:
                     sql.SQL(
                         "SELECT count(*) FROM {} WHERE subtype = 'analysis_chunk'"
                     ).format(sql.Identifier(*physical["okg.graph_nodes"].split(".")))
-                ).fetchone()[0]
-            ),
-            "latest_effective_edges": int(
-                conn.execute(
-                    "SELECT count(*) FROM okg.attribute_effective_view_intervals "
-                    "WHERE namespace = 'proof' AND target_kind = 'edge'"
                 ).fetchone()[0]
             ),
         }
@@ -294,7 +231,6 @@ def run_proof(dsn: str, deployment: str) -> dict[str, Any]:
             batch_size=17,
         )
         after_rows = {logical: _count(conn, table) for logical, table in physical.items()}
-        after_rows[effective_table] = _count(conn, effective_table)
         after_classifier_rows = {
             "full_nodes": int(
                 conn.execute(
@@ -310,12 +246,6 @@ def run_proof(dsn: str, deployment: str) -> dict[str, Any]:
                     ).format(sql.Identifier(*physical["okg.graph_nodes"].split(".")))
                 ).fetchone()[0]
             ),
-            "latest_effective_edges": int(
-                conn.execute(
-                    "SELECT count(*) FROM okg.attribute_effective_view_intervals "
-                    "WHERE namespace = 'proof' AND target_kind = 'edge'"
-                ).fetchone()[0]
-            ),
         }
         current_after = {
             "nodes": store.checkout_generation(checkpoint_ids[-1]).query(
@@ -324,30 +254,11 @@ def run_proof(dsn: str, deployment: str) -> dict[str, Any]:
             "edges": store.checkout_generation(checkpoint_ids[-1]).query(
                 "SELECT src, dst, edge_type, attrs FROM okg.graph_edges ORDER BY src, dst"
             ),
-            "effective": conn.execute(
-                """
-                SELECT target_kind, target_id, attrs FROM okg.attribute_effective_view_intervals
-                 WHERE namespace = 'proof' AND branch_id = 'default'
-                   AND from_ord <= %s AND %s < to_ord ORDER BY target_id
-                """,
-                (head_ordinal, head_ordinal),
-            ).fetchall(),
         }
         protected_after = {
             checkpoint: store.checkout_generation(checkpoint).query(
                 "SELECT node_id, attrs FROM okg.graph_nodes ORDER BY node_id"
             )
-            for checkpoint in protected_ids
-        }
-        protected_effective_after = {
-            checkpoint: conn.execute(
-                """
-                SELECT target_kind, target_id, attrs FROM okg.attribute_effective_view_intervals
-                 WHERE namespace = 'proof' AND branch_id = 'default'
-                   AND from_ord <= %s AND %s < to_ord ORDER BY target_id
-                """,
-                (ordinals[checkpoint], ordinals[checkpoint]),
-            ).fetchall()
             for checkpoint in protected_ids
         }
         try:
@@ -377,10 +288,7 @@ def run_proof(dsn: str, deployment: str) -> dict[str, Any]:
 
     checks = {
         "current_nodes_edges_unchanged": current_after == current_before,
-        "protected_checkouts_unchanged": (
-            protected_after == protected_before
-            and protected_effective_after == protected_effective_before
-        ),
+        "protected_checkouts_unchanged": protected_after == protected_before,
         "interval_rows_decreased": sum(after_rows.values()) < sum(before_rows.values()),
         "retired_generation_refusal": retired_refusal == "generation_compacted",
         "replay_noop": bool(replay.get("replayed")),
@@ -397,10 +305,6 @@ def run_proof(dsn: str, deployment: str) -> dict[str, Any]:
             < after_classifier_rows["horizon_nodes"]
             < before_classifier_rows["horizon_nodes"]
             and plan["floors"]["nodes"]["analysis_chunk"]["mode"] == "horizon"
-        ),
-        "latest_effective_is_audit_tail_only": (
-            after_classifier_rows["latest_effective_edges"]
-            == 5 * policy["audit_tail_generations"]
         ),
     }
     return {

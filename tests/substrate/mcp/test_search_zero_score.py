@@ -13,10 +13,25 @@ ANALYZE. Every reply must equal the reply the graph serves once the ANALYZE
 is over: the same records, order and scores. Search scores each row twice on
 a library older than 1.5.1 and keeps the better score
 (`steady_bm25_score_sql`); without that, cases fail on 1.3.0.
+
+Five of the readers give way to the ANALYZE while it waits for the index's
+lock. The spill takes a pg_textsearch lock (`LWLock` / `extension` in
+`pg_stat_activity`) that each reader's index scan holds shared. Six readers
+in a tight loop keep at least one share held, so on pg_textsearch 1.3.0
+with two CPUs the ANALYZE waited for it for minutes (up to 711 s seen).
+While it waited it could not answer a DROP DATABASE on another xdist worker
+(`IPC` / `ProcSignalBarrier`), which stalled that worker too. So while the
+ANALYZE waits on that lock, five readers start no new read. The sixth
+always reads: one reader alone releases the lock between its statements,
+so the ANALYZE gets it, and that reader's search is still in flight when it
+does, as on a free race. The other five read on as soon as the ANALYZE no
+longer waits. Waits on Postgres's own locks (buffers, WAL) during the spill
+pause no one.
 """
 from __future__ import annotations
 
 import importlib
+import re
 import threading
 
 import psycopg
@@ -48,6 +63,8 @@ ROUNDS = 8
 READERS = 6
 #: Non-matching records published beside the matches.
 OTHERS = 3000
+#: How often the test checks whether the ANALYZE waits on a lock.
+WATCH_SECONDS = 0.02
 
 DOC = SubtypeSpec("doc", metadata={
     "searchable_text_fields": ["text"], "title_from": "summary",
@@ -131,36 +148,74 @@ def test_a_match_keeps_its_rank_while_the_first_analyze_runs(
     replies: list[tuple[int, list[tuple[str, float]]]] = []
     errors: list[BaseException] = []
     stop = threading.Event()
+    # Cleared while the ANALYZE waits on pg_textsearch's lock: the readers
+    # that give way start no new read.
+    others_may_read = threading.Event()
+    others_may_read.set()
     lock = threading.Lock()
 
-    def reader() -> None:
+    def reader(gives_way: bool) -> None:
         # One connection per reader, open before the spill, as a server pool's.
         try:
             with psycopg.connect(clean_runtime, autocommit=True) as conn:
                 session = open_session(conn, deployment_name=deployment)
                 while not stop.is_set():
                     for which, arguments in enumerate(READS):
+                        if gives_way:
+                            others_may_read.wait()
                         page = search(conn, session, TERM, method="lexical", **arguments)
                         with lock:
                             replies.append((which, _rows(page)))
         except BaseException as exc:  # surfaced below, never swallowed
             errors.append(exc)
 
-    threads = [threading.Thread(target=reader) for _ in range(READERS)]
+    def analyze(conn: psycopg.Connection) -> None:
+        try:
+            conn.execute(f"ANALYZE {segment}")
+        except BaseException as exc:  # surfaced below, never swallowed
+            errors.append(exc)
+
+    # Reader 0 never gives way, so a search is in flight when the ANALYZE
+    # takes the lock and through the spill.
+    threads = [threading.Thread(target=reader, args=(i > 0,)) for i in range(READERS)]
     for thread in threads:
         thread.start()
     try:
-        with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        with psycopg.connect(clean_runtime, autocommit=True) as conn, psycopg.connect(
+            clean_runtime, autocommit=True,
+        ) as watch:
+            (analyze_pid,) = conn.execute("SELECT pg_backend_pid()").fetchone()
             # Let every reader finish one reply first, then race the spill.
             while not errors:
                 with lock:
                     if len(replies) >= READERS:
                         break
                 stop.wait(0.01)
-            conn.execute(f"ANALYZE {segment}")
+            spill = threading.Thread(target=analyze, args=(conn,))
+            spill.start()
+            try:
+                while spill.is_alive():
+                    (waits,) = watch.execute(
+                        "SELECT coalesce(wait_event_type = 'LWLock' AND wait_event = 'extension', false) "
+                        "FROM pg_stat_activity WHERE pid = %s",
+                        (analyze_pid,),
+                    ).fetchone()
+                    if waits:
+                        others_may_read.clear()
+                    else:
+                        others_may_read.set()
+                    spill.join(WATCH_SECONDS)
+            except BaseException:
+                stop.set()
+                raise
+            finally:
+                # The ANALYZE ends before its connection closes.
+                others_may_read.set()
+                spill.join()
             stop.wait(0.2)
     finally:
         stop.set()
+        others_may_read.set()
         for thread in threads:
             thread.join()
     assert not errors, errors
@@ -171,6 +226,33 @@ def test_a_match_keeps_its_rank_while_the_first_analyze_runs(
     assert not wrong, (
         f"{len(wrong)} of {len(replies)} replies served another order or score than the "
         f"steady state; first: {wrong[0][0]} {wrong[0][1]} expected {expected[READS.index(wrong[0][0])]}"
+    )
+
+
+def test_the_test_server_runs_pg_textsearch_1_5_1_or_later(clean_runtime):
+    """A test server on an older pg_textsearch fails here, by name, instead of
+    as flaky search tests elsewhere.
+
+    1.3.0's index scan repeats some rows that tie on score and leaves others
+    out, so two identical searches can serve different rows (issue #4106,
+    `ops/pg/Dockerfile`). Only the score readings are guarded in the code
+    (`steady_bm25_score_sql`); a dropped row cannot be recovered. The test
+    image installs 1.5.1; a server still on an older image needs the image
+    upgrade, not a code change.
+    """
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        (version,) = conn.execute(
+            "SELECT current_setting('pg_textsearch.library_version', true)"
+        ).fetchone()
+    assert version, "the server reports no pg_textsearch library version"
+    # Read the leading N.N.N as the search SQL does (`_OLD_SCORE_LIBRARY_SQL`),
+    # so a suffix such as "-dev" is ignored; an unreadable version counts as old.
+    parts = re.match(r"(\d+)\.(\d+)\.(\d+)", version)
+    found = tuple(int(part) for part in parts.groups()) if parts else (0, 0, 0)
+    assert found >= STEADY_SCORE_LIBRARY, (
+        f"pg_textsearch {version} is older than "
+        f"{'.'.join(map(str, STEADY_SCORE_LIBRARY))}: upgrade the test server's "
+        "Postgres image (ops/pg/Dockerfile); tied search rows can go missing"
     )
 
 

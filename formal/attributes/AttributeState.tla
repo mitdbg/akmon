@@ -69,7 +69,7 @@ VARIABLES history, effective, pinnedEffective, pinOpen, externalLive, promoted, 
 vars == <<history, effective, pinnedEffective, pinOpen, externalLive, promoted, retained, read,
           viewRow, viewFresh>>
 
-\* viewRow models the maintained attribute_effective_view table (schema.sql): a
+\* viewRow models the maintained overlay validity ranges (okg.attribute_overlay_ranges): a
 \* materialized projection distinct from the ground-truth `effective` function.
 \* Effective-changing transitions leave it behind (viewFresh=FALSE); the lazy
 \* MaintainView step copies `effective` into it and re-marks it fresh. Reads
@@ -264,7 +264,7 @@ PruneRetention(obs) ==
     /\ UNCHANGED <<history, effective, pinnedEffective, pinOpen, promoted, read,
                    viewRow, viewFresh>>
 
-\* MaintainView is the deferred INSERT/refresh arm of attribute_effective_view.
+\* MaintainView is the per-publish overlay-range sync (sync_overlay_ranges_for_generation).
 \* Positive: copy the ground-truth `effective` projection into the maintained
 \* view and mark it fresh. Under the BuggyViewMaintenanceSkipsCopy toggle it
 \* claims freshness without copying, so a view that already lags truth stays

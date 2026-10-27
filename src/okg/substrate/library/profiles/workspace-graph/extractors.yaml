@@ -1,0 +1,31 @@
+# Extractor chain for the opt-in `code_text` source (see
+# source-defaults/code_text.yaml). No other workspace-graph source reads this
+# file. It uses only classes that need no optional install.
+#
+# Python files are parsed and cut per function, class or run of module-level
+# code, each kept with its symbol name and line range. A symbol over max_chars
+# is split into overlapping windows that keep its name. Every other code
+# language the source routes to `text` is cut into plain windows.
+#
+# The plain-window chunker is keyed to `text`, not `default`: a `default`
+# chunker handles every format, so `okg add source` on a folder of Markdown
+# would find nothing missing and cut it into windows instead of by heading.
+# With `text`, guided add still plans the Markdown heading chunker (and a
+# `default` one for formats such as PDF) when a folder needs them.
+#
+# There is no `ner:` section on purpose: entity mentions add rows and edges,
+# and nothing here needs them.
+
+parser:
+  - format: code
+    class: okg.substrate.library.extraction.parse.code_python.PythonAstParser
+  - format: text
+    class: okg.substrate.library.extraction.parse.text.TextParser
+
+chunker:
+  - format: code
+    class: okg.substrate.library.extraction.chunk.python_symbols.PythonSymbolChunker
+    config: {max_chars: 4000, overlap: 400}
+  - format: text
+    class: okg.substrate.library.extraction.chunk.window.WindowChunker
+    config: {max_chars: 1500, overlap: 200}

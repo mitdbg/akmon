@@ -59,6 +59,7 @@ from okg.substrate.catalog.profile import (
     INIT_QUESTION_TYPES,
     InitQuestion,
     ProfileError,
+    RUNTIME_PLACEHOLDERS,
     interpolate,
     load_profile,
     validate_answer,
@@ -227,6 +228,121 @@ def test_interpolate_no_recursion() -> None:
     # `${b}` in the answer for `a` is NOT re-interpolated.
     out = interpolate("${a}", {"a": "x${b}y", "b": "Z"})
     assert out == "x${b}y"
+
+
+@pytest.mark.parametrize("name", sorted(RUNTIME_PLACEHOLDERS))
+def test_interpolate_keeps_runtime_placeholder(name: str) -> None:
+    text = f"path: ${{{name}}}/extractors"
+    assert interpolate(text, {}, keep_runtime=True) == text
+
+
+@pytest.mark.parametrize("name", sorted(RUNTIME_PLACEHOLDERS))
+def test_interpolate_refuses_runtime_placeholder_by_default(name: str) -> None:
+    with pytest.raises(ProfileError) as exc:
+        interpolate(f"path: ${{{name}}}/x", {})
+    assert name in str(exc.value)
+
+
+def test_interpolate_answer_overrides_runtime_placeholder() -> None:
+    assert interpolate("${repo_root}/x", {"repo_root": "/r"}, keep_runtime=True) == "/r/x"
+
+
+def test_interpolate_unknown_placeholder_next_to_runtime_one_raises() -> None:
+    with pytest.raises(ProfileError) as exc:
+        interpolate("${deployment_dir}/${foo}", {}, keep_runtime=True)
+    assert "foo" in str(exc.value)
+
+
+def test_runtime_placeholders_are_all_expanded_by_registry_loader(tmp_path: Path) -> None:
+    from okg.substrate.sources.registry import _substitute_registry_placeholders
+
+    registry = tmp_path / "deployments" / "d" / "source_registry.yaml"
+    registry.parent.mkdir(parents=True)
+    for name in RUNTIME_PLACEHOLDERS:
+        token = f"${{{name}}}"
+        assert _substitute_registry_placeholders(token, registry) != token, name
+    assert _substitute_registry_placeholders("${foo}", registry) == "${foo}"
+
+
+def test_installed_registry_resolves_runtime_placeholder_at_load(
+    tmp_path: Path,
+) -> None:
+    from okg.substrate.sources.registry import load_source_registry
+
+    profile_dir = tmp_path / "anchor-profile"
+    _write_profile(
+        profile_dir,
+        body="""\
+        name: anchor-profile
+        version: 0.1.0
+        init_questions:
+          - id: deployment_name
+            prompt: deployment name
+            type: slug
+            required: true
+        modules: modules.yaml
+        source_defaults: source-defaults/
+        """,
+        modules=["reasoning"],
+        source_defaults={
+            "papers": (
+                "class: example.PapersSource\n"
+                "ownership_id: papers\n"
+                "params:\n"
+                "  extractors_dir: ${deployment_dir}/extractors\n"
+            ),
+        },
+    )
+    plan = build_plan(
+        profile=load_profile(profile_dir / "profile.yaml"),
+        deployment_name="anchored",
+        deployments_root=tmp_path / "deployments",
+        raw_answers={"deployment_name": "anchored"},
+    )
+    assert "${deployment_dir}/extractors" in plan.source_defaults["papers"]
+    result = scaffold_deployment(plan)
+    registry = result.deployment_dir / "source_registry.yaml"
+    assert "${deployment_dir}/extractors" in registry.read_text()
+    entries = load_source_registry(registry)
+    resolved = entries["papers"].raw["params"]["extractors_dir"]
+    assert resolved == f"{result.deployment_dir.resolve()}/extractors"
+
+
+def _plan_with_deployment_defaults(tmp_path: Path, defaults: str):
+    profile_dir = tmp_path / "dd-profile"
+    _write_profile(
+        profile_dir,
+        body="""\
+        name: dd-profile
+        version: 0.1.0
+        init_questions:
+          - id: deployment_name
+            prompt: deployment name
+            type: slug
+            required: true
+        modules: modules.yaml
+        deployment_defaults: deployment-defaults.yaml
+        """,
+        modules=["reasoning"],
+    )
+    (profile_dir / "deployment-defaults.yaml").write_text(defaults)
+    return build_plan(
+        profile=load_profile(profile_dir / "profile.yaml"),
+        deployment_name="dd",
+        deployments_root=tmp_path / "deployments",
+        raw_answers={"deployment_name": "dd"},
+    )
+
+
+@pytest.mark.parametrize("name", sorted(RUNTIME_PLACEHOLDERS))
+def test_deployment_defaults_still_refuse_runtime_placeholder(
+    tmp_path: Path, name: str,
+) -> None:
+    with pytest.raises(ProfileError) as exc:
+        _plan_with_deployment_defaults(
+            tmp_path, f"taxonomy: ${{{name}}}/taxonomy.yaml\n",
+        )
+    assert name in str(exc.value)
 
 
 # ---------- validate_answer ----------

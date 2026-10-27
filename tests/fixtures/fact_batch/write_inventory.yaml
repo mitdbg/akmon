@@ -1,17 +1,6 @@
 {
-  "discovery_snapshot_count": 148,
+  "discovery_snapshot_count": 125,
   "entries": [
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:009abf3a9a472ce8cb1fd2cd2cb0c295e65d149c08d93fee2d286e233c3df80a",
-      "line": 1767,
-      "operation": "COPY",
-      "owner": "module-owner",
-      "symbol": "_stage_raw_edges_via_session",
-      "target": "{dynamic}"
-    },
     {
       "authority_class": "primitive",
       "exit_condition": "permanent low-level primitive; callers must supply validated application or Publisher context",
@@ -134,17 +123,6 @@
       "target": "node_facts"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:14413bbceb81a1d31f95ad977ddc132007517f534aa97960d409ec55915462e1",
-      "line": 4278,
-      "operation": "INSERT INTO",
-      "owner": "module-owner",
-      "symbol": "repair_effective_attribute_interval_view",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "legacy_compatibility",
       "exit_condition": "retire direct fact SQL after domain payloads use FactBatch admission",
       "file": "src/okg/substrate/mcp/fan_out.py",
@@ -235,17 +213,6 @@
     {
       "authority_class": "non_graph_dynamic_sql",
       "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:280436f22cca403c69a71bf953b95035fa8c4251a615afc31c1f1dcf7fde37e1",
-      "line": 3404,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "delete_effective_attribute_view_for_generation",
-      "target": "{dynamic}"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
       "file": "src/okg/substrate/runtime/promotion_fence.py",
       "fingerprint": "sha256:2b28b538a46ff380138b1c90dba13dd44d07714100b746fd333a3c8bd84bf927",
       "line": 380,
@@ -263,17 +230,6 @@
       "operation": "TRUNCATE",
       "owner": "qa-and-benchmark-owners",
       "symbol": "_stage_rows_and_build_dirty_corpus",
-      "target": "{dynamic}"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:2c05eae0020a769aa6598858a512802d66174fe039aec08e1ead6987e7240772",
-      "line": 2724,
-      "operation": "INSERT INTO",
-      "owner": "module-owner",
-      "symbol": "_materialize_view_kind",
       "target": "{dynamic}"
     },
     {
@@ -299,17 +255,6 @@
       "target": "chronos_graph_edges_current"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:2dd26775536f1b16942079d69b308dee936bc1e98d5d90b796f035fc55d69a65",
-      "line": 3560,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "prune_effective_attribute_view_to_recent",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "audit_fact_input",
       "exit_condition": "retain as optional audit input; Publisher applies accepted derived facts through ProducerProfile-backed FactBatch",
       "file": "src/okg/substrate/library/linkers/interface_handler.py",
@@ -330,17 +275,6 @@
       "owner": "deployment-runtime",
       "symbol": "emit_edge_fact",
       "target": "edge_facts"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:2e6db5a9d23622ba857b5d6209519d3cf67378370927ef5f5996d40dfb7f5df3",
-      "line": 2732,
-      "operation": "INSERT INTO",
-      "owner": "module-owner",
-      "symbol": "_materialize_view_kind",
-      "target": "{dynamic}"
     },
     {
       "authority_class": "fact_batch_application",
@@ -376,17 +310,6 @@
       "target": "{dynamic}"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:3585f62ba6c7d099960355ae57ba82b0bc59b2c1c7271704fde1f3133f3bea79",
-      "line": 3064,
-      "operation": "UPDATE",
-      "owner": "module-owner",
-      "symbol": "refresh_effective_attribute_view_overlay_for_generation",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "test_harness",
       "exit_condition": "excluded runtime harness; keep exercising public application contracts",
       "file": "src/okg/operator_ui/web/audit/seed_fixture.py",
@@ -418,17 +341,6 @@
       "owner": "source-and-record-admission",
       "symbol": "SourceRunner._apply_chronos_facts",
       "target": "chronos_graph"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:3d5cf483d1540e19655c213220767cdeafd5b2eb93635d3414717a27d1b7edff",
-      "line": 4643,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "prepare_corrupt_effective_attribute_recovery",
-      "target": "{dynamic}"
     },
     {
       "authority_class": "non_graph_dynamic_sql",
@@ -497,28 +409,6 @@
       "target": "chronos_graph"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:477f48b2e62bc5ea7304ca29f50bae81567624b99f15568f9cdcb04939ce1787",
-      "line": 3064,
-      "operation": "INSERT INTO",
-      "owner": "module-owner",
-      "symbol": "refresh_effective_attribute_view_overlay_for_generation",
-      "target": "{dynamic}"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:483c84843b9f3c2743638bc8b9ae394f199d3ebba4fb164aa07ab0b9faab7590",
-      "line": 3264,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "prune_orphan_attribute_versions",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "audit_fact_input",
       "exit_condition": "retain as optional audit input; Publisher applies accepted derived facts through ProducerProfile-backed FactBatch",
       "file": "src/okg/substrate/library/linkers/code_reference.py",
@@ -583,17 +473,6 @@
       "owner": "substrate-publisher",
       "symbol": "Publisher._cycle_chronos_native",
       "target": "graph_generations"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:4f13bc8b5dc7186b0a38888ffb2d90805b03b04b2179a8a44fd15cfbf3c2f257",
-      "line": 4248,
-      "operation": "UPDATE",
-      "owner": "module-owner",
-      "symbol": "repair_effective_attribute_interval_view",
-      "target": "{dynamic}"
     },
     {
       "authority_class": "non_graph_dynamic_sql",
@@ -693,17 +572,6 @@
       "owner": "substrate-publisher",
       "symbol": "Publisher._refresh_published_generation_watermarks",
       "target": "graph_generations"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:668f5b0e906bd320dca9e7f69606c5440d64984ea967f0132bb828b1bbb67e98",
-      "line": 3182,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "_gc_attribute_versions_for_keys",
-      "target": "{dynamic}"
     },
     {
       "authority_class": "audit_fact_input",
@@ -816,17 +684,6 @@
       "target": "{dynamic}"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:84528b6fcb5dd30a15b4b08e978fd23a0745684bbb3b43549f9c65ee340bea03",
-      "line": 1738,
-      "operation": "COPY",
-      "owner": "module-owner",
-      "symbol": "_stage_raw_nodes_via_session",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "legacy_compatibility",
       "exit_condition": "retire direct fact SQL after domain payloads use FactBatch admission",
       "file": "src/okg/substrate/mcp/fan_out.py",
@@ -836,17 +693,6 @@
       "owner": "mcp-admission",
       "symbol": "_emit_audit_nodes",
       "target": "node_facts"
-    },
-    {
-      "authority_class": "primitive",
-      "exit_condition": "permanent guarded history-retention primitive; callers must supply a fresh bound plan, confirmation, and protected-reader checks",
-      "file": "src/okg/substrate/history_compaction.py",
-      "fingerprint": "sha256:848d8ba2fcb29cd9f1edf329c57599f725c8550da5272900d5491c1aa562bc1b",
-      "line": 1215,
-      "operation": "DELETE FROM",
-      "owner": "substrate-history-compaction",
-      "symbol": "_delete_batches",
-      "target": "{dynamic}"
     },
     {
       "authority_class": "publisher_or_derived",
@@ -913,17 +759,6 @@
       "owner": "derived-producer-audit",
       "symbol": "emit_edge_fact",
       "target": "edge_facts"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:8c25b0459f53c87770617bb259ac2f012e3d6eeeb233e6a397eafc3d60e1a874",
-      "line": 4704,
-      "operation": "INSERT INTO",
-      "owner": "module-owner",
-      "symbol": "prepare_corrupt_effective_attribute_recovery",
-      "target": "{dynamic}"
     },
     {
       "authority_class": "primitive",
@@ -1036,17 +871,6 @@
       "target": "{dynamic}"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:9a28205297c4b27f5e3a0b273380b5048c861adf48f185a71f3e92a9ed5aa696",
-      "line": 2201,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "reanchor_effective_interval_view_for_generation",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "audit_fact_input",
       "exit_condition": "retain as optional audit input; Publisher applies accepted derived facts through ProducerProfile-backed FactBatch",
       "file": "src/okg/substrate/library/enrichers/semantic_concept_linker.py",
@@ -1056,17 +880,6 @@
       "owner": "derived-producer-audit",
       "symbol": "SemanticConceptLinker._emit_links",
       "target": "edge_facts"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:a033019e89f0ee53b4262306a8f77fcd0149eedcf7549ef32e175c31fd494adc",
-      "line": 4241,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "repair_effective_attribute_interval_view",
-      "target": "{dynamic}"
     },
     {
       "authority_class": "fact_batch_application",
@@ -1091,17 +904,6 @@
       "target": "edge_facts"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:aa4699cb73d9a6c946785685edf4eaad16c0125ecb0f10ac476b642e8a6de8da",
-      "line": 3850,
-      "operation": "UPDATE",
-      "owner": "module-owner",
-      "symbol": "backfill_effective_interval_raw_attrs_dedup._drain",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "test_harness",
       "exit_condition": "excluded runtime harness; keep exercising public application contracts",
       "file": "src/okg/operator_ui/web/audit/seed_fixture.py",
@@ -1122,28 +924,6 @@
       "owner": "derived-producer-audit",
       "symbol": "emit_node_fact",
       "target": "node_facts"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:b50fa7ed9bd3ed6fd5a58977489e3429f285ab050fd9fcb8e611ea795ed6033e",
-      "line": 2208,
-      "operation": "UPDATE",
-      "owner": "module-owner",
-      "symbol": "reanchor_effective_interval_view_for_generation",
-      "target": "{dynamic}"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only for bounded temporary-table staging; never a graph authority",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:b833bdf36fde496faaf763f14b2ea952f9ff3d8cbd37f580c8f8409be22344c6",
-      "line": 1695,
-      "operation": "INSERT INTO",
-      "owner": "attribute-materialization",
-      "symbol": "_stage_dirty_raw_via_interval_keys",
-      "target": "{dynamic}"
     },
     {
       "authority_class": "non_graph_dynamic_sql",
@@ -1201,17 +981,6 @@
       "target": "{dynamic}"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:c34b39c79225c9ab17512f09a70698792513e7af8f62f75b1bee700b18609190",
-      "line": 4177,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "repair_effective_attribute_interval_view",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "bounded_system",
       "exit_condition": "route bounded graph mutations through system ProducerProfile and FactBatch application",
       "file": "src/okg/substrate/nomos/source_lineage_repair.py",
@@ -1221,17 +990,6 @@
       "owner": "substrate-system-workflows",
       "symbol": "_update_single_attrs",
       "target": "graph_nodes"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only for bounded temporary-table staging; never a graph authority",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:c4b29cad7bae4ec121432c22141130164f924e2eaac05c2262676eb013668381",
-      "line": 1667,
-      "operation": "INSERT INTO",
-      "owner": "attribute-materialization",
-      "symbol": "_stage_dirty_raw_via_interval_keys",
-      "target": "{dynamic}"
     },
     {
       "authority_class": "non_graph_dynamic_sql",
@@ -1311,17 +1069,6 @@
       "target": "{dynamic}"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:d4685c9c2d3d4cd93418b755233ccb59b87033ce232076745c1c418a4ace98b1",
-      "line": 4694,
-      "operation": "UPDATE",
-      "owner": "module-owner",
-      "symbol": "prepare_corrupt_effective_attribute_recovery",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "bounded_system",
       "exit_condition": "route bounded graph mutations through system ProducerProfile and FactBatch application",
       "file": "src/okg/substrate/nomos/source_lineage_repair.py",
@@ -1355,17 +1102,6 @@
       "target": "{dynamic}"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:d6bd7c85820979319c1c2a48223bfefc824c3b96eee347ac3aee4e555f7c6dd0",
-      "line": 3645,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "prune_effective_interval_view_closed",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "legacy_compatibility",
       "exit_condition": "retire after ProviderConnection and SourceBinding use SourceRunner",
       "file": "src/okg/substrate/mcp/connector_ingest.py",
@@ -1375,17 +1111,6 @@
       "owner": "build-akmon-connector-suite",
       "symbol": "_copy_connector_rows",
       "target": "edge_facts"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:d91e515561fcf667c01101ee3dea8651b9cc086d78916d6904f3bb4edc5a85e9",
-      "line": 4689,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "prepare_corrupt_effective_attribute_recovery",
-      "target": "{dynamic}"
     },
     {
       "authority_class": "non_graph_dynamic_sql",
@@ -1476,17 +1201,6 @@
       "target": "chronos_graph_nodes_current"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:eec034b9aef9c2efcbeeefe06d420305668749d1fbe7b3e5cc6dccc9bd801438",
-      "line": 3411,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "delete_effective_attribute_view_for_generation",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "primitive",
       "exit_condition": "permanent low-level primitive; callers must supply validated application or Publisher context",
       "file": "src/okg/substrate/graph_store.py",
@@ -1531,17 +1245,6 @@
       "target": "{dynamic}"
     },
     {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:f6ec98b4ab149e4f0338d2d8c74c5f54df9328647322964d6dfdadfd5b664b3f",
-      "line": 2636,
-      "operation": "INSERT INTO",
-      "owner": "module-owner",
-      "symbol": "_materialize_view_kind",
-      "target": "{dynamic}"
-    },
-    {
       "authority_class": "legacy_compatibility",
       "exit_condition": "route deployment mutation helpers through FactBatch application",
       "file": "src/okg/deployment/_internal/mutations.py",
@@ -1572,17 +1275,6 @@
       "operation": "INSERT INTO",
       "owner": "module-owner",
       "symbol": "materialize_effective_attributes_for_generation",
-      "target": "{dynamic}"
-    },
-    {
-      "authority_class": "non_graph_dynamic_sql",
-      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
-      "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:e71aead9a70119063c6d49a2c5ab2b8cac62bd5b005a07661a686477ffe73565",
-      "line": 3481,
-      "operation": "DELETE FROM",
-      "owner": "module-owner",
-      "symbol": "prune_effective_attribute_view_to_recent",
       "target": "{dynamic}"
     },
     {
@@ -1622,11 +1314,66 @@
       "authority_class": "non_graph_dynamic_sql",
       "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
       "file": "src/okg/substrate/attributes.py",
-      "fingerprint": "sha256:763a843d5ce66b8441742399470bbbcfe1851e8961de10827854a41a83f39e86",
-      "line": 3296,
+      "fingerprint": "sha256:3d49641256e472302843c8ea6fd4462c51c10fb1a9908d445e2af78417bbb2e4",
+      "line": 1642,
       "operation": "INSERT INTO",
-      "owner": "attribute-materialization",
-      "symbol": "prepare_prelock_attribute_hash_cache",
+      "owner": "module-owner",
+      "symbol": "_write_overlay_generation_marker",
+      "target": "{dynamic}"
+    },
+    {
+      "authority_class": "non_graph_dynamic_sql",
+      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
+      "file": "src/okg/substrate/attributes.py",
+      "fingerprint": "sha256:013814055e523be68052d4c420e6e8dd9c6879b2e09eb741db4277c8bb32f344",
+      "line": 1753,
+      "operation": "DELETE FROM",
+      "owner": "module-owner",
+      "symbol": "rebuild_overlay_ranges_for_branch",
+      "target": "{dynamic}"
+    },
+    {
+      "authority_class": "non_graph_dynamic_sql",
+      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
+      "file": "src/okg/substrate/attributes.py",
+      "fingerprint": "sha256:d9b8c42d69940461f995d142bc93c72eacb79e9a2e7bac1159f0d50437f4a535",
+      "line": 1758,
+      "operation": "UPDATE",
+      "owner": "module-owner",
+      "symbol": "rebuild_overlay_ranges_for_branch",
+      "target": "{dynamic}"
+    },
+    {
+      "authority_class": "non_graph_dynamic_sql",
+      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
+      "file": "src/okg/substrate/attributes.py",
+      "fingerprint": "sha256:509c27f202ff24c34af019c47172b474039d1caeba5436c009f2de917898eab5",
+      "line": 1839,
+      "operation": "UPDATE",
+      "owner": "module-owner",
+      "symbol": "sync_overlay_ranges_for_generation",
+      "target": "{dynamic}"
+    },
+    {
+      "authority_class": "non_graph_dynamic_sql",
+      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
+      "file": "src/okg/substrate/attributes.py",
+      "fingerprint": "sha256:6aba7bf938544c8f4b34a0772243eb5d5041ff5e6cd56db5db490cd4830319d9",
+      "line": 1859,
+      "operation": "INSERT INTO",
+      "owner": "module-owner",
+      "symbol": "sync_overlay_ranges_for_generation",
+      "target": "{dynamic}"
+    },
+    {
+      "authority_class": "non_graph_dynamic_sql",
+      "exit_condition": "retain only non-graph audit/control/current-view SQL; exact fingerprint prevents new dynamic bypasses",
+      "file": "src/okg/substrate/attributes.py",
+      "fingerprint": "sha256:0b81ba90e5a7935c93b4b8bdb962ef3feb1502cc6d9abd2291089561861757bf",
+      "line": 1882,
+      "operation": "UPDATE",
+      "owner": "module-owner",
+      "symbol": "sync_overlay_ranges_for_generation",
       "target": "{dynamic}"
     }
   ],

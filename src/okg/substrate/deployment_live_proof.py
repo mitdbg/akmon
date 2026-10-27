@@ -216,63 +216,36 @@ def _source_watermark_rows(
     return bool(watermarks), watermarks
 
 
-_MIGRATION_PENDING_CLASSIFICATION = "schema_migration_pending"
-
-
-def _phase_row(
-    phase_results: Sequence[Any], phase: str, *, last: bool = False
-) -> dict[str, Any]:
+def _phase_row(phase_results: Sequence[Any], phase: str) -> dict[str, Any]:
     rows = [
         dict(row)
         for row in phase_results
         if isinstance(row, Mapping) and row.get("phase") == phase
     ]
-    if not rows:
-        return {}
-    return rows[-1] if last else rows[0]
+    return rows[0] if rows else {}
 
 
-def _predecessor_classification(
+def _predecessor_generation(
     phase_results: Sequence[Any], *, failures: list[str]
 ) -> tuple[dict[str, Any], str]:
-    """Return the pre-upgrade recovery classification and the phase that bound it.
+    """Return the pre-upgrade published head and the phase that recorded it.
 
-    okg#1114: on a database older than ``0020_interval_narrow_split`` the
-    ``preflight`` phase CANNOT classify -- the payload-parity fingerprint needs a
-    column the ``migrate`` phase creates five phases later -- so it records the
-    placeholder ``schema_migration_pending``.  That placeholder carries no
-    ``generation_id``, no ``checkpoint_counts`` and no ``pinned_counts``, so
-    reading it as the predecessor fails ``predecessor_bound`` and
-    ``successor_advanced`` on exactly the deployments the #1114 fix unblocked --
-    okg-ci among them, the one deployment wired for ``prove-live``.
-    ``_phase_generation_recovery`` re-takes the real classification once migrate
-    has run and reports it as its own ``classification``; that is the value the
-    proof must bind.
+    ``okg up``'s ``preflight`` phase records the published head before any
+    phase mutates the database (``predecessor_generation``: the generation
+    id, its checkpoint counts and its pinned counts). Until okg#3112 S3 the
+    preflight's effective-attribute recovery classification carried these
+    fields; that classification went with the attribute copies.
 
-    The rebound classification is REQUIRED, never assumed.  A placeholder with
-    nothing behind it records ``generations.predecessor_unrebound`` and fails
-    closed: falling back to the placeholder would let a run that never
-    reclassified read as a proven predecessor.
+    The record is REQUIRED, never assumed. A preflight row without one
+    records ``generations.predecessor_unrecorded``; a record the preflight
+    could not read (``status: unavailable``) or a deployment with nothing
+    published has no generation id, so ``predecessor_bound`` fails closed.
     """
-    preflight = _phase_row(phase_results, "preflight").get(
-        "attribute_recovery_classification"
-    )
-    preflight = dict(preflight) if isinstance(preflight, Mapping) else {}
-    if preflight.get("classification") != _MIGRATION_PENDING_CLASSIFICATION:
-        return preflight, "preflight"
-    # The LAST generation_recovery row: a resumed upgrade records the phase
-    # once per attempt and the completed run's outcome is the final one.
-    rebound = _phase_row(phase_results, "generation_recovery", last=True).get(
-        "classification"
-    )
-    rebound = dict(rebound) if isinstance(rebound, Mapping) else {}
-    if (
-        not rebound
-        or rebound.get("classification") == _MIGRATION_PENDING_CLASSIFICATION
-    ):
-        failures.append("generations.predecessor_unrebound")
-        return preflight, "preflight_migration_pending"
-    return rebound, "generation_recovery"
+    record = _phase_row(phase_results, "preflight").get("predecessor_generation")
+    if not isinstance(record, Mapping):
+        failures.append("generations.predecessor_unrecorded")
+        return {}, "preflight"
+    return dict(record), "preflight"
 
 
 def _load_schema() -> dict[str, Any]:
@@ -406,7 +379,7 @@ def collect_live_deployment_proof(
     )
 
     phase_results = state.get("phase_results") or []
-    predecessor, predecessor_phase = _predecessor_classification(
+    predecessor, predecessor_phase = _predecessor_generation(
         phase_results, failures=failures
     )
     predecessor_id = predecessor.get("generation_id")
@@ -532,10 +505,7 @@ def collect_live_deployment_proof(
         "release_binding": release_binding,
         "generations": {
             "predecessor": predecessor,
-            # Which phase bound the predecessor: `preflight` normally,
-            # `generation_recovery` when preflight deferred on a pre-0020
-            # schema (okg#1114), `preflight_migration_pending` when a deferred
-            # preflight was never reclassified -- always a recorded failure.
+            # The phase that recorded the predecessor: always `preflight`.
             "predecessor_phase": predecessor_phase,
             "successor": {**generation, "checkpoint_counts": checkpoint, "pinned_counts": pinned},
         },

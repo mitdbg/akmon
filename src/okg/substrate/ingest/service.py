@@ -236,6 +236,9 @@ class _AdmissionFinalizeResult:
     status: str = "accepted"
     reason: str | None = None
     verdict: Mapping[str, Any] | None = None
+    #: Cross-source edges that wait (count, states, bounded id sample). An
+    #: accepted run carries no verdict, so this is its own field.
+    deferred_edges: Mapping[str, Any] | None = None
 
     @property
     def rejected(self) -> bool:
@@ -699,6 +702,14 @@ def _run_ingest_inner(options: IngestOptions) -> IngestRunResult:
                     name: plan.runnable[name].source_class
                     for name in plan.ordered
                 },
+                registry=admission.entries,
+                active_producer_ids=lambda ids: (
+                    incomplete_recovery.active_producer_ids(
+                        dsn=options.dsn,
+                        deployment=options.deployment,
+                        ids=ids,
+                    )
+                ),
             )
             recovery_authority = recovery_resolution["authority"]
             redrive_state = recovery_resolution["redrive_state"]
@@ -1006,6 +1017,11 @@ def _run_ingest_inner(options: IngestOptions) -> IngestRunResult:
         )
         if options.publish and (accumulated_layer_results or staged_source_drive):
             label = "commit"
+            # PACT publisher-starvation-4039: every source write of this run
+            # is committed by now. The branch head segment read here holds
+            # them; a published generation whose segment descends from it was
+            # cut after them and contains them, whoever cut it.
+            writes_done_head_segment = _branch_head_segment(options.dsn)
             commit_timing: dict[str, Any] = {
                 "index": "commit",
                 "sources": [],
@@ -1121,6 +1137,16 @@ def _run_ingest_inner(options: IngestOptions) -> IngestRunResult:
                                     blocker=publish_blocker,
                                 ),
                             )
+                            if publish_blocker is None:
+                                # A frozen (recovery) publish holds readers
+                                # back on purpose; no other generation
+                                # stands in for it.
+                                published = _satisfied_by_covering_generation(
+                                    options, published,
+                                    writes_done_head_segment=(
+                                        writes_done_head_segment
+                                    ),
+                                )
                             if publish_span is not None:
                                 publish_span.observe_result(published)
                 published, frozen_publish, recovery_report = (
@@ -2563,6 +2589,7 @@ def _run_source(
         # terminal state. ``admission_status`` distinguishes an accepted terminal state from a
         # review-mode "pending" one that is authorized but NOT yet published, so the gate never
         # treats a queued-for-review source as caught up.
+        **_deferred_edges_field(finalize_result),
         "admission_status": finalize_result.status,
         "admission_verdict": finalize_result.verdict or {},
         # PACT sanitize-fact-text-at-admission: NUL scrub/reject counts, present only when nonzero.
@@ -2988,6 +3015,7 @@ def _finalize_source_admission(
 ) -> _AdmissionFinalizeResult:
     from okg.substrate.db.pool import GENERAL, pooled_connection
 
+    deferred_edges: Mapping[str, Any] | None = None
     with pooled_connection(options.dsn, purpose=GENERAL) as conn:
         with conn.transaction():
             terminal_state = _source_terminal_state_evidence(
@@ -3218,6 +3246,7 @@ def _finalize_source_admission(
                         profile=profile,
                         source=source,
                         run_id=run_id,
+                        defer_policy=_deferral_policy(options),
                     )
                 except ProducerPolicyViolation as exc:
                     _retract_chronos_run(
@@ -3364,6 +3393,9 @@ def _finalize_source_admission(
                         reason=nomos_decision.reason_code,
                         verdict=verdict,
                     )
+                deferred_edges = (
+                    policy_evidence.get("producer_policy") or {}
+                ).get("deferred_edges")
                 verdict = merge_policy_evidence(
                     {
                         "source": source,
@@ -3426,7 +3458,24 @@ def _finalize_source_admission(
                     refs=refs,
                     status=existing_status or "accepted",
                 )
-    return _AdmissionFinalizeResult(refs=refs, status="accepted")
+    return _AdmissionFinalizeResult(
+        refs=refs, status="accepted", deferred_edges=deferred_edges,
+    )
+
+
+def _deferral_policy(options: IngestOptions) -> Any:
+    """The deployment's cross-source edge deferral policy (decision D1)."""
+    from okg.substrate.publisher.deployment_stack import load_deferral_policy
+
+    return load_deferral_policy(options.deployment_dir)
+
+
+def _deferred_edges_field(
+    finalize_result: _AdmissionFinalizeResult,
+) -> dict[str, Any]:
+    """The run result's ``deferred_edges`` (count and a bounded id sample)."""
+    deferred = getattr(finalize_result, "deferred_edges", None)
+    return {"deferred_edges": dict(deferred)} if deferred else {}
 
 
 def _evaluate_zero_output_source_authority(
@@ -3908,6 +3957,166 @@ def _publish(
         if e.fix_hint:
             failed["fix_hint"] = str(e.fix_hint)
         return failed
+
+
+def _branch_head_segment(dsn: str, branch: str = "default") -> int | None:
+    """The branch's head segment now, or None when the branch does not exist.
+
+    Writes go to the head segment, and a checkpoint cut seals the head it
+    splits. A checkpoint whose segment descends from the head read after a
+    run's last write was therefore cut after that write. Segment ids come from
+    one sequence in the database, so the comparison needs no clock: Chronos
+    stamps a checkpoint's ``created_at`` with the cutting process's own clock,
+    which another host may skew.
+    """
+    from okg.substrate.db.connection import connect as db_connect
+
+    try:
+        with db_connect(dsn, autocommit=True) as conn:
+            row = conn.execute(
+                "SELECT current_segment_id FROM _chronos_branch_interval_branches"
+                " WHERE branch_id = %s",
+                (branch,),
+            ).fetchone()
+    except psycopg.Error as exc:
+        # Only a refused run-end publish uses this, to see whether a newer
+        # generation covers the run. Without it the refusal stands, as it did
+        # before covering existed: say so, and do not fail the run for it.
+        logging.getLogger(__name__).warning(
+            "could not read the branch head segment after the run's last "
+            "write (%s: %s); a refused run-end publish cannot be covered by "
+            "a newer generation",
+            type(exc).__name__, exc,
+        )
+        return None
+    return None if row is None else int(row[0])
+
+
+def _newest_published_generation_by_segment(
+    options: IngestOptions, branch: str = "default",
+) -> tuple[str, int] | None:
+    """(checkpoint id, segment id) of the branch's published generation with
+    the highest segment: the one cut last, whatever clock stamped it."""
+    from okg.substrate.db.connection import connect as db_connect
+
+    with db_connect(options.dsn, autocommit=True) as conn:
+        rows = conn.execute(
+            "SELECT checkpoint_id, segment_id, metadata"
+            " FROM _chronos_branch_interval_checkpoints"
+            " WHERE branch_id = %s AND checkpoint_id NOT LIKE 'okg-run-base:%%'"
+            " ORDER BY segment_id DESC LIMIT 200",
+            (branch,),
+        ).fetchall()
+    for checkpoint_id, segment_id, raw in rows:
+        try:
+            metadata = json.loads(raw or "{}")
+        except ValueError:
+            continue
+        if (
+            metadata.get("kind") == "okg_generation"
+            and metadata.get("deployment_name") == options.deployment
+            and metadata.get("status") == "published"
+        ):
+            return str(checkpoint_id), int(segment_id)
+    return None
+
+
+def _segment_descends_from(dsn: str, segment_id: int, ancestor_id: int) -> bool:
+    """Is ``ancestor_id`` on the parent chain of ``segment_id``?
+
+    Parents are allocated before their children, so the walk stops at the
+    ancestor's id and reads only the segments cut since.
+    """
+    from okg.substrate.db.connection import connect as db_connect
+
+    with db_connect(dsn, autocommit=True) as conn:
+        row = conn.execute(
+            """
+            WITH RECURSIVE up(seg) AS (
+                SELECT %s::bigint
+              UNION ALL
+                SELECT s.parent_segment_id
+                  FROM _chronos_branch_interval_segments s
+                  JOIN up ON s.segment_id = up.seg
+                 WHERE up.seg > %s AND s.parent_segment_id IS NOT NULL
+            )
+            SELECT 1 FROM up WHERE seg = %s LIMIT 1
+            """,
+            (segment_id, ancestor_id, ancestor_id),
+        ).fetchone()
+    return row is not None
+
+
+def _publish_lock_refusal(published: Mapping[str, Any]) -> bool:
+    """Was this publish refused because the publish lock stayed held?
+
+    That refusal carries the advisory key and the wait; a refusal because
+    another source sync had priority (``reason: source_sync_active``) is a
+    different cause and is not covered.
+    """
+    data = published.get("error_data")
+    return bool(
+        published.get("status") == "fail"
+        and published.get("code") == "publisher_lease_held"
+        and isinstance(data, Mapping)
+        and data.get("advisory_key")
+        and data.get("reason") != "source_sync_active"
+    )
+
+
+def _satisfied_by_covering_generation(
+    options: IngestOptions,
+    published: dict[str, Any],
+    *,
+    writes_done_head_segment: int | None,
+) -> dict[str, Any]:
+    """Accept a run-end publish refused for a held lock when a newer
+    generation already holds the run's writes.
+
+    A scheduled publish that ran past the sync's workflow rows can hold the
+    publish lock while the sync's own publish waits for it. When the wait
+    ends, the sync has lost nothing if a published generation of the branch
+    was cut after its last committed write: that generation contains them.
+    "After" is decided on the branch's segment chain, not on timestamps: the
+    generation's segment must descend from the head segment read once the
+    run's last write had committed. The entry then records
+    ``covered_by_generation`` with that generation's id and counts as
+    published. Otherwise the refusal stands (Jason board #203, accepted
+    2026-10-22T03:12Z).
+    """
+    if not _publish_lock_refusal(published):
+        return published
+    if writes_done_head_segment is None:
+        return published
+    # The newest published generation by SEGMENT, not by stamp: the stamp is
+    # the cutting process's clock.
+    latest = _newest_published_generation_by_segment(options)
+    if latest is None:
+        return published
+    checkpoint_id, segment_id = latest
+    if not _segment_descends_from(
+        options.dsn, segment_id, writes_done_head_segment,
+    ):
+        return published
+    logging.getLogger(__name__).warning(
+        "source-sync publish refused for a held publish lock, and covered by "
+        "a newer generation: deployment=%s covered_by_generation=%s "
+        "generation_segment=%s writes_done_head_segment=%s",
+        options.deployment, checkpoint_id, segment_id,
+        writes_done_head_segment,
+    )
+    return {
+        "label": published.get("label"),
+        "status": "published",
+        "covered_by_generation": checkpoint_id,
+        "covered_generation_segment": segment_id,
+        "writes_done_head_segment": writes_done_head_segment,
+        "refused_publish": {
+            key: published.get(key)
+            for key in ("code", "error", "error_data", "fix_hint")
+            if published.get(key) is not None
+        },
+    }
 
 
 def _apply_publish_admission_feedback(

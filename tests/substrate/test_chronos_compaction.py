@@ -220,35 +220,6 @@ def test_tombstone_first_apply_resumes_and_preserves_current_checkout(
             "WHERE pin_name = 'active-reader-lease'"
         )
         conn.commit()
-        conn.execute(
-            """
-            WITH v AS (
-              INSERT INTO okg.attribute_versions
-                (target_kind, target_id, attrs_hash, attrs, raw_attrs)
-              VALUES ('node', 'missing-classifier',
-                      okg.attribute_content_hash('{}'::jsonb, NULL),
-                      '{}'::jsonb, NULL)
-              ON CONFLICT (target_kind, target_id, attrs_hash) DO NOTHING
-            )
-            INSERT INTO okg.attribute_effective_view_intervals
-              (target_kind, target_id, namespace, branch_id, from_ord, to_ord,
-               attrs_hash)
-            VALUES ('node', 'missing-classifier', 'test', 'default', 0, 1,
-                    okg.attribute_content_hash('{}'::jsonb, NULL))
-            """
-        )
-        conn.commit()
-        with pytest.raises(SubstrateError, match="missing its stored classifier"):
-            create_history_compaction_plan(
-                conn,
-                store=store,
-                deployment_name=deployment,
-                policy_raw=policy,
-            )
-        conn.execute(
-            "DELETE FROM okg.attribute_effective_view_intervals "
-            "WHERE target_id = 'missing-classifier'"
-        )
         missing_physical = conn.execute(
             sql.SQL(
                 "UPDATE {} SET subtype = NULL WHERE ctid = "
@@ -269,46 +240,6 @@ def test_tombstone_first_apply_resumes_and_preserves_current_checkout(
             ),
             missing_physical,
         )
-        effective_ordinals = [
-            resolve_generation_ordinal(store.context.db, checkpoint_id)
-            for checkpoint_id in checkpoint_ids
-        ]
-        with conn.cursor() as cur:
-            cur.executemany(
-                """
-                WITH v AS (
-                  INSERT INTO okg.attribute_versions
-                    (target_kind, target_id, attrs_hash, attrs, raw_attrs)
-                  VALUES ('node', 'effective-hot',
-                          okg.attribute_content_hash('{}'::jsonb, NULL),
-                          '{}'::jsonb, NULL)
-                  ON CONFLICT (target_kind, target_id, attrs_hash) DO NOTHING
-                )
-                INSERT INTO okg.attribute_effective_view_intervals
-                  (target_kind, target_id, namespace, branch_id, from_ord,
-                   to_ord, subtype, attrs_hash)
-                VALUES ('node', 'effective-hot', 'test', 'default', %s, %s,
-                        'claim', okg.attribute_content_hash('{}'::jsonb, NULL))
-                """,
-                list(zip(effective_ordinals[:-1], effective_ordinals[1:], strict=True)),
-            )
-        conn.execute(
-            """
-            WITH v AS (
-              INSERT INTO okg.attribute_versions
-                (target_kind, target_id, attrs_hash, attrs, raw_attrs)
-              VALUES ('node', 'other-branch-row',
-                      okg.attribute_content_hash('{}'::jsonb, NULL),
-                      '{}'::jsonb, NULL)
-              ON CONFLICT (target_kind, target_id, attrs_hash) DO NOTHING
-            )
-            INSERT INTO okg.attribute_effective_view_intervals
-              (target_kind, target_id, namespace, branch_id, from_ord, to_ord,
-               subtype, attrs_hash)
-            VALUES ('node', 'other-branch-row', 'test', 'other', 0, 1, 'claim',
-                    okg.attribute_content_hash('{}'::jsonb, NULL))
-            """
-        )
         conn.commit()
         plan = create_history_compaction_plan(
             conn,
@@ -317,9 +248,6 @@ def test_tombstone_first_apply_resumes_and_preserves_current_checkout(
             policy_raw=policy,
         )
         assert plan["retired_checkpoints"] == checkpoint_ids[:-2]
-        assert "effective" in plan["logical_estimates"]
-        effective_eligible = int(plan["logical_estimates"]["effective"]["rows_eligible"])
-        assert effective_eligible >= 4
 
         with pytest.raises(SubstrateError, match="different deployment"):
             apply_history_compaction_plan(
@@ -350,7 +278,9 @@ def test_tombstone_first_apply_resumes_and_preserves_current_checkout(
         assert reader.query("SELECT node_id FROM okg.graph_nodes")
         reader.close()
 
-        with pytest.raises(RuntimeError, match="committed effective batch"):
+        nodes_eligible = int(plan["logical_estimates"]["nodes"]["rows_eligible"])
+        assert nodes_eligible > 2, plan["logical_estimates"]
+        with pytest.raises(RuntimeError, match="committed nodes batch"):
             apply_history_compaction_plan(
                 conn,
                 store=store,
@@ -359,14 +289,14 @@ def test_tombstone_first_apply_resumes_and_preserves_current_checkout(
                 apply=True,
                 policy_raw=policy,
                 batch_size=2,
-                crash_after_committed_batch="effective",
+                crash_after_committed_batch="nodes",
             )
         partial = conn.execute(
-            "SELECT progress->'effective' FROM okg.history_compaction_plans WHERE plan_id = %s",
+            "SELECT progress->'nodes' FROM okg.history_compaction_plans WHERE plan_id = %s",
             (plan["plan_id"],),
         ).fetchone()[0]
         assert partial["complete"] is False
-        assert 0 < int(partial["deleted"]) < effective_eligible
+        assert 0 < int(partial["deleted"]) < nodes_eligible
 
         with pytest.raises(GenerationCompacted) as excinfo:
             resolve_okg_generation(
@@ -400,11 +330,11 @@ def test_tombstone_first_apply_resumes_and_preserves_current_checkout(
             batch_size=2,
         )
         assert result["progress"]["tombstones"]["complete"] is True
-        assert result["progress"]["nodes"]["complete"] is True
-        assert result["progress"]["effective"] == {
+        assert result["progress"]["nodes"] == {
             "complete": True,
-            "deleted": effective_eligible,
+            "deleted": nodes_eligible,
         }
+        assert "effective" not in result["progress"]
         conn.execute(
             "INSERT INTO okg.history_generation_pins "
             "(deployment_name, branch_id, pin_name, checkpoint_id, expires_at) "
@@ -457,10 +387,6 @@ def test_tombstone_first_apply_resumes_and_preserves_current_checkout(
             ).fetchone()[0]
         )
         assert rows_after < rows_before
-        assert conn.execute(
-            "SELECT count(*) FROM okg.attribute_effective_view_intervals "
-            "WHERE branch_id = 'other' AND target_id = 'other-branch-row'"
-        ).fetchone()[0] == 1
         other_checkpoint = store.checkpoint_generation(
             "other-deployment-live-target-100",
             deployment_name="other-deployment",
@@ -961,17 +887,13 @@ def _recording_cursor_factory(log: list[str]) -> type:
 
 
 # The planner's exact count(*) inventory after #1308. It is a CONSTANT: two
-# classifier-inventory NULL probes, two effective-table classifier rollups, ONE
-# four-population pass per graph table, the effective-table branch total, and
-# one grouped effective pass per target kind. Nothing here scales with the
-# number of subtypes or edge types, which is the whole point -- the old planner
-# ran six more count(*) per classifier value and never finished on a 61 GB /
-# 29.1M-row edge table.
-#
-# The last two depend on the fixture policy bounding BOTH nodes and edges: a
-# classifier whose rule is  has no floor, so its kind issues no grouped
-# effective pass. The policy below bounds both, deliberately.
-_EXPECTED_PLANNER_COUNT_STATEMENTS = 9
+# classifier-inventory NULL probes and ONE four-population pass per graph
+# table. Nothing here scales with the number of subtypes or edge types, which
+# is the whole point -- the old planner ran six more count(*) per classifier
+# value and never finished on a 61 GB / 29.1M-row edge table. (okg#3112 S4
+# dropped the effective-interval table, and with it the planner's five
+# effective-table statements.)
+_EXPECTED_PLANNER_COUNT_STATEMENTS = 4
 
 
 @pytest.mark.parametrize("classifier_count", [4, 32])
@@ -1099,7 +1021,8 @@ def test_planner_count_statements_do_not_scale_with_classifier_cardinality(
 
     # Progress is durable: an operator can tell slow from stuck afterwards.
     phases = {entry["phase"] for entry in plan["planner_progress"]}
-    assert {"estimate_nodes", "estimate_edges", "estimate_effective"} <= phases
+    assert {"estimate_nodes", "estimate_edges"} <= phases
+    assert "estimate_effective" not in phases
     assert all(
         isinstance(entry["elapsed_seconds"], float)
         and entry["elapsed_seconds"] >= 0.0
@@ -1335,7 +1258,6 @@ def test_doctor_probe_reports_growth_and_whether_retention_is_declared(
     assert unset["status"] == "warn"
     assert unset["code"] == "history_retention_unset"
     assert unset["configured"] is False
-    assert unset["publisher_per_cycle_prune"] == "on"
     # Not vacuous: the seeded history really is mostly superseded.
     assert unset["tables"]["nodes"]["rows_total"] > 0
     assert unset["tables"]["nodes"]["rows_superseded"] > 0
@@ -1343,15 +1265,11 @@ def test_doctor_probe_reports_growth_and_whether_retention_is_declared(
     assert unset["interval_relation_bytes"] > 0
     assert "history_retention:" in unset["message"]
 
-    # Declaring a policy turns the publisher per-cycle prune OFF. That must be
-    # stated, not assumed -- a shipped default that silently stops a running
-    # reclaimer is the failure mode this probe exists to prevent.
     assert declared["configured"] is True
-    assert declared["publisher_per_cycle_prune"] == "off"
     assert declared["deletion_authority"] == "confirmed_compaction_plan"
     assert declared["completed_compactions"] == 0
     # Declared, mostly-dead, and never compacted: that combination is itself a
-    # warning, because with the per-cycle prune off nothing else deletes.
+    # warning, because nothing else deletes history.
     assert declared["status"] == "warn"
     assert declared["code"] == "history_retention_declared_but_never_applied"
     assert "only thing that deletes history" in declared["message"]
@@ -1539,12 +1457,10 @@ def test_doctor_reports_history_retention_for_a_deployment(
     )
     report = _json.loads(capsys.readouterr().out)
     retention = report["history_retention"]
-    # The scaffold declares a policy, so the publisher per-cycle prune is off
-    # and the doctor must say so rather than leave it implied.
+    # The scaffold declares a policy, so a confirmed compaction plan is the
+    # only deletion authority and the doctor must say so.
     assert retention["configured"] is True
-    assert retention["publisher_per_cycle_prune"] == "off"
     assert retention["tables"]["nodes"]["rows_total"] > 0
-    assert retention["tables"]["effective"]["table"].endswith("intervals")
     assert retention["status"] == "warn"
     assert retention["code"] == "history_retention_declared_but_never_applied"
     assert any(
@@ -1576,13 +1492,10 @@ def test_doctor_probe_is_quiet_while_no_history_is_dead(
     for report in (unset, declared):
         assert report["tables"]["nodes"]["rows_total"] > 0
         assert report["tables"]["nodes"]["rows_branch_superseded"] == 0
-        assert report["tables"]["effective"]["rows_closed"] == 0
         assert report["dead_history_rows"] == 0
         assert (report["status"], report["code"]) == ("ok", "history_retention_ok")
         assert "nothing needs retiring" in report["message"]
     # What the probe reports stays true: declaring still turns the prune off.
-    assert unset["publisher_per_cycle_prune"] == "on"
-    assert declared["publisher_per_cycle_prune"] == "off"
     assert declared["completed_compactions"] == 0
     assert "okg generation compact" in declared["message"]
 
@@ -1623,56 +1536,6 @@ def test_doctor_on_a_fresh_deployment_shows_none_of_the_3578_warnings(
     }, codes
     assert report["host_disk_headroom"]["status"] != "misconfigured"
     assert report["history_retention"]["status"] == "ok"
-
-
-def test_a_closed_sidecar_interval_alone_still_warns(clean_runtime: str) -> None:
-    """Review finding (#3578): with a policy declared and no compaction run,
-    a closed attribute-effective interval is dead history nothing deletes,
-    even while no node or edge version is superseded."""
-    from okg.substrate.attributes import (
-        ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,
-        EFFECTIVE_INTERVAL_OPEN_ORD,
-    )
-
-    deployment = "history-retention-closed-sidecar"
-    _seed_retention_history(clean_runtime, deployment, revisions=1)
-    with psycopg.connect(clean_runtime) as conn:
-        # One CLOSED sidecar interval for the seeded node (the publisher
-        # writes these; the seeding helper does not), while no node row is
-        # superseded.
-        conn.execute(
-            "INSERT INTO okg.attribute_versions "
-            "(target_kind, target_id, attrs_hash, attrs) "
-            "VALUES ('node', 'n:retention', '\\x01'::bytea, '{}'::jsonb) "
-            "ON CONFLICT DO NOTHING"
-        )
-        closed = conn.execute(
-            f"INSERT INTO {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} "
-            "(target_kind, target_id, branch_id, from_ord, to_ord, subtype, "
-            " attrs_hash) "
-            "VALUES ('node', 'n:retention', 'default', 1, 2, 'claim', "
-            "'\\x01'::bytea)"
-        ).rowcount
-        assert EFFECTIVE_INTERVAL_OPEN_ORD > 2
-        assert closed == 1
-        store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
-        declared = check_history_retention(
-            conn,
-            store=store,
-            deployment_name=deployment,
-            policy_raw={"default": "latest-only", "audit_tail_generations": 2},
-        )
-        unset = check_history_retention(
-            conn, store=store, deployment_name=deployment, policy_raw=None,
-        )
-
-    assert declared["tables"]["nodes"]["rows_branch_superseded"] == 0
-    assert declared["tables"]["effective"]["rows_closed"] == 1
-    assert (declared["status"], declared["code"]) == (
-        "warn", "history_retention_declared_but_never_applied",
-    )
-    # Undeclared, the per-cycle prune still bounds the sidecar: no warning.
-    assert (unset["status"], unset["code"]) == ("ok", "history_retention_ok")
 
 
 def test_doctor_reports_unacked_stages_without_a_warning_when_runtime_is_off(

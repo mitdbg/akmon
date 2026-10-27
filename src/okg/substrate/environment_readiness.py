@@ -71,6 +71,22 @@ def environment_readiness_report(
         timeout_seconds=timeout_seconds,
     )
     checks: list[dict[str, Any]] = []
+    profile = _readiness_profile_resolution(environment)
+    problem = profile.get("problem")
+    if isinstance(problem, Mapping):
+        # Fail closed (#3958): a conflicting, invalid or authored profile
+        # blocks promotion with the same code `okg dogfood status` reports.
+        _check(
+            checks,
+            "readiness.profile",
+            False,
+            "",
+            (
+                "the readiness profile cannot be resolved "
+                f"({problem.get('code')}): {problem.get('message')}"
+            ),
+            dict(profile),
+        )
     _check(
         checks,
         "release.active",
@@ -238,6 +254,35 @@ def environment_readiness_report(
         "doctor": operational.get("doctor"),
         "prerequisite_pacts": prerequisites,
     }
+
+
+def _readiness_profile_resolution(
+    environment: DeploymentEnvironment,
+) -> dict[str, Any]:
+    """The readiness-profile resolver's answer for this environment (#3958).
+
+    The same resolver `okg dogfood status` uses, over the composed manifest,
+    so a definition whose ``readiness.profile`` disagrees with the
+    environment's ``readiness.policy`` fails this gate too and cannot be
+    promoted. The gate's own checks keep running under ``readiness.policy``,
+    as before: when there is no problem and the policy chooses a profile, the
+    resolver's answer IS that policy; a non-choosing policy (``org-private``)
+    keeps its own source groups and Nomos posture here.
+    """
+    from okg.substrate.deployments.readiness_profile import (
+        declared_readiness_profile,
+    )
+
+    resolved = declared_readiness_profile(
+        environment.manifest.effective_raw, composed=True,
+    )
+    resolved["composed"] = True
+    if isinstance(resolved.get("problem"), dict):
+        resolved["problem"]["files"] = [
+            str(environment.manifest.deployment_dir / "definition.yaml"),
+            str(environment.descriptor_path),
+        ]
+    return resolved
 
 
 def _probe_database_readiness(

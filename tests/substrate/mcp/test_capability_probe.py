@@ -659,7 +659,7 @@ def _sha(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _assert_appended(mcp, file_text: str) -> None:
+def _assert_appended(mcp, file_text: str, ids) -> None:
     """PACT dataset-card: the served text is the dataset card, okg's own
     guidance, the deployment's file under its fixed heading, then the
     generated block. The file is appended, never a replacement."""
@@ -673,7 +673,13 @@ def _assert_appended(mcp, file_text: str) -> None:
         CAPABILITY_FIXTURES["none"](), served_tools=("search",),
     )
     served_tools = tuple(mcp._okg_surface_freshness["tool_surface"]["served_tools"])
-    authored = authored_instructions_for(served_tools, deployment_text=file_text)
+    authored = authored_instructions_for(
+        served_tools,
+        deployment_text=file_text,
+        # Fixed per fixture (#4052, #4064), not read back from the server:
+        # the caller says which id families its deployment declares.
+        ids=ids,
+    )
     assert authored.endswith(
         DEPLOYMENT_GUIDANCE_HEADING + "\n\n" + file_text.strip()
     )
@@ -692,7 +698,7 @@ def test_a_legacy_mcp_instructions_file_gets_the_lines(
 ) -> None:
     """The legacy `mcp_instructions:` key, with no `agent_surface` block --
     a private deployment's shape."""
-    from okg.substrate.mcp.server import build_server
+    from okg.substrate.mcp.server import IdFamilies, build_server
     from okg.substrate.mcp.surface_budget import PROBE_DSN
 
     _hermetic_none(monkeypatch)
@@ -714,7 +720,11 @@ def test_a_legacy_mcp_instructions_file_gets_the_lines(
     mcp = build_server(dsn=PROBE_DSN, deployment_name="legacy-probe")
     try:
         assert mcp._okg_agent_surface is None
-        _assert_appended(mcp, authored)
+        # An empty source registry declares no id family.
+        _assert_appended(
+            mcp, authored,
+            IdFamilies(doc_text=False, file_nodes=False, commit_nodes=False),
+        )
     finally:
         mcp._okg_pool.close()
 
@@ -725,7 +735,7 @@ def test_an_agent_surface_instructions_file_gets_the_lines(
     """A deployment that declares `agent_surface.instructions` (okg-ci)."""
     from pathlib import Path
 
-    from okg.substrate.mcp.server import build_server
+    from okg.substrate.mcp.server import IdFamilies, build_server
     from okg.substrate.mcp.surface_budget import PROBE_DSN
 
     _hermetic_none(monkeypatch)
@@ -736,7 +746,11 @@ def test_an_agent_surface_instructions_file_gets_the_lines(
             Path(__file__).resolve().parents[3]
             / "deployments" / "okg-ci" / "mcp-instructions.md"
         )
-        _assert_appended(mcp, authored_file.read_text(encoding="utf-8"))
+        # okg-ci declares git files and git history, and no doc source.
+        _assert_appended(
+            mcp, authored_file.read_text(encoding="utf-8"),
+            IdFamilies(doc_text=False, file_nodes=True, commit_nodes=True),
+        )
     finally:
         mcp._okg_pool.close()
 

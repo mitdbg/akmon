@@ -700,3 +700,57 @@ def test_a_live_endpoint_rejecting_the_credential_refuses_the_sync(
     assert excinfo.value.data["reason"] == "mcp_connection_credential_rejected"
     assert excinfo.value.data["server_id"] == LIVE_SERVER_ID
     assert excinfo.value.data["instance_endpoint"] == LIVE_URL
+
+
+def test_an_earlier_release_live_connection_migrates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#3960 review F5: with a live slot, `okg-fixture-live` becomes
+    `okg_fixture_live`, keeping its own URL and credential."""
+    import dataclasses
+
+    from okg.substrate.chat import live_tool_slot
+
+    live_token = _live_token()
+    instance = _prepared(monkeypatch, live_token=live_token)
+    old = _inputs(tmp_path, _manifest(grants={"analysts": list(LIVE_NAMES)}))
+    monkeypatch.setattr(live_tool_slot, "LIVE_CONNECTION_SUFFIX", "-live")
+    assert _run(old, instance).ok
+    assert _entry(instance, "okg-fixture-live") is not None
+
+    monkeypatch.setattr(live_tool_slot, "LIVE_CONNECTION_SUFFIX", "_live")
+    new = dataclasses.replace(old, mcp_server_id="okg_fixture")
+    assert _run(new, instance).ok
+    ids = sorted(str((e.get("info") or {}).get("id")) for e in instance.tool_servers)
+    assert ids == ["okg_fixture", "okg_fixture_live"]
+    live = _entry(instance, "okg_fixture_live")
+    assert live["url"] == LIVE_URL and live["key"] == live_token
+    again = _run(new, instance)
+    assert again.ok and again.changes == 0
+
+
+def test_readback_sees_an_old_form_live_connection_nobody_planned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#3960 review F2: sync keeps a hand-added `okg-<d>-live` when no slot is
+    declared (it may be foreign), so readback must still flag it."""
+    import dataclasses
+
+    instance = _prepared(monkeypatch, live_token=None)
+    inputs = dataclasses.replace(
+        _inputs(tmp_path, _manifest(slot=False)), mcp_server_id="okg_fixture",
+    )
+    plan = resolve_chat_plan(inputs)
+    _run(inputs, instance)
+    client = InstanceClient(BASE_URL, TOKEN, opener=instance.opener)
+    assert chat_readback(inputs, client, plan)["surfaces"]["live_tools"][
+        "status"
+    ] == "match"
+    instance.tool_servers.append({
+        "url": LIVE_URL, "type": "mcp", "auth_type": "none", "key": "",
+        "config": {"enable": True, "function_name_filter_list": ""},
+        "info": {"id": "okg-fixture-live", "name": "hand-added"},
+    })
+    after = chat_readback(inputs, client, plan)
+    assert after["surfaces"]["live_tools"]["status"] == "deviation"
+    assert after["deviations"][0]["key"] == "live_connection:present"

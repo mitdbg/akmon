@@ -1,14 +1,14 @@
 """Generation lifecycle boundary for the Chronos graph store."""
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
-import os
 import threading
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Iterator
 
 from okg.substrate.errors import SubstrateError
 from okg.substrate.graph_store_internal.common import (
@@ -330,13 +330,8 @@ class ChronosGraphGenerationLifecycleMixin:
         "edge_count",
         "node_digest",
         "edge_digest",
-        # "did THIS generation fold itself into the interval table", read by the
-        # next publish's backfill precondition. Inherited, a compacted
-        # checkpoint would claim the source generation's answer: if the source
-        # was a deferred publish, the precondition's walk would step PAST the
-        # compacted checkpoint whose interval rows nothing has proven. Dropping
-        # it leaves the compacted checkpoint unmarked, which the walk treats as
-        # unrecorded and refuses to step over.
+        # Retired marker (PACT lane-s-storage-drop-copies) that older
+        # checkpoints still carry; a compacted checkpoint must not inherit it.
         "effective_interval_view_sync",
         # The published predecessor this generation was built on. A compacted
         # checkpoint's predecessor is the compaction, not the source
@@ -392,42 +387,59 @@ class ChronosGraphGenerationLifecycleMixin:
             order_column="edge_id",
         )
 
-        self._reset_chronos_metadata_tables(
-            deployment_name=deployment_name,
-            branch=branch,
-        )
+        # Issue #4049: from the reset of the branch to the root's overlay
+        # marker, one transaction (a savepoint when the caller holds one), so
+        # a failure or a kill leaves the old head as it was, never a
+        # markerless head. `okg branch compact` runs on an autocommit
+        # connection. The Chronos metadata and graph schema are ensured
+        # first, outside it: the backend's ensure() always commits, which
+        # inside the transaction is refused and, before it, committed the
+        # branch reset on its own (a failure after it lost the branch even
+        # when the caller held a transaction). Both are idempotent and the
+        # reset removes nothing they create.
         self.context.ensure_metadata()
         self.ensure_schema()
-        self.ensure_branch(
-            branch,
-            from_branch="main",
-            metadata={
-                "kind": "okg_branch",
-                "deployment_name": deployment_name,
-                "branch_name": branch,
-                "role": "default" if branch == DEFAULT_BRANCH else "experiment",
-                "status": "active",
-                "compacted_from_generation": source_checkpoint,
-            },
-        )
-        self._load_compacted_tables(branch=branch)
+        with self._root_generation_transaction():
+            self._reset_chronos_metadata_tables(
+                deployment_name=deployment_name,
+                branch=branch,
+            )
+            self.ensure_branch(
+                branch,
+                from_branch="main",
+                metadata={
+                    "kind": "okg_branch",
+                    "deployment_name": deployment_name,
+                    "branch_name": branch,
+                    "role": "default" if branch == DEFAULT_BRANCH else "experiment",
+                    "status": "active",
+                    "compacted_from_generation": source_checkpoint,
+                },
+            )
+            self._load_compacted_tables(branch=branch)
 
-        compacted_generation = self.checkpoint_generation(
-            new_generation_id,
-            branch=branch,
-            deployment_name=deployment_name,
-            status="published",
-            metadata={
-                **source_metadata,
-                "publisher": "chronos_compaction",
-                "compacted_from_generation": source_checkpoint,
-                "node_count": node_stats["count"],
-                "edge_count": edge_stats["count"],
-                "node_digest": node_stats["digest"],
-                "edge_digest": edge_stats["digest"],
-                **caller_metadata,
-            },
-        )
+            compacted_generation = self.checkpoint_generation(
+                new_generation_id,
+                branch=branch,
+                deployment_name=deployment_name,
+                status="published",
+                metadata={
+                    **source_metadata,
+                    "publisher": "chronos_compaction",
+                    "compacted_from_generation": source_checkpoint,
+                    "node_count": node_stats["count"],
+                    "edge_count": edge_stats["count"],
+                    "node_digest": node_stats["digest"],
+                    "edge_digest": edge_stats["digest"],
+                    **caller_metadata,
+                },
+                commit=False,
+            )
+            # The compaction root carries the source generation's overlays
+            # and its marker.
+            self._materialize_root_overlays(
+                compacted_generation, previous=source_checkpoint,
+            )
         return {
             "source_generation_id": source_checkpoint,
             "new_generation_id": compacted_generation,
@@ -545,68 +557,78 @@ class ChronosGraphGenerationLifecycleMixin:
             ).fetchone()["n"]
         )
 
-        self._delete_compaction_target_branch(
-            deployment_name=deployment_name,
-            branch=branch,
-        )
-        now = datetime.now(timezone.utc).isoformat()
-        self.ensure_branch(
-            branch,
-            from_branch="main",
-            metadata={
-                **branch_metadata,
-                **caller_metadata,
-                "kind": "okg_branch",
-                "deployment_name": deployment_name,
-                "branch_name": branch,
-                "role": branch_metadata.get(
-                    "role",
-                    "default" if branch == DEFAULT_BRANCH else "experiment",
-                ),
-                "status": "active",
-                "rolled_over_from_generation": source_checkpoint,
-                "rolled_over_at": now,
-            },
-        )
-        self._load_compacted_tables(branch=branch)
-
-        checkpoint_count_after_copy = int(
-            self.context.db.execute(
-                """
-                SELECT COUNT(*) AS n
-                  FROM _chronos_branch_interval_checkpoints
-                 WHERE branch_id = ?
-                """,
-                (branch,),
-            ).fetchone()["n"]
-        )
-        if checkpoint_count_after_copy != checkpoint_count_before:
-            raise SubstrateError(
-                "cannot roll over branch: generation history count changed",
-                data={
+        # Issue #4049: from the branch delete to the root's overlay marker,
+        # one transaction: a savepoint inside `okg branch rollover`'s own
+        # transaction, its own transaction on an autocommit caller.
+        with self._root_generation_transaction():
+            self._delete_compaction_target_branch(
+                deployment_name=deployment_name,
+                branch=branch,
+            )
+            now = datetime.now(timezone.utc).isoformat()
+            self.ensure_branch(
+                branch,
+                from_branch="main",
+                metadata={
+                    **branch_metadata,
+                    **caller_metadata,
+                    "kind": "okg_branch",
                     "deployment_name": deployment_name,
-                    "branch": branch,
-                    "before": checkpoint_count_before,
-                    "after": checkpoint_count_after_copy,
+                    "branch_name": branch,
+                    "role": branch_metadata.get(
+                        "role",
+                        "default" if branch == DEFAULT_BRANCH else "experiment",
+                    ),
+                    "status": "active",
+                    "rolled_over_from_generation": source_checkpoint,
+                    "rolled_over_at": now,
                 },
             )
+            self._load_compacted_tables(branch=branch)
 
-        rollover_generation = self.checkpoint_generation(
-            new_generation_id,
-            branch=branch,
-            deployment_name=deployment_name,
-            status="published",
-            metadata={
-                **source_metadata,
-                "publisher": "chronos_rollover",
-                "rolled_over_from_generation": source_checkpoint,
-                "node_count": node_stats["count"],
-                "edge_count": edge_stats["count"],
-                "node_digest": node_stats["digest"],
-                "edge_digest": edge_stats["digest"],
-                **caller_metadata,
-            },
-        )
+            checkpoint_count_after_copy = int(
+                self.context.db.execute(
+                    """
+                    SELECT COUNT(*) AS n
+                      FROM _chronos_branch_interval_checkpoints
+                     WHERE branch_id = ?
+                    """,
+                    (branch,),
+                ).fetchone()["n"]
+            )
+            if checkpoint_count_after_copy != checkpoint_count_before:
+                raise SubstrateError(
+                    "cannot roll over branch: generation history count changed",
+                    data={
+                        "deployment_name": deployment_name,
+                        "branch": branch,
+                        "before": checkpoint_count_before,
+                        "after": checkpoint_count_after_copy,
+                    },
+                )
+
+            rollover_generation = self.checkpoint_generation(
+                new_generation_id,
+                branch=branch,
+                deployment_name=deployment_name,
+                status="published",
+                metadata={
+                    **source_metadata,
+                    "publisher": "chronos_rollover",
+                    "rolled_over_from_generation": source_checkpoint,
+                    "node_count": node_stats["count"],
+                    "edge_count": edge_stats["count"],
+                    "node_digest": node_stats["digest"],
+                    "edge_digest": edge_stats["digest"],
+                    **caller_metadata,
+                },
+                commit=False,
+            )
+            # The rollover root carries the source generation's overlays and
+            # its marker.
+            self._materialize_root_overlays(
+                rollover_generation, previous=source_checkpoint,
+            )
 
         return {
             "source_generation_id": source_checkpoint,
@@ -1110,17 +1132,17 @@ class ChronosGraphGenerationLifecycleMixin:
         blocked checkpoint must not occupy a slot the effective-attrs reader would
         later stab).
 
-        Kill-switch: set ``OKG_IVM_GENERATION_ORDINAL=0`` to disable. The ordinal
-        is additive bookkeeping that no read path consumes yet, so a mint failure
-        is logged LOUDLY but does NOT block an otherwise-valid publish -- e.g. a
-        quarantine fork with no recorded base raises in the primitive's fail-loud
-        API; here we log it (with traceback) rather than break ingest/merge_back
-        publishing. When the interval read path begins CONSUMING the ordinal, this
-        becomes fatal and the fork-creation paths must record ``base_generation_id``.
+        The publisher has already assigned a ROOT branch's ordinal in the
+        publication transaction, so this call returns it unchanged there. On
+        every other path (a structural fork, compaction, merge_back) a mint
+        failure is logged LOUDLY but does NOT block an otherwise-valid
+        checkpoint -- e.g. a quarantine fork with no recorded base raises in
+        the primitive's fail-loud API; here we log it (with traceback) rather
+        than break ingest/merge_back publishing. (PACT lane-s-storage-drop-
+        copies retired the ``OKG_IVM_GENERATION_ORDINAL=0`` kill switch: the
+        overlay ranges are keyed by the ordinal.)
         """
         if status != "published":
-            return
-        if os.environ.get("OKG_IVM_GENERATION_ORDINAL", "1") == "0":
             return
         try:
             from okg.substrate.graph_store_internal.generation_ordinal import (
@@ -1320,25 +1342,8 @@ class ChronosGraphGenerationLifecycleMixin:
         )[-1]
 
     def delete_generation(self, generation_id: int | str) -> None:
-        """Delete a generation checkpoint, and prune the per-generation effective-
-        attrs view snapshot in lockstep (scale-operator-attr-reads /
-        req.effective-attrs-view). The snapshot is keyed only by generation_id and is
-        NOT a chronos checkpoint, so deleting the checkpoint alone would leak it; a
-        full per-generation node snapshot at scale is an unbounded-growth surface, so
-        we prune it here. (Recovered from the layer-2 commit, whose prune lived in the
-        old graph_store.ChronosGraphStore.delete_generation before the chronos-internal
-        refactor relocated the method here.)"""
+        """Delete a generation checkpoint."""
         self.context.delete_checkpoint(self._generation_checkpoint_id(generation_id))
-        conn = getattr(self.context, "db", None)
-        if conn is not None and hasattr(conn, "cursor"):
-            try:
-                from okg.substrate.attributes import (
-                    delete_effective_attribute_view_for_generation,
-                )
-
-                delete_effective_attribute_view_for_generation(conn, generation_id)
-            except Exception:  # noqa: BLE001 — best-effort prune; the checkpoint delete already succeeded, don't fail it on a missing table / read-only role
-                pass
 
     def restore_branch_to_generation(
         self,
@@ -1592,10 +1597,76 @@ class ChronosGraphGenerationLifecycleMixin:
         a rollback to the generation (``reapply_edge_declarations``), since the
         sources that wrote them have already moved their watermarks past them.
         """
-        from chronos_core.branching import TableNotRegisteredError
         from okg.substrate.graph_store_internal.edge_declarers import (
             EDGE_DECLARERS_TABLE,
         )
+
+        return self._table_rows_since_generation(
+            generation_id, branch=branch, table=EDGE_DECLARERS_TABLE,
+        )
+
+    def edge_deferrals_since_generation(
+        self,
+        generation_id: int | str,
+        *,
+        branch: str = DEFAULT_BRANCH,
+    ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
+        """Waiting-edge rows written on ``branch`` since a generation.
+
+        Same contract as ``edge_declarations_since_generation`` for
+        ``okg.graph_edge_deferrals``: a source write that changes only a
+        waiting row changes no stored edge row, and merge-back puts the rows
+        back after a rollback (``reapply_edge_deferrals``).
+        """
+        from okg.substrate.graph_store_internal.edge_deferrals import (
+            EDGE_DEFERRALS_TABLE,
+        )
+
+        return self._table_rows_since_generation(
+            generation_id, branch=branch, table=EDGE_DEFERRALS_TABLE,
+        )
+
+    def reapply_edge_deferrals(
+        self,
+        rows: list[tuple[dict[str, Any], dict[str, Any] | None]],
+        *,
+        branch: str = DEFAULT_BRANCH,
+    ) -> dict[str, int]:
+        """Write back waiting rows read by ``edge_deferrals_since_generation``.
+
+        One transaction under the branch write fence. A row that also landed
+        in ``okg.graph_edges`` is removed by the publish step's first pass, so
+        no check is needed here.
+        """
+        from okg.substrate.graph_store_internal.edge_deferrals import (
+            EDGE_DEFERRALS_TABLE,
+        )
+
+        counts = {"upserted": 0, "deleted": 0}
+        if not rows:
+            return counts
+        session = self.checkout(branch)
+        with session.transaction():
+            self._lock_edge_ranking_shared()  # type: ignore[attr-defined]
+            self._lock_branch_write(branch)  # type: ignore[attr-defined]
+            upserts = [row for _key, row in rows if row is not None]
+            deletes = [key for key, row in rows if row is None]
+            session.apply_table_edits(
+                EDGE_DEFERRALS_TABLE, upserts=upserts, deletes=deletes,
+            )
+        counts["upserted"] = len(upserts)
+        counts["deleted"] = len(deletes)
+        return counts
+
+    def _table_rows_since_generation(
+        self,
+        generation_id: int | str,
+        *,
+        branch: str,
+        table: str,
+    ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
+        """Rows of a side table written on ``branch`` since a generation."""
+        from chronos_core.branching import TableNotRegisteredError
 
         backend = getattr(self.context, "_backend", None)
         if backend is None or not hasattr(backend, "_mutable_segment_ids_after_base"):
@@ -1628,12 +1699,12 @@ class ChronosGraphGenerationLifecycleMixin:
         checkpoint_segment = backend._segment(int(cp["segment_id"]))
         head_segment = backend._segment(head_segment_id)
         try:
-            head_meta = backend._meta_for_segment(head_segment, EDGE_DECLARERS_TABLE)
+            head_meta = backend._meta_for_segment(head_segment, table)
         except TableNotRegisteredError:
             return []
         try:
             checkpoint_meta = backend._meta_for_segment(
-                checkpoint_segment, EDGE_DECLARERS_TABLE,
+                checkpoint_segment, table,
             )
         except TableNotRegisteredError:
             checkpoint_meta = None
@@ -1653,7 +1724,7 @@ class ChronosGraphGenerationLifecycleMixin:
             chunk_size = backend._upsert_batch_chunk_size(meta)
             for start in range(0, len(keys), chunk_size):
                 found.update(backend._rows_by_key_for_keys(
-                    EDGE_DECLARERS_TABLE, keys[start:start + chunk_size],
+                    table, keys[start:start + chunk_size],
                     segment, meta,
                 ))
             return found
@@ -1793,11 +1864,110 @@ class ChronosGraphGenerationLifecycleMixin:
             "created_at": datetime.now(timezone.utc).isoformat(),
             **(metadata or {}),
         }
-        self._record_embedding_watermarks(checkpoint)
-        self.context.fast_forward_branch(
-            checkpoint, target, onto_segment, expected_current_segment, payload
-        )
+        # Issue #4049: the overlays the generation carries forward are its
+        # target branch's latest published generation's (None on a branch
+        # with none).
+        previous = self.latest_generation(
+            deployment_name=deployment_name, branch=target, status="published",
+        ) if status == "published" else None
+        # The head move and the overlay marker commit together (a savepoint
+        # when the caller holds a transaction).
+        with self._root_generation_transaction():
+            self._record_embedding_watermarks(checkpoint)
+            self.context.fast_forward_branch(
+                checkpoint, target, onto_segment, expected_current_segment, payload
+            )
+            if status == "published":
+                self._materialize_root_overlays(
+                    checkpoint,
+                    previous=previous.checkpoint_id if previous is not None else None,
+                )
         return checkpoint
+
+    @contextlib.contextmanager
+    def _root_generation_transaction(self) -> Iterator[None]:
+        """One transaction around a generation minted outside the publisher
+        and its overlay writes (issue #4049), so no failure or kill leaves a
+        published head without its overlay marker.
+
+        A caller that owns the commit (a Chronos runtime with autocommit off,
+        as `okg branch rollover` and the fleet controller hold) gets a
+        savepoint inside its transaction and commits it itself. Otherwise,
+        as on `okg branch compact`'s autocommit connection, this is the
+        transaction: the runtime's own commits are held while it is open,
+        as the publisher holds them (publisher.py, the publication
+        transaction), it commits at the end, and the backend's after-commit
+        or after-rollback hook runs once. On a store that is not PostgreSQL
+        (the SQLite test adapter) it adds nothing."""
+        from okg.substrate.embeddings.store import _psycopg_connection
+
+        conn = _psycopg_connection(self.context.db)
+        if conn is None:
+            yield
+            return
+        if not self.context.autocommit:
+            with conn.transaction():
+                yield
+            return
+        committed = False
+        self.context.autocommit = False
+        try:
+            try:
+                with conn.transaction():
+                    yield
+            finally:
+                self.context.autocommit = True
+            # What the runtime's own commit did when it held no transaction
+            # block: an outer implicit transaction commits with this one.
+            if self.context.db.in_transaction:
+                self.context.db.commit()
+            committed = True
+        except BaseException:
+            if self.context.db.in_transaction:
+                self.context.db.rollback()
+            raise
+        finally:
+            self.context.finalize_external_transaction(committed=committed)
+
+    def _materialize_root_overlays(
+        self, checkpoint: str, *, previous: str | None,
+    ) -> None:
+        """Run what a publish runs for overlays on a generation minted
+        outside the publisher (a fast-forward, a history compaction root, a
+        rollover root): carry the predecessor's accepted overlays forward,
+        add the generation's own, write its overlay marker, and fold them
+        into the branch's overlay ranges when it has an ordinal (issue #4049,
+        PACT lane-s-storage-cutover). The graph rows plus overlays are the
+        only read path, and it refuses a generation with no marker, so
+        without this every unpinned read refused until the next publish.
+
+        Writes only the per-generation overlay table, the marker and the
+        ranges (PACT lane-s-storage-drop-copies dropped the materialized
+        copies). No-op on a store that is not
+        PostgreSQL (the SQLite test adapter has no attribute tables)."""
+        from okg.substrate.attributes import (
+            materialize_effective_attributes_for_generation,
+            sync_overlay_ranges_for_generation,
+        )
+        from okg.substrate.embeddings.store import _psycopg_connection
+
+        from psycopg.rows import tuple_row
+
+        conn = _psycopg_connection(self.context.db)
+        if conn is None:
+            return
+        # The attribute writers read rows by position; a caller's connection
+        # may hand out dict rows (a test's, or a CLI's), so read tuples here
+        # and give the caller its row factory back.
+        caller_rows = conn.row_factory
+        conn.row_factory = tuple_row
+        try:
+            materialize_effective_attributes_for_generation(
+                conn, generation_id=checkpoint, previous_generation_id=previous,
+            )
+            sync_overlay_ranges_for_generation(conn, checkpoint)
+        finally:
+            conn.row_factory = caller_rows
 
     def _record_embedding_watermarks(self, checkpoint: str) -> None:
         """Write this generation's vector-set watermarks (no-op without sets

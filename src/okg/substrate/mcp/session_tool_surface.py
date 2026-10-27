@@ -70,6 +70,21 @@ class ToolNotVisibleInSession(SubstrateError):
     code = "mcp_tool_not_in_session_surface"
 
 
+class ToolNotServed(SubstrateError):
+    """A call named a tool this server does not register at all.
+
+    Issue #3993. A deployment whose `agent_surface.served` omits a tool (such
+    as `run`) never registers it, so FastMCP's tool manager raised a bare
+    "Unknown tool" that the public boundary flattened into the generic
+    `operator_execution_failed`. The caller could not tell "not offered here"
+    from a crash. This names the cause and the registered tools. It runs
+    nothing and registers nothing, and it lists only what the server already
+    lists (a tool withheld by access rules is not registered, so not named).
+    """
+
+    code = "tool_not_served"
+
+
 class ToolSurfaceExpansionUnavailable(SubstrateError):
     """This launch cannot widen a session's tool surface.
 
@@ -397,16 +412,69 @@ class SessionScopedToolsMixin:
             return tools
         return [tool for tool in tools if tool.name in visible]
 
+    def _okg_refuse_unregistered_tool(self, name: str) -> None:
+        """Refuse a name this server does not register, naming what it does.
+
+        After the principal gate, so a caller the gate refuses is told that
+        first. For a server with a session surface, `call_tool` decides
+        instead (a name outside its visible set and ceiling), so a caller
+        the surface stops cannot tell whether a ceiling tool is registered.
+        """
+
+        manager = getattr(self, "_tool_manager", None)
+        if manager is None or manager.get_tool(name) is not None:
+            return
+        self._okg_raise_not_served(
+            name, sorted(tool.name for tool in manager.list_tools()),
+        )
+
+    def _okg_raise_not_served(self, name: str, served: list[str]) -> None:
+        """The refusal. The name is caller text: it is made printable and cut
+        before it is echoed or logged.
+
+        A tool withheld on purpose with its own designed refusal (`query`
+        under access rules) is refused by that hook first, so it never reads
+        as "ask the operator to add it".
+        """
+
+        withheld = getattr(self, "_refuse_query_under_access_rules", None)
+        if callable(withheld):
+            withheld(name)
+        cut = name if len(name) <= 64 else name[:64] + "..."
+        shown = "".join(
+            ch if ch.isprintable() else f"\\x{ord(ch):02x}" if ord(ch) < 256
+            else f"\\u{ord(ch):04x}"
+            for ch in cut
+        )
+        log.warning(
+            "call to a tool this server does not serve, refused as "
+            "tool_not_served: tool=%r served=%d tools", shown, len(served),
+        )
+        raise ToolNotServed(
+            f"tool {shown!r} is not served by this deployment; it serves "
+            f"{', '.join(served) if served else 'no tools'}",
+            data={"tool": shown, "served": served},
+            fix_hint=(
+                "call one of the served tools, or ask the operator to add "
+                f"{shown!r} to `agent_surface.served`"
+            ),
+        )
+
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         await self._okg_check_dispatch_principal(name)
         surface = self._okg_session_tool_surface
         if surface is None:
+            self._okg_refuse_unregistered_tool(name)
             self._okg_before_tool_dispatch(name, arguments)
             return await super().call_tool(name, arguments)  # type: ignore[misc]
 
         identity = self.okg_current_session()
         visible = surface.visible_for(identity)
         if name not in visible:
+            if name not in surface.ceiling:
+                # Outside what this session can ever be shown: no widening
+                # adds it. Names only what this caller's tools/list shows.
+                self._okg_raise_not_served(name, sorted(visible))
             raise ToolNotVisibleInSession(
                 f"tool {name!r} is not in this session's tool surface "
                 f"({sorted(visible)}). It is registered by this server and "

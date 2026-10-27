@@ -180,7 +180,8 @@ guides and `docs/develop/`, the code that reads one source: a
 
 A typed item stored in the graph, such as a document, dataset, person, project,
 service, issue, or decision. Keyword search reads its `text` attribute, which
-`okg_searchable_text_fields` can fill from other fields.
+`okg_searchable_text_fields` can fill from other fields. A type lists its id fields in
+`okg_identifier_fields`; a search for one id then ranks that record first.
 
 ### Registration
 

@@ -369,7 +369,7 @@ def git_evidence_for_manifest(
             check=False,
         )
         status = subprocess.run(
-            ["git", "-C", str(repo_root), "status", "--porcelain=v1"],
+            ["git", "-C", str(repo_root), "--no-optional-locks", "status", "--porcelain=v1"],
             capture_output=True,
             text=True,
             timeout=5,

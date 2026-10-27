@@ -91,7 +91,11 @@ OPERATOR_READS = [
      "SELECT 1 FROM okg.declared_attr_indexes LIMIT 1"),
     (
         "aggregate: effective attributes",
-        "SELECT 1 FROM okg.attribute_effective_view LIMIT 1",
+        "SELECT 1 FROM okg.attribute_effective_attrs LIMIT 1",
+    ),
+    (
+        "aggregate/filter: overlay generation marker",
+        "SELECT 1 FROM okg.attribute_overlay_generations LIMIT 1",
     ),
     ("query: generation status", "SELECT 1 FROM okg.graph_generations LIMIT 1"),
     ("query: source status", "SELECT 1 FROM okg.source_progress LIMIT 1"),

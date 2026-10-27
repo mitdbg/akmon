@@ -477,10 +477,11 @@ def test_fallback_lookup_error_raises_instead_of_linking_nothing(
 def test_scoped_code_names_restore_12604_aliases(clean_runtime: str, tmp_path) -> None:
     """Scale fixture for #1362 and #1747; not a new production measurement.
 
-    The same 6,302 function names appear in a live file and in two archives.
+    The same `count` function names appear in a live file and in two archives
+    (the test name keeps the 12,604 symbols of the original 6,302 names).
     Keyed by bare `qualified_name` (the pre-#1747 alias field) they collide and
-    the 276 earlier winners are quarantined. Keyed by `scoped_qualified_name`,
-    every one of the 12,604 symbols seeds its own alias and none collide.
+    the `seeded` earlier winners are quarantined. Keyed by `scoped_qualified_name`,
+    every one of the 2 * `count` symbols seeds its own alias and none collide.
     """
     from dataclasses import replace
 
@@ -494,11 +495,14 @@ def test_scoped_code_names_restore_12604_aliases(clean_runtime: str, tmp_path) -
 
     alias_field = _code_symbol_alias_fields(tmp_path)[0]
     assert alias_field == "scoped_qualified_name"
-    names = [f"ArchivedAlias{i:04d}" for i in range(6302)]
+    # 50 names are enough: a collision or a quarantine is a property of two
+    # symbols sharing a bare name, not of how many pairs there are.
+    count, seeded = 50, 3
+    names = [f"ArchivedAlias{i:04d}" for i in range(count)]
     paths = {
         "src/live.py": names,
-        "archive/ui/legacy.py": names[:3151],
-        "pact/archive/proposal/mock.py": names[3151:],
+        "archive/ui/legacy.py": names[: count // 2],
+        "pact/archive/proposal/mock.py": names[count // 2 :],
     }
     for path, symbols in paths.items():
         target = tmp_path / "corpus" / path
@@ -509,11 +513,11 @@ def test_scoped_code_names_restore_12604_aliases(clean_runtime: str, tmp_path) -
         f for f in source.run("extract").facts
         if isinstance(f, NodeFact) and f.subtype == "code_symbol" and f.attrs["kind"] != "module"
     ]
-    assert len(facts) == 12604
+    assert len(facts) == 2 * count
     live = {f.attrs["qualified_name"]: f.node_id for f in facts if f.attrs["path"] == "src/live.py"}
     assert set(live) == set(names)
     scoped = {f.attrs[alias_field]: f.node_id for f in facts}
-    assert len(scoped) == 12604
+    assert len(scoped) == 2 * count
     # Reconstruct the pre-#1362/#1747 emission on the same stable node
     # identities: bare names everywhere and no scoped name.
     original = [replace(f, attrs={
@@ -522,7 +526,7 @@ def test_scoped_code_names_restore_12604_aliases(clean_runtime: str, tmp_path) -
     }) for f in facts]
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
         seed_catalog(conn, subtypes=["code_symbol"], aliases=[
-            (name, live[name], None) for name in names[:276]
+            (name, live[name], None) for name in names[:seeded]
         ])
         store = ChronosGraphStore.from_connection(conn)
         store.apply_facts(original, source="fixture.archive-aliases")
@@ -531,8 +535,8 @@ def test_scoped_code_names_restore_12604_aliases(clean_runtime: str, tmp_path) -
     assert before_publish["status"] == "published", before_publish
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
         before = seed_from_subtype(conn, subtype="code_symbol", field="qualified_name", apply=True)
-        assert before.collision_count == 6302
-        assert before.quarantined_count == 276
+        assert before.collision_count == count
+        assert before.quarantined_count == seeded
         store = ChronosGraphStore.from_connection(conn)
         store.apply_facts(facts, source="fixture.archive-aliases")
     after_publish = publisher.cycle()
@@ -541,7 +545,7 @@ def test_scoped_code_names_restore_12604_aliases(clean_runtime: str, tmp_path) -
         after = seed_from_subtype(conn, subtype="code_symbol", field=alias_field, apply=True)
         assert after.collision_count == 0
         assert after.quarantined_count == 0
-        assert after.inserted_count == 12604
+        assert after.inserted_count == 2 * count
         with conn.cursor() as cur:
             cur.execute("SELECT alias, canonical FROM okg.aliases WHERE catalog_version_id = %s AND alias = ANY(%s)", (after.catalog_version_id, list(scoped)))
             assert dict(cur.fetchall()) == scoped

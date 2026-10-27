@@ -169,8 +169,10 @@ _CLOSE_MARGIN_MAX_SECONDS = 1.0
 #: Rucio's `list_rses` answers an expression that selects no RSE with
 #: `isError` and "RSE Expression resulted in an empty set": the server is
 #: up and answered, so `upstream_unavailable` would send the caller looking
-#: for an outage. Matched only inside an `isError` result, case-folded.
-_EMPTY_MATCH_MARKERS = ("empty set",)
+#: for an outage. Matched only inside an `isError` result, case-folded. The
+#: whole phrase, not "empty set" alone: a crash whose text happens to say
+#: "pop from an empty set" must stay a failure, never read as 0 rows.
+_EMPTY_MATCH_MARKERS = ("resulted in an empty set",)
 
 #: How a tool says "what you named does not exist" AS AN ERROR. Rucio raises
 #: `DataIdentifierNotFound` ("Data identifier not found."), `RuleNotFound`

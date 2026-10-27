@@ -469,11 +469,12 @@ def maintain_one_row(
             "rows_deleted": 0,
         }
     logger.info(
-        "maintained derivation %s at gen=%s mode=%s dirty_buckets=%s "
-        "rows_written=%s rows_deleted=%s",
+        "maintained derivation %s at gen=%s mode=%s full_reason=%s "
+        "dirty_buckets=%s rows_written=%s rows_deleted=%s",
         row.spec.derivation_id,
         generation_id,
         summary.get("mode"),
+        summary.get("full_reason"),
         summary.get("dirty_bucket_count"),
         summary.get("rows_written"),
         summary.get("rows_deleted"),

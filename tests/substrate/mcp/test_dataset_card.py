@@ -68,7 +68,8 @@ KEPT_GUIDANCE = (
     # read-passage-rows-3666 (R8): replaced "Excerpts stop at 280 characters".
     "the reply names the exact call that reads a record",
     "inspect(next=<token>)",
-    "A `file:` node's text is only its path",
+    # doc-nodes-4052: the fixture deployments hold no file-text source.
+    "\"kind\": \"text\"",
     "`node_not_found`",
     "Stop once every part of the question is answered",
 )
@@ -549,6 +550,7 @@ def _assert_served_layout(text: str, *, file_text: str | None) -> str:
         assert phrase not in text, phrase
     for phrase in KEPT_GUIDANCE:
         assert phrase in rest, phrase
+    assert "doc:" not in rest  # no file-text source declared (#4052)
     assert UNTRUSTED_DATA_CONTRACT in rest
     if file_text is not None:
         heading = "\n\n" + DEPLOYMENT_GUIDANCE_HEADING + "\n\n" + file_text.strip()
@@ -1163,6 +1165,210 @@ def test_a_single_source_kind_is_not_grouped() -> None:
     card = render_dataset_card(_live_facts(), served_tools=ALL_READ)
     assert "- jira: 3 (jira_issue 2, jira_comment 1)" in card
     assert "sources:" not in card
+
+
+# ── the source floor (read-card-source-floor) ─────────────────────────
+
+#: The six read tools the comp-ops eval serves; its run arm adds `run`.
+SIX_TOOLS = ("inspect", "search", "expand", "filter", "map", "aggregate")
+
+
+def _group(kind: str, names: list[str], total: int, subtypes: tuple) -> list[SourceCount]:
+    """`names` producers of one kind summing to `total`, largest first, each
+    split over `subtypes` in the group's proportions."""
+    n = len(names)
+    shares = [total // n + 3 * (n - i) for i in range(n)]
+    shares[-1] += total - sum(shares)
+    whole = sum(c for _s, c in subtypes)
+    out = []
+    for name, share in zip(names, shares):
+        parts = [(s, c * share // whole) for s, c in subtypes]
+        parts[0] = (parts[0][0], parts[0][1] + share - sum(c for _s, c in parts))
+        out.append(SourceCount(f"{name}.{kind}", share, tuple(parts)))
+    return out
+
+
+def _compops_served_facts() -> DatasetFacts:
+    """The comp-ops graph as lane re's served cards show it (pin fae696,
+    published 2026-10-19): 12 source lines whose four largest hold 614,634
+    of 635,029 records, 16 id types, 66 live relations on one type, and a
+    run example over `document` by `attrs.format`. With `run` served, dev
+    folded jira, git history and the doc corpus into "+11 more sources"."""
+    sources = [
+        *_group(
+            "code-structure", ["wmcore", "rucio", "archi"] + [f"cs{i}" for i in range(8)],
+            279_957, (("code_reference", 219_737), ("code_symbol", 32_334), ("code_import", 27_886)),
+        ),
+        *_group(
+            "git-history", ["wmcore", "rucio", "wmagentscripts"] + [f"gh{i:02d}" for i in range(15)],
+            98_086, (("git_commit", 81_446), ("source_file", 13_431), ("git_tag", 2_499), ("git_author", 710)),
+        ),
+        *_group(
+            "doc-corpus", ["wmcore", "rucio", "cmskubernetes"] + [f"dc{i:02d}" for i in range(15)],
+            63_077, (("document_chunk", 52_120), ("document", 8_873), ("entity_mention", 2_084)),
+        ),
+        SourceCount("jira", 173_514, (("document_chunk", 96_233), ("jira_issue", 76_662), ("person", 619))),
+    ]
+    others = [("interfaces", 9_000), ("sessions", 4_000), ("twiki-index", 2_500), ("cric", 1_800),
+              ("monit", 1_200), ("ggus", 900), ("cmsweb", 600), ("dbs", 395)]
+    sources += [SourceCount(name, n, (("interface_endpoint", n),)) for name, n in others]
+    sources.sort(key=lambda sc: (-sc.total, sc.source))
+    ids = (
+        ("code_reference", "reference:<sha>"), ("document_chunk", "chunk:<sha>"),
+        ("git_commit", "commit:<name>:<sha>"), ("jira_issue", "jira:<id>"),
+        ("code_symbol", "symbol:<name>:<path>:<id>:<n>"), ("code_import", "import:<sha>"),
+        ("source_file", "file:<name>:<path>"), ("document", "doc:<name>:<path>"),
+        ("git_tag", "tag:<name>:<id>"), ("entity_mention", "mention:<sha>"),
+        ("git_author", "author:<id>"), ("interface_endpoint", "endpoint:<name>:<name>:<sha>"),
+        ("person", "person:<sha>"), ("x_a", "xa:<id>"), ("x_b", "xb:<id>"), ("x_c", "xc:<id>"),
+    )
+    live = (
+        "dbs_block_summaries", "dbs_file_lumis", "dbs_file_lumis_for_file",
+        "dbs_file_lumis_for_file_in_run", "dbs_file_summaries", "dbs_get_file",
+        "dbs_list_blocks", "dbs_list_datasets", *(f"rel_{i:02d}" for i in range(58)),
+    )
+    return _live_facts(
+        published_date="2026-10-19", source_counts=tuple(sources), id_patterns=ids,
+        date_ranges=(
+            ("git_commit", "created", "2010-08-05", "2026-09-18"),
+            ("jira_issue", "created", "2014-01-22", "2026-10-12"),
+            ("source_file", "modified", "2010-08-24", "2026-09-18"),
+        ),
+        nesting=(
+            ("document", "document_chunk", "contains"),
+            ("jira_issue", "document_chunk", "contains"),
+            ("code_symbol", "code_reference", "contains"),
+            ("source_file", "code_symbol", "contains"),
+        ),
+        live_relations=(("software_repository", live),),
+        path_probe=None, not_ingested=(), run_example=("document", "format"),
+    )
+
+
+#: The four largest source lines of the comp-ops card, in order.
+COMPOPS_TOP_FOUR = (
+    "- code-structure (11 sources: wmcore, rucio, archi, +8): 279,957 (",
+    "- jira: 173,514 (document_chunk 96,233, jira_issue 76,662, person 619)",
+    "- git-history (18 sources: wmcore, rucio, wmagentscripts, +15): 98,086 (",
+    "- doc-corpus (18 sources: wmcore, rucio, cmskubernetes, +15): 63,077 (",
+)
+#: The line that replaces the run example when the card has no room for it.
+RUN_EXAMPLE_CUT = "- Run example cut for size (see run's description)."
+
+
+def _source_rows(card: str) -> list[str]:
+    lines = card.split("\n")
+    start = lines.index("Sources (rows by type):") + 1
+    rows = []
+    for line in lines[start:]:
+        if not line.startswith("- ") or line.startswith("- +"):
+            break
+        rows.append(line)
+    return rows
+
+
+def test_serving_run_keeps_the_largest_sources_on_the_card() -> None:
+    """Adding a tool must not hide what data exists: with run served, the
+    four largest sources stay named (dev kept one and folded 334,677 records
+    of jira, git history and doc corpus into "+11 more sources"), the card
+    stays within its budget, and the run example yields first, saying so."""
+    card = render_dataset_card(
+        _compops_served_facts(), served_tools=(*SIX_TOOLS, "run"),
+        text_kind_served=True,
+    )
+    print(card)
+    assert len(card.encode("utf-8")) <= CARD_BUDGET_BYTES
+    assert "\n\n" not in card
+    rows = _source_rows(card)
+    assert len(rows) >= 4, card
+    for row, prefix in zip(rows, COMPOPS_TOP_FOUR):
+        assert row.startswith(prefix), (row, prefix)
+    assert '- +8 more sources (20,395 records): inspect(target={"kind":"graph"})' in card
+    # The example gave way, and the card says so in one line.
+    assert "run(steps=" not in card
+    assert RUN_EXAMPLE_CUT in card.split("\n"), card
+
+
+def test_the_source_floor_gives_way_only_after_every_lower_section() -> None:
+    """At a budget far below the real one the example yields first, then the
+    floors give way from the bottom: the source list goes below four lines
+    only once every section under it is down to one line."""
+    card = render_dataset_card(
+        _compops_served_facts(), served_tools=(*SIX_TOOLS, "run"),
+        text_kind_served=True, budget=1_500,
+    )
+    assert len(card.encode("utf-8")) <= 1_500
+    assert "run(steps=" not in card and RUN_EXAMPLE_CUT in card.split("\n")
+    rows = _source_rows(card)
+    assert rows[0].startswith(COMPOPS_TOP_FOUR[0])
+    assert len(rows) < 4
+    for heading in (
+        "Live relations (they read the source now; every other row is as published):",
+        "Id patterns (from sampled ids; take a <sha> or <id> part from a result, never guess it):",
+        "Nesting:",
+        "Dates per type (oldest to newest):",
+    ):
+        lines = card.split("\n")
+        start = lines.index(heading)
+        assert lines[start + 2].startswith("- ... ("), (heading, card)
+
+
+def test_the_run_example_stays_when_the_card_has_room() -> None:
+    """The example yields only to keep the source floor: with room it is
+    served whole, and on a small graph at the real budget too."""
+    roomy = render_dataset_card(
+        _compops_served_facts(), served_tools=(*SIX_TOOLS, "run"),
+        text_kind_served=True, budget=10_000,
+    )
+    assert "run(steps=" in roomy and RUN_EXAMPLE_CUT not in roomy
+    top = [row[:len(p)] for row, p in zip(_source_rows(roomy), COMPOPS_TOP_FOUR)]
+    assert top == list(COMPOPS_TOP_FOUR)
+    small = render_dataset_card(
+        _live_facts(run_example=("jira_issue", "status")),
+        served_tools=(*SIX_TOOLS, "run"),
+    )
+    assert "run(steps=" in small and RUN_EXAMPLE_CUT not in small
+
+
+def test_the_six_tool_card_is_unchanged_by_the_source_floor() -> None:
+    """Without run the comp-ops card is byte for byte the one dev served
+    (sha256 of the render at origin/dev 3d646f6e5): four source lines,
+    every other section as before."""
+    card = render_dataset_card(
+        _compops_served_facts(), served_tools=SIX_TOOLS, text_kind_served=True,
+    )
+    assert [row[:len(p)] for row, p in zip(_source_rows(card), COMPOPS_TOP_FOUR)] == list(
+        COMPOPS_TOP_FOUR,
+    )
+    assert hashlib.sha256(card.encode("utf-8")).hexdigest() == SIX_TOOL_CARD_SHA256, card
+
+
+#: sha256 of the six-tool comp-ops card rendered at origin/dev 3d646f6e5.
+#: Re-pin it only in a change that means to alter the six-tool card (its
+#: wording, sections or cut order) and says so; a change aimed elsewhere
+#: that moves this hash has changed the card by accident.
+SIX_TOOL_CARD_SHA256 = "30b262da1428849fad4b039795a4a577cf9ee82d8fa7a32359a5a301bce0141e"
+
+
+def test_the_source_ceiling_keeps_the_floor() -> None:
+    """The 700 B source ceiling stops at the four-line floor: long lines
+    are not a reason to name fewer than four sources."""
+    sources = tuple(
+        SourceCount(
+            f"a_long_source_label_number_{i:02d}", 90_000 - i,
+            tuple((f"a_rather_long_subtype_name_{i:02d}_{k}", 20_000 - k) for k in range(4)),
+        )
+        for i in range(6)
+    )
+    card = render_dataset_card(
+        _live_facts(source_counts=sources), served_tools=ALL_READ, budget=10_000,
+    )
+    rows = _source_rows(card)
+    assert len(rows) == 4, card
+    assert [r.split(":")[0] for r in rows] == [
+        f"- a_long_source_label_number_{i:02d}" for i in range(4)
+    ]
+    assert "- +2 more sources (179,991 records)" in card
 
 
 @pytest.mark.postgres

@@ -1481,17 +1481,11 @@ def test_attestor_refusal_leaves_no_published_generation_ordinal(
 ) -> None:
     """Issue #1428: a blocked checkpoint must not occupy a published ordinal.
 
-    The interval-backed publish path mints the branch-scoped generation ordinal
-    while it syncs the effective-interval view. Running the attestors AFTER that
-    left a refused checkpoint holding an ordinal nothing removed, so the next
-    successful publish skipped that slot.
+    The publisher mints the branch-scoped generation ordinal in the
+    publication transaction, beside the overlay-range sync. Running the
+    attestors AFTER that left a refused checkpoint holding an ordinal nothing
+    removed, so the next successful publish skipped that slot.
     """
-    # The interval arm is the default, so this only defends against an ambient
-    # OKG_IVM_INTERVAL_VIEW=0 in the runner environment. It matters because on
-    # the NON-interval path ChronosGraphStore._maybe_mint_generation_ordinal
-    # already declines to mint for a blocked status, so every assertion below
-    # would pass on UNFIXED code and this test would cover nothing.
-    monkeypatch.setenv("OKG_IVM_INTERVAL_VIEW", "1")
 
     def _publish(attestors: list[Any] | None = None) -> dict[str, Any]:
         return Publisher(
@@ -1517,17 +1511,17 @@ def test_attestor_refusal_leaves_no_published_generation_ordinal(
     _seed_candidate(clean_runtime, node_id="attested:one")
     first = _publish()
     assert first["status"] == "published", first
+    # Discriminator, not decoration: the publication transaction that mints
+    # the ordinal also marks the generation's overlay ranges synced at it, so
+    # this proves the publisher (not only checkpoint_generation's own
+    # non-fatal mint) took the arm under test.
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
-        first_checkpoint = ChronosGraphStore.from_connection(
-            conn, ensure_schema=False
-        ).get_generation(str(first["generation_id"]))
-    # Discriminator, not decoration: only the interval-sync block writes
-    # `effective_interval_view_prune`, so its presence proves this deployment
-    # really takes the arm that mints the ordinal under test. Without it a
-    # missing ordinal below could just mean the interval branch never ran.
-    assert "effective_interval_view_prune" in first_checkpoint.metadata, (
-        first_checkpoint.metadata.keys()
-    )
+        synced = conn.execute(
+            "SELECT ordinal FROM okg.attribute_overlay_generations "
+            "WHERE generation_id = %s AND ranges_synced",
+            (str(first["generation_id"]),),
+        ).fetchone()
+    assert synced == (0,), synced
     after_first = _ordinals()
     assert after_first == {str(first["generation_id"]): 0}, after_first
 

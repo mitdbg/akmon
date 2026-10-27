@@ -48,7 +48,7 @@ is reachable via `inspect`, `expand`, `search`, and `query`.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import contextvars
 import copy
 import hashlib
@@ -72,7 +72,6 @@ from typing import Annotated, Any, Callable, Literal, Mapping, Optional, Sequenc
 import psycopg
 from okg.substrate import fastyaml
 from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from okg.substrate.db.connection import connection_kwargs
@@ -102,6 +101,7 @@ from okg.substrate.mcp.response_bounds import (
     current_date_call as _current_date_call,
 )
 from okg.substrate.mcp import attr_filter_source as _attr_filter_source
+from okg.substrate.mcp import graph_read as _graph_read
 from okg.substrate.attributes import (
     ATTRIBUTE_EFFECTIVE_TABLE,
     RESERVED_EFFECTIVE_ATTR_KEYS,
@@ -145,6 +145,10 @@ from okg.substrate.mcp import live_reader as _live_reader
 from okg.substrate.mcp import live_resolver as _live_resolver
 from okg.substrate.mcp import live_nodes as _live_nodes
 from okg.substrate.mcp import live_result_sets as _live_results
+from okg.substrate.mcp import live_handle_lists as _live_lists
+from okg.substrate.mcp import handles as _handles
+from okg.substrate.mcp import map_compute as _map_compute
+from okg.substrate.mcp import aggregate_order as _aggregate_order
 from okg.substrate.mcp import run_steps as _run_steps
 from okg.substrate.mcp import live_access_rules as _live_access_rules
 from okg.substrate.mcp import continuation as _continuation
@@ -600,15 +604,6 @@ _DATE_TIMEOUT_REFRESH_MS = 50
 #: not served the deployment yet takes seconds over it once. Up to this much
 #: of it per call is not charged to the date budget.
 _DATE_SETUP_UNCHARGED_MS = 2000
-#: A date range's index candidates drive the page only while they are at
-#: most this many: past it the page walks its own order and filters, which
-#: stops at the page size when most records match. Counted by a bounded
-#: probe with `_DATE_PROBE_SHARE_MS` at most; the walk gets
-#: `_DATE_WALK_SHARE_MS`, and the candidates take over if it does not
-#: finish.
-_DATE_WIDE_CANDIDATES = 50_000
-_DATE_PROBE_SHARE_MS = 300
-_DATE_WALK_SHARE_MS = 1000
 #: The level of the one "date call ..." log line (`_log_date_call`): unset
 #: is DEBUG. `okg mcp-serve` configures no log handler, so only WARNING and
 #: above reach its stderr; `OKG_DATE_CALL_LOG=warning` puts the line there.
@@ -1033,82 +1028,6 @@ def _validate_max_per_parent(value: Any, *, origin: str) -> Optional[int]:
     from okg.substrate.mcp.search_profiles import validate_max_per_parent
 
     return validate_max_per_parent(value, origin=origin)
-
-
-def _refuse_pin_past_attribute_retention(
-    conn: Any, *, generation: Any, branch_id: Any, ordinal: int,
-) -> None:
-    """Refuse a typed read pinned past the attribute-history window (#2621).
-
-    Unless a deployment declares its own history retention, each publish
-    prunes closed attribute intervals older than the newest `keep` generations,
-    and no typed reader recomputes them, so a pin below the window finds its
-    interval rows missing. That is retention, not a missing backfill: say so
-    and name the read that still serves the generation, instead of the
-    backfill advice meant for an operator enabling interval reads.
-
-    Decided from what the branch's latest publish recorded it ran
-    (`effective_interval_view_prune` in its checkpoint metadata: skipped under
-    a declared policy, else its `keep_generations` and protected ordinal), so
-    a deployment with its own retention keeps the integrity refusal, and the
-    window is the publisher's, not this process's environment. Reads only
-    surfaces `okg_mcp` is granted: `okg.v_generation_interval_stab` and the
-    checkpoint table this read path already uses.
-    """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT DISTINCT stab_ordinal, generation_ref "
-            "FROM okg.v_generation_interval_stab "
-            "WHERE chronos_branch_id = %s "
-            "ORDER BY stab_ordinal DESC LIMIT 64",
-            (branch_id,),
-        )
-        newest = [(int(row[0]), row[1]) for row in cur.fetchall()]
-        if not newest:
-            return
-        cur.execute(
-            "SELECT metadata FROM _chronos_branch_interval_checkpoints "
-            "WHERE checkpoint_id = %s",
-            (newest[0][1],),
-        )
-        row = cur.fetchone()
-    metadata = row[0] if row else None
-    if isinstance(metadata, str):
-        metadata = _json.loads(metadata or "{}")
-    prune = (metadata or {}).get("effective_interval_view_prune")
-    if not isinstance(prune, Mapping) or prune.get("skipped"):
-        return
-    keep = prune.get("keep_generations")
-    if not isinstance(keep, int) or keep < 1 or len(newest) < keep:
-        return
-    ordinals = sorted({value for value, _ref in newest}, reverse=True)
-    if len(ordinals) < keep:
-        return
-    cutoff = ordinals[keep - 1]
-    protect = prune.get("protect_from_ord")
-    if isinstance(protect, int):
-        cutoff = min(cutoff, protect)
-    # A pruned interval had `to_ord <= cutoff`, so only a pin below it can
-    # have lost rows to the prune.
-    if ordinal >= cutoff:
-        return
-    raise SubstrateError(
-        "attribute reads through the interval view (such as filter) are not "
-        "served at this generation: it is older than the newest "
-        f"{keep} generations whose attribute history is kept for them",
-        data={
-            "generation_id": generation,
-            "branch_id": branch_id,
-            "ordinal": ordinal,
-            "retained_from_ordinal": cutoff,
-            "retention_generations": keep,
-        },
-        fix_hint=(
-            "read at the current generation (omit generation_id) or a newer "
-            "one; inspect(target={kind:'node', node_id:...}) with this same "
-            "generation_id still returns this generation's values"
-        ),
-    )
 
 
 def _target_kind_literal(target_kind: Any) -> str:
@@ -2205,57 +2124,126 @@ def _alt(*variants: tuple[tuple[str, ...], str]) -> InstructionSlot:
 # issue #1457): each sentence declares the tools it names, so a narrowed
 # server drops the sentences it is not entitled to say instead of instructing
 # a model to call a tool it just pruned.
-NODE_LOOKUP_SLOTS: tuple[InstructionSlot, ...] = (
-    # Issue #2676: this slot used to say paths are NOT in node text, which
-    # is false for the subtypes that declare
-    # `okg_searchable_text_path_fields` (`source_file`, `document`): the
-    # write-time stamper appends the path split into words.
-    _alt(
-        (
-            ("search",),
-            # PACT dataset-card: whether path words match lexical search is
-            # stated by the dataset card, and only when a start-up check on
-            # this server's own rows saw it (`dataset_card.PathProbe`).
-            "NODE LOOKUP: lexical search matches node text; `source_file` "
-            "and `document` nodes carry their path in `attrs.path`. ",
-        ),
-        (
-            ("filter",),
-            "NODE LOOKUP: `source_file` and `document` nodes carry their path "
-            "in `attrs.path`. ",
-        ),
-    ),
-    _seg(
-        "To resolve a node by attrs, call search with only a `where` naming "
-        'a type: `search(where={"type": "source_file", "attrs.path": '
-        '"src/app.py"})` finds a file node by exact path; '
-        '`"attrs.name"` finds symbols by name. ',
-        "search",
-    ),
-    _seg(
-        "For a path "
-        'tail, use `filter(where={"type": "source_file", "attrs.path": '
-        '{"op": "suffix", "value": "dir/file.py"}})`. ',
-        "filter",
-    ),
-    _seg(
-        # Restored at the orchestrator's request (PACT
+#
+# Issues #4052 and #4064: some sentences name node ids that only exist where a
+# source produces them: `doc:<repo>:<path>` (a `doc_corpus` or `upload` source),
+# `file:<repo>:<path>` with its `source_file` examples (a git, agent-session or
+# external-repos source), and `commit:<repo>:<sha>` (a git-history or
+# external-repos source). A deployment without the source has no such node, and
+# a model that followed the sentence got `node_not_found` on every read (64 of
+# 67 refusals in the cms-kb benchmark were `doc:` reads). Each such sentence is
+# built from an `IdFamilies`: a family that is `False` is left out, `True` and
+# `None` keep it.
+
+
+@dataclass(frozen=True)
+class IdFamilies:
+    """Which node-id families a deployment's sources produce.
+
+    `True` and `None` keep the family's sentences (`None` = the deployment
+    could not say: no manifest, or a source registry that cannot be read, so
+    okg keeps its full text rather than guess); `False` leaves them out.
+    `IdFamilies()` is okg's full text, as served before these issues.
+    """
+
+    #: `doc:<repo>:<path>` file-text documents and the `file:` to `doc:` step.
+    doc_text: bool | None = None
+    #: `file:<repo>:<path>` ids and the `source_file` lookup examples.
+    file_nodes: bool | None = None
+    #: `commit:<repo>:<sha>` ids.
+    commit_nodes: bool | None = None
+
+
+def _ids_slot(ids: IdFamilies) -> InstructionSlot:
+    forms = []
+    if ids.file_nodes is not False:
+        forms.append("`file:<repo>:<path>`")
+    if ids.commit_nodes is not False:
+        forms.append("`commit:<repo>:<sha>`")
+    if ids.doc_text is not False:
+        forms.append("`doc:<repo>:<path>` (a parsed file's text)")
+    lead = (
+        "Node ids are deterministic: " + ", ".join(forms) + "; a known id goes"
+        if forms
+        else "An id from a result row goes"
+    )
+    return _seg(
+        # The id sentence was restored at the orchestrator's request (PACT
         # publish-paging-args-3666); step 3a had dropped it. Its own effect
         # on agent results is not measured.
-        "Node ids are deterministic: `file:<repo>:<path>`, "
-        "`commit:<repo>:<sha>`, `doc:<repo>:<path>` (a parsed file's text); "
-        'a known id goes straight to `inspect(target={"kind": "node", '
+        lead + ' straight to `inspect(target={"kind": "node", '
         '"node_id": "<id>"})`. ',
         "inspect",
-    ),
-    _seg(
-        # D8 prompt redesign: "at the pin" was generation jargon.
-        "inspect on an id the graph lacks fails with `node_not_found` "
-        "(`exists: false`); a found node with sparse attrs still returns "
-        "its payload.",
-        "inspect",
-    ),
-)
+    )
+
+
+def _node_lookup_slots(ids: IdFamilies) -> tuple[InstructionSlot, ...]:
+    files = ids.file_nodes is not False
+    path_holders = "`source_file` and `document` nodes" if files else "`document` nodes"
+    if files:
+        by_attrs = _seg(
+            "To resolve a node by attrs, call search with only a `where` naming "
+            'a type: `search(where={"type": "source_file", "attrs.path": '
+            '"src/app.py"})` finds a file node by exact path; '
+            '`"attrs.name"` finds symbols by name. ',
+            "search",
+        )
+        by_tail = _seg(
+            "For a path "
+            'tail, use `filter(where={"type": "source_file", "attrs.path": '
+            '{"op": "suffix", "value": "dir/file.py"}})`. ',
+            "filter",
+        )
+    else:
+        # Issue #4064: no source here makes `source_file` nodes, so the worked
+        # examples name a placeholder type and attribute instead.
+        by_attrs = _seg(
+            "To resolve a node by attrs, call search with only a `where` naming "
+            'a type and an attribute: `search(where={"type": "<type>", '
+            '"attrs.<name>": "<value>"})` finds a node by exact attribute value. ',
+            "search",
+        )
+        by_tail = _seg(
+            "For a suffix "
+            'match, use `filter(where={"type": "<type>", "attrs.<name>": '
+            '{"op": "suffix", "value": "<tail>"}})`. ',
+            "filter",
+        )
+    return (
+        # Issue #2676: this slot used to say paths are NOT in node text, which
+        # is false for the subtypes that declare
+        # `okg_searchable_text_path_fields` (`source_file`, `document`): the
+        # write-time stamper appends the path split into words.
+        _alt(
+            (
+                ("search",),
+                # PACT dataset-card: whether path words match lexical search is
+                # stated by the dataset card, and only when a start-up check on
+                # this server's own rows saw it (`dataset_card.PathProbe`).
+                f"NODE LOOKUP: lexical search matches node text; {path_holders} "
+                + "carry their path in `attrs.path`. ",
+            ),
+            (
+                ("filter",),
+                f"NODE LOOKUP: {path_holders} carry their path "
+                + "in `attrs.path`. ",
+            ),
+        ),
+        by_attrs,
+        by_tail,
+        _ids_slot(ids),
+        _seg(
+            # D8 prompt redesign: "at the pin" was generation jargon.
+            "inspect on an id the graph lacks fails with `node_not_found` "
+            "(`exists: false`); a found node with sparse attrs still returns "
+            "its payload.",
+            "inspect",
+        ),
+    )
+
+
+NODE_LOOKUP_SLOTS: tuple[InstructionSlot, ...] = _node_lookup_slots(IdFamilies())
+
 
 #: The node-lookup contract as the FULL read surface serves it. Both
 #: instruction variants embed this exact text; a narrowed operator surface
@@ -2283,35 +2271,69 @@ NODE_LOOKUP_INSTRUCTIONS = render_instructions(
 # exact read call once (D5); full text is the `inspect` text read below.
 # A ticket's text read prints fields, description and dated comments (R6), not
 # order_basis/coverage/heading_path, so that sentence names documents only.
-READING_SLOTS: tuple[InstructionSlot, ...] = (
-    _seg(
-        "READING: lexical search returns rows matching any search term, "
-        "ranked by BM25 with English stemming. Each row shows the matched "
-        "passage, and the reply names the exact call that reads a record; "
-        "`max_chars` (up to 4096) lengthens passages. ",
-        "search",
-    ),
-    _seg(
-        "For full text, read a whole document (or any node that `contains` "
-        "chunks) in reading order: `inspect(target={\"kind\": \"text\", "
-        '"node_id": "doc:<repo>:<path>"})` (pages of up to max_bytes, '
-        "default 65536; a cut page says how much is left), then "
-        "`inspect(next=<token>)` until a page ends `complete`. On a "
-        "document, `order_basis` says how chunks were "
-        "ordered and `coverage` whether any are missing; each item's "
-        "`heading_path` places it in its section. A ticket reads as its "
-        "fields, its description and its dated comments; a cut thread names "
-        "the call that reads the rest. A `file:` node's text is "
-        "only its path; inspecting it lists its `doc:` nodes under "
-        "`documents`: read those. ",
-        "inspect",
-    ),
-    _seg("A one-hop expand returns the linked records. ", "expand"),
-    _seg(
-        "Stop once every part of the question is answered from graph text "
-        "you can cite; page on only for a complete count or list."
-    ),
+#
+# Issues #4052 and #4064: the full-text sentence names `doc:<repo>:<path>`;
+# without file-text documents it names the id a search row gives instead. The
+# `file:` to `doc:` step needs both a file-text source and a source that makes
+# `file:` nodes (a document links to a file node only where one exists).
+_FULL_TEXT_WITH_DOC_TEXT = _seg(
+    "For full text, read a whole document (or any node that `contains` "
+    "chunks) in reading order: `inspect(target={\"kind\": \"text\", "
+    '"node_id": "doc:<repo>:<path>"})` (pages of up to max_bytes, '
+    "default 65536; a cut page says how much is left), then "
+    "`inspect(next=<token>)` until a page ends `complete`. On a "
+    "document, `order_basis` says how chunks were "
+    "ordered and `coverage` whether any are missing; each item's "
+    "`heading_path` places it in its section. A ticket reads as its "
+    "fields, its description and its dated comments; a cut thread names "
+    "the call that reads the rest. ",
+    "inspect",
 )
+_FILE_TO_DOC_STEP = _seg(
+    "A `file:` node's text is "
+    "only its path; inspecting it lists its `doc:` nodes under "
+    "`documents`: read those. ",
+    "inspect",
+)
+_FULL_TEXT_WITHOUT_DOC_TEXT = _seg(
+    "For full text, read a node that `contains` chunks, or a ticket, in "
+    "reading order: `inspect(target={\"kind\": \"text\", "
+    '"node_id": "<id from a result row>"})` (pages of up to max_bytes, '
+    "default 65536; a cut page says how much is left), then "
+    "`inspect(next=<token>)` until a page ends `complete`. Each item's "
+    "`heading_path` places it in its section. A ticket reads as its "
+    "fields, its description and its dated comments; a cut thread names "
+    "the call that reads the rest. ",
+    "inspect",
+)
+
+
+
+def _reading_slots(ids: IdFamilies) -> tuple[InstructionSlot, ...]:
+    doc_text = ids.doc_text is not False
+    steps = [
+        _seg(
+            "READING: lexical search returns rows matching any search term, "
+            "ranked by BM25 with English stemming. Each row shows the matched "
+            "passage, and the reply names the exact call that reads a record; "
+            "`max_chars` (up to 4096) lengthens passages. ",
+            "search",
+        ),
+        _FULL_TEXT_WITH_DOC_TEXT if doc_text else _FULL_TEXT_WITHOUT_DOC_TEXT,
+    ]
+    if doc_text and ids.file_nodes is not False:
+        steps.append(_FILE_TO_DOC_STEP)
+    steps.append(_seg("A one-hop expand returns the linked records. ", "expand"))
+    steps.append(
+        _seg(
+            "Stop once every part of the question is answered from graph text "
+            "you can cite; page on only for a complete count or list."
+        )
+    )
+    return tuple(steps)
+
+
+READING_SLOTS: tuple[InstructionSlot, ...] = _reading_slots(IdFamilies())
 
 #: What `inspect(session_start)` keeps of the surface readback (#3470): the
 #: running code and the instructions it served. The rest is
@@ -2393,12 +2415,190 @@ OPERATOR_INSTRUCTION_PARAGRAPHS: tuple[tuple[InstructionSlot, ...], ...] = (
 )
 
 
-def operator_instructions_for(served_tools: Iterable[str]) -> str:
-    """Render the operator instructions for exactly this served tool set."""
+def _operator_paragraphs(
+    ids: IdFamilies,
+) -> tuple[tuple[InstructionSlot, ...], ...]:
+    """The operator paragraphs with the id sentences built for `ids`."""
+    if ids == IdFamilies():
+        return OPERATOR_INSTRUCTION_PARAGRAPHS
+    return tuple(
+        _node_lookup_slots(ids) if paragraph is NODE_LOOKUP_SLOTS
+        else _reading_slots(ids) if paragraph is READING_SLOTS
+        else paragraph
+        for paragraph in OPERATOR_INSTRUCTION_PARAGRAPHS
+    )
+
+
+#: Source modules by the node-id family their nodes carry (issues #4052,
+#: #4064). A module is listed when the source itself emits those nodes; a source
+#: that only draws edges to `file:` or `commit:` ids (`codex_sessions`,
+#: `github`, `openspec`, `security_analysis`, `doc_corpus`) is not, because the
+#: node it points at may not exist.
+#: `doc:<repo>:<path>`: `DocCorpusSource` and the upload source that stages
+#: into it.
+DOC_TEXT_SOURCE_MODULES: frozenset[str] = frozenset({
+    "okg.substrate.library.sources.doc_corpus",
+    "okg.substrate.library.sources.upload",
+})
+#: `file:<repo>:<path>` `source_file` nodes: the git files and git history
+#: sources, the agent-sessions source, and the external-repos factory that
+#: runs both git sources (also under its package name, which re-exports it).
+#: `agent_sessions` makes `file:` nodes only when it has no `repo_root`
+#: (`agent_sessions.py` `_known_repo_file_paths`); with one it draws edges and
+#: relies on a git source. Counting it always errs toward keeping the text.
+FILE_NODE_SOURCE_MODULES: frozenset[str] = frozenset({
+    "okg.substrate.library.sources.git_graph_files",
+    "okg.substrate.library.sources.git_graph_history",
+    "okg.substrate.library.sources.agent_sessions",
+    "okg.substrate.library.sources.external_repos.factory",
+    "okg.substrate.library.sources.external_repos",
+})
+#: `commit:<repo>:<sha>` `git_commit` nodes: the git history source, directly
+#: or through the external-repos factory.
+COMMIT_NODE_SOURCE_MODULES: frozenset[str] = frozenset({
+    "okg.substrate.library.sources.git_graph_history",
+    "okg.substrate.library.sources.external_repos.factory",
+    "okg.substrate.library.sources.external_repos",
+})
+
+
+def operator_instructions_for(
+    served_tools: Iterable[str],
+    *,
+    ids: IdFamilies | None = None,
+) -> str:
+    """Render the operator instructions for exactly this served tool set.
+
+    `ids` (issues #4052, #4064) says which node-id families the deployment's
+    sources produce. A `False` family leaves out the sentences that point a
+    model at its ids; `None` (no `ids`, no deployment manifest to read, or an
+    unreadable source registry) keeps them, as before.
+    """
     return render_instructions(
-        OPERATOR_INSTRUCTION_PARAGRAPHS,
+        _operator_paragraphs(IdFamilies() if ids is None else ids),
         served=served_tools,
     )
+
+
+def resolve_id_families(
+    mcp_block: Any, source_registry: Path | None,
+) -> IdFamilies:
+    """Which node-id families the deployment holds (issues #4052, #4064).
+
+    The manifest's `mcp.doc_text_nodes`, `mcp.file_nodes` and
+    `mcp.commit_nodes` (`true|false`) win when present: a deployment whose own
+    module wraps or subclasses a stock source holds such nodes under a module
+    name the registry scan cannot recognise. Every other family comes from the
+    registry scan (`declared_id_families`). The scan is skipped when the
+    manifest settles all three.
+    """
+    config = parse_tool_profile_config(mcp_block)
+    declared = {
+        "doc_text": getattr(config, "doc_text_nodes", None),
+        "file_nodes": getattr(config, "file_nodes", None),
+        "commit_nodes": getattr(config, "commit_nodes", None),
+    }
+    if all(flag is not None for flag in declared.values()):
+        return IdFamilies(**declared)
+    scanned = declared_id_families(source_registry)
+    scan = {
+        "doc_text": scanned.doc_text,
+        "file_nodes": scanned.file_nodes,
+        "commit_nodes": scanned.commit_nodes,
+    }
+    return IdFamilies(**{
+        name: scan[name] if flag is None else flag
+        for name, flag in declared.items()
+    })
+
+
+def declared_id_families(source_registry: Path | None) -> IdFamilies:
+    """Which node-id families a deployment's source registry declares.
+
+    Read from the registry file the manifest names: no database, so the fleet
+    doctor recomputes the same instructions (`authored_instructions_for`) from
+    files alone. Every family is `None` when the registry cannot be read (no
+    path, a missing file, or invalid YAML): the caller keeps okg's full text
+    rather than guess; an unreadable registry is logged, not hidden. A
+    registry that parses to something other than a mapping (an empty file is
+    not one: see below), or has unknown keys and neither `sources:` nor
+    `code_repos:`, or whose `code_repos:` block cannot be expanded, is also
+    unknown with a warning. As the loader does, an empty or comment-only file,
+    a registry with only `x-` keys, and a valid `sources: {}` with no
+    `code_repos:` are a real `False` for every family: the registry has no
+    sources. Sources a `code_repos:` block expands (`doc-corpus-<slug>`,
+    `git-files-<slug>`) count, as at ingest. "Declares" means listed in the
+    registry, not that the nodes exist or ingest is enabled.
+    """
+    unknown = IdFamilies()
+    if source_registry is None:
+        return unknown
+    if not source_registry.is_file():
+        log.warning(
+            "source registry %s is missing; the served instructions keep "
+            "their node id sentences",
+            source_registry,
+        )
+        return unknown
+    try:
+        document = fastyaml.safe_load(
+            source_registry.read_text(encoding="utf-8", errors="replace")
+        )
+    except Exception as exc:  # noqa: BLE001 - registry admission reports it
+        log.warning(
+            "source registry %s is unreadable (%s); the served instructions "
+            "keep their node id sentences",
+            source_registry, exc,
+        )
+        return unknown
+    none_declared = IdFamilies(
+        doc_text=False, file_nodes=False, commit_nodes=False,
+    )
+    if document is None:
+        # An empty or comment-only file is a valid registry with no sources
+        # (the loader reads `document or {}`).
+        return none_declared
+    if not isinstance(document, Mapping):
+        return _unknown_registry(source_registry, "is not a mapping")
+    if "sources" not in document and "code_repos" not in document:
+        if all(str(key).startswith("x-") for key in document):
+            # Only `x-` extension keys: the loader accepts it as no sources.
+            return none_declared
+        return _unknown_registry(
+            source_registry, "has neither a sources nor a code_repos block",
+        )
+    # The effective source set is the one the registry loader builds: a
+    # `code_repos:` block expands into per-repository sources, `doc-corpus-*`
+    # and `git-files-*` among them. Files only, no database (as guided_add
+    # does).
+    from okg.substrate.sources.registry import expand_code_repos_sources
+
+    try:
+        sources = expand_code_repos_sources(
+            dict(document), source_registry, allow_unresolved_base=True,
+        )
+    except (ValueError, TypeError) as exc:
+        return _unknown_registry(source_registry, f"cannot be expanded ({exc})")
+    modules = {
+        entry.get("module")
+        for entry in sources.values()
+        if isinstance(entry, Mapping)
+    }
+    return IdFamilies(
+        doc_text=bool(modules & DOC_TEXT_SOURCE_MODULES),
+        file_nodes=bool(modules & FILE_NODE_SOURCE_MODULES),
+        commit_nodes=bool(modules & COMMIT_NODE_SOURCE_MODULES),
+    )
+
+
+def _unknown_registry(source_registry: Path, why: str) -> IdFamilies:
+    """Log an unreadable registry shape; the caller keeps the full text."""
+    log.warning(
+        "source registry %s %s; the served instructions keep their node id "
+        "sentences",
+        source_registry, why,
+    )
+    return IdFamilies()
 
 
 #: The instructions an UNNARROWED operator surface serves. A narrowed launch
@@ -2411,8 +2611,11 @@ def authored_instructions_for(
     *,
     deployment_text: str = "",
     expansion_text: str = "",
+    ids: IdFamilies | None = None,
 ) -> str:
     """The part of the served instructions that files and code determine.
+
+    `ids` is `operator_instructions_for`'s (issues #4052, #4064).
 
     PACT dataset-card: okg's reading and lookup guidance for the served set,
     the expansion sentence when a ceiling exists, then a deployment's own
@@ -2422,7 +2625,7 @@ def authored_instructions_for(
     doctor (`surface_fleet.expected_surface`) can recompute this part, and
     its hash, without a database.
     """
-    text = operator_instructions_for(served_tools)
+    text = operator_instructions_for(served_tools, ids=ids)
     if expansion_text:
         text += "\n\n" + expansion_text
     deployment_text = deployment_text.strip()
@@ -2447,6 +2650,9 @@ def _load_readside_metadata(deployment_name: str) -> dict[str, Any]:
         "skills": {},
         "record_prefixes": (),
         "session_start_context": None,
+        # Issues #4052, #4064: which node-id families the source registry
+        # declares. Unknown (every field None) keeps okg's full text.
+        "id_families": IdFamilies(),
         "mcp": None,
         # THE declared agent surface, already validated at manifest load.
         # `None` here means "no manifest", which `manifest_unresolved` below
@@ -2500,6 +2706,10 @@ def _load_readside_metadata(deployment_name: str) -> dict[str, Any]:
         "skills": skills,
         "record_prefixes": tuple(manifest.record_prefixes),
         "session_start_context": manifest.session_start_context,
+        "id_families": resolve_id_families(
+            getattr(manifest, "mcp", None),
+            getattr(manifest, "source_registry", None),
+        ),
         # Deployment-declared MCP tool profiles. Already strictly validated at
         # manifest load; re-parsed here into the typed form the launch needs.
         "mcp": getattr(manifest, "mcp", None),
@@ -2855,30 +3065,6 @@ def _authority_refusal_code(
             f"({cause}); no policy verdict was rendered",
         )
     return ("unauthorized_write", verdict_message)
-
-
-#: scale-operator-attr-reads / req.effective-attrs-view (Layer 2): the result-size
-#: ceiling on the fast filter/map row scan. NOT the Layer-1 10K
-#: bounded-Python-overlay cap (a CORRECTNESS limit on a per-row Python merge):
-#: this is an index scan, so the ceiling is a memory guard set far above any real
-#: page (max page is 1000). A scan returning ceiling+1 rows reports
-#: `truncated=true` against this bound -- a TRUE signal, never a silent
-#: undercount. Aggregate does NOT use it: it counts every matched row in SQL.
-#: At module scope (materialize-effective-attrs-scan-once) so the truncation
-#: contract can be tested without seeding 200K rows.
-_EFFECTIVE_VIEW_SCAN_CEILING = 200_000
-
-#: lane-h-mcp-filter-index-driven: how long a PASSED interval completeness
-#: check for the branch-head generation is reused, in seconds. The key already
-#: changes on any new generation; the lifetime bounds how long damage to the
-#: head's own interval rows (which no publish path makes, but an operator or a
-#: bug could) goes unnoticed: the next call after it expires recounts.
-_INTERVAL_COMPLETE_CACHE_TTL_S = 60.0
-
-
-def _interval_complete_cache_clock() -> float:
-    """Monotonic clock for the completeness cache; a seam for lifetime tests."""
-    return time.monotonic()
 
 
 def _build_server(
@@ -3254,6 +3440,9 @@ def _build_server(
     instruction_source = "caller"
     deployment_instructions_pruned_tools: tuple[str, ...] = ()
     deployment_instructions_text = ""
+    # Issues #4052, #4064: the families the rendered text used; all None when
+    # the caller supplied its own instructions or the deployment could not say.
+    ids_served = IdFamilies()
     if instructions == DEFAULT_INSTRUCTIONS:
         # PACT dataset-card. Rendered for what a session STARTS with, not for
         # what the process registers: with a ceiling those differ, and
@@ -3277,8 +3466,10 @@ def _build_server(
             )
         else:
             instruction_source = "rendered"
+        ids_served = readside_metadata.get("id_families") or IdFamilies()
         effective_instructions = authored_instructions_for(
             base_tools,
+            ids=ids_served,
             deployment_text=deployment_instructions_text,
             expansion_text=(
                 render_expansion_instruction(
@@ -3302,6 +3493,11 @@ def _build_server(
     surface_freshness["tool_surface"] = {
         "profile": tool_surface.profile,
         "profile_source": tool_surface.source,
+        # Issues #4052, #4064: true, false or null (unknown, or caller
+        # instructions) for each node-id family.
+        "doc_text_nodes": ids_served.doc_text,
+        "file_nodes": ids_served.file_nodes,
+        "commit_nodes": ids_served.commit_nodes,
         # What THIS session can call. Without a ceiling it equals the
         # registered set; with one, `inspect(kind=surface)` overlays the
         # calling session's own projection so the readback is never a
@@ -6084,530 +6280,6 @@ def _build_server(
     # column names in operator_sql.EFFECTIVE_VIEW_FIELD_COLUMNS (imported above
     # as _EFFECTIVE_VIEW_FIELD_COLUMNS), shared with the predicate lowerer.
 
-    # schema-interval-narrow-split: interval/snapshot rows carry a bytea
-    # ``attrs_hash`` reference instead of inline jsonb payloads; every reader
-    # materializes ``attrs``/``raw_attrs`` through this version-store join.
-    # USING merges the three key columns, so existing unqualified column
-    # references (target_kind from either side; attrs/raw_attrs only on the
-    # version side; subtype/namespace/generation predicates only on the base
-    # side) keep resolving exactly as before the split.
-    _ATTRIBUTE_VERSION_JOIN = (
-        "JOIN okg.attribute_versions USING (target_kind, target_id, attrs_hash)"
-    )
-
-    # lane-h-mcp-filter-index-driven: passed interval completeness checks.
-    #
-    # The check below runs three full count(*)s over the pinned stab (2.5 s at
-    # 527k nodes, twice per filter call). Its answer for one generation cannot
-    # change while that generation is its branch's head, so a PASSED result is
-    # remembered for the life of this server, under a key that changes
-    # whenever the answer could:
-    #
-    #   (host, port, dbname)   -- another database is another authority;
-    #   generation_id          -- minted fresh per publish (timestamp + random
-    #                             suffix), so a republish or any new generation
-    #                             is a new key;
-    #   target_kind            -- node and edge are separate counts;
-    #   branch_id, ordinal     -- re-resolved from okg.v_generation_interval_stab
-    #                             on every call, so a re-registered generation
-    #                             lands on a new key;
-    #   head ordinal           -- only cached while ordinal == head. The only
-    #                             deletes of interval rows are the retention
-    #                             prune (CLOSED rows with to_ord <= the
-    #                             keep-window floor, which is at most the head
-    #                             ordinal, while every row stabbing the head has
-    #                             to_ord > head) and a re-derivation of the
-    #                             same ordinal in one transaction. A later
-    #                             publish moves the head, so an older pin
-    #                             recounts every call, as before;
-    #   expected_count         -- the checkpoint's own node/edge count, re-read
-    #                             every call.
-    #
-    # A refusal or a failure is never stored: the counts run again next call.
-    # A stored pass expires after _INTERVAL_COMPLETE_CACHE_TTL_S.
-    _INTERVAL_COMPLETE_CACHE_MAX = 256
-    _interval_complete_cache: dict[tuple[Any, ...], float] = {}
-    _interval_complete_lock = threading.Lock()
-
-    def _interval_complete_cache_key(
-        conn: psycopg.Connection,
-        *,
-        generation: str,
-        target_kind: str,
-        branch_id: Any,
-        ordinal: int,
-        head_ordinal: int | None,
-        expected_count: int | None,
-    ) -> tuple[Any, ...] | None:
-        if head_ordinal is None or int(head_ordinal) != int(ordinal):
-            return None
-        info = conn.info
-        return (
-            info.host,
-            info.port,
-            info.dbname,
-            generation,
-            target_kind,
-            str(branch_id),
-            int(ordinal),
-            int(head_ordinal),
-            expected_count,
-        )
-
-    def _effective_view_source(
-        conn: psycopg.Connection,
-        generation_id: Any,
-        *,
-        target_kind: str | None = None,
-        source_alias: str | None = None,
-    ) -> tuple[str, str, str, dict[str, Any]]:
-        """Pick the effective-view read source + its generation predicate.
-
-        Returns ``(base_table, from_clause, gen_where, gen_params)`` — the
-        ``from_clause`` is the base table joined to okg.attribute_versions (the
-        payload store, schema-interval-narrow-split); ``base_table`` is the
-        bare relation name for existence probes.
-
-        ``source_alias`` is an internal read-model seam for search's lexical
-        candidate supplement. When present, both the base relation and the
-        generation predicate are qualified with that alias while the payload
-        store is exposed as ``av``. The default unqualified form remains the
-        established filter/map/aggregate shape.
-
-        When OKG_IVM_INTERVAL_VIEW is on, read the SHARED interval table via a
-        half-open stab (``from_ord <= G_ord < to_ord``) pinned to the generation's
-        branch. Missing interval authority is a cutover correctness failure, not a
-        silent snapshot fallback: an operator asked for the interval path and must
-        see a loud error if the table or ordinal is absent. With the flag off, use
-        the per-generation snapshot (``generation_id = ...``). Every column the
-        readers reference (subtype/src/dst/edge_type/attrs/raw_attrs/raw_text_hash)
-        resolves identically over both sources, so only the FROM target and
-        generation predicate change. The returned names are fixed literals."""
-        gen = str(generation_id)
-        if os.environ.get("OKG_IVM_INTERVAL_VIEW", "1") == "1":
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT to_regclass('okg.attribute_effective_view_intervals')"
-                )
-                if cur.fetchone()[0] is None:
-                    raise SubstrateError(
-                        "interval effective-attribute reads requested but "
-                        "okg.attribute_effective_view_intervals is missing",
-                        data={"generation_id": gen},
-                        fix_hint=(
-                            "run the interval schema migration and one-time "
-                            "backfill before enabling OKG_IVM_INTERVAL_VIEW"
-                        ),
-                    )
-                # D2 amendment (a): okg_mcp has no grant on
-                # okg.generation_ordinals. The read goes through the
-                # TEXT-ref-keyed view, looked up BY the checkpoint ref.
-                # An absent view is a provisioning failure, not a reason to
-                # fall back to the snapshot: refuse loudly, same as an
-                # absent ordinal below.
-                cur.execute("SELECT to_regclass('okg.v_generation_interval_stab')")
-                if cur.fetchone()[0] is None:
-                    raise SubstrateError(
-                        "interval effective-attribute reads requested but "
-                        "okg.v_generation_interval_stab is missing",
-                        data={"generation_id": gen},
-                        fix_hint=(
-                            "re-apply db/views.sql (okg up) so the TEXT-ref "
-                            "generation-ordinal read surface exists"
-                        ),
-                    )
-                cur.execute(
-                    "SELECT chronos_branch_id, stab_ordinal "
-                    "FROM okg.v_generation_interval_stab "
-                    "WHERE generation_ref = %s",
-                    (gen,),
-                )
-                row = cur.fetchone()
-                if row is None:
-                    raise SubstrateError(
-                        "interval effective-attribute reads requested but the "
-                        "pinned generation has no interval ordinal",
-                        data={"generation_id": gen},
-                        fix_hint=(
-                            "publish or backfill generation ordinals before "
-                            "enabling OKG_IVM_INTERVAL_VIEW"
-                        ),
-                    )
-                branch_id, ordinal = row[0], int(row[1])
-                cache_key: tuple[Any, ...] | None = None
-                already_complete = False
-                if target_kind is not None:
-                    expected_count: int | None = None
-                    cur.execute(
-                        "SELECT to_regclass('_chronos_branch_interval_checkpoints')"
-                    )
-                    if cur.fetchone()[0] is not None:
-                        cur.execute(
-                            "SELECT metadata FROM _chronos_branch_interval_checkpoints "
-                            "WHERE checkpoint_id = %s",
-                            (gen,),
-                        )
-                        metadata_row = cur.fetchone()
-                        if metadata_row is not None:
-                            metadata = metadata_row[0]
-                            if isinstance(metadata, str):
-                                metadata = _json.loads(metadata or "{}")
-                            if not isinstance(metadata, Mapping):
-                                raise SubstrateError(
-                                    "interval effective-attribute checkpoint "
-                                    "metadata is not an object",
-                                    data={"generation_id": gen},
-                                )
-                            key = (
-                                "node_count" if target_kind == "node" else "edge_count"
-                            )
-                            raw_expected = metadata.get(key)
-                            if raw_expected is not None:
-                                expected_count = int(raw_expected)
-                    cur.execute(
-                        "SELECT max(stab_ordinal) "
-                        "FROM okg.v_generation_interval_stab "
-                        "WHERE chronos_branch_id = %s",
-                        (branch_id,),
-                    )
-                    head_row = cur.fetchone()
-                    cache_key = _interval_complete_cache_key(
-                        conn,
-                        generation=gen,
-                        target_kind=target_kind,
-                        branch_id=branch_id,
-                        ordinal=ordinal,
-                        head_ordinal=head_row[0] if head_row else None,
-                        expected_count=expected_count,
-                    )
-                    with _interval_complete_lock:
-                        expires_at = (
-                            _interval_complete_cache.get(cache_key)
-                            if cache_key is not None
-                            else None
-                        )
-                        already_complete = (
-                            expires_at is not None
-                            and _interval_complete_cache_clock() < expires_at
-                        )
-                        if expires_at is not None and not already_complete:
-                            _interval_complete_cache.pop(cache_key, None)
-                if target_kind is not None and not already_complete:
-                    cur.execute(
-                        """
-                        SELECT
-                          (
-                            SELECT count(*)
-                              FROM okg.attribute_effective_view
-                             WHERE generation_id = %s
-                               AND namespace = 'default'
-                               AND target_kind = %s
-                          ) AS snapshot_rows,
-                          (
-                            SELECT count(*)
-                              FROM okg.attribute_effective_view_intervals
-                             WHERE branch_id = %s
-                               AND namespace = 'default'
-                               AND target_kind = %s
-                               AND from_ord <= %s
-                               AND %s < to_ord
-                          ) AS interval_rows,
-                          (
-                            SELECT count(*)
-                              FROM okg.attribute_effective_view_intervals e
-                              JOIN okg.attribute_versions av
-                                USING (target_kind, target_id, attrs_hash)
-                             WHERE e.branch_id = %s
-                               AND e.namespace = 'default'
-                               AND e.target_kind = %s
-                               AND e.from_ord <= %s
-                               AND %s < e.to_ord
-                          ) AS interval_payload_rows
-                        """,
-                        (
-                            gen,
-                            target_kind,
-                            branch_id,
-                            target_kind,
-                            ordinal,
-                            ordinal,
-                            branch_id,
-                            target_kind,
-                            ordinal,
-                            ordinal,
-                        ),
-                    )
-                    authority_row = cur.fetchone()
-                    if authority_row:
-                        snapshot_rows = int(authority_row[0] or 0)
-                        interval_rows = int(authority_row[1] or 0)
-                        interval_payload_rows = int(authority_row[2] or 0)
-                        required_rows = (
-                            expected_count
-                            if expected_count is not None
-                            else snapshot_rows
-                        )
-                    else:
-                        required_rows = 0
-                        interval_payload_rows = 0
-                    if required_rows > 0 and interval_rows < required_rows:
-                        _refuse_pin_past_attribute_retention(
-                            conn, generation=gen, branch_id=branch_id,
-                            ordinal=ordinal,
-                        )
-                        raise SubstrateError(
-                            "interval effective-attribute reads requested but the "
-                            "pinned generation has incomplete interval stab rows",
-                            data={
-                                "generation_id": gen,
-                                "target_kind": target_kind,
-                                "branch_id": branch_id,
-                                "ordinal": ordinal,
-                                "expected_rows": required_rows,
-                                "interval_rows": interval_rows,
-                                "snapshot_rows": snapshot_rows,
-                            },
-                            fix_hint=(
-                                "run the one-time interval backfill for the "
-                                "latest full snapshot before enabling "
-                                "OKG_IVM_INTERVAL_VIEW"
-                            ),
-                        )
-                    if interval_rows != interval_payload_rows:
-                        raise SubstrateError(
-                            "interval effective-attribute reads requested but the "
-                            "pinned generation has an incomplete attrs_hash payload join",
-                            data={
-                                "generation_id": gen,
-                                "target_kind": target_kind,
-                                "branch_id": branch_id,
-                                "ordinal": ordinal,
-                                "source_rows": interval_rows,
-                                "payload_rows": interval_payload_rows,
-                            },
-                            fix_hint=(
-                                "restore every attribute_versions payload referenced "
-                                "by the pinned interval rows before enabling "
-                                "OKG_IVM_INTERVAL_VIEW"
-                            ),
-                        )
-                    if cache_key is not None:
-                        # Both refusals above raise, so reaching here means
-                        # the check PASSED; only a pass is ever stored.
-                        with _interval_complete_lock:
-                            if (
-                                len(_interval_complete_cache)
-                                >= _INTERVAL_COMPLETE_CACHE_MAX
-                            ):
-                                _interval_complete_cache.pop(
-                                    next(iter(_interval_complete_cache))
-                                )
-                            _interval_complete_cache[cache_key] = (
-                                _interval_complete_cache_clock()
-                                + _INTERVAL_COMPLETE_CACHE_TTL_S
-                            )
-                base_table = "okg.attribute_effective_view_intervals"
-                if source_alias:
-                    return (
-                        base_table,
-                        f"{base_table} {source_alias} "
-                        "JOIN okg.attribute_versions av "
-                        "USING (target_kind, target_id, attrs_hash)",
-                        f"{source_alias}.branch_id = %(br)s AND "
-                        f"{source_alias}.from_ord <= %(g)s AND "
-                        f"%(g)s < {source_alias}.to_ord",
-                        {"br": branch_id, "g": ordinal},
-                    )
-                return (
-                    base_table,
-                    base_table + " " + _ATTRIBUTE_VERSION_JOIN,
-                    "branch_id = %(br)s AND from_ord <= %(g)s AND %(g)s < to_ord",
-                    {"br": branch_id, "g": ordinal},
-                )
-        base_table = "okg.attribute_effective_view"
-        with conn.cursor() as cur:
-            cur.execute("SELECT to_regclass(%s)", (base_table,))
-            if cur.fetchone()[0] is None:
-                raise SubstrateError(
-                    "snapshot effective-attribute reads requested but "
-                    "okg.attribute_effective_view is missing",
-                    data={"generation_id": gen},
-                    fix_hint=(
-                        "run the snapshot effective-attribute migration and "
-                        "materialize the pinned generation before disabling "
-                        "OKG_IVM_INTERVAL_VIEW"
-                    ),
-                )
-            if target_kind is not None:
-                cur.execute(
-                    """
-                    SELECT
-                      (
-                        SELECT count(*)
-                          FROM okg.attribute_effective_view e
-                         WHERE e.generation_id = %s
-                           AND e.namespace = 'default'
-                           AND e.target_kind = %s
-                      ) AS source_rows,
-                      (
-                        SELECT count(*)
-                          FROM okg.attribute_effective_view e
-                          JOIN okg.attribute_versions av
-                            USING (target_kind, target_id, attrs_hash)
-                         WHERE e.generation_id = %s
-                           AND e.namespace = 'default'
-                           AND e.target_kind = %s
-                      ) AS payload_rows
-                    """,
-                    (gen, target_kind, gen, target_kind),
-                )
-                source_rows, payload_rows = cur.fetchone()
-                if int(source_rows or 0) != int(payload_rows or 0):
-                    raise SubstrateError(
-                        "snapshot effective-attribute reads requested but the "
-                        "pinned generation has an incomplete attrs_hash payload join",
-                        data={
-                            "generation_id": gen,
-                            "target_kind": target_kind,
-                            "source_rows": int(source_rows or 0),
-                            "payload_rows": int(payload_rows or 0),
-                        },
-                        fix_hint=(
-                            "restore every attribute_versions payload referenced "
-                            "by the pinned snapshot rows before disabling "
-                            "OKG_IVM_INTERVAL_VIEW"
-                        ),
-                    )
-        if source_alias:
-            return (
-                base_table,
-                f"{base_table} {source_alias} "
-                "JOIN okg.attribute_versions av "
-                "USING (target_kind, target_id, attrs_hash)",
-                f"{source_alias}.generation_id = %(gen)s",
-                {"gen": gen},
-            )
-        return (
-            base_table,
-            base_table + " " + _ATTRIBUTE_VERSION_JOIN,
-            "generation_id = %(gen)s",
-            {"gen": gen},
-        )
-
-    def _effective_view_ready(
-        conn: psycopg.Connection,
-        generation_id: Any,
-        target_kind: str,
-    ) -> bool:
-        """True iff the chosen effective-attrs source (interval stab or snapshot)
-        exists AND carries a row for this generation. A generation with neither
-        (published before the table existed, or a deployment mid-migration) -> fall
-        back to the Layer-1 chronos-scan + Python-overlay path, never error and
-        never return wrong numbers."""
-        base_table, from_clause, gen_where, gen_params = _effective_view_source(
-            conn,
-            generation_id,
-            target_kind=target_kind,
-        )
-        with conn.cursor() as cur:
-            cur.execute("SELECT to_regclass(%s)", (base_table,))
-            if cur.fetchone()[0] is None:
-                return False
-            params = {"tk": target_kind, **gen_params}
-            cur.execute(
-                f"SELECT 1 FROM {from_clause} "
-                f"WHERE target_kind = %(tk)s AND {gen_where} "
-                "AND namespace = 'default' LIMIT 1",
-                params,
-            )
-            return cur.fetchone() is not None
-
-    def _effective_view_where(
-        kind: str,
-        scan_predicate: Any,
-    ) -> tuple[str, dict[str, Any]]:
-        """Render the SAME attr-free stable-field clauses the Layer-1 pushdown
-        carries (subtype/edge_type/node_id/... eq/in/exists, conjoined with
-        `and`) to a SQL WHERE over the flat snapshot's real columns, plus ONE
-        attrs-aware shape: ``{"op": "contains", "field": "attrs", "value":
-        {...}}`` renders to the GIN-indexed ``attrs @> ...`` containment over
-        the snapshot's EFFECTIVE attrs (expose-mcp-node-lookup: the typed
-        attrs/path lookup pushes its exact-match filters here — safe because
-        the stored ``attrs`` column IS raw||overlay, so a containment match is
-        a superset of the residual post-Nomos re-check; see the parity note in
-        ``_effective_view_fast_rows``). Only callers that re-check the same
-        predicate in Python may pass a contains clause; the Layer-1 fallback
-        strips it (``_operator_attr_rows``) because the chronos scan's attrs
-        are RAW, where a containment push could drop overlay-only matches.
-        Anything else is skipped (returns no clause), so the WHERE can only
-        ever NARROW to a superset the residual Python post-filter re-checks --
-        result parity is preserved exactly as on the Layer-1 path."""
-        columns = _EFFECTIVE_VIEW_FIELD_COLUMNS[kind]
-        params: dict[str, Any] = {}
-        counter = [0]
-
-        def _bind(value: Any) -> str:
-            counter[0] += 1
-            name = f"p{counter[0]}"
-            params[name] = value
-            return f"%({name})s"
-
-        def render(pred: Any) -> str | None:
-            if pred in (None, True, {}) or not isinstance(pred, dict):
-                return None
-            op = pred.get("op")
-            if op == "and":
-                clauses = pred.get("clauses")
-                if not isinstance(clauses, list):
-                    return None
-                parts = [render(c) for c in clauses]
-                parts = [p for p in parts if p]
-                if not parts:
-                    return None
-                return "(" + " AND ".join(parts) + ")"
-            field = pred.get("field")
-            if op == "contains" and field == "attrs":
-                value = pred.get("value")
-                if not isinstance(value, dict) or not value:
-                    return None
-                # JSONB @> cannot express the Python matcher's None ==
-                # "absent or null" semantics; callers keep None-valued
-                # filters residual-only (see _search_attrs_lookup).
-                if any(v is None for v in value.values()):
-                    return None
-                return f"attrs @> {_bind(Jsonb(value))}"
-            if not isinstance(field, str) or field not in columns:
-                return None
-            col = columns[field]
-            if op == "eq":
-                return f"{col} = {_bind(pred.get('value'))}"
-            if op == "in":
-                values = pred.get("values")
-                if not isinstance(values, list) or not values:
-                    return None
-                return f"{col} = ANY({_bind(list(values))})"
-            if op == "exists":
-                return f"{col} IS NOT NULL"
-            return None
-
-        rendered = render(scan_predicate)
-        if not rendered:
-            return "", params
-        return " AND " + rendered, params
-
-    # scale-operator-attr-reads / req.effective-attrs-view (Layer 2): the
-    # result-size ceiling on the fast filter/map row scan. This is NOT the
-    # Layer-1 10K bounded-Python-overlay cap (which was a CORRECTNESS limit on a
-    # per-row Python merge): this is an index scan, so the ceiling is a memory
-    # guard set far above any real page (max page is 1000). When the scan returns
-    # exactly ceiling+1 rows the operator reports `truncated=true` against this
-    # bound -- a TRUE truncation signal, never a silent undercount. Aggregate
-    # does NOT use this: it counts every matched row in SQL (see
-    # `_effective_view_aggregate_groups`).
-    # Defined at MODULE scope (above `build_server`) rather than here so the
-    # truncation contract is testable without seeding 200K rows; the value and
-    # every use of it are unchanged.
-
     def _declared_registry_for(conn: psycopg.Connection) -> dict[str, str]:
         """The declared-filterable registry, or {} when unavailable.
 
@@ -6637,347 +6309,6 @@ def _build_server(
                 exc,
             )
             return {}
-
-    def _effective_view_fast_rows(
-        conn: psycopg.Connection,
-        session: Session,
-        *,
-        kind: str,
-        scan_predicate: Any,
-    ) -> tuple[list[dict[str, Any]], bool]:
-        """Legacy test seam: read rows from the indexed effective view in SQL.
-
-        Production filter/map/search calls use ``_effective_view_sql_page``;
-        this helper remains exposed only for parity tests that compare the
-        historical broad-row seam with the new bounded page path. It keeps the
-        old result-size ceiling and re-applies live overlays before returning.
-
-        Returns ``(rows, truncated)`` where ``truncated`` is True iff the scan hit
-        the result-size CEILING (a real bound, surfaced loudly to the caller),
-        never a silent undercount.
-
-        PARITY (req.parity): with Nomos enabled, the shared node filter applies
-        accepted overlays before evaluating policy and masking, so both this SQL
-        snapshot path and the Layer-1 fallback protect the final effective attrs.
-        A redacted row is terminal: the normal downstream overlay pass cannot
-        restore classified data. With Nomos disabled, the precomputed effective
-        ``attrs`` already equals ``raw || overlay`` and is used directly.
-
-        NO CALLER LIMIT (materialize-effective-attrs-scan-once): this function
-        deliberately takes no ``limit``. Callers DO have page sizes, and binding
-        one into the SQL below would be WRONG, not merely conservative. The WHERE
-        that ``_effective_view_where`` builds is narrowing-only -- it renders the
-        clauses it can and SKIPS the rest -- so the result is a SUPERSET that every
-        caller re-filters in Python (`filter` at the residual predicate re-check,
-        `_search_attrs_lookup` at its `_matches_attr_filters` pass). A ``LIMIT`` over
-        a superset does not return the first N members of the FILTERED set; it
-        returns an arbitrary N rows of the superset, of which the residual filter may
-        keep almost none. Concretely: 150K `source_file` nodes, a caller filtering on
-        `attrs.owner == "alice"` matching 30K of them; `attrs.owner` is not a stable
-        column so only the subtype clause renders. A 10K bound would return an
-        arbitrary 10K rows whose residual survivors may be ZERO -- the caller sees no
-        rows for a predicate matching 30K nodes, flagged only as `truncated`, which
-        is indistinguishable from "nothing matches". There is also no ORDER BY, so
-        WHICH arbitrary rows come back is plan- and heap-order dependent and two
-        identical calls can disagree. The ceiling below is the only sound bound here.
-        Bounding lower requires the predicate to render EXACTLY with no residual."""
-        target_kind = "node" if kind == "nodes" else "edge"
-        where, params = _effective_view_where(kind, scan_predicate)
-        _base_table, from_clause, gen_where, gen_params = _effective_view_source(
-            conn,
-            session.generation_id,
-            target_kind=target_kind,
-        )
-        params["tk"] = target_kind
-        params.update(gen_params)
-        ceiling = _EFFECTIVE_VIEW_SCAN_CEILING
-        # presence-means-overlay (PACT bound-okg-workspace-disk-growth): raw_attrs
-        # is stored ONLY when it byte-differs from attrs; NULL means "raw == attrs".
-        # materialize-effective-attrs-scan-once: `raw_attrs` is selected AS STORED,
-        # NOT wrapped in COALESCE(raw_attrs, attrs). Postgres does not deduplicate
-        # two target-list entries that evaluate equal, so the COALESCE sent the SAME
-        # blob a second time for the no-overlay MAJORITY. The NULL is resolved in
-        # Python below by reusing the already-decoded effective object.
-        #
-        # Still true after schema-interval-narrow-split moved the payload into
-        # okg.attribute_versions: that table keeps `attrs NOT NULL` alongside a
-        # nullable `raw_attrs` (db/schema.sql), so presence-means-overlay -- and
-        # the double-send the COALESCE caused -- survive the split unchanged.
-        # Both columns resolve through the version join in ``from_clause``.
-        # The LIMIT is deliberately NOT pushed, and the bound stays the scan
-        # CEILING it has always been.
-        #
-        # Pushing it looked free and is not: this function's `limit` is a scan
-        # bound (its only production caller passes 10_000), not the caller's
-        # page size, and the callers page in Python AFTER a residual re-check.
-        # Emitting `LIMIT 10000` would cap a >10K declared-key result at 10,000
-        # rows while making the result look complete -- the truncation flag is
-        # computed against the ceiling, which a pushed limit never reaches. A
-        # caller paging to offset 9,950 would be told `truncated=False` and
-        # believe it had seen everything. That is a silent undercount, and the
-        # pre-pushdown code did not have it.
-        sql = (
-            "SELECT target_id, subtype, src, dst, edge_type, "
-            "attrs, raw_attrs, raw_text_hash "
-            f"FROM {from_clause} "
-            f"WHERE target_kind = %(tk)s AND {gen_where} "
-            "AND namespace = 'default'" + where + " LIMIT %(lim)s"
-        )
-        params["lim"] = ceiling + 1
-        id_field = "node_id" if kind == "nodes" else "edge_id"
-        nomos_on = deployment_requires_nomos_runtime(session.deployment_name)
-        rows: list[dict[str, Any]] = []
-        raw_seen = 0
-        # STREAMED, not fetchall(): a server-side cursor keeps the full client-side
-        # row buffer and this built list from ever coexisting. A streaming cursor
-        # forbids interleaving another statement on this connection while it is
-        # open -- nothing in this loop queries, and the source-lineage filter runs
-        # AFTER it. Keep it that way.
-        with conn.cursor(row_factory=dict_row) as cur:
-            for r in cur.stream(sql, params):
-                raw_seen += 1
-                if raw_seen > ceiling:
-                    # Count the ceiling-plus-first row for `truncated`, but do NOT
-                    # build it -- matching the previous `raw = raw[:ceiling]`.
-                    break
-                effective = r["attrs"]
-                stored_raw = r["raw_attrs"]
-                # A JSONB column holding an array used to raise inside dict(); with
-                # the copy gone it would flow through as a list. Refuse by name.
-                if effective is not None and not isinstance(effective, dict):
-                    raise SubstrateError(
-                        "effective-attrs row has a non-object attrs value",
-                        data={
-                            "target_id": r["target_id"],
-                            "attrs_type": type(effective).__name__,
-                        },
-                    )
-                if stored_raw is not None and not isinstance(stored_raw, dict):
-                    raise SubstrateError(
-                        "effective-attrs row has a non-object raw_attrs value",
-                        data={
-                            "target_id": r["target_id"],
-                            "raw_attrs_type": type(stored_raw).__name__,
-                        },
-                    )
-                # Build the common filter input from raw attrs. With Nomos enabled,
-                # filter_node_rows_for_session applies the accepted overlay before
-                # its policy decision and final mask. psycopg decodes each JSONB
-                # column into a FRESH object per row that no other row aliases, so
-                # these are used directly rather than copied again.
-                # When raw_attrs is NULL, raw == effective and these two keys
-                # INTENTIONALLY alias one object -- that aliasing is the memory
-                # saving. It is safe only because no read-path step mutates either
-                # in place (the Nomos filter copies attrs before touching it, and
-                # the enforcement-off swap below rebinds rather than mutates). A
-                # test asserts the aliasing is not observable; if it ever fails,
-                # reinstate the copy HERE rather than deleting the test.
-                row = {
-                    id_field: r["target_id"],
-                    "attrs": (effective or {} if stored_raw is None else stored_raw),
-                }
-                if kind == "nodes":
-                    row["subtype"] = r["subtype"]
-                    row["text_hash"] = r["raw_text_hash"]
-                else:
-                    row["src"] = r["src"]
-                    row["dst"] = r["dst"]
-                    row["edge_type"] = r["edge_type"]
-                # Carry the precomputed effective attrs for the enforcement-off fast
-                # path, which can avoid an overlay query entirely.
-                row["_effective_attrs"] = effective or {}
-                rows.append(row)
-        scan_truncated = raw_seen > ceiling
-        if kind == "nodes":
-            survivors = filter_node_rows_for_session(conn, session, rows)
-        else:
-            survivors = filter_edge_rows_for_session(conn, session, rows)
-        if not nomos_on:
-            # Enforcement off: Nomos was a pass-through, raw never redacted, so the
-            # precomputed effective attrs == raw || overlay at materialization time.
-            # This legacy test seam can be called after a post-publish accepted
-            # overlay refreshes the snapshot but not the interval front; apply the
-            # authoritative overlay once more so the seam remains parity-safe with
-            # the production runtime-source path.
-            for row in survivors:
-                row["attrs"] = row.pop("_effective_attrs", row.get("attrs") or {})
-            survivors = apply_effective_attrs_to_rows(
-                conn,
-                survivors,
-                target_kind=target_kind,
-                target_id_field=id_field,
-                generation_id=session.generation_id,
-            )
-            return survivors, scan_truncated
-        # Enforcement on: the node filter already evaluated the effective attrs.
-        # Drop the private fast-path hint. This conventional downstream overlay
-        # pass is idempotent for allowed rows and a no-op for terminal redactions.
-        for row in survivors:
-            row.pop("_effective_attrs", None)
-        survivors = apply_effective_attrs_to_rows(
-            conn,
-            survivors,
-            target_kind=target_kind,
-            target_id_field=id_field,
-            generation_id=session.generation_id,
-        )
-        return survivors, scan_truncated
-
-    def _effective_view_runtime_source(
-        *,
-        base_table: str,
-        source_clause: str,
-        gen_where: str,
-        gen_params: Mapping[str, Any],
-        target_kind: str,
-        generation_id: Any,
-        relation: str,
-        params: dict[str, Any],
-        base_candidates_sql: str = "",
-        base_candidates_in_id_order: bool = False,
-        base_candidates_as_array: bool = False,
-        target_kind_param: str = "tk",
-    ) -> str:
-        """Overlay the pinned SQL relation at read time, still inside Postgres.
-
-        ``target_kind_param`` names the parameter the target kind binds to,
-        so one statement can join a node relation to an edge relation.
-
-        Accepted observations can be recorded after publish. The per-generation
-        snapshot refreshes immediately, while the interval front advances on
-        publish. Reapplying the authoritative overlay here keeps all SQL
-        predicates exact across both storage modes; ``overlay_attr_keys``
-        tells the declared-index candidate set when it must yield to that live
-        value.
-
-        ``base_candidates_sql`` (lane-h-mcp-filter-index-driven) is a target-id
-        set query that narrows the BASE relation before the overlay lateral
-        runs. Without it the lateral ran once per pinned row (527k loops on a
-        real graph) before any predicate could apply. A caller may pass it only
-        when the set is a superset of the rows its exact predicate can admit;
-        the predicate still runs on the survivors.
-
-        ``base_candidates_as_array`` (issue #3194) matches the set as
-        ``target_id = ANY(ARRAY(...))``: the set is computed once, first, and
-        each id is looked up through the relation's primary key. A caller
-        passes it only when the whole set is bounded: the path-prefix set
-        (at most ``PATH_PREFIX_CANDIDATE_BOUND`` ids after the probe) united
-        only with targets that have a ``path`` overlay. An overlay union over
-        any other predicate key is unbounded and keeps ``IN``. With
-        ``IN`` the planner may instead hash-join the set against the whole
-        pinned relation; measured on a 3,007-record fixture, a two-id set
-        read 9,145 buffers through ``IN`` and 67 through ``ANY(ARRAY)``.
-        """
-        base = f"{relation}_base"
-        overlay = f"{relation}_overlay"
-        if base_table == "okg.attribute_effective_view_intervals":
-            qualified_gen = (
-                f"{base}.branch_id = %(br)s AND "
-                f"{base}.from_ord <= %(g)s AND %(g)s < {base}.to_ord"
-            )
-        else:
-            # The snapshot source binds its generation as ``gen`` (the
-            # interval source binds ``br``/``g``).  Keep the outer
-            # qualification on the same parameter name as the inner source;
-            # otherwise snapshot-mode reads fail at execute time with an
-            # unbound ``g`` placeholder even though the source relation is
-            # available.
-            qualified_gen = f"{base}.generation_id = %(gen)s"
-        params.update(gen_params)
-        if base_candidates_sql:
-            # OFFSET 0 keeps this subquery a planning unit of its own. Without
-            # it Postgres may pull the IN up and join it AFTER the lateral
-            # (observed on a small unanalyzed fixture: the lateral ran for every
-            # pinned row, then the join discarded them), which is the cost this
-            # narrowing exists to remove. Inside the fence the candidates can
-            # only drive the pinned rows, and the lateral runs on its output.
-            source = (
-                f"(SELECT * FROM {source_clause} "
-                f"WHERE target_kind = %({target_kind_param})s AND {gen_where} "
-                "AND namespace = 'default' "
-                + (
-                    f"AND target_id = ANY(ARRAY({base_candidates_sql}))"
-                    if base_candidates_as_array
-                    else f"AND target_id IN ({base_candidates_sql})"
-                )
-                # When the page is ordered by target_id (the default), hand the
-                # outer query candidates already in that order. The lateral
-                # nested loop keeps it, so a broad match streams into the
-                # LIMIT instead of running the lateral for every candidate and
-                # sorting afterwards (measured 1.08 s -> 1.96 s on a 250k-match
-                # eq without this, against the unnarrowed scan).
-                + (" ORDER BY target_id" if base_candidates_in_id_order else "")
-                + " OFFSET 0)"
-            )
-        else:
-            source = f"({source_clause})"
-        params.update(
-            {
-                target_kind_param: target_kind,
-                "overlay_gen": str(generation_id),
-                "overlay_reserved": sorted(RESERVED_EFFECTIVE_ATTR_KEYS),
-            }
-        )
-        return (
-            "(SELECT "
-            f"{base}.target_kind, {base}.target_id, {base}.namespace, "
-            f"{base}.subtype, {base}.src, {base}.dst, {base}.edge_type, "
-            f"({base}.attrs || COALESCE({overlay}.attrs, '{{}}'::jsonb)) AS attrs, "
-            f"CASE WHEN {overlay}.attrs IS NULL THEN {base}.raw_attrs "
-            f"ELSE COALESCE({base}.raw_attrs, {base}.attrs) END AS raw_attrs, "
-            f"{base}.raw_text_hash, "
-            f"COALESCE({overlay}.attr_keys, ARRAY[]::text[]) AS overlay_attr_keys "
-            f"FROM {source} AS {base} "
-            "LEFT JOIN LATERAL ("
-            "SELECT jsonb_object_agg(attr_key, value) AS attrs, "
-            "array_agg(attr_key) AS attr_keys "
-            f"FROM {ATTRIBUTE_EFFECTIVE_TABLE} "
-            f"WHERE target_kind = {base}.target_kind "
-            f"AND target_id = {base}.target_id "
-            "AND generation_id = %(overlay_gen)s "
-            f"AND namespace = {base}.namespace "
-            "AND attr_key <> ALL(%(overlay_reserved)s::text[])"
-            f") AS {overlay} ON TRUE "
-            f"WHERE {base}.target_kind = %({target_kind_param})s AND {qualified_gen} "
-            f"AND {base}.namespace = 'default') AS {relation}"
-        )
-
-    def _effective_view_aggregate_narrow_source(
-        *,
-        base_table: str,
-        gen_where: str,
-        gen_params: Mapping[str, Any],
-        target_kind: str,
-        relation: str,
-        params: dict[str, Any],
-    ) -> str:
-        """The pinned relation without its payload, for an aggregate that
-        reads no attrs.
-
-        ``_effective_view_runtime_source`` joins okg.attribute_versions and
-        the live overlay so ``attrs`` can be read. An aggregate whose ``by``
-        and predicate name only stable columns needs neither: the join is one
-        primary-key probe per counted row (76,444 on the CMS copy, 22 ms ->
-        177 ms) and the overlay changes only ``attrs``/``raw_attrs``.
-
-        Dropping the join keeps the count exact. Every base row has exactly
-        one payload row: ``attribute_versions`` is keyed by the join columns,
-        and ``_effective_view_source`` has already refused this generation
-        when its source rows and joined payload rows differ.
-
-        Only the stable columns are exposed. A compiled predicate that still
-        reads ``attrs`` fails with a missing-column error; it never falls
-        back to the payload-joined form.
-        """
-        params.update(gen_params)
-        params["tk"] = target_kind
-        return (
-            "(SELECT target_kind, target_id, namespace, subtype, src, dst, "
-            "edge_type, raw_text_hash "
-            f"FROM {base_table} "
-            f"WHERE target_kind = %(tk)s AND {gen_where} "
-            f"AND namespace = 'default') AS {relation}"
-        )
 
     def _holds_text(spec: Any) -> bool:
         from okg.substrate.mcp.text_match import holds_text_clause
@@ -7015,46 +6346,58 @@ def _build_server(
         with the one operator compiler, as an aggregate counts, so with Nomos
         off it holds exactly the records the operator itself would admit.
         None when the predicate cannot be compiled exactly; the caller
-        refuses."""
-        _require_effective_view(conn, session, "node")
-        params: dict[str, Any] = {}
-        base_table, source_clause, gen_where, gen_params = _effective_view_source(
-            conn, session.generation_id, target_kind="node",
-        )
+        refuses.
+
+        PACT lane-s-storage-cutover: read like the page, from the Chronos
+        rows at the pin plus the generation's overlays (the ids-first
+        stream of ``graph_read.page_relation_sql``), so a pin the page
+        serves is served here too, and a pin it refuses is refused here
+        (``require_graph_pin``) before any statement."""
+        from okg.substrate.bm25_node_search import branch_point
+        from okg.substrate.mcp.semantic_readiness import resolve_node_segment
+
+        _graph_read.require_graph_pin(conn, session)
         relation = "text_rest"
+        params: dict[str, Any] = {
+            "graph_bp": branch_point(conn, session),
+            "overlay_gen": str(session.generation_id),
+            "overlay_reserved": sorted(RESERVED_EFFECTIVE_ATTR_KEYS),
+            "tk": "node",
+        }
         if member_ids is not None:
             params["rr_member_ids"] = list(member_ids)
-        if member_ids is not None or _operator_refs_attrs(predicate):
-            from_clause = _effective_view_runtime_source(
-                base_table=base_table,
-                source_clause=source_clause,
-                gen_where=gen_where,
-                gen_params=gen_params,
-                target_kind="node",
-                generation_id=session.generation_id,
-                relation=relation,
-                params=params,
-                base_candidates_sql=(
-                    "SELECT unnest(%(rr_member_ids)s::text[])"
-                    if member_ids is not None else ""
-                ),
-            )
-        else:
-            from_clause = _effective_view_aggregate_narrow_source(
-                base_table=base_table,
-                gen_where=gen_where,
-                gen_params=gen_params,
-                target_kind="node",
-                relation=relation,
-                params=params,
-            )
+        declared = _declared_registry_for(conn)
         compiled = _compile_operator_predicate(
-            "nodes", predicate, params,
-            declared=_declared_registry_for(conn), relation=relation,
+            "nodes", predicate, params, declared=declared, relation=relation,
         )
         if compiled is None:
             return None
         where_sql = compiled.bind_into(params)
+
+        def _compile_for(pred: Any, bound: dict[str, Any], rel: str) -> str:
+            part = _compile_operator_predicate(
+                "nodes", pred, bound, declared=declared, relation=rel,
+            )
+            if part is None:
+                raise ValueError(
+                    "graph read: a predicate the text rest compiled exactly "
+                    f"does not compile over {rel}"
+                )
+            return part.bind_into(bound)
+
+        from_clause = _graph_read.page_relation_sql(
+            relation=relation,
+            kind="nodes",
+            segment=resolve_node_segment(conn),
+            predicate=_graph_read.planning_predicate(predicate),
+            attr_keys=sorted(
+                _graph_read.predicate_attr_keys(predicate)
+                - set(RESERVED_EFFECTIVE_ATTR_KEYS)
+            ),
+            params=params,
+            compile_predicate=_compile_for,
+            member_ids=member_ids is not None,
+        )
         if member_ids is not None:
             where_sql = (
                 f"({where_sql}) AND {relation}.target_id = ANY(%(rr_member_ids)s::text[])"
@@ -7479,6 +6822,7 @@ def _build_server(
         each_report: dict[str, Any] | None = None,
         fingerprint_predicate: Any = ...,
         date_budget: Any = None,
+        flag_missing: bool = False,
     ) -> tuple[list[tuple[tuple[Any, ...], int]], str] | None:
         """MUST-FIX #1: count an aggregate ENTIRELY in SQL over the indexed
         snapshot -- ``SELECT <by-exprs>, count(*) ... GROUP BY <by-exprs>`` -- so a
@@ -7530,96 +6874,38 @@ def _build_server(
         each_field = each_fields[0] if each_fields else None
         if deployment_requires_nomos_runtime(session.deployment_name):
             return None
+        # PACT lane-s-storage-cutover: the counts come from the Chronos rows
+        # at the pin plus the generation's overlays (the split aggregate,
+        # S2 design 2.5); a count per list element (#3666, each()) included.
+        from okg.substrate.bm25_node_search import branch_point
+        from okg.substrate.mcp.passage_rollup import resolve_edge_segment
+        from okg.substrate.mcp.semantic_readiness import resolve_node_segment
+
         target_kind = "node" if kind == "nodes" else "edge"
         params: dict[str, Any] = {}
-        base_table, source_clause, gen_where, gen_params = _effective_view_source(
-            conn,
-            session.generation_id,
-            target_kind=target_kind,
-        )
         relation = "effective_aggregate"
         if member_ids is not None:
             params["rr_member_ids"] = list(member_ids)
-        if (
-            periods or each_field is not None
-            or _operator_refs_attrs(by) or _operator_refs_attrs(predicate)
-        ):
-            candidates_sql = (
-                "SELECT unnest(%(rr_member_ids)s::text[])" if member_ids is not None else ""
-            )
-            date_keys = _date_window_keys(predicate)
-            if date_keys and member_ids is None:
-                # #3666: a count that carries a date condition is narrowed
-                # like a page, by the ready declared indexes: the targets
-                # every narrowing clause admits, or that have an overlay on
-                # a key the predicate reads. The exact predicate decides.
-                declared_types = _declared_registry_for(conn)
-                plan, uncovered = None, []
-                # An operand that holds NUL never reaches the planner, as
-                # on the page path; the exact condition decides.
-                if not _holds_nul(predicate) and (
-                    _attr_filter_source.filter_index_mode() == "expression"
-                ):
-                    plan, uncovered = _attr_filter_source.plan_expression_candidates(
-                        conn,
-                        generation_id=session.generation_id,
-                        predicate=_date_narrowing_predicate(predicate, declared_types),
-                        declared=declared_types,
-                        target_kind=target_kind,
-                    )
-                _note_date_index(
-                    date_budget, predicate, declared=declared_types,
-                    narrowed=plan.attrs if plan is not None else (),
-                    uncovered=uncovered,
-                )
-                if plan is not None:
-                    params.update(plan.params)
-                    keys: set[str] = set()
-
-                    def attr_keys(node: Any, into: set[str] = keys) -> None:
-                        if isinstance(node, dict):
-                            name = node.get("field")
-                            if isinstance(name, str) and name.startswith("attrs."):
-                                into.add(name.split(".", 1)[1])
-                            for child in node.values():
-                                attr_keys(child)
-                        elif isinstance(node, list):
-                            for child in node:
-                                attr_keys(child)
-
-                    attr_keys(predicate)
-                    params["overlay_attr_keys"] = sorted(
-                        key for key in keys
-                        if "\x00" not in key and key not in RESERVED_EFFECTIVE_ATTR_KEYS
-                    )
-                    candidates_sql = (
-                        f"({plan.sql}) UNION ("
-                        f"SELECT overlay_target.target_id "
-                        f"FROM {ATTRIBUTE_EFFECTIVE_TABLE} AS overlay_target "
-                        "WHERE overlay_target.target_kind = %(tk)s "
-                        "AND overlay_target.generation_id = %(overlay_gen)s "
-                        "AND overlay_target.namespace = 'default' "
-                        "AND overlay_target.attr_key = ANY(%(overlay_attr_keys)s::text[]))"
-                    )
-            from_clause = _effective_view_runtime_source(
-                base_table=base_table,
-                source_clause=source_clause,
-                gen_where=gen_where,
-                gen_params=gen_params,
-                target_kind=target_kind,
-                generation_id=session.generation_id,
-                relation=relation,
-                params=params,
-                base_candidates_sql=candidates_sql,
-            )
-        else:
-            from_clause = _effective_view_aggregate_narrow_source(
-                base_table=base_table,
-                gen_where=gen_where,
-                gen_params=gen_params,
-                target_kind=target_kind,
-                relation=relation,
-                params=params,
+        _graph_read.require_graph_pin(conn, session)
+        graph_segment = (
+            resolve_node_segment(conn) if kind == "nodes"
+            else resolve_edge_segment(conn)
+        )
+        params.update({
+            "graph_bp": branch_point(conn, session),
+            "overlay_gen": str(session.generation_id),
+            "overlay_reserved": sorted(RESERVED_EFFECTIVE_ATTR_KEYS),
+            "tk": target_kind,
+        })
+        if member_ids is None and _date_window_keys(predicate):
+            # #3666: the split aggregate reads the graph rows itself and no
+            # declared date index narrows it; say so. The date condition is
+            # in the compiled predicate and the count runs under the date
+            # budget below. (Speed only, accepted at the cutover: the count
+            # is exact.)
+            _note_date_index(
+                date_budget, predicate, declared=_declared_registry_for(conn),
+                narrowed=(), uncovered=(), unused=_DATE_INDEX_NOT_NARROWABLE,
             )
 
         def _field_sql(field: str) -> str | None:
@@ -7629,13 +6915,20 @@ def _build_server(
                 key = field.split(".", 1)[1]
                 if not key:
                     return None
-                params_key = f"bk{len(params)}"
-                params[params_key] = key
                 # ``->`` (NOT ``->>``) keeps the JSONB value so psycopg decodes it
                 # to the SAME Python type the per-row path's
                 # ``_operator_field_value`` returns (bool/int/str/None), preserving
                 # group-key parity. ``->>`` would coerce every value to text and
                 # diverge (True -> 'true').
+                if "\x00" not in key:
+                    # S2 design 2.5: the grouped key is an inlined literal so
+                    # the planner matches its statistics object (S1), which a
+                    # bound parameter never matches.
+                    from okg.substrate.declared_attr_indexes import _literal
+
+                    return f"({relation}.attrs -> {_literal(key)})"
+                params_key = f"bk{len(params)}"
+                params[params_key] = key
                 return f"({relation}.attrs -> %({params_key})s)"
             col = _EFFECTIVE_VIEW_FIELD_COLUMNS[kind].get(field)
             return f"{relation}.{col}" if col else None
@@ -7682,6 +6975,14 @@ def _build_server(
             return f"(CASE {relation}.subtype {' '.join(branches)} END)"
 
         by_exprs: list[str] = []
+        # PACT read-aggregate-order-by (B2, N1): a ranked count tells a key
+        # the record does not carry (SQL NULL) from a stored JSON null with
+        # one hidden `(<expr> IS NULL)` column per attrs. field, selected and
+        # grouped by position after the keys and returned beside the key.
+        # Only when ranked, never on a period count, and never for the
+        # each() element itself; the other attrs. fields of an each() count
+        # are flagged, so its ranked order is total too (review m2).
+        flag_exprs: list[tuple[int, str]] = []
         each_value = ""
         for field in by:
             if each_field is not None and str(field) == each_field.text:
@@ -7700,6 +7001,10 @@ def _build_server(
             expr = _field_sql(str(field))
             if expr is None:
                 return None
+            if (
+                flag_missing and not periods and str(field).startswith("attrs.")
+            ):
+                flag_exprs.append((len(by_exprs), f"({expr} IS NULL)"))
             by_exprs.append(expr)
         if date_attrs:
             by_exprs.append(f"{relation}.subtype")
@@ -7720,11 +7025,15 @@ def _build_server(
                 f"({where_sql}) AND {relation}.target_id = ANY(%(rr_member_ids)s::text[])"
             )
 
-        select_list = ", ".join(f"{expr} AS g{i}" for i, expr in enumerate(by_exprs))
-        group_list = ", ".join(str(i + 1) for i in range(len(by_exprs)))
+        # The hidden missing-key flags (B2) are selected and grouped after
+        # the keys, so the results loop below reads flag k at
+        # len(by_exprs) + k and the count last. A flag is a function of its
+        # key's expression, so it splits no group.
+        selected = [*by_exprs, *(expr for _i, expr in flag_exprs)]
         facts_sql = ""
+        v = each_value
+        elements = ""
         if each_value:
-            v = each_value
             # A list's elements, each once per row and none of them JSON
             # null; a value that is not a list reads as no element here and
             # is left out of the groups by the WHERE below.
@@ -7734,36 +7043,100 @@ def _build_server(
                 "ELSE '[]'::jsonb END) AS each_e(element) "
                 "WHERE each_e.element <> 'null'::jsonb"
             )
-            sql = (
-                f"SELECT {select_list}, count(*) AS n "
-                f"FROM {from_clause} LEFT JOIN LATERAL ({elements}) AS each_element "
-                f"ON TRUE WHERE ({where_sql}) AND ({v} IS NULL OR "
-                f"jsonb_typeof({v}) IN ('array', 'null')) GROUP BY {group_list}"
+        # A period field (#3658) reads a date attribute that is not an
+        # ``attrs.<key>`` field: its keys join the overlay keys and make
+        # the aggregate keyed, so an overlaid date is counted merged.
+        # So does the list an each() field counts (#3666): a target with
+        # an overlay on it is counted on its merged list.
+        period_keys: set[str] = set()
+        for text, period in periods.items():
+            if period.attr is not None:
+                period_keys.add(period.attr)
+            else:
+                period_keys.update(date_attrs.get(text, {}).values())
+        if each_field is not None:
+            period_keys.add(each_field.attr)
+        keys = sorted(
+            (_graph_read.predicate_attr_keys(predicate)
+             | _graph_read.predicate_attr_keys(
+                 [{"field": str(f)} for f in by]
+             )
+             | {k for k in period_keys if "\x00" not in k})
+            - set(RESERVED_EFFECTIVE_ATTR_KEYS)
+        )
+        params["graph_overlay_keys"] = keys
+        whole_attrs = _graph_read.predicate_reads_whole_attrs(predicate)
+        keyed = (
+            bool(periods)
+            or each_field is not None
+            or _operator_refs_attrs(by)
+            or _operator_refs_attrs(predicate)
+        )
+        # A keyed count whose scope covers about every heap page reads
+        # its graph rows by a sequential scan (graph_read.
+        # split_aggregate_sql): it reads every attrs blob of the scope,
+        # and an index walk detoasts them in node-id order. Not for a
+        # result reference's ids, which narrow the count to those rows.
+        sequential = False
+        if keyed and member_ids is None:
+            with conn.cursor() as cur:
+                sequential = _graph_read.broad_scope(
+                    cur, kind=kind, segment=graph_segment, predicate=predicate,
+                ) is not None
+        graph_where, each_join = where_sql, ""
+        if each_value:
+            # The each() statement, written over each branch of the
+            # split: the per-element lateral join after the
+            # relation, the not-a-list rows left out of the groups, and
+            # the facts summed over both branches.
+            each_join = f" LEFT JOIN LATERAL ({elements}) AS each_element ON TRUE"
+            graph_where = (
+                f"({where_sql}) AND ({v} IS NULL OR "
+                f"jsonb_typeof({v}) IN ('array', 'null'))"
             )
-            facts_sql = (
-                "SELECT count(*), "
+            rows_with_none = (
                 f"count(*) FILTER (WHERE ({v} IS NULL OR jsonb_typeof({v}) IN "
-                f"('array', 'null')) AND NOT EXISTS ({elements})), "
-                f"count(*) FILTER (WHERE jsonb_typeof({v}) NOT IN ('array', 'null')), "
-                f"count(*) FILTER (WHERE jsonb_typeof({v}) = 'array') "
-                f"FROM {from_clause} WHERE {where_sql}"
+                f"('array', 'null')) AND NOT EXISTS ({elements}))"
             )
-        else:
-            sql = (
-                f"SELECT {select_list}, count(*) AS n "
-                f"FROM {from_clause} "
-                f"WHERE {where_sql} GROUP BY {group_list}"
+            facts_sql = _graph_read.split_totals_sql(
+                kind=kind,
+                segment=graph_segment,
+                relation=relation,
+                counts=[
+                    "count(*)",
+                    rows_with_none,
+                    f"count(*) FILTER (WHERE jsonb_typeof({v}) NOT IN ('array', 'null'))",
+                    f"count(*) FILTER (WHERE jsonb_typeof({v}) = 'array')",
+                ],
+                where_sql=where_sql,
+                whole_attrs=whole_attrs,
+                member_ids=member_ids is not None,
+                sequential=sequential,
             )
+        sql = _graph_read.split_aggregate_sql(
+            kind=kind,
+            segment=graph_segment,
+            relation=relation,
+            by_exprs=selected,
+            where_sql=graph_where,
+            keyed=keyed,
+            whole_attrs=whole_attrs,
+            member_ids=member_ids is not None,
+            join_sql=each_join,
+            sequential=sequential,
+        )
         if periods:
             sql += f" LIMIT {_MAX_DISTINCT_DATE_ROWS + 1}"
 
         def count_groups() -> tuple[list, Any]:
+            from okg.substrate.bm25_node_search import execute_with_custom_plan
+
             with conn.cursor() as cur:
-                cur.execute(sql, params)
+                execute_with_custom_plan(cur, sql, params)
                 rows = cur.fetchall()
                 facts_row = None
                 if facts_sql:
-                    cur.execute(facts_sql, params)
+                    execute_with_custom_plan(cur, facts_sql, params)
                     facts_row = cur.fetchone()
             return rows, facts_row
 
@@ -7776,6 +7149,8 @@ def _build_server(
             if kind == "edges" or each_value:
                 fetched, counted = _run_within_count_budget(
                     conn, sql, params, facts_sql, links=kind == "edges",
+                    # S2: every graph-path statement is sent unprepared.
+                    prepare=False,
                 )
             else:
                 fetched, counted = count_groups()
@@ -7837,10 +7212,16 @@ def _build_server(
                 )
             _mark_date_phase("fold", date_budget)
             return folded, compiled.fingerprint
-        results: list[tuple[tuple[Any, ...], int]] = []
+        results: list[Any] = []
         for r in fetched:
             key = tuple(r[i] for i in range(len(by_exprs)))
-            results.append((key, int(r[-1])))
+            if flag_missing:
+                missing = [False] * len(by_exprs)
+                for offset_, (position, _expr) in enumerate(flag_exprs):
+                    missing[position] = bool(r[len(by_exprs) + offset_])
+                results.append((key, int(r[-1]), tuple(missing)))
+            else:
+                results.append((key, int(r[-1])))
         # Order IDENTICALLY to the per-row evaluation (count desc, then
         # str(key) asc) so the group page + truncation are deterministic.
         results.sort(key=lambda item: (-item[1], tuple(str(v) for v in item[0])))
@@ -8248,39 +7629,6 @@ def _build_server(
             sort_keys=True, default=str,
         ), params.get("page_offset"))
 
-    def _date_candidates_are_wide(
-        conn: psycopg.Connection, budget: Any, candidates_sql: str,
-        params: Mapping[str, Any],
-    ) -> bool:
-        """Whether an index candidate set holds more than
-        ``_DATE_WIDE_CANDIDATES`` targets: a count that stops at the bound,
-        so it reads at most that many index entries. One that does not
-        finish in its share counts as wide. Kept for the call's reruns."""
-        call = _current_date_call()
-        key = _date_memo_key("probe", candidates_sql, params)
-        if call is not None and key in call.pages:
-            return bool(call.pages[key])
-        bound = int(_DATE_WIDE_CANDIDATES)
-
-        def count() -> int:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"SELECT count(*) FROM (SELECT 1 FROM ({candidates_sql}) "
-                    f"AS date_candidates LIMIT {bound + 1}) AS date_candidate_probe",
-                    dict(params),
-                )
-                return int(cur.fetchone()[0])
-
-        found = _under_date_budget(
-            conn, budget, "candidate probe", count,
-            cap_ms=_DATE_PROBE_SHARE_MS, soft=True, phase="candidate_probe",
-        )
-        budget.mark("candidate_probe")
-        wide = found is _DATE_STATEMENT_CANCELLED or found > bound
-        if call is not None:
-            call.pages[key] = wide
-        return wide
-
     def _note_date_index(
         budget: Any, predicate: Any, *, declared: Mapping[str, str] | None,
         narrowed: Sequence[str], uncovered: Sequence[tuple[str, str]],
@@ -8493,12 +7841,27 @@ def _build_server(
         fetches a string longer than ``MAX_DATE_TEXT``. It cannot stop
         early: it groups every record in that scope and no index serves it.
         Its outcome is kept for the reruns of the same call.
+
+        PACT lane-s-storage-cutover: the stored values are read from the
+        Chronos rows at the pin with the generation's overlays merged
+        (``graph_read.scope_relation_sql``), the rows the page itself reads;
+        a pin the page refuses is refused here before any statement.
         """
+        from okg.substrate.bm25_node_search import branch_point
+        from okg.substrate.mcp.passage_rollup import resolve_edge_segment
+        from okg.substrate.mcp.semantic_readiness import resolve_node_segment
+
         attrs_for, fields, windows_by_field = plan
         target_kind = "node" if kind == "nodes" else "edge"
-        _require_effective_view(conn, session, target_kind)
-        base_table, source_clause, gen_where, gen_params = _effective_view_source(
-            conn, session.generation_id, target_kind=target_kind,
+        _graph_read.require_graph_pin(conn, session)
+        graph_params = {
+            "graph_bp": branch_point(conn, session),
+            "overlay_gen": str(session.generation_id),
+            "overlay_reserved": sorted(RESERVED_EFFECTIVE_ATTR_KEYS),
+            "tk": target_kind,
+        }
+        graph_segment = (
+            resolve_node_segment(conn) if kind == "nodes" else resolve_edge_segment(conn)
         )
         relation = "effective_dates"
         declared = _declared_registry_for(conn)
@@ -8508,11 +7871,13 @@ def _build_server(
         # The stored-value reads of all fields share one
         # `_DATE_VALUES_READ_BUDGET_MS` per call, not one each.
         values_read_ms = 0
-        # The read is narrowed like a page: by the caller's candidate set,
-        # else by the ready declared indexes of the other conditions (the
-        # targets every narrowing clause admits, or that have an overlay on
-        # a key those conditions read).
+        # The read is narrowed like a page: by the caller's candidate set
+        # (both id branches keep only its ids), else by the ready declared
+        # indexes of the other conditions (the graph-id branch only: targets
+        # with an overlay on a key those conditions read come from the
+        # overlay-id branch).
         rest_params: dict[str, Any] = {}
+        narrow_sql = ""
         # An operand that holds NUL never reaches the planner, as on the
         # page path: it matches no stored value, and the exact compiled
         # condition decides.
@@ -8520,38 +7885,41 @@ def _build_server(
             _attr_filter_source.filter_index_mode() == "expression"
         ):
             rest_plan, _uncovered = _attr_filter_source.plan_expression_candidates(
-                conn, generation_id=session.generation_id, predicate=rest,
+                conn, generation_id=session.generation_id,
+                predicate=_graph_read.planning_predicate(rest),
                 declared=declared, target_kind=target_kind, param_prefix="dcr",
             )
             if rest_plan is not None:
                 rest_params = dict(rest_plan.params)
-                rest_params["dc_overlay_keys"] = sorted(rest_plan.attrs)
-                candidates_sql = (
-                    f"({rest_plan.sql}) UNION ("
-                    f"SELECT overlay_target.target_id "
-                    f"FROM {ATTRIBUTE_EFFECTIVE_TABLE} AS overlay_target "
-                    "WHERE overlay_target.target_kind = %(tk_dates)s "
-                    "AND overlay_target.generation_id = %(overlay_gen)s "
-                    "AND overlay_target.namespace = 'default' "
-                    "AND overlay_target.attr_key = ANY(%(dc_overlay_keys)s::text[]))"
-                )
+                narrow_sql = rest_plan.sql
+        clashing = sorted(
+            key for key, value in (candidate_params or {}).items()
+            if key in graph_params and value != graph_params[key]
+        )
+        if clashing:
+            raise ValueError(
+                "stored date forms: the caller's candidate parameters bind "
+                f"{clashing} to other values than the graph read does"
+            )
         budget.mark("planner")
         also_for: dict[str, dict[int, list[str]]] = {}
         changes_rows = False
-        for text in fields:
-            params: dict[str, Any] = {**dict(candidate_params or {}), **rest_params}
-            from_clause = _effective_view_runtime_source(
-                base_table=base_table,
-                source_clause=source_clause,
-                gen_where=gen_where,
-                gen_params=gen_params,
-                target_kind=target_kind,
-                generation_id=session.generation_id,
-                relation=relation,
-                params=params,
-                base_candidates_sql=candidates_sql,
-                target_kind_param="tk_dates",
+
+        def _compile_for(pred: Any, bound: dict[str, Any], rel: str) -> str:
+            part = _compile_operator_predicate(
+                kind, pred, bound, declared=declared, relation=rel,
             )
+            if part is None:
+                raise ValueError(
+                    "graph read: a condition the date-forms read compiled "
+                    f"exactly does not compile over {rel}"
+                )
+            return part.bind_into(bound)
+
+        for text in fields:
+            params: dict[str, Any] = {
+                **dict(candidate_params or {}), **rest_params, **graph_params,
+            }
             compiled = _compile_operator_predicate(
                 kind, rest, params, declared=declared, relation=relation,
             )
@@ -8562,6 +7930,20 @@ def _build_server(
                 also_for = {}
                 break
             where_sql = compiled.bind_into(params)
+            from_clause = _graph_read.scope_relation_sql(
+                relation=relation,
+                kind=kind,
+                segment=graph_segment,
+                predicate=_graph_read.planning_predicate(rest),
+                attr_keys=sorted(
+                    _graph_read.predicate_attr_keys(rest)
+                    - set(RESERVED_EFFECTIVE_ATTR_KEYS)
+                ),
+                params=params,
+                compile_predicate=_compile_for,
+                candidates_sql=narrow_sql,
+                members_sql=candidates_sql,
+            )
             by_attr = sorted(attrs_for[text].items())
             if not by_attr[0][1]:
                 # date.attrs.<key>: the attribute on every record.
@@ -8596,8 +7978,11 @@ def _build_server(
             )
 
             def read_odd_values(sql: str = read_sql, bound: dict[str, Any] = params) -> list:
+                from okg.substrate.bm25_node_search import execute_with_custom_plan
+
                 with conn.cursor() as cur:
-                    cur.execute(sql, bound)
+                    # Unprepared, as every graph-path statement is (S2 2.8).
+                    execute_with_custom_plan(cur, sql, bound)
                     return [tuple(row) for row in cur.fetchall()]
 
             # One read per field per call: a rerun of the tool body to
@@ -8920,29 +8305,6 @@ def _build_server(
             predicate, attrs_for=plan[0], also_for=forms[0], operator="search",
         )
 
-    def _require_effective_view(
-        conn: psycopg.Connection,
-        session: Session,
-        target_kind: str,
-    ) -> None:
-        """Refuse by name when the pinned generation has no effective-attribute
-        relation for ``target_kind``. Never a fallback to another read path."""
-        if _effective_view_ready(conn, session.generation_id, target_kind):
-            return
-        err = SubstrateError(
-            "effective-attribute SQL snapshot is unavailable for the pinned generation",
-            data={
-                "generation_id": session.generation_id,
-                "target_kind": target_kind,
-            },
-            fix_hint=(
-                "publish/materialize the effective-attribute snapshot; broad "
-                "Python fallback is intentionally disabled"
-            ),
-        )
-        err.code = "unsupported_operator_form"
-        raise err
-
     def _bounded_operator_count(
         conn: psycopg.Connection,
         *,
@@ -8956,6 +8318,14 @@ def _build_server(
         condition takes at most what is left of that call's budget; with
         none left it is not run. Unknown either way, never a refusal: the
         page itself was served.
+
+        The count is sent unprepared, as every graph-path statement is (S2
+        design 2.8), and a rerun of the call to fit max_bytes takes the
+        first run's outcome, whatever it was: the count's FROM/WHERE and
+        parameters do not depend on the page's limit, and the call is
+        pinned to one generation (Krama head10: the first page of
+        h_and_2keys and b_undecl_rare is over max_bytes, so each call ran
+        its 4.3-5.3 s count twice for the same answer).
 
         ``from_where_sql`` is the page query's own FROM and WHERE, so the
         count is over the same compiled SQL as the page. Returns
@@ -8975,8 +8345,8 @@ def _build_server(
         timeout_ms = int(_OPERATOR_COUNT_TIMEOUT_MS)
         # #3666: the total of a date call does not depend on the page's
         # limit, so a rerun to fit max_bytes takes the first run's outcome,
-        # whatever it was.
-        call = _current_date_call() if date_budget is not None else None
+        # whatever it was. S2: so does the total of any graph-path page.
+        call = _current_date_call()
         total_key = _date_memo_key("total", from_where_sql, params)
 
         def counted_as(outcome: tuple[int | None, str]) -> tuple[int | None, str]:
@@ -9002,7 +8372,13 @@ def _build_server(
                         "SELECT set_config('statement_timeout', %s, true)",
                         (f"{timeout_ms}ms",),
                     )
-                    cur.execute(sql, dict(params))
+                    # Unprepared, as every graph-path statement is
+                    # (design 2.8).
+                    from okg.substrate.bm25_node_search import (
+                        execute_with_custom_plan,
+                    )
+
+                    execute_with_custom_plan(cur, sql, dict(params))
                     counted = int(cur.fetchone()[0])
                     cur.execute(
                         "SELECT set_config('statement_timeout', %s, true)",
@@ -9048,7 +8424,10 @@ def _build_server(
 
         Exact only when the read check dropped no row from the page and
         either the page read the whole rest of the set (no row past it) or a
-        bounded COUNT over the page's own FROM and WHERE finished (#3201).
+        bounded COUNT over the page's row set finished (#3201):
+        ``page_meta["count_from_where_sql"]``, the page's own FROM and WHERE
+        or, on the graph path, the same rows read as two unordered branches
+        (``graph_read.count_relation_sql``).
         When the reader's policy is evaluated (Nomos audit or enforce) or a
         row was dropped, a SQL count could include rows this reader cannot
         see, so the page-only rule of #3190 applies instead. A count that
@@ -9066,7 +8445,7 @@ def _build_server(
             }
         counted, basis = _bounded_operator_count(
             conn,
-            from_where_sql=page_meta["from_where_sql"],
+            from_where_sql=page_meta["count_from_where_sql"],
             params=page_meta["params"],
             date_budget=page_meta.get("date_budget"),
         )
@@ -9386,12 +8765,13 @@ def _build_server(
         """The node-id candidate set of the lookup's `where` path prefixes
         (issue #3194), or "" when it may not be used.
 
-        The set is read from the graph table, the page from the
-        effective-attribute view, so it is a superset only while the two
-        hold the same `path`. The expression-index readiness says so: `path`
-        must be a declared filterable `text` attribute (so the drift checks
-        compare it, ``declared_attr_indexes.run_drift_checks`` and
-        ``verify_against_graph``) whose index is ready with no drift flag.
+        The set is read from the graph table, so it narrows only the page's
+        graph-id branch; a node with a `path` overlay at the pin comes from
+        the overlay-id branch, which is not narrowed (``path`` joins the keys
+        that branch watches, below), and the exact prefix clause decides
+        every row. The expression-index readiness says when the index may be
+        used: `path` must be a declared filterable `text` attribute whose
+        index is ready.
         The read must be at the branch head, the bounded path-prefix index
         must be on the registered node table, and a bounded probe must find
         at most ``PATH_PREFIX_CANDIDATE_BOUND`` candidates for a prefix.
@@ -9590,14 +8970,12 @@ def _build_server(
         if date_budget is not None:
             # #3666: until the page statement, this is not date work.
             date_budget.pause(_DATE_SETUP_UNCHARGED_MS)
-        _require_effective_view(conn, session, target_kind)
+        # PACT lane-s-storage-cutover: the page reads the Chronos rows at the
+        # pin plus the generation's overlays (mcp/graph_read.py); its
+        # readiness is the overlay marker.
+        _graph_read.require_graph_pin(conn, session)
         declared = _declared_registry_for(conn)
         params: dict[str, Any] = {}
-        base_table, source_clause, gen_where, gen_params = _effective_view_source(
-            conn,
-            session.generation_id,
-            target_kind=target_kind,
-        )
         _mark_date_phase("setup_view", date_budget)
         relation = "effective_page"
         # One reading of the mode decides the reader view, the read filter and
@@ -9730,10 +9108,17 @@ def _build_server(
         # holds NUL narrows nothing (it matches no stored value), and the exact
         # compiled predicate alone decides the page.
         date_keys = _date_window_keys(predicate)
+        # S2: the page plans with nested plain `and` clauses spliced into the
+        # top level (graph_read.planning_predicate), so a filter's
+        # and(subtype, and(a, b)) narrows by a and b as the flat form does.
+        # Only planning and the graph id stream read it; `compiled`, the
+        # fingerprint and the page WHERE keep `predicate`.
+        plan_predicate = _graph_read.planning_predicate(predicate)
         # #3666: what the planner reads. With a date leaf, the predicate
         # with that leaf as a range on its declared `ts` attribute.
         planner_predicate = (
-            _date_narrowing_predicate(predicate, declared) if date_keys else predicate
+            _date_narrowing_predicate(plan_predicate, declared) if date_keys
+            else plan_predicate
         )
         narrow_predicate = None if _holds_nul(predicate) else planner_predicate
         if filter_mode != "off" and narrow_predicate is not None:
@@ -9789,51 +9174,16 @@ def _build_server(
                 ),
             )
         _mark_date_phase("setup_index_plan", date_budget)
-        # The candidate set DRIVES the page (lane-h-mcp-filter-index-driven):
-        # a target passes when every narrowed conjunctive clause admits it, OR
-        # it has an overlay row on any predicate key at this generation
-        # (overlays land after publish and the graph-table index does not see
-        # them). Written as a target-id set on the BASE relation, Postgres
-        # reads the index first and runs the overlay lateral only for those
-        # candidates. The exact predicate below still decides every survivor,
-        # and Nomos still sees the page. Shapes no index narrows render no
-        # candidates and keep the unnarrowed query.
+        # The candidate set narrows the graph-id branch of the page
+        # (lane-h-mcp-filter-index-driven; S2 design 2.3): a target there
+        # passes when every narrowed conjunctive clause admits it. Targets
+        # with an overlay row on any predicate key at this generation come
+        # from the overlay-id branch (overlays land after publish and the
+        # graph-table index does not see them). The exact predicate below
+        # still decides every row, and Nomos still sees the page. Shapes no
+        # index narrows render no candidates.
         if expression_plan is not None:
             params.update(expression_plan.params)
-
-        def _with_overlay(candidates_sql: str) -> str:
-            if not candidates_sql or not predicate_attr_keys:
-                return candidates_sql
-            params["overlay_attr_keys"] = predicate_attr_keys
-            return (
-                f"({candidates_sql}) UNION ("
-                f"SELECT overlay_target.target_id "
-                f"FROM {ATTRIBUTE_EFFECTIVE_TABLE} AS overlay_target "
-                "WHERE overlay_target.target_kind = %(tk)s "
-                "AND overlay_target.generation_id = %(overlay_gen)s "
-                "AND overlay_target.namespace = 'default' "
-                "AND overlay_target.attr_key = ANY(%(overlay_attr_keys)s::text[]))"
-            )
-
-        def _from(candidates_sql: str, *, as_array: bool = False) -> str:
-            narrowed = _with_overlay(candidates_sql)
-            if members_sql is not None:
-                narrowed = (
-                    f"({members_sql}) INTERSECT ({narrowed})" if narrowed else members_sql
-                )
-            return _effective_view_runtime_source(
-                base_table=base_table,
-                source_clause=source_clause,
-                gen_where=gen_where,
-                gen_params=gen_params,
-                target_kind=target_kind,
-                generation_id=session.generation_id,
-                relation=relation,
-                params=params,
-                base_candidates_sql=narrowed,
-                base_candidates_in_id_order=order_by in (None, ""),
-                base_candidates_as_array=as_array,
-            )
 
         members_sql: str | None = None
         if member_ids is not None:
@@ -9844,41 +9194,132 @@ def _build_server(
 
         candidates_sql = expression_plan.sql if expression_plan is not None else ""
         if path_candidates_sql:
-            # Overlay-touched targets rejoin through `_with_overlay`, whose
-            # keys include `path` (an accepted overlay may set the path).
+            # Targets with a `path` overlay come from the overlay-id branch,
+            # whose keys include `path` (an accepted overlay may set it).
             candidates_sql = (
                 f"({candidates_sql}) INTERSECT ({path_candidates_sql})"
                 if candidates_sql else path_candidates_sql
             )
-        # The page looks the ids up one by one only while the whole set is
-        # bounded: the path-prefix set (at most PATH_PREFIX_CANDIDATE_BOUND
-        # after the probe) plus targets with a `path` overlay. Any other key
-        # the predicate reads unites every overlay target for that key, which
-        # nothing bounds, so that page keeps `IN`.
-        def _from_candidates(driving_sql: str) -> str:
-            return _from(
-                driving_sql,
-                as_array=_search_where.path_candidates_as_array(
-                    bool(path_candidates_sql), predicate_attr_keys,
-                ),
-            )
+        # The graph-id branch looks the ids up one by one only while the
+        # whole set is bounded: the path-prefix set (at most
+        # PATH_PREFIX_CANDIDATE_BOUND after the probe). Any other set keeps
+        # `IN`.
+        candidates_as_array = _search_where.path_candidates_as_array(
+            bool(path_candidates_sql), predicate_attr_keys,
+        )
+        scope_merged = False
+        # Design 2.3: ids first. The candidate sets narrow the graph-id
+        # branch only (its targets have no overlay on a predicate key, so
+        # their graph value is their effective value); overlaid targets
+        # come from the overlay-id branch; `predicate_sql` decides every
+        # fetched row.
+        from okg.substrate.bm25_node_search import branch_point
+        from okg.substrate.mcp.passage_rollup import resolve_edge_segment
+        from okg.substrate.mcp.semantic_readiness import resolve_node_segment
 
-        from_clause = _from_candidates(candidates_sql)
-        # Order the complete effective relation in Postgres: an index holds
-        # only type-admitted values, so ordering through one as an INNER JOIN
-        # would silently drop rows whose ordered attribute is missing or
-        # malformed. Predicate narrowing uses the candidate set above.
-        order_sql = _effective_view_order_sql(
-            kind=kind,
-            order_by=order_by,
-            params=params,
-            declared=declared,
-            relation=relation,
-            readable=readable_sql,
-            # #3666 (2c): an undeclared attribute sorts as text, with the
-            # access rules off only; `page_meta` carries the reply's note.
-            untyped_as_text=not nomos_runtime,
-            notes=page_meta,
+        params.update({
+            "graph_bp": branch_point(conn, session),
+            "overlay_gen": str(session.generation_id),
+            "overlay_reserved": sorted(RESERVED_EFFECTIVE_ATTR_KEYS),
+        })
+
+        def _compile_for(pred: Any, bound: dict[str, Any], rel: str) -> str:
+            part = _compile_operator_predicate(
+                kind, pred, bound, declared=declared, relation=rel,
+            )
+            if part is None:
+                raise ValueError(
+                    "graph read: a predicate the page compiled exactly "
+                    f"does not compile over {rel}"
+                )
+            return part.bind_into(bound)
+
+        graph_segment = (
+            resolve_node_segment(conn) if kind == "nodes"
+            else resolve_edge_segment(conn)
+        )
+        graph_stream = {
+            "kind": kind,
+            "segment": graph_segment,
+            # The planning copy: the same rows, its conjuncts at the top.
+            "predicate": plan_predicate,
+            "attr_keys": predicate_attr_keys,
+            "params": params,
+            "compile_predicate": _compile_for,
+            "candidates_sql": candidates_sql,
+            "candidates_as_array": candidates_as_array,
+            "member_ids": member_ids is not None,
+            # #3666: a `member_sql` set (the far records of an expand)
+            # and a keyset page's `after_id` restrict both id branches,
+            # so the page and its split count read the same rows.
+            "members_sql": (
+                members_sql or ""
+                if member_ids is None and member_sql is not None else ""
+            ),
+            "keyset_param": "page_after" if after_id is not None else None,
+            # Slice 7a: under the reader's view no stored or overlay
+            # value decides which rows are scanned; the reader-view
+            # WHERE below decides each fetched row.
+            "value_tests": readable_sql is None,
+        }
+        # A small pinned subtype or edge type is read as the merged
+        # relation (each visible scope row with its overlays merged, the
+        # predicate deciding it): ids first would read the generation's
+        # overlay ids, which costs more than merging the whole scope
+        # (graph_read.small_scope). Not under the reader's view, whose
+        # page keeps the ids-first stream with no value test.
+        scope_estimates = None
+        if readable_sql is None:
+            with conn.cursor() as cur:
+                scope_estimates = _graph_read.small_scope(
+                    cur, kind=kind, segment=graph_segment, predicate=plan_predicate,
+                )
+        scope_merged = scope_estimates is not None
+        count_scan = None
+        if readable_sql is None and not scope_merged and not candidates_sql:
+            # A scope covering about every heap page: the split count
+            # scans the segment sequentially (graph_read.broad_scope).
+            # Not when declared-index or path candidates already narrow
+            # the ids: the count then reads those few ids, and an
+            # unindexed scope column would turn it into a full scan.
+            with conn.cursor() as cur:
+                count_scan = _graph_read.broad_scope(
+                    cur, kind=kind, segment=graph_segment, predicate=plan_predicate,
+                )
+            graph_stream["broad_scope"] = count_scan is not None
+        from_clause = (
+            _graph_read.merged_relation_sql(
+                kind=kind, segment=graph_segment, relation=relation,
+            )
+            if scope_merged
+            else _graph_read.page_relation_sql(relation=relation, **graph_stream)
+        )
+        if page_meta is not None:
+            page_meta["graph_form"] = {
+                "form": "scope_merged" if scope_merged else "ids_first",
+                **(scope_estimates or {}),
+                "count_scan": "sequential" if count_scan else "planner",
+                "candidates": bool(candidates_sql),
+                **({"count_estimates": count_scan} if count_scan else {}),
+            }
+        order_sql = (
+            _graph_read.order_sql(relation, kind)
+            if order_by in (None, "")
+            else _effective_view_order_sql(
+                kind=kind,
+                order_by=order_by,
+                params=params,
+                declared=declared,
+                relation=relation,
+                tiebreak=(
+                    f"{relation}.edge_num ASC" if kind == "edges" else None
+                ),
+                readable=readable_sql,
+                # #3666 (2c): an undeclared attribute sorts as text with
+                # the access rules off.
+                untyped_as_text=not nomos_runtime,
+                notes=page_meta,
+            )
         )
         where_sql = f" AND ({predicate_sql})"
         if view is not None and readable_sql is not None:
@@ -9895,8 +9336,11 @@ def _build_server(
         kind_literal = _target_kind_literal(target_kind)
         if member_ids is not None:
             where_sql += f" AND {relation}.target_id = ANY(%(rr_member_ids)s::text[])"
-        # A `member_sql` set already restricts the base rows in `from_clause`
-        # (`target_id IN (...)`), which the count below reads too.
+        if member_ids is None and member_sql is not None:
+            # S2: the graph id stream restricts both branches to the set; a
+            # small scope read merged has no stream, so the page's WHERE
+            # holds the set too (and the split count's overlay branch).
+            where_sql += f" AND {relation}.target_id IN ({members_sql})"
         if after_id is not None:
             if order_by not in (None, ""):
                 raise InvalidOperatorArguments(
@@ -9934,43 +9378,167 @@ def _build_server(
         from_where_sql, sql = _statement(from_clause)
         #: What the page was read from, for the total over the same rows.
         served = {"from_where_sql": from_where_sql}
+        # The bounded count's FROM/WHERE (#3201): the same row set as the
+        # page. On the graph path with no reader's view it counts the graph-id
+        # branch as it streams and fetches, merges and rechecks only the
+        # overlay-id branch (graph_read.count_relation_sql: the graph-id
+        # branch already tests the whole predicate on values no overlay
+        # changes). Under the reader's view the stream tests no value, so
+        # the count keeps the page's own FROM/WHERE (None: what `served`
+        # names when the page meta is recorded).
+        count_split = view is None and not scope_merged
+        # After a two-phase page (design 2.4) whose phase 1 found its value
+        # rare, the split count also narrows its graph-id branch by the GIN
+        # containment the page's GIN form reads (graph_read.gin_count_wanted;
+        # graph_read.count_relation_sql says why the rows are the same).
+        def _split_count_sql(gin: bool) -> str:
+            return _graph_read.count_relation_sql(
+                relation=relation,
+                page_where=(
+                    f"{relation}.target_kind = {kind_literal} "
+                    f"AND {relation}.namespace = 'default'" + where_sql
+                ),
+                **graph_stream,
+                **({"gin_params": ("tc_gin_key", "tc_gin_value")} if gin else {}),
+            )
+
+        count_from_where_sql = _split_count_sql(False) if count_split else None
+        if page_meta is not None and count_split:
+            page_meta["graph_form"]["count_gin"] = False
         id_field = "node_id" if kind == "nodes" else "edge_id"
 
-        # #3666: a date range's index candidates drive the page only while
-        # they are few. When the range admits most records, building the
-        # candidate set (the index range, united with the overlay targets)
-        # reads all of them before the first row is returned, whatever the
-        # page size. The page then walks its own order (the id) and
-        # filters, which stops at the page size; the rows are the same.
-        # Only where that order is the page's (no order_by), with Nomos
-        # off, over a whole set. If the walk does not finish in its share
-        # (matches that all sort late), the candidates read the page, and
-        # the scope is remembered as one the walk does not serve.
-        walk: tuple[str, str] | None = None
-        walk_key: tuple[Any, ...] | None = None
-        if (
-            date_budget is not None
-            and not nomos_runtime
-            and expression_plan is not None
-            and order_by in (None, "")
-            and member_ids is None
-            and member_sql is None
-            and set(date_keys) & set(expression_plan.attrs)
-        ):
-            walk = _statement(_from_candidates(path_candidates_sql))
-            # The setup is over; the probe below is the call's date work.
-            date_budget.resume()
-            date_budget.mark("page_setup")
-            info = conn.info
-            walk_key = (
-                "walk", info.host, info.port, info.dbname, str(session.generation_id),
-            ) + _date_memo_key("page", walk[1], params)[1:3]
-            with _date_scopes_lock:
-                walk_is_slow = _date_scopes.get(walk_key) is not None
-            if walk_is_slow or not _date_candidates_are_wide(
-                conn, date_budget, expression_plan.sql, params,
-            ):
-                walk = None
+        # Design 2.4: an undeclared-key equality with a non-null scalar on
+        # nodes in the default order, with no candidate set, reads in two
+        # phases (taken only with Nomos off; under `audit`/`enforce` the
+        # single statement streams inside the batch loop below).
+        two_phase_key = (
+            _graph_read.two_phase_key(
+                plan_predicate, attr_keys=predicate_attr_keys, declared=declared,
+            )
+            if kind == "nodes" and order_by in (None, "")
+            and not candidates_sql and member_ids is None and member_sql is None
+            and not scope_merged
+            # A date call (#3666) reads one statement under its date budget.
+            and date_budget is None
+            else None
+        )
+
+        def _to_row(record: Mapping[str, Any]) -> dict[str, Any]:
+            effective = record["attrs"]
+            stored_raw = record["raw_attrs"]
+            if effective is not None and not isinstance(effective, dict):
+                raise SubstrateError(
+                    "effective-attrs row has a non-object attrs value",
+                    data={
+                        "target_id": record["target_id"],
+                        "attrs_type": type(effective).__name__,
+                    },
+                )
+            if stored_raw is not None and not isinstance(stored_raw, dict):
+                raise SubstrateError(
+                    "effective-attrs row has a non-object raw_attrs value",
+                    data={
+                        "target_id": record["target_id"],
+                        "raw_attrs_type": type(stored_raw).__name__,
+                    },
+                )
+            row = {
+                id_field: record["target_id"],
+                "attrs": (effective or {} if stored_raw is None else stored_raw),
+                "_effective_attrs": effective or {},
+            }
+            if kind == "nodes":
+                row["subtype"] = record["subtype"]
+                row["text_hash"] = record["raw_text_hash"]
+            else:
+                row["src"] = record["src"]
+                row["dst"] = record["dst"]
+                row["edge_type"] = record["edge_type"]
+            return row
+
+        two_phase_report: dict[str, Any] = {}
+
+        def _fetch_two_phase(target: int) -> list[dict[str, Any]]:
+            from okg.substrate.bm25_node_search import execute_with_custom_plan
+
+            assert two_phase_key is not None
+            gin_key, gin_value = two_phase_key
+            select_list = (
+                f"{relation}.target_id, {relation}.subtype, {relation}.src, "
+                f"{relation}.dst, {relation}.edge_type, {relation}.attrs, "
+                f"{relation}.raw_attrs, {relation}.raw_text_hash"
+            )
+            page_where = (
+                f"{relation}.target_kind = {kind_literal} "
+                f"AND {relation}.namespace = 'default'" + where_sql
+            )
+            params.update({
+                "tp_gin_key": gin_key,
+                "tp_gin_value": _json.dumps(gin_value),
+            })
+            statements: dict[str, str] = {}
+            # The stream's graph-id branch tests the scope only: the cut then
+            # bounds candidates, not matches (design 2.4, parent 1.4.1).
+            scope = _graph_read.scope_predicate(plan_predicate)
+
+            def phase_sql(after: bool) -> str:
+                key = "after" if after else "first"
+                if key not in statements:
+                    statements[key] = _graph_read.phase_statement_sql(
+                        stream_sql=_graph_read.id_stream_sql(
+                            **graph_stream,
+                            after_param="tp_after" if after else None,
+                            graph_predicate=scope,
+                        ),
+                        kind=kind, segment=graph_segment, relation=relation,
+                        select_list=select_list, page_where=page_where,
+                    )
+                return statements[key]
+
+            def gin_sql() -> str:
+                return _graph_read.gin_statement_sql(
+                    stream_sql=_graph_read.id_stream_sql(
+                        **graph_stream, gin_params=("tp_gin_key", "tp_gin_value"),
+                        graph_predicate=scope,
+                    ),
+                    kind=kind, segment=graph_segment, relation=relation,
+                    select_list=select_list, page_where=page_where,
+                )
+
+            def run(statement: str, bound: dict[str, Any]) -> list[dict[str, Any]]:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    execute_with_custom_plan(cur, statement, bound)
+                    return [dict(r) for r in cur.fetchall()]
+
+            cut = int(_graph_read.TWO_PHASE_CUT)
+            with conn.cursor(row_factory=dict_row) as cur:
+                estimate = _graph_read.subtype_row_estimate(
+                    cur, graph_segment, _graph_read.predicate_subtype(plan_predicate),
+                )
+            threshold = _graph_read.continuation_threshold(
+                rows_estimate=estimate, cut=cut, target=target,
+            )
+            # Build every statement before the first runs: each compiles its
+            # graph-branch predicate into `params`.
+            phase_sql(False)
+            phase_sql(True)
+            gin_statement = gin_sql()
+            records, report = _graph_read.run_two_phase(
+                run=run, phase_sql=phase_sql, gin_sql=lambda: gin_statement,
+                params=dict(params), target=target, threshold=threshold, cut=cut,
+            )
+            report["rows_estimate"] = estimate
+            if page_meta is not None:
+                page_meta["two_phase"] = report
+            two_phase_report.update(report)
+            return [_to_row(r) for r in records]
+
+        # #3666's date walk (when a date range admits most records, walk the
+        # id order instead of building the candidate set) read the
+        # materialized relation and is gone with it (PACT
+        # lane-s-storage-cutover). The graph page keeps its candidate-driven
+        # statement under the date budget: the rows are the same, only a
+        # wide range is slower (accepted at the cutover).
 
         def _fetch(
             statement: str | None = None, *, cap_ms: int | None = None, soft: bool = False,
@@ -10004,10 +9572,13 @@ def _build_server(
 
         def _fetch_rows(statement: str) -> list[dict[str, Any]]:
             raw_rows: list[dict[str, Any]] = []
+            from okg.substrate.bm25_node_search import execute_with_custom_plan
+
             with conn.cursor(row_factory=dict_row) as cur:
                 # A path-prefix LIKE reaches the index only in a plan made with
                 # its pattern; a generic plan of a prepared statement cannot.
-                cur.execute(statement, params, prepare=False if path_candidates_sql else None)
+                # The graph path sends every statement unprepared (design 2.8).
+                execute_with_custom_plan(cur, statement, params)
                 for record in cur:
                     effective = record["attrs"]
                     stored_raw = record["raw_attrs"]
@@ -10079,6 +9650,14 @@ def _build_server(
                     {
                         "predicate_fingerprint": compiled.fingerprint,
                         "from_where_sql": served["from_where_sql"],
+                        # S2: the graph path counts its own two branches;
+                        # otherwise the total reads what the page was read
+                        # from (#3666: the walk, when it served the page).
+                        "count_from_where_sql": (
+                            count_from_where_sql
+                            if count_from_where_sql is not None
+                            else served["from_where_sql"]
+                        ),
                         "params": dict(params),
                         "raw_page_rows": raw_page_rows,
                         "raw_has_more": raw_has_more,
@@ -10091,21 +9670,45 @@ def _build_server(
                     }
                 )
 
+        if not nomos_runtime and two_phase_key is not None:
+            page_limit = max(1, int(limit))
+            page_offset = max(0, int(offset))
+            matches = _fetch_two_phase(page_offset + page_limit + 1)
+            gin_count = count_split and _graph_read.gin_count_wanted(two_phase_report)
+            rerun_clock = _current_date_call()
+            if count_split and rerun_clock is not None:
+                # The total does not depend on the page's limit, but the
+                # choice of its form does (phase 1 fills a smaller page, so
+                # `m < target` can turn false). A rerun of the call to fit
+                # max_bytes asks for fewer rows: it keeps the first run's
+                # form, so its count statement is the same and the count's
+                # call memo answers it (S2 review nit N1). Keyed on the
+                # walk-form count of this set, which no limit changes.
+                form_key = ("count_form",) + _date_memo_key(
+                    "total", count_from_where_sql, params,
+                )[1:3]
+                gin_count = rerun_clock.pages.setdefault(form_key, gin_count)
+            if gin_count:
+                assert two_phase_key is not None
+                params.update({
+                    "tc_gin_key": two_phase_key[0],
+                    "tc_gin_value": _json.dumps(two_phase_key[1]),
+                })
+                count_from_where_sql = _split_count_sql(True)
+                if page_meta is not None:
+                    page_meta["graph_form"]["count_gin"] = True
+            raw_has_more = len(matches) > page_offset + page_limit
+            raw_rows = matches[page_offset: page_offset + page_limit]
+            # Where a keyset token resumes (#3666 step 3b), as on the
+            # single-statement page below.
+            _record_page_meta(
+                raw_page_rows=len(raw_rows), raw_has_more=raw_has_more,
+                last_id=str(raw_rows[-1][id_field]) if raw_rows else None,
+                consumed=len(raw_rows),
+            )
+            return _read_filter(raw_rows), raw_has_more
         if not nomos_runtime:
-            raw_rows = _DATE_STATEMENT_CANCELLED
-            if walk is not None:
-                raw_rows = _fetch(walk[1], cap_ms=_DATE_WALK_SHARE_MS, soft=True)
-                if raw_rows is _DATE_STATEMENT_CANCELLED:
-                    if date_budget.remaining_ms() >= int(_DATE_STATEMENT_FLOOR_MS):
-                        # It ran and was cut: not a walk this scope serves.
-                        with _date_scopes_lock:
-                            if len(_date_scopes) >= _DATE_SCOPES_MAX:
-                                _date_scopes.pop(next(iter(_date_scopes)))
-                            _date_scopes[walk_key] = "walk_slow"
-                else:
-                    served["from_where_sql"] = walk[0]
-            if raw_rows is _DATE_STATEMENT_CANCELLED:
-                raw_rows = _fetch()
+            raw_rows = _fetch()
             raw_has_more = len(raw_rows) > max(1, int(limit))
             raw_rows = raw_rows[: max(1, int(limit))]
             _record_page_meta(
@@ -10195,116 +9798,6 @@ def _build_server(
             # rows as if at that position, so paging stops instead.
             page_meta["scan_resume_id"] = last_scanned
         return returned, has_more
-
-    def _operator_attr_rows(
-        conn: psycopg.Connection,
-        session: Session,
-        *,
-        kind: str,
-        limit: int,
-        scan_predicate: Any = None,
-    ) -> tuple[list[dict[str, Any]], bool]:
-        # Legacy/test-only compatibility seam. Production attribute filter,
-        # map, and search calls route through `_effective_view_sql_page` and
-        # never invoke this broad-row helper.
-        #
-        # `scan_predicate` is the SQL-pushdown filter: it carries the input's
-        # subtype/edge_type and any predicate clauses that reference ONLY stable
-        # graph fields (never attrs). Pushing it into the chronos scan WHERE means
-        # the effective-attrs overlay (apply_effective_attrs_to_rows) and the
-        # bounded-Python cap apply to O(matched rows), not a fixed graph-wide 10K
-        # window -- so a selective input on a >10K-node graph no longer trips the
-        # cap merely because the graph is large. Parity: subtype/edge_type are
-        # stable columns the overlay cannot mutate, and only attr-free predicate
-        # clauses are pushed, so the SQL WHERE selects exactly the rows the prior
-        # Python post-filter kept (the callers still re-run the FULL predicate over
-        # the effective attrs). attrs-referencing predicates are NOT pushed and
-        # remain the residual Python post-filter, leaving semantics unchanged.
-        #
-        # scale-operator-attr-reads / req.effective-attrs-view (Layer 2): when the
-        # indexed effective-attrs snapshot exists for this generation, read the
-        # rows straight from SQL (index scan), with NO 10K cap. Returns
-        # ``(rows, truncated)`` where ``truncated`` reflects the real result-size
-        # ceiling -- a TRUE signal, never a silent undercount. The Layer-1
-        # chronos-scan + apply_effective_attrs_to_rows path below is the verbatim
-        # fallback for a pre-table / unmaterialized generation; it caps LOUDLY
-        # (raises) and so returns ``(rows, False)``.
-        target_kind = "node" if kind == "nodes" else "edge"
-        if _effective_view_ready(conn, session.generation_id, target_kind):
-            # `limit` is NOT forwarded: the Layer-2 scan cannot honour a caller
-            # bound soundly (its WHERE is a superset the caller re-filters in
-            # Python -- see the NO CALLER LIMIT note on _effective_view_fast_rows).
-            # It stays a Layer-1 correctness cap only.
-            return _effective_view_fast_rows(
-                conn,
-                session,
-                kind=kind,
-                scan_predicate=scan_predicate,
-            )
-        scan_limit = max(1, int(limit))
-        # Layer-1 scans RAW graph attrs, where an attrs-referencing clause
-        # (e.g. the typed lookup's `contains` over effective attrs) could drop
-        # rows whose match comes from an accepted overlay. Keep ONLY the
-        # stable-field conjuncts here; attrs clauses stay in the caller's
-        # residual Python post-filter (expose-mcp-node-lookup).
-        layer1_clauses = _attr_free_pushdown_clauses(kind, scan_predicate)
-        if not layer1_clauses:
-            scan_predicate = None
-        elif len(layer1_clauses) == 1:
-            scan_predicate = layer1_clauses[0]
-        else:
-            scan_predicate = {"op": "and", "clauses": layer1_clauses}
-        program = None
-        if scan_predicate not in (None, True, {}):
-            try:
-                program, _columns = _filter_program(
-                    kind=kind,
-                    predicate=scan_predicate,
-                    projection=None,
-                    limit=scan_limit + 1,
-                    offset=0,
-                )
-            except ValueError:
-                # A pushdown clause that cannot lower to SQL must never change
-                # results: drop the WHERE and fall back to the unfiltered scan,
-                # so the residual Python post-filter remains the source of truth.
-                program = None
-        if program is None:
-            program, _columns = _map_program(
-                kind=kind,
-                projection=None,
-                limit=scan_limit + 1,
-                offset=0,
-            )
-        rows = _lower_program_over_chronos(
-            program,
-            conn,
-            generation_id=session.generation_id,
-            branch=session.branch_name,
-        )
-        if kind == "nodes":
-            rows = filter_node_rows_for_session(conn, session, rows)
-        else:
-            rows = filter_edge_rows_for_session(conn, session, rows)
-        if len(rows) > scan_limit:
-            raise SubstrateError(
-                "effective-attrs operator scan exceeded the bounded "
-                "Python overlay limit",
-                data={"kind": kind, "limit": scan_limit},
-                fix_hint=(
-                    "narrow the input scope or use inspect/search; indexed "
-                    "effective-attrs SQL views are required for larger "
-                    "attr-filter/map/aggregate scans"
-                ),
-            )
-        merged = apply_effective_attrs_to_rows(
-            conn,
-            rows,
-            target_kind="node" if kind == "nodes" else "edge",
-            target_id_field="node_id" if kind == "nodes" else "edge_id",
-            generation_id=session.generation_id,
-        )
-        return merged, False
 
     def _operator_fence_node_rows(
         conn: psycopg.Connection,
@@ -11552,6 +11045,8 @@ def _build_server(
         a list of [first,last] line ranges; `matching` (text or
         re:/regex/) only matching lines, `context` (2) lines around.
         `next` continues a page at its page size, or at a new max_bytes.
+        `node_history` lists a record's versions; `subtype_diff` what
+        changed in one type between two generations.
         """
         # A live node or live type (#3666, live-graph-rucio-sites): the
         # resolver read it before this body ran; serve that reply.
@@ -12150,7 +11645,9 @@ def _build_server(
                         probe_gate=probe_gate,
                     )
                 if payload is None:
-                    from okg.substrate.mcp.tools import close_node_ids, node_not_visible
+                    from okg.substrate.mcp.tools import (
+                        close_node_ids, node_not_visible, reader_sees_every_row,
+                    )
 
                     # expose-mcp-node-lookup req.lookup.inspect-not-found:
                     # absence is an EXPLICIT signal (exists: false). A found
@@ -12161,6 +11658,7 @@ def _build_server(
                     raise node_not_visible(
                         node_id, h.session.generation_id,
                         close=close_node_ids(h.conn, h.session, node_id),
+                        every_row_readable=reader_sees_every_row(h.session),
                     )
                 if lineage_requested:
                     payload = _move_lineage_to_rows(
@@ -12218,6 +11716,54 @@ def _build_server(
                         logical.session,
                         to=target.get("to", "latest"),
                     )
+            elif kind in {"node_history", "subtype_diff"}:
+                # PACT okg-attribute-history-read: one node's versions, or one
+                # subtype's changes between two generations, decided by the
+                # pin's Nomos read filter. The page is cut to the call's byte
+                # budget less the stamps added after it, as `nodes` does.
+                from okg.substrate.mcp.history_reads import (
+                    read_node_history,
+                    read_subtype_diff,
+                )
+                from okg.substrate.mcp.response_bounds import (
+                    public_call_tool_result_bytes,
+                )
+
+                if select is not None:
+                    raise InvalidOperatorArguments(
+                        f"inspect({kind}) takes no select; name the attributes "
+                        "whose values you want in target.attr_keys",
+                        data={
+                            "tool": "inspect", "invalid_fields": ["select"],
+                            "validation_kinds": ["argument_check"],
+                        },
+                        fix_hint="move the attribute names into target.attr_keys",
+                    )
+
+                def history_measure(value: dict[str, Any], _kind: str = kind) -> int:
+                    return public_call_tool_result_bytes(value, tool="inspect", kind=_kind)
+
+                history_probe = {
+                    "status": "ok", "result_kind": kind,
+                    "generation_id": h.session.generation_id,
+                    "pinned_generation_id": h.session.generation_id,
+                    "truncated": True,
+                }
+                history_stamp_cost = max(0, _worst_case_stamped_bytes(
+                    history_probe, "inspect", {"generation_id": generation_id},
+                    tool="inspect", kind=kind,
+                ) - history_measure(history_probe)) + adjusted_reserve_bytes()
+                reader = read_node_history if kind == "node_history" else read_subtype_diff
+                payload = reader(
+                    h.conn,
+                    h.session,
+                    target,
+                    max_bytes=(
+                        None if max_bytes is None
+                        else max(1, int(max_bytes) - history_stamp_cost)
+                    ),
+                    measure=history_measure,
+                )
             else:
                 return _operator_refusal(
                     "inspect",
@@ -12225,7 +11771,7 @@ def _build_server(
                     message=(
                         "inspect target kind must be one of graph, coverage, "
                         "ontology, subtype, node, text, image, attr, session, generation, "
-                        "generation_delta, admission, "
+                        "generation_delta, node_history, subtype_diff, admission, "
                         "record, record_templates, record_prefixes, "
                         "session_start, surface, alias_suggestions"
                     ),
@@ -12369,47 +11915,38 @@ def _build_server(
         limit, offset = int(limit), int(offset)
         near, far = ("src", "dst") if direction == "out" else ("dst", "src")
         needs_node = bool(dest_filter) or bool(order_by)
-        _require_effective_view(conn, session, "edge")
-        if needs_node:
-            _require_effective_view(conn, session, "node")
+        # PACT lane-s-storage-cutover (S2 design 2.6): the anchor's edges and
+        # their far nodes come from the Chronos rows at the pin, each merged
+        # with the generation's overlays.
+        from okg.substrate.bm25_node_search import branch_point
+        from okg.substrate.mcp.passage_rollup import resolve_edge_segment
+        from okg.substrate.mcp.semantic_readiness import resolve_node_segment
+
+        _graph_read.require_graph_pin(conn, session)
         declared = _declared_registry_for(conn)
         # One reading of the mode decides the reader view, the destination
         # check, the read filter and the overlay step (issue #3393).
         nomos_runtime = deployment_requires_nomos_runtime(session.deployment_name)
         edge_rel, node_rel = "expand_edge", "expand_node"
-        params: dict[str, Any] = {}
-        base_table, source_clause, gen_where, gen_params = _effective_view_source(
-            conn, session.generation_id, target_kind="edge",
-        )
-        from_sql = _effective_view_runtime_source(
-            base_table=base_table,
-            source_clause=source_clause,
-            gen_where=gen_where,
-            gen_params=gen_params,
-            target_kind="edge",
-            generation_id=session.generation_id,
-            relation=edge_rel,
-            params=params,
-            target_kind_param="tk_edge",
+        params: dict[str, Any] = {
+            "graph_bp": branch_point(conn, session),
+            "overlay_gen": str(session.generation_id),
+            "overlay_reserved": sorted(RESERVED_EFFECTIVE_ATTR_KEYS),
+            "tk_edge": "edge",
+            "tk_node": "node",
+        }
+        from_sql = _graph_read.merged_relation_sql(
+            kind="edges", segment=resolve_edge_segment(conn),
+            relation=edge_rel, tk_param="tk_edge",
         )
         # The anchor's edges alone, before the far endpoint is joined: the
         # far ids of these edges bound the destinations a date condition
-        # can compare (#3666).
+        # can compare (#3666): the merged graph edges.
         edge_from_sql = from_sql
         if needs_node:
-            base_table, source_clause, gen_where, gen_params = _effective_view_source(
-                conn, session.generation_id, target_kind="node",
-            )
-            node_from = _effective_view_runtime_source(
-                base_table=base_table,
-                source_clause=source_clause,
-                gen_where=gen_where,
-                gen_params=gen_params,
-                target_kind="node",
-                generation_id=session.generation_id,
-                relation=node_rel,
-                params=params,
-                target_kind_param="tk_node",
+            node_from = _graph_read.merged_relation_sql(
+                kind="nodes", segment=resolve_node_segment(conn),
+                relation=node_rel, tk_param="tk_node",
             )
             # LEFT JOIN so the filtered and unfiltered paths range over the
             # same edges: an edge whose far endpoint is absent at the pin
@@ -12504,6 +12041,9 @@ def _build_server(
             err.code = "unsupported_operator_form"
             raise err
         dest_sql = dest_compiled.bind_into(params)
+        # The edge id as a number: the graph rows' bigint `edge_num` (S2
+        # design 2.6).
+        edge_order = f"{edge_rel}.edge_num"
         dest_where = f" AND ({dest_sql})"
         if dest_filter and placed is not None:
             # Drop an edge whose destination the view knows is hidden (it is
@@ -12530,7 +12070,7 @@ def _build_server(
                 params=params,
                 declared=declared,
                 relation=node_rel,
-                tiebreak=f"({edge_rel}.target_id)::bigint ASC",
+                tiebreak=f"{edge_order} ASC",
                 readable=readable_sql,
                 row_guard=placed,
                 # #3666 (2c): an undeclared attribute sorts as text, with
@@ -12539,7 +12079,7 @@ def _build_server(
                 notes=order_notes,
             )
             if order_by
-            else f" ORDER BY ({edge_rel}.target_id)::bigint ASC"
+            else f" ORDER BY {edge_order} ASC"
         )
         params["page_limit"] = max(1, limit) + 1
         params["page_offset"] = max(0, offset)
@@ -12572,8 +12112,10 @@ def _build_server(
             + " LIMIT %(page_limit)s OFFSET %(page_offset)s"
         )
         def read_page() -> list:
+            from okg.substrate.bm25_node_search import execute_with_custom_plan
+
             with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(sql, params)
+                execute_with_custom_plan(cur, sql, params)
                 return cur.fetchall()
 
         # #3666: a far-end filter that carries a date condition runs under
@@ -12689,6 +12231,7 @@ def _build_server(
             shown=len(neighbors),
             page_meta={
                 "from_where_sql": from_where_sql,
+                "count_from_where_sql": from_where_sql,
                 "params": params,
                 "raw_page_rows": len(fetched),
                 "raw_has_more": raw_has_more,
@@ -12814,25 +12357,21 @@ def _build_server(
             # Access rules off: the far ends stay a subquery of the page, so
             # the condition, the order, the offset and the count all run in
             # SQL over every far record. No link budget.
-            _require_effective_view(conn, session, "edge")
+            _graph_read.require_graph_pin(conn, session)
+            # PACT lane-s-storage-cutover: the page reads the far records
+            # from the Chronos rows at the pin, so the links that name them
+            # come from there too. A link's ends and type are graph columns
+            # no overlay changes.
 
             def far_ends(params: dict[str, Any]) -> str:
-                base_table, source_clause, gen_where, gen_params = (
-                    _effective_view_source(
-                        conn, session.generation_id, target_kind="edge",
-                    )
-                )
+                from okg.substrate.bm25_node_search import branch_point
+                from okg.substrate.mcp.passage_rollup import resolve_edge_segment
+
                 rel = "expand_link"
-                link_from = _effective_view_runtime_source(
-                    base_table=base_table,
-                    source_clause=source_clause,
-                    gen_where=gen_where,
-                    gen_params=gen_params,
-                    target_kind="edge",
-                    generation_id=session.generation_id,
-                    relation=rel,
-                    params=params,
-                    target_kind_param="tk_expand_link",
+                params.setdefault("graph_bp", branch_point(conn, session))
+                link_from = (
+                    f"{_graph_read.graph_relation_sql('edges', resolve_edge_segment(conn))}"
+                    f" AS {rel}"
                 )
                 params["expand_anchor"] = node_id
                 near = {
@@ -12850,8 +12389,7 @@ def _build_server(
                     f"SELECT CASE WHEN {rel}.src = %(expand_anchor)s "
                     f"THEN {rel}.dst ELSE {rel}.src END "
                     f"FROM {link_from} "
-                    f"WHERE {rel}.target_kind = %(tk_expand_link)s "
-                    f"AND {rel}.namespace = 'default' AND {near}"
+                    f"WHERE {near}"
                 )
 
             members = {"member_sql": far_ends}
@@ -13116,6 +12654,11 @@ def _build_server(
                 else:
                     from okg.substrate.mcp.tools import expand_records
 
+                    # S2 design 2.6: the linked records merge overlays from
+                    # the per-generation rows, so this read refuses the same
+                    # pins by name (compacted, no overlay marker) as the
+                    # link-row read and the filtered record read.
+                    _graph_read.require_graph_pin(h.conn, h.session)
                     payload = expand_records(
                         h.conn,
                         h.session,
@@ -13185,6 +12728,11 @@ def _build_server(
                     "expand",
                 )
         with _open(generation_id, authority=authority) as h:
+            # S2 design 2.6: the unfiltered one-hop, depth and path reads
+            # merge overlays from the same per-generation rows, so they refuse
+            # the same pins by name (compacted, no overlay marker) as the
+            # filtered read.
+            _graph_read.require_graph_pin(h.conn, h.session)
             if path is not None or int(depth) > 1:
                 try:
                     validate_path_limit(limit)
@@ -13391,9 +12939,10 @@ def _build_server(
         each_key = (
             str(next(iter(each))) if isinstance(each, Mapping) and len(each) == 1 else None
         )
-        # Live result sets: keep this call's answer for later reads. A
-        # fanned-out answer is always kept: its point is a total over it.
-        retain_requested = body.get("retain") is True or each is not None
+        # Live handles (PACT read-live-handles, 4.1.1): every live set read
+        # is kept, so `retain` asks for nothing more; a set over the
+        # per-handle cap says why it has no handle.
+        retain_requested = True
 
         bindings = getattr(mcp_server, "_okg_live_bindings", None) or {}
         runners = getattr(mcp_server, "_okg_live_adapters", None) or {}
@@ -13470,6 +13019,9 @@ def _build_server(
             str(logical_sessions.snapshot(logical_identity).logical_session_id)
             if logical_identity is not None else None
         )
+        # What a kept raw answer is bound to: the reader and okg's logical
+        # session, or the reader alone on stateless HTTP (N5).
+        handle_session, handle_stateless = mcp._okg_live_session()  # type: ignore[attr-defined]
         hint_memory: Optional[str] = (
             f"{reader_of_call}:{logical_session}" if logical_session else None
         )
@@ -13533,10 +13085,18 @@ def _build_server(
         args_model = compile_args_model(bound.relation)
         # Validated here, BEFORE the graph step: a malformed argument is a
         # client error, and it must not cost a graph read first.
+        # Every call keeps its answer; the handle needs no room of its own
+        # (`live_reserve_envelope`).
         reserve = live_reserve_envelope(
             bound=bound, args_model=args_model, args=args,
-            retain=retain_requested, each=each,
+            each=each,
         )
+
+        #: What this call's kept answer was minted with: a chain handle the
+        #: hint names is minted the same way (PACT read-multi-handle-input).
+        kept_with: dict[str, Any] = {}
+        #: chain id -> its retry recipe, remembered once the hint is served.
+        chain_recipes: dict[str, tuple[str, str, list[dict[str, Any]]]] = {}
 
         def keep_set(raw: Any, base: Mapping[str, Any], context: Mapping[str, Any]) -> Any:
             """Draft a kept set of this call's unwrapped answer, and remember
@@ -13545,6 +13105,9 @@ def _build_server(
                 resolve_live_principal,
             )
 
+            quota = _handles.quota_key(
+                context["reader_key"], handle_session, handle_stateless,
+            )
             handle = _live_results.begin_retain(
                 raw,
                 base=base,
@@ -13560,8 +13123,13 @@ def _build_server(
                 deployment_name=deployment_name,
                 session_id=session_id,
                 each_from=each_from,
+                quota_key=quota,
             )
             if handle.kept:
+                kept_with.update(
+                    reader_key=context["reader_key"], quota_key=quota,
+                    binding=context["binding"], header_claim=context["header_claim"],
+                )
                 _live_results.remember_call(
                     handle.draft.id, context["reader_key"],
                     _live_results.redo_call(
@@ -13664,33 +13232,115 @@ def _build_server(
 
             def run(self, graph: dict[str, Any], room: Any) -> dict[str, Any]:
                 envelope = dispatch(room=room, pinned=pinned_generation_id)
-                hint = _live_run_hint(envelope)
+                hint, chain_hint = _live_run_hint(envelope)
                 if hint is not None and (room is None or room.fits({**envelope, "run_hint": hint})):
                     envelope["run_hint"] = hint
+                # The chain line (PACT read-multi-handle-input) only where it
+                # still fits after the run line, so it never pushes out a
+                # run line that printed before (review L6); the text prints
+                # it first. A hint the room drops leaves its chain handle a
+                # draft the reply does not carry: released, never committed,
+                # and its retry recipe never remembered (review L2).
+                if chain_hint is not None and (
+                    room is None or room.fits({**envelope, "chain_hint": chain_hint})
+                ):
+                    envelope["chain_hint"] = chain_hint
+                    recipe = chain_recipes.pop(str(chain_hint["chain"]), None)
+                    if recipe is not None:
+                        _live_results.remember_recipe(*recipe)
                 return envelope
 
-        def _live_run_hint(envelope: Mapping[str, Any]) -> Optional[dict[str, Any]]:
+        def _live_run_hint(
+            envelope: Mapping[str, Any],
+        ) -> tuple[Optional[dict[str, Any]], Optional[dict[str, Any]]]:
             """H3 (#3666, lane ri): on a direct call (no `each`) whose
             relation this session asked with one argument changed, the run
-            that makes those calls in one. Only where `run` is served."""
+            that makes those calls in one, only where `run` is served; and
+            (PACT read-multi-handle-input) one chain handle over the kept
+            answers of those calls, where `aggregate` is served."""
             from okg.substrate.external_backed.live_dispatch import (
                 validate_live_arguments,
             )
             from okg.substrate.mcp import live_run_hint
             from okg.substrate.mcp.run_tool import _served as _run_served
 
-            if (
-                hint_memory is None or each is not None
-                or getattr(mcp_server, "_okg_run_live_steps", True) is False
-                or not _run_served(mcp_server, "run")
-            ):
-                return None
-            validated = validate_live_arguments(bound, args, args_model=args_model)
-            hint = live_run_hint.note_call(
-                hint_memory, node_id, relation_name, validated, dict(args or {}),
+            if hint_memory is None or each is not None:
+                return None, None
+            run_on = (
+                getattr(mcp_server, "_okg_run_live_steps", True) is not False
+                and _run_served(mcp_server, "run")
             )
-            # Every direct call is remembered; the hint rides on an answer.
-            return hint if envelope.get("state") == "ok" else None
+            aggregate_on = _run_served(mcp_server, "aggregate")
+            if not (run_on or aggregate_on):
+                return None, None
+            validated = validate_live_arguments(bound, args, args_model=args_model)
+            reference = envelope.get("result_reference")
+            handle_id = (
+                str(reference["id"]) if isinstance(reference, Mapping)
+                and reference.get("retained") is True and reference.get("id") else None
+            )
+            reader = kept_with.get("reader_key") if handle_id is not None else None
+            quota = kept_with.get("quota_key")
+            store = _live_results.live_store()
+
+            def held(set_id: str) -> Optional[str]:
+                if reader is None:
+                    return None
+                return store.held_for(set_id, reader_key=str(reader), quota_key=quota)
+
+            # Exact identifiers only (8.2): a declared string with no enum.
+            exact = {
+                arg.name for arg in bound.relation.args
+                if arg.type_name == "string" and not arg.enum
+            }
+            hint, chain = live_run_hint.note_live_call(
+                hint_memory, node_id, relation_name, validated, dict(args or {}),
+                handle=handle_id, ok=envelope.get("state") == "ok", exact=exact,
+                held=held,
+            )
+            # Every direct call is remembered; the hints ride on an answer.
+            if envelope.get("state") != "ok":
+                return None, None
+            chain_hint = (
+                _live_chain_hint(chain) if chain is not None and aggregate_on
+                and reader is not None else None
+            )
+            return (hint if run_on else None), chain_hint
+
+        def _live_chain_hint(chain: Any) -> Optional[dict[str, Any]]:
+            """Draft the chain handle of `chain` in this call's draft scope
+            and the hint that names it (8.4); committed only when the served
+            reply carries the hint."""
+            from okg.substrate.mcp import live_handle_lists as _lists
+
+            reader, quota = str(kept_with["reader_key"]), str(kept_with["quota_key"])
+            key = _lists.chain_key(quota, node_id, relation_name, chain.shared, chain.argument)
+            payload = _lists.LiveChainSet(
+                chain_key=key, seq=chain.seq, source_ids=tuple(chain.source_ids),
+                relation=relation_name, node_id=node_id, varying=chain.argument,
+                values=tuple(chain.values), shared=dict(chain.shared),
+                failed=tuple(chain.failed), missing=tuple(chain.missing),
+                dropped=tuple(chain.dropped),
+            )
+            store = _live_results.live_store()
+            try:
+                draft = store.mint(
+                    reader_key=reader, binding=dict(kept_with["binding"]), members=(),
+                    header_claim=kept_with["header_claim"],
+                    multi_user=bool(multi_user_principals),
+                    payload=payload, payload_bytes=payload.size(), payload_rows=0,
+                    quota_key=quota, replaces_key=key, seq=chain.seq,
+                    pins=payload.source_ids,
+                )
+            except _result_references.ResultReferenceCapacity:
+                # Only drafts in flight fill a live store (fair eviction):
+                # the hint is left out, and the answers stay kept one by one.
+                log.info("live chain hint: no room for a chain handle; hint left out")
+                return None
+            _result_references.adopt_draft(store, draft)
+            # Its retry once gone: the one fan-out that rebuilds the set.
+            chain_recipes[draft.id] = (draft.id, reader, [payload.fan_out_call()])
+            return _lists.chain_hint(draft.id, payload)
 
         return _PreparedExpandLive()
 
@@ -13876,6 +13526,7 @@ def _build_server(
         ids: list[str],
         period_report: Any = None,
         each_report: dict[str, Any] | None = None,
+        flag_missing: bool = False,
     ) -> tuple[list[tuple[tuple[Any, ...], int]], Any]:
         """The reference-aggregate function (#3222): count groups over a
         reference's member ids, largest first, through the effective view.
@@ -13888,6 +13539,7 @@ def _build_server(
         grouped = _effective_view_aggregate_groups(
             conn, session, kind="nodes", by=by, predicate=None, member_ids=ids,
             period_report=period_report, each_report=each_report,
+            flag_missing=flag_missing,
         ) if ids else ([], None)
         if grouped is None:
             enforced = deployment_requires_nomos_runtime(session.deployment_name)
@@ -13915,6 +13567,7 @@ def _build_server(
         metrics: list[str],
         limit: int,
         offset: int,
+        order: Any = None,
     ) -> dict[str, Any]:
         """`aggregate(by=["match"])` (#3666): every distinct matched text over
         the records the whole condition admits, counted exactly.
@@ -13944,6 +13597,25 @@ def _build_server(
             h.conn, h.session, condition, final, tool="aggregate", key=key,
         )
         merged = key != mk.MATCH_KEY
+        ranked_facts: dict[str, Any] = {}
+        if order is not None:
+            # PACT read-aggregate-order-by (M4): ranked on the raw matched
+            # text, never the fenced text; fencing applies to what is served.
+            def match_value(group: Any) -> Any:
+                return _aggregate_order.match_value(group, order)
+
+            ranked = _aggregate_order.rank(
+                groups, order, value=match_value, key=_aggregate_order.match_key,
+            )
+            groups = ranked.groups
+
+            def match_tie_value(group: Any) -> Any:
+                # The tie value as the group is served: fenced text (M8).
+                return group.text if order.kind == "group" else match_value(group)
+
+            ranked_facts = _aggregate_order.page_facts(
+                ranked, order, offset=offset, page=limit, value=match_tie_value,
+            )
         visible = groups[offset: offset + limit + 1]
         truncated = len(visible) > limit
         if merged:
@@ -13962,10 +13634,11 @@ def _build_server(
                 # The column is `match` for every key: `by` says which
                 # key grouped it (a parenthesized column name prints
                 # quoted twice in the text table).
-                {"match": group.text, "count": group.records,
+                {**({"rank": offset + index + 1} if order is not None else {}),
+                 "match": group.text, "count": group.records,
                  "occurrences": group.occurrences,
                  **({"variants": group.variants} if merged else {})}
-                for group in visible[:limit]
+                for index, group in enumerate(visible[:limit])
             ],
             "by": by,
             "metrics": metrics,
@@ -13997,6 +13670,7 @@ def _build_server(
                     and not any(t.kind == "regex" for t in condition.parsed.terms)
                 ) else {}),
             }),
+            **ranked_facts,
         }
         return _stamp_operator(_maybe_stamp_advanced(h, payload), "aggregate")
 
@@ -14031,6 +13705,67 @@ def _build_server(
         one refuses here, by name, before anything is opened."""
         return any(_parse_period_field(str(f)) is not None for f in by or [])
 
+    def _is_edge_summary(input: Any, by: Any) -> bool:
+        """The whole-graph edge summary form (src, edge type, dst subtype)."""
+        return (
+            isinstance(input, dict)
+            and input.get("kind") == "edges"
+            and by == ["src_subtype", "edge_type", "dst_subtype"]
+            and not input.get("filter")
+            and not input.get("edge_type")
+        )
+
+    def _ranked_stored_groups(
+        ordered: Sequence[Any], *, by: list[str], order: Any, offset: int, limit: int,
+    ) -> tuple[list[dict[str, Any]], bool, dict[str, Any]]:
+        """A stored aggregate's groups ranked by `order` (PACT
+        read-aggregate-order-by): the full list ranked, then the page cut.
+        Each item is `(key, count)` or `(key, count, missing)`, where
+        `missing` flags a key the record does not carry (SQL NULL), apart
+        from a stored JSON null."""
+
+        def key_of(item: Any) -> tuple[Any, ...]:
+            return _aggregate_order.stored_key(item, len(by))
+
+        def value_of(item: Any) -> Any:
+            if order.kind == "metric":
+                return item[1]
+            return key_of(item)[by.index(order.name)]
+
+        ranked = _aggregate_order.rank(ordered, order, value=value_of, key=key_of)
+        visible = ranked.groups[offset: offset + limit + 1]
+        groups = [
+            {
+                "rank": offset + index + 1,
+                **{
+                    by[i]: _aggregate_order.served_key(key[i])
+                    for key in (key_of(item),) for i in range(len(by))
+                },
+                "count": item[1],
+            }
+            for index, item in enumerate(visible[:limit])
+        ]
+        facts = _aggregate_order.page_facts(
+            ranked, order, offset=offset, page=limit, value=value_of,
+        )
+        return groups, len(visible) > limit, facts
+
+    def _live_aggregate_order(
+        order_by: Any, *, by: Any, metrics: Any, call: Mapping[str, Any],
+    ) -> Any:
+        """A live aggregate's order (PACT read-aggregate-order-by): checked
+        against the printed metric labels, before any upstream call or
+        kept-set read. None without order_by."""
+        if order_by is None:
+            return None
+        labels = [
+            _live_results.metric_label(m) for m in _live_results.check_metrics(metrics)
+        ]
+        return _aggregate_order.check_order_by(
+            order_by, by=_live_results.check_by(by), metrics=labels, live=True,
+            call=call,
+        )
+
     def _reference_aggregate(
         *,
         ref_id: Any,
@@ -14040,6 +13775,7 @@ def _build_server(
         limit: int,
         offset: int,
         authority: Any,
+        order: Any = None,
     ) -> dict[str, Any]:
         """`aggregate` over a result reference's members (#3222): the
         effective-view groups with the member restriction, so it equals the
@@ -14057,14 +13793,22 @@ def _build_server(
             ordered, fingerprint = _reference_groups(
                 h.conn, h.session, by=by, ids=ids, period_report=period_report,
                 each_report=each_report,
+                flag_missing=order is not None,
             )
-            visible = ordered[offset: offset + limit + 1]
-            truncated = len(visible) > limit
-            payload = {
-                "groups": [
+            ranked_facts: dict[str, Any] = {}
+            if order is not None:
+                shown, truncated, ranked_facts = _ranked_stored_groups(
+                    ordered, by=by, order=order, offset=offset, limit=limit,
+                )
+            else:
+                visible = ordered[offset: offset + limit + 1]
+                truncated = len(visible) > limit
+                shown = [
                     {**{by[i]: key[i] for i in range(len(by))}, "count": count}
                     for key, count in visible[:limit]
-                ],
+                ]
+            payload = {
+                "groups": shown,
                 "by": by,
                 "metrics": metrics,
                 "total_count": len(ordered),
@@ -14087,6 +13831,7 @@ def _build_server(
                 # whole graph" (#3658 rework).
                 "reference_members": len(ids),
                 "retrieval_basis": "result_reference_members",
+                **ranked_facts,
             }
             if _has_period_field(by):
                 payload.update(period_report.payload())
@@ -14105,6 +13850,7 @@ def _build_server(
         generation_id: Optional[Union[int, str]] = None,
         limit: Limit = 50,
         offset: Offset = 0,
+        order_by: Optional[str] = None,
         authority: Optional[dict[str, Any]] = None,
         max_bytes: MaxBytes = None,
         predicate: Optional[PredicateInput] = None,
@@ -14121,8 +13867,14 @@ def _build_server(
         variants, words(match) word order too; one (group) in the regex
         is the text counted. A kept live answer also takes by=[] (one
         total) and sum/min/max, e.g. "sum(attrs.size)".
+        order_by="<metric or by field> desc" ranks every group before
+        limit, e.g. order_by="max(attrs.size) desc", limit=2.
+        A live reply names a handle; input=<handle> reads it again. After
+        several similar live calls, the reply names one handle holding all
+        their answers.
         """
         date_started = _date_call_started()
+        input = _string_handle_input("aggregate", input)
         input = as_mapping(input)
         predicate = as_mapping(predicate)
         digest_refusal = _text_digest_operator_refusal(
@@ -14132,10 +13884,15 @@ def _build_server(
             return digest_refusal
         if isinstance(input, dict) and _live_results.is_live_id(input.get("ref")):
             _refuse_live_aggregate_arguments(by)
+            # PACT read-aggregate-order-by (N2): refused before the kept
+            # set is opened, as on the first read of a live type.
+            _live_aggregate_order(order_by, by=by, metrics=metrics, call={
+                "input": input, "by": by, "metrics": metrics, "order_by": order_by,
+            })
             return _live_read(
                 "aggregate", ref_id=input["ref"], authority=authority,
                 generation_id=generation_id, limit=limit, offset=offset,
-                predicate=predicate, by=by, metrics=metrics,
+                predicate=predicate, by=by, metrics=metrics, order_by=order_by,
             )
         if predicate not in (None, True, {}):
             raise InvalidOperatorArguments(
@@ -14154,6 +13911,21 @@ def _build_server(
                 f"aggregate: by must name 1..{MAX_AGGREGATE_BY} fields; only a "
                 "kept live answer (input={'ref': 'l1...'}) may omit it for one total"
             )
+        # PACT read-aggregate-order-by: the order is checked before anything
+        # is opened; the record-anchor and edge-summary forms refuse it.
+        order = None
+        if order_by is not None:
+            if not (isinstance(input, dict) and "ref" in input) and not (
+                is_set_input(input) and not _is_edge_summary(input, by)
+            ):
+                raise _aggregate_order.needs_set_refusal()
+            from okg.substrate.mcp.match_keys import is_match_key as _is_match
+
+            order = _aggregate_order.check_order_by(
+                order_by, by=[str(f) for f in by], metrics=list(metrics),
+                match=any(_is_match(str(f)) for f in by),
+                call={"input": input, "by": by, "metrics": metrics, "order_by": order_by},
+            )
         loose_refusal = _loose_match_refusal("aggregate", input)
         if loose_refusal is not None:
             return loose_refusal
@@ -14163,14 +13935,9 @@ def _build_server(
             return _reference_aggregate(
                 ref_id=input["ref"], by=[str(f) for f in by], metrics=metrics,
                 generation_id=generation_id, limit=limit, offset=offset,
-                authority=authority,
+                authority=authority, order=order,
             )
-        if is_set_input(input) and not (
-            input.get("kind") == "edges"
-            and by == ["src_subtype", "edge_type", "dst_subtype"]
-            and not input.get("filter")
-            and not input.get("edge_type")
-        ):
+        if is_set_input(input) and not _is_edge_summary(input, by):
             # #3201: every set aggregate groups the effective-attribute
             # relation in SQL, whether or not it names attrs, so the same
             # filter counts the same set; none goes through run_sql.
@@ -14255,8 +14022,7 @@ def _build_server(
                 if plain_filter is not None:
                     input["filter"] = plain_filter
             with _open(generation_id, authority=authority) as h:
-                target_kind = "node" if kind == "nodes" else "edge"
-                _require_effective_view(h.conn, h.session, target_kind)
+                _graph_read.require_graph_pin(h.conn, h.session)
                 scoped_predicate = _compose_scope_predicate(
                     kind=kind,
                     input=input,
@@ -14286,7 +14052,7 @@ def _build_server(
                     return _match_groups(
                         h, condition=text_condition, ids=text_ids or [],
                         rest=scoped_predicate, facts=text_facts, by=by,
-                        metrics=metrics, limit=limit, offset=offset,
+                        metrics=metrics, limit=limit, offset=offset, order=order,
                     )
                 date_report = _DateConditionReport()
                 # One budget for the count's date conditions, as the caller
@@ -14313,6 +14079,7 @@ def _build_server(
                         date_budget=count_budget,
                         each_report=each_report,
                         member_ids=text_ids,
+                        flag_missing=order is not None,
                     ), periods_read
 
                 if deployment_requires_nomos_runtime(h.session.deployment_name):
@@ -14370,15 +14137,22 @@ def _build_server(
                     err.code = "unsupported_operator_form"
                     raise err
                 ordered, fingerprint = grouped
-                visible = ordered[offset : offset + limit + 1]
-                truncated = len(visible) > limit
-                groups = [
-                    {
-                        **{by[i]: key[i] for i in range(len(by))},
-                        "count": count,
-                    }
-                    for key, count in visible[:limit]
-                ]
+                ranked_facts: dict[str, Any] = {}
+                if order is not None:
+                    groups, truncated, ranked_facts = _ranked_stored_groups(
+                        ordered, by=[str(f) for f in by], order=order,
+                        offset=offset, limit=limit,
+                    )
+                else:
+                    visible = ordered[offset : offset + limit + 1]
+                    truncated = len(visible) > limit
+                    groups = [
+                        {
+                            **{by[i]: key[i] for i in range(len(by))},
+                            "count": count,
+                        }
+                        for key, count in visible[:limit]
+                    ]
                 payload = {
                     "groups": groups,
                     "by": by,
@@ -14395,6 +14169,7 @@ def _build_server(
                     "generation_id": h.session.generation_id,
                     "pinned_generation_id": h.session.generation_id,
                     "predicate_fingerprint": fingerprint,
+                    **ranked_facts,
                 }
                 if _has_period_field(by):
                     # Which attribute each date period read, and the values
@@ -15027,6 +14802,32 @@ def _build_server(
             )
         return outcome
 
+    def _live_dead_handle(exc: Any, ref_id: str, reader: str) -> Any:
+        """A dead live handle, refused by its reason with zero upstream calls
+        (3.6). `expired` and `evicted` name the call that rebuilds the set,
+        `authority` removed, for the reader that made it; a chain says to run
+        the read that made it again and names the call it began with. Every
+        other reason, and another reader's or session's id, is unchanged."""
+        data = dict(getattr(exc, "data", None) or {})
+        reason = data.get("reason")
+        if reason == "replaced":
+            # A newer chain handle holds these answers (PACT
+            # read-multi-handle-input, N2): read it, no upstream call.
+            fix_hint, retry = _handles.replaced_retry(data)
+            if retry is not None:
+                data["retry_call"] = retry
+            return _result_references.ResultReferenceInvalid(
+                str(exc), data=data, fix_hint=fix_hint,
+            )
+        if reason not in ("expired", "evicted"):
+            return exc
+        fix_hint, retry = _handles.retry_hint(str(ref_id), reader)
+        if retry is not None:
+            data["retry_call"] = retry
+        return _result_references.ResultReferenceInvalid(
+            str(exc), data=data, fix_hint=fix_hint,
+        )
+
     def _live_open(operator: str, *, ref_id: str, authority: Any) -> dict[str, Any]:
         """Look a retained set up and re-check it, once per read call.
 
@@ -15058,34 +14859,68 @@ def _build_server(
             reader = _continuation.reader_key(
                 authority, h.request_header_claim, multi_user_principals,
             )
-            entry = store.lookup(ref_id, reader_key=reader)
-            retained = entry.payload
-            generation = h.session.generation_id
-            session_id = getattr(h.session, "logical_session_id", None) or str(
-                getattr(h.session, "session_id", "") or "mcp"
-            )
-            refusal: SubstrateError | None = None
-            # A live read of a live type (#3666, live-graph-rucio-sites) is
-            # bound to its type, not to a stored anchor node: no anchor read.
-            typed = isinstance(retained, _live_resolver.LiveTypedSet)
-            anchor = None if typed else inspect_node(
-                h.conn, h.session, retained.node_id, select=["node_id", "subtype"],
-                include_documents=False,
-            )
-            if typed:
-                field = _result_references.binding_mismatch(
-                    entry.binding, _live_binding(h.conn, h.session),
+            # The reader and its logical session (PACT read-live-handles,
+            # N5): another session's read answers exactly as an id never
+            # issued, and the owner's set stays.
+            try:
+                entry = store.lookup(
+                    ref_id, reader_key=reader, quota_key=_live_quota_key(reader),
                 )
-                if field is not None:
-                    refusal = _live_results.invalid("binding_mismatch", field=field)
-            elif anchor is None:
-                refusal = _live_results.invalid("binding_mismatch", field="anchor")
-            else:
-                field = _result_references.binding_mismatch(
-                    entry.binding, _live_binding(h.conn, h.session),
+            except _result_references.ResultReferenceInvalid as exc:
+                raise _live_dead_handle(exc, ref_id, reader) from None
+            payload = entry.payload
+            # A chain handle (PACT read-multi-handle-input, 1b'): branched
+            # right after the lookup, before any check that reads a set's
+            # relation, anchor or subject; each source gets its own full open.
+            chain_claim = h.request_header_claim
+            if not isinstance(payload, _live_lists.LiveChainSet):
+                # A groups handle is re-checked as the set it grouped is.
+                retained = _live_results.checked_set(payload)
+                header_claim = h.request_header_claim
+                generation = h.session.generation_id
+                session_id = getattr(h.session, "logical_session_id", None) or str(
+                    getattr(h.session, "session_id", "") or "mcp"
                 )
-                if field is not None:
-                    refusal = _live_results.invalid("binding_mismatch", field=field)
+                refusal: SubstrateError | None = None
+                # A live read of a live type (#3666, live-graph-rucio-sites) is
+                # bound to its type, not to a stored anchor node: no anchor read.
+                typed = isinstance(retained, _live_resolver.LiveTypedSet)
+                anchor = None if typed else inspect_node(
+                    h.conn, h.session, retained.node_id, select=["node_id", "subtype"],
+                    include_documents=False,
+                )
+                if typed:
+                    field = _result_references.binding_mismatch(
+                        entry.binding, _live_binding(h.conn, h.session),
+                    )
+                    if field is not None:
+                        refusal = _live_results.invalid("binding_mismatch", field=field)
+                elif anchor is None:
+                    refusal = _live_results.invalid("binding_mismatch", field="anchor")
+                else:
+                    field = _result_references.binding_mismatch(
+                        entry.binding, _live_binding(h.conn, h.session),
+                    )
+                    if field is not None:
+                        refusal = _live_results.invalid("binding_mismatch", field=field)
+        if isinstance(payload, _live_lists.LiveChainSet):
+            return _live_open_chain(
+                operator, chain_id=ref_id, entry=entry, reader=reader,
+                header_claim=chain_claim, authority=authority,
+            )
+        if typed:
+            # A later read of a kept set asks the caller check again, as a
+            # first read does: every kept typed read of every shape (a JSON
+            # string input, a run step, expand(next=), live.each) meets its
+            # validated arguments here. The set is not dropped: a refusal
+            # by the caller is not a fault of the set.
+            _live_resolver.check_caller_sync(mcp, operator, str(retained.subtype))
+        else:
+            # A kept raw answer was minted by expand: expand's own check
+            # (the dispatch gate's decision and expand served) is asked
+            # again; `_live_regate` asks only the live relation's gate.
+            _live_resolver.ask_expand_gate(mcp, operator)
+            _live_resolver.check_expand_served(mcp, operator)
         if typed and refusal is None:
             refusal = _live_typed_binding_refusal(retained)
         refusal_reason: str | None = None
@@ -15120,12 +14955,34 @@ def _build_server(
                        "read_refused": refusal_reason},
             )
             raise refusal
+        # The decode bound (4.1.5, N10): after every re-check above, so a
+        # caller who lost access hears that refusal, never a capacity one.
+        # Refused at once (this runs on a call worker of a bounded pool);
+        # given back when the read call ends.
+        decode_key = "live-decode-bytes"
+        held = int(memo.get(decode_key) or 0) if memo is not None else 0
+        # The release is registered first (review F8): a registration that
+        # refuses outside a read call then strands no reservation.
+        tokens: list[int] = []
+        _result_references.on_close(
+            lambda: [_handles.decode_budget.release(t) for t in tokens],
+        )
+        tokens.append(_handles.decode_budget.reserve(len(payload.rows_json), call_bytes=held))
+        if memo is not None:
+            memo[decode_key] = held + len(payload.rows_json)
         state = {
-            "set": retained,
-            "rows": _live_results.decode_rows(retained.rows_json),
+            "set": payload,
+            "rows": _live_results.decode_rows(payload.rows_json),
             "generation": generation,
             "session_id": session_id,
             "outcome": outcome,
+            # What a handle this call derives from the set is minted with
+            # (PACT read-live-handles): the reader, its quota key, the binding.
+            "mint": {
+                "reader_key": reader, "quota_key": _live_quota_key(reader),
+                "binding": dict(entry.binding), "header_claim": header_claim,
+                "multi_user": bool(multi_user_principals),
+            },
             **({
                 "gates": dict(retained.gate_outcomes),
                 "coverage": dict(retained.coverage),
@@ -15134,11 +14991,29 @@ def _build_server(
         }
         if memo is not None:
             memo[key] = state
+        _result_references.on_finish(_live_read_finished(
+            operator, state, retained, authority=authority, generation=generation,
+            session_id=session_id, outcome=outcome,
+        ))
+        return state
+
+    def _live_read_finished(
+        operator: str, state: Mapping[str, Any], retained: Any, *, authority: Any,
+        generation: Any, session_id: str, outcome: Any,
+    ) -> Callable[[Any], None]:
+        """The callback that writes one read's sample row once its reply is
+        built. A chain read's source writes `rows_served: 0` and
+        `combined_into` (the chain id); the chain read writes what it served
+        and `combined_from` (PACT read-multi-handle-input, L3)."""
 
         def finished(payload: Any) -> None:
             served_key = "groups" if operator == "aggregate" else "items"
             if isinstance(payload, Mapping) and payload.get("status") != "refused":
-                if operator == "expand":
+                if isinstance(state.get("served_as_values"), list):
+                    # Read as a value list of another read (PACT
+                    # read-live-handles 4.1.8): what it served is its values.
+                    served = list(state["served_as_values"])
+                elif operator == "expand":
                     # A `next` page of a cut live answer (Live build 3).
                     live = payload.get("external_live")
                     rows = live.get("rows") if isinstance(live, Mapping) else None
@@ -15157,19 +15032,127 @@ def _build_server(
                     **_live_sample_attrs(retained, outcome),
                     "rows_served": len(served),
                     "served_rows_sha256": _live_results.served_rows_sha256(served),
+                    **({"combined_into": state["combined_into"]}
+                       if state.get("combined_into") else {}),
+                    **({"combined_from": int(state["combined"].get("answers") or 0)}
+                       if isinstance(state.get("combined"), Mapping) else {}),
                 },
             )
 
-        _result_references.on_finish(finished)
+        return finished
+
+    def _live_open_chain(
+        operator: str, *, chain_id: str, entry: Any, reader: str,
+        header_claim: Any, authority: Any,
+    ) -> dict[str, Any]:
+        """A chain handle's read (PACT read-multi-handle-input): every source
+        opened through `_live_open`, with all its re-checks, its decode
+        reservation and its own sample row; then the combined set, reserved
+        against the call's decode budget too (M9). Never stored: the call
+        memo holds it for this call's attempts and pages only (N3).
+
+        A source that is gone (expired, evicted, or a draft never committed)
+        is answered over and named; any other refusal of a source keeps its
+        own code, with `index` (its 1-based position) and `chain` added."""
+        chain = entry.payload
+        opened: list[tuple[int, str, Any, Sequence[Any]]] = []
+        gone: list[tuple[int, Any, str]] = []
+        first: Optional[Mapping[str, Any]] = None
+        for index, (source_id, value) in enumerate(zip(chain.source_ids, chain.values), 1):
+            try:
+                source = _live_open(operator, ref_id=source_id, authority=authority)
+            except _result_references.ResultReferenceInvalid as exc:
+                reason = str((getattr(exc, "data", None) or {}).get("reason") or "")
+                if reason in _live_lists.GONE_REASONS:
+                    gone.append((index, value, reason))
+                    continue
+                if isinstance(getattr(exc, "data", None), dict):
+                    exc.data.update(index=index, chain=chain_id)
+                raise
+            except SubstrateError as exc:
+                if isinstance(getattr(exc, "data", None), dict):
+                    exc.data.update(index=index, chain=chain_id)
+                raise
+            # What the source served is folded into the chain read's reply.
+            source["served_as_values"] = []
+            source["combined_into"] = chain_id
+            opened.append((index, source_id, source["set"], source["rows"]))
+            if first is None:
+                first = source
+        combined = _live_lists.combine(
+            chain, chain_id, opened, gone, failed=list(chain.failed),
+        )
+        if first is None:  # `combine` already refuses this; kept for the type
+            raise _live_lists.refuse("no_source_kept", index=0, handles=[chain_id])
+        memo = _result_references.call_memo()
+        decode_key = "live-decode-bytes"
+        held = int(memo.get(decode_key) or 0) if memo is not None else 0
+        tokens: list[int] = []
+        _result_references.on_close(
+            lambda: [_handles.decode_budget.release(t) for t in tokens],
+        )
+        size = len(combined.retained.rows_json)
+        tokens.append(_handles.decode_budget.reserve(size, call_bytes=held))
+        if memo is not None:
+            memo[decode_key] = held + size
+        state: dict[str, Any] = {
+            "set": combined.retained,
+            "rows": combined.rows,
+            "generation": first["generation"],
+            "session_id": first["session_id"],
+            "outcome": first["outcome"],
+            "mint": {
+                "reader_key": reader, "quota_key": _live_quota_key(reader),
+                "binding": dict(entry.binding), "header_claim": header_claim,
+                "multi_user": bool(multi_user_principals),
+            },
+            "combined": combined.block,
+        }
+        if memo is not None:
+            memo["live-read:" + chain_id] = state
+        _result_references.on_finish(_live_read_finished(
+            operator, state, combined.retained, authority=authority,
+            generation=first["generation"], session_id=str(first["session_id"]),
+            outcome=first["outcome"],
+        ))
         return state
 
     # -- live types (#3666, PACT live-graph-rucio-sites): what the resolver
     # -- (`live_resolver`) needs from this server, and the shared pre-check.
 
-    def _live_typed_binding_refusal(retained: Any) -> SubstrateError | None:
-        """A kept live-type set read again: the type's declaration and okg's
-        logical session must be the ones it was read under (the reader is
-        checked by the store lookup). On stateless HTTP the reader alone."""
+    def _live_session(context: Any = None) -> tuple[Optional[str], bool]:
+        """okg's logical session of this call, and whether the transport is
+        stateless HTTP: what every live handle is bound to (PACT
+        read-live-handles, N5). `context` is the call's MCP context when a
+        caller holds it (a call worker); otherwise the current one."""
+        identity = (
+            _logical_identity_from_context(context) if context is not None
+            else _current_logical_identity()
+        )
+        logical = (
+            str(logical_sessions.snapshot(identity).logical_session_id)
+            if identity is not None else None
+        )
+        stateless = bool(getattr(getattr(mcp, "settings", None), "stateless_http", False))
+        return (None if stateless else logical), stateless
+
+    mcp._okg_live_session = _live_session  # type: ignore[attr-defined]
+
+    def _live_quota_key(reader: str, context: Any = None) -> str:
+        """The caller's quota key: the reader plus its logical session.
+        `context` is the call's MCP context for a caller outside the tool
+        body (the resolver's growth lookup, #4050); otherwise the current one."""
+        session, stateless = mcp._okg_live_session(context)  # type: ignore[attr-defined]
+        return _handles.quota_key(reader, session, stateless)
+
+    def _live_typed_binding_refusal(
+        retained: Any, context: Any = None,
+    ) -> SubstrateError | None:
+        """A kept live-type set read again: the type's declaration must be the
+        one it was read under. The reader and okg's logical session are
+        checked by the store lookup itself (the quota key), where another
+        session's read answers exactly as an id never issued and leaves the
+        set in place (PACT read-live-handles, lead decision Q1)."""
         registry = getattr(mcp, "_okg_live_types", None)
         live_type = registry.by_subtype(retained.subtype) if registry is not None else None
         if (
@@ -15177,14 +15160,6 @@ def _build_server(
             or _live_resolver.declaration_digest(live_type) != retained.declaration_digest
         ):
             return _live_results.invalid("binding_mismatch", field="declaration")
-        if not retained.stateless and retained.logical_session is not None:
-            identity = _current_logical_identity()
-            current = (
-                str(logical_sessions.snapshot(identity).logical_session_id)
-                if identity is not None else None
-            )
-            if current != retained.logical_session:
-                return _live_results.invalid("binding_mismatch", field="session")
         return None
 
     def _live_regate_typed(retained: Any) -> Any:
@@ -15286,10 +15261,29 @@ def _build_server(
             if refusal is not None:
                 return refusal
             _refuse_live_aggregate_arguments(arguments.get("by"))
+            # PACT read-aggregate-order-by (B1): an order_by typo on a live
+            # typed set is refused before the listing call.
+            _live_aggregate_order(
+                arguments.get("order_by"), by=arguments.get("by"),
+                metrics=arguments.get("metrics"), call={
+                    k: arguments[k] for k in ("input", "where", "by", "metrics", "order_by")
+                    if k in arguments
+                },
+            )
         elif operator == "map":
             refusal = _text_digest_operator_refusal("map", input=scope)
             if refusal is not None:
                 return refusal
+            if arguments.get("compute") is not None:
+                # PACT read-map-compute: the expressions of a first read are
+                # compiled before the listing call, so a refused one makes
+                # no upstream call (a kept set's growth compiles them over
+                # its own columns, `live_resolver._grow_kept`).
+                _map_compute.refuse_under_access_rules(mcp)
+                if not (isinstance(scope, Mapping) and "ref" in scope):
+                    program = _map_compute.first_read_program(arguments.get("compute"))
+                    _map_compute.refuse_operands(program, groups=False, typed=True)
+                    _map_compute.check_select(arguments.get("projection"), program)
         return None
 
     mcp._okg_live_argument_precheck = _live_argument_precheck  # type: ignore[attr-defined]
@@ -15353,12 +15347,8 @@ def _build_server(
             # (the keep rule, `live_resolver.seed_call_memo`).
             store_binding = _live_binding(h.conn, h.session)
             claim = h.request_header_claim
-        identity = _logical_identity_from_context(context)
-        logical = (
-            str(logical_sessions.snapshot(identity).logical_session_id)
-            if identity is not None else None
-        )
-        is_stateless = bool(getattr(getattr(mcp, "settings", None), "stateless_http", False))
+        # One rule for what a live handle is bound to, at mint and at read.
+        logical, is_stateless = mcp._okg_live_session(context)  # type: ignore[attr-defined]
         live_gate = getattr(mcp, "_okg_live_gate", None)
         if live_gate is None:
             live_gate = build_live_gate(deployment_name)
@@ -15463,12 +15453,16 @@ def _build_server(
 
     mcp._okg_live_graph_prepare = _live_graph_prepare  # type: ignore[attr-defined]
 
-    def _live_kept_set(operator: str, ref_id: str, authority: Any) -> Any:
+    def _live_kept_set(
+        operator: str, ref_id: str, authority: Any, context: Any = None,
+    ) -> Any:
         """The kept live-type set `ref_id` names for this reader, still bound
         to its declaration and session, or None (the tool body then reads or
         refuses it as it always does). Asked by the resolver before it grows
         a set (N6); no upstream call. Refused, as `_live_open` refuses, while
-        access rules are on or cannot be told (#3666 review M2)."""
+        access rules are on or cannot be told (#3666 review M2). `context` is
+        the call's MCP context: the resolver runs before the tool body sets
+        the current one, so the session is read from it (#4050)."""
         _live_access_rules.refuse_live_under_access_rules(
             mcp, f"{operator} reads a kept live answer",
             tool_called=operator,
@@ -15478,7 +15472,9 @@ def _build_server(
                 reader = _continuation.reader_key(
                     authority, h.request_header_claim, multi_user_principals,
                 )
-                entry = _live_results.live_store().lookup(ref_id, reader_key=reader)
+                entry = _live_results.live_store().lookup(
+                    ref_id, reader_key=reader, quota_key=_live_quota_key(reader, context),
+                )
                 if _result_references.binding_mismatch(
                     entry.binding, _live_binding(h.conn, h.session),
                 ) is not None:
@@ -15488,7 +15484,7 @@ def _build_server(
         retained = entry.payload
         if not isinstance(retained, _live_resolver.LiveTypedSet):
             return None
-        if _live_typed_binding_refusal(retained) is not None:
+        if _live_typed_binding_refusal(retained, context) is not None:
             return None
         return retained
 
@@ -15623,6 +15619,9 @@ def _build_server(
         retained: Any, ref_id: str, state: Optional[Mapping[str, Any]] = None,
     ) -> dict[str, Any]:
         fields = _live_served_fields_of(retained, ref_id)
+        if state is not None and isinstance(state.get("combined"), Mapping):
+            # A chain handle's read (PACT read-multi-handle-input, 6.3).
+            fields["combined"] = _handles.combined_block(state["combined"])
         # A read the live-graph resolver made in this call (#3666): the
         # reply names the set's real id only when it was kept (D8).
         fresh = _live_resolver.fresh_served_fields(state)
@@ -15634,21 +15633,443 @@ def _build_server(
                     fields[key] = value
         return fields
 
+    def _live_coverage(retained: Any, state: Mapping[str, Any]) -> Mapping[str, Any]:
+        """What the live read covered: this call's read, or the kept set's."""
+        if state.get("fresh") and isinstance(state.get("coverage"), Mapping):
+            return state["coverage"]
+        coverage = getattr(retained, "coverage", None)
+        return coverage if isinstance(coverage, Mapping) else {}
+
+    def _live_ranked_groups(
+        groups: Sequence[Any], *, fields: list[str], order: Any, offset: int,
+        page: int, relation: str, reader_notes: Mapping[str, Any],
+        coverage: Mapping[str, Any], rows: Sequence[Mapping[str, Any]] = (),
+    ) -> tuple[list[Any], dict[str, Any]]:
+        """A live aggregate's groups ranked by `order` (PACT
+        read-aggregate-order-by), and the facts the ranked reply adds. A
+        ranking over a read with nodes not read, rows not comparable or a
+        cut listing is served labelled `ranking_complete: false` (C9)."""
+
+        def value_of(group: Any) -> Any:
+            return _aggregate_order.live_value(group, order, fields)
+
+        ranked = _aggregate_order.rank(
+            groups, order, value=value_of, key=lambda group: group[0],
+        )
+        cut = bool(coverage.get("cut"))
+        # What the read that made the set left out (review M2): a later page
+        # of a kept set no longer sees the rows a condition set aside, so the
+        # set's own coverage counts too. A node whose call failed is still a
+        # row of the set, and this page's reader counts it (`not_read`); only
+        # the ids no kept row carries are counted here (review N-1).
+        listed_unread = coverage.get("not_read")
+        held = {str(row.get("node_id")) for row in rows if isinstance(row, Mapping)}
+        set_unread = (
+            len({str(i) for i in listed_unread} - held)
+            if isinstance(listed_unread, (list, tuple))
+            else int(listed_unread or 0)
+        )
+        set_undecided = int(coverage.get("not_comparable") or 0)
+        here = bool(
+            reader_notes.get("not_read") or reader_notes.get("not_comparable")
+            or reader_notes.get("value_lists_not_read")
+        )
+        complete = not (here or cut or set_unread or set_undecided)
+        facts = _aggregate_order.page_facts(
+            ranked, order, offset=offset, page=page, complete=complete, value=value_of,
+            tie_value=lambda value: _live_results.fence_rows(value, relation),
+        )
+        if not here and (set_unread or set_undecided):
+            facts["ranking_left_out"] = {
+                "not_read": set_unread, "not_comparable": set_undecided,
+                "note": "counted when the set was read; this page reads the kept set",
+            }
+        if cut:
+            facts["ranking_cut"] = [str(c) for c in coverage.get("cuts") or []] or [
+                "the listing stopped at its limit"
+            ]
+        return ranked.groups, facts
+
     def _live_served_fields_of(retained: Any, ref_id: str) -> dict[str, Any]:
-        return {
+        # A groups or derived handle reports the call that made the original
+        # set, not its own rows (review F9).
+        origin = _live_results.checked_set(retained)
+        fields: dict[str, Any] = {
             "input": {"ref": ref_id},
             "served_from": _live_results.SERVED_FROM,
             "trust": "untrusted",
             # What the original call reported. Nested because `rows` is the
             # row-list key of every operator result.
             "original_call": {
-                "relation": retained.relation_name,
-                "observed_at": retained.observed_at,
-                "digest": retained.digest,
-                "rows": retained.row_count,
+                "relation": origin.relation_name,
+                "observed_at": origin.observed_at,
+                "digest": origin.digest,
+                "rows": getattr(origin, "original_rows", None) or origin.row_count,
             },
             "query_plan_summary": "retained live answer, in memory",
         }
+        derived = getattr(retained, "derived_from", None)
+        if isinstance(derived, str):
+            fields["derived_from"] = derived
+        return fields
+
+    # -- live handles (PACT read-live-handles): what a set read names --------
+
+    def _string_handle_input(operator: str, input: Any) -> Any:
+        """A handle id sent as a string `input`, for a caller the read grammar
+        did not rewrite (a direct Python caller): `{"ref": id}`. Any other
+        string on `filter` or `map` is refused by name; on `aggregate` it is
+        a node id, as before."""
+        if not isinstance(input, str):
+            return input
+        shape, named = _result_references.string_input_shape(input)
+        if shape == "handle":
+            return {"ref": named}
+        if operator == "aggregate":
+            return input
+        raise InvalidOperatorArguments(
+            f"{operator}: a string `input` names a handle (the l1... or r1... id a "
+            "reply printed); this one is not",
+            data={"tool": operator, "invalid_fields": ["input"],
+                  "validation_kinds": ["argument_check"]},
+            fix_hint=f'pass input="<handle>", or {operator}(where={{...}})',
+        )
+
+    def _handles_value_list_shapes(predicate: Any) -> Any:
+        """`predicate` with every value list from a handle shown as a
+        one-value list, for the shape check before any set is opened."""
+        if isinstance(predicate, Mapping):
+            out = dict(predicate)
+            if out.get("op") == "in" and isinstance(out.get("values"), Mapping):
+                out["values"] = ["<values from a handle>"]
+            if isinstance(out.get("clauses"), list):
+                out["clauses"] = [_handles_value_list_shapes(c) for c in out["clauses"]]
+            if isinstance(out.get("clause"), Mapping):
+                out["clause"] = _handles_value_list_shapes(out["clause"])
+            return out
+        return predicate
+
+    #: Distinct values one value list from a handle may contribute (review
+    #: F2): the handle's own row cap, stated as a bound of its own.
+    MAX_VALUE_LIST = _live_results.MAX_ROWS
+
+    def _live_value_lists(
+        operator: str, predicate: Any, authority: Any,
+        notes: Optional[list[dict[str, Any]]] = None,
+    ) -> Any:
+        """Each `{"ref": "<l1 id>", "field": "<column>"}` value list of an
+        `in` condition, read from that handle through `_live_open` (its
+        re-checks and the decode bound) and replaced by the column's
+        distinct values in row order (4.1.8), as a hashed list (review F2).
+        Rows of that handle whose column was not read are counted into
+        `notes` (review F4): the reply says how many, never drops them
+        silently."""
+        if not isinstance(predicate, Mapping):
+            return predicate
+        out = dict(predicate)
+        if isinstance(out.get("clauses"), list):
+            out["clauses"] = [
+                _live_value_lists(operator, clause, authority, notes)
+                for clause in out["clauses"]
+            ]
+        if isinstance(out.get("clause"), Mapping):
+            out["clause"] = _live_value_lists(operator, out["clause"], authority, notes)
+        source = out.get("values")
+        if out.get("op") != "in" or not isinstance(source, Mapping):
+            return out
+        ref, column = source.get("ref"), source.get("field")
+        if set(source) != {"ref", "field"} or not _live_results.is_live_id(ref) \
+                or not isinstance(column, str) or not column:
+            raise _live_results.LiveResultPredicateUnsupported(
+                f"{operator}: a value list from a handle is "
+                '{"ref": "<l1... handle>", "field": "<its column>"}; values from a '
+                "stored handle come with stored handles",
+                data={"argument": "predicate", "reason": "value_list_source"},
+                fix_hint='e.g. {"op": "in", "field": "attrs.<x>", "values": '
+                '{"ref": "l1...", "field": "attrs.<x>"}}',
+            )
+        try:
+            state = _live_open(operator, ref_id=str(ref), authority=authority)
+        except SubstrateError as exc:
+            # Which handle failed (review F12): the value list's, not the input.
+            if isinstance(getattr(exc, "data", None), dict):
+                exc.data.setdefault("argument", "where.values")
+            raise
+        payload = state["set"]
+        values: list[Any] = []
+        not_read = 0
+        seen: set[str] = set()
+        key = payload.key_of(column) if isinstance(payload, _live_results.LiveGroupsSet) else None
+        for row in state["rows"]:
+            if not isinstance(row, Mapping):
+                continue
+            if key is not None:
+                value = row.get(key)
+            elif column in _live_results.RECORD_COLUMNS:
+                value = row.get(column)
+            elif column.startswith("attrs."):
+                name = column.split(".", 1)[1]
+                if _live_reader.field_state(row, name) in _live_reader.NOT_READ_STATES:
+                    not_read += 1
+                    continue
+                value = _live_reader.attrs_of(row).get(name)
+            else:
+                value = None
+            if value is None:
+                continue
+            text = _json.dumps(value, sort_keys=True, default=str)
+            if text not in seen:
+                seen.add(text)
+                values.append(value)
+        if not values:
+            raise _live_results.LiveResultPredicateUnsupported(
+                f"{operator}: the handle named in a value list has no value in "
+                f"{column!r}, so the condition could not be read as a list",
+                data={"argument": "predicate", "reason": "value_list_empty",
+                      "field": column},
+                fix_hint="name a column the handle's rows carry",
+            )
+        if len(values) > MAX_VALUE_LIST:
+            raise _live_results.LiveResultPredicateUnsupported(
+                f"{operator}: the value list from the handle holds {len(values):,} "
+                f"distinct values; a value list takes at most {MAX_VALUE_LIST:,}",
+                data={"argument": "where.values", "reason": "value_list_too_long",
+                      "values": len(values), "limit": MAX_VALUE_LIST},
+                fix_hint="narrow the handle the values come from first",
+            )
+        if not_read and notes is not None:
+            notes.append({
+                "ref": str(ref), "field": column, "rows": len(state["rows"]),
+                "not_read": not_read,
+                "note": (
+                    f"{not_read:,} of {len(state['rows']):,} rows of the value list's "
+                    f"handle were not read for {column}: their values are not in the "
+                    "list, so rows matching them may be missing"
+                ),
+            })
+        # Its sample row records the values it served, fenced as served rows.
+        state.setdefault(
+            "served_as_values", _live_results.fence_rows(list(values), payload.relation_name),
+        )
+        out["values"] = _live_reader.HashedValues(values)
+        return out
+
+    def _live_group_names(
+        groups: Any, predicate: Any, projection: Any, order_by: Any, operator: str,
+    ) -> tuple[Any, list[str], Any]:
+        """A groups handle's column names in `where`, `select` and
+        `order_by`, as the stored keys the in-memory reader reads, or a
+        refusal naming the columns it has."""
+        columns = list(groups.columns)
+
+        def key(name: Any, argument: str) -> str:
+            stored = groups.key_of(name) if isinstance(name, str) else None
+            if stored is None:
+                raise _live_results.LiveResultPredicateUnsupported(
+                    f"{operator}: {name!r} is not a column of this groups handle; "
+                    f"its columns are {', '.join(columns)}",
+                    data={"argument": argument, "reason": "groups_column_unknown",
+                          "columns": columns},
+                    fix_hint="name a column as the aggregate reply printed it",
+                )
+            return "attrs." + stored
+
+        def leaves(node: Any) -> Any:
+            if not isinstance(node, Mapping):
+                return node
+            out = dict(node)
+            if isinstance(out.get("clauses"), list):
+                out["clauses"] = [leaves(c) for c in out["clauses"]]
+            elif isinstance(out.get("clause"), Mapping):
+                out["clause"] = leaves(out["clause"])
+            elif "field" in out:
+                out["field"] = key(out["field"], "predicate")
+            return out
+
+        if isinstance(projection, Mapping):
+            raise _live_results.LiveResultPredicateUnsupported(
+                f"{operator}: a groups handle is read with select=[<columns>]",
+                data={"argument": "select", "reason": "groups_projection"},
+                fix_hint=f"pass select={columns[:4]!r}",
+            )
+        selected = list(projection) if isinstance(projection, list) else columns
+        for name in selected:
+            key(name, "select")
+        ordered = order_by
+        if isinstance(order_by, str) and order_by.strip():
+            text, desc, _doubled = _live_reader.split_order_direction(order_by)
+            ordered = ("-" if desc else "") + key(text, "order_by")
+        return leaves(predicate), selected, ordered
+
+    def _live_set_id(state: Mapping[str, Any], ref: str) -> Optional[str]:
+        """The handle of the set this read opened: the id it was read by, or
+        on a first read the id its set was kept as (None when not kept)."""
+        if state.get("fresh"):
+            kept = state.get("kept_id")
+            return str(kept) if kept else None
+        return ref
+
+    def _live_columns(payload: Any, rows: Sequence[Any]) -> list[str]:
+        """A set's columns as a reply names them (upstream keys neutralised),
+        a map's computed columns last (PACT read-map-compute)."""
+        columns = _handles.columns_of(payload, rows)
+        if isinstance(payload, _live_results.LiveGroupsSet):
+            return columns
+        return columns + [f"calc.{n}" for n in _map_compute.columns_of(payload, rows)]
+
+    def _live_read_window(payload: Any) -> Optional[str]:
+        payload = _live_results.checked_set(payload)
+        window = getattr(payload, "read_window", None)
+        if isinstance(window, str) and window:
+            # A chain read's combined set: first-last read of its answers.
+            return window
+        found = _live_resolver._WINDOW.search(str(getattr(payload, "live_line", "") or ""))
+        return found.group(1) if found else (str(getattr(payload, "observed_at", "") or "") or None)
+
+    def _live_mint(
+        state: Mapping[str, Any], payload: Any, *, rows: int, parent: Optional[str],
+        call: Mapping[str, Any], key: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Draft a handle this call derived (in its draft scope, committed
+        only when the reply carries the id), once per call; `(id, None)` or
+        `(None, why)`."""
+        memo = _result_references.call_memo()
+        memo_key = "live-mint:" + key
+        if memo is not None and memo_key in memo:
+            return memo[memo_key]
+        mint = dict(state.get("mint") or {})
+        grouped = _live_results.checked_set(state["set"])
+        reader = str(mint.get("reader_key") or getattr(grouped, "reader_key", ""))
+        quota = mint.get("quota_key") or _handles.quota_key(
+            reader, getattr(grouped, "logical_session", None),
+            bool(getattr(grouped, "stateless", False)),
+        )
+        store = _live_results.live_store()
+        try:
+            draft = store.mint(
+                reader_key=reader, binding=dict(mint.get("binding") or {}), members=(),
+                header_claim=mint.get("header_claim"),
+                multi_user=bool(mint.get("multi_user", multi_user_principals)),
+                payload=payload, payload_bytes=len(payload.rows_json), payload_rows=rows,
+                quota_key=str(quota),
+            )
+        except _result_references.ResultReferenceCapacity as exc:
+            reason = (exc.data or {}).get("reason")
+            out: tuple[Optional[str], Optional[str]] = (
+                None,
+                "too_large" if reason in {"reference_members", "reference_bytes"} else "capacity",
+            )
+        else:
+            _result_references.adopt_draft(store, draft)
+            _handles.remember(draft.id, reader, call, parent=parent)
+            out = (draft.id, None)
+        if memo is not None:
+            memo[memo_key] = out
+        return out
+
+    def _live_set_handle(
+        operator: str, state: Mapping[str, Any], *, ref: str, retained: Any,
+        matched: Sequence[Any], narrowed: bool, ordered: bool, order_by: Any,
+        call: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """The `handle` of a live `filter` or `map` reply (3.7)."""
+        base = _live_set_id(state, ref)
+        grouped = _live_results.checked_set(retained)
+        stateless = bool(getattr(grouped, "stateless", False))
+        window = _live_read_window(retained)
+        if operator == "filter" and (narrowed or (ordered and not state.get("fresh"))):
+            import dataclasses as _dc
+
+            blob = _live_results.encode_rows(list(matched))
+            fields: dict[str, Any] = {"rows_json": blob, "row_count": len(matched)}
+            if isinstance(retained, _live_results.LiveGroupsSet):
+                fields["digest"] = "sha256:" + hashlib.sha256(blob).hexdigest()
+            else:
+                # The original call's facts stay (`original_call`, review F9);
+                # the handle says what it was derived from.
+                fields["derived_from"] = base
+                fields["original_rows"] = (
+                    getattr(retained, "original_rows", None) or retained.row_count
+                )
+            if isinstance(retained, _live_resolver.LiveTypedSet):
+                fields["whole_listing"] = bool(retained.whole_listing) and not narrowed
+                fields["grown_from"] = None
+            derived = _dc.replace(retained, **fields)
+            order = (
+                f"{order_by}, ties in input order" if ordered and order_by else "input order"
+            )
+            parent_recipe = base
+            set_id, why = _live_mint(
+                state, derived, rows=len(matched), parent=parent_recipe,
+                call=_handles.producing_call("filter", call),
+                key=f"filter:{ref}:{_json.dumps(call, sort_keys=True, default=str)}",
+            )
+            if set_id is None:
+                return _handles.no_handle(str(why))
+            return {"handle": _handles.handle_block(
+                set_id=set_id, rows=len(matched), columns=_live_columns(retained, matched),
+                order=order, expires_at=_handles.expires_of(set_id), read_window=window,
+                from_id=base, stateless=stateless,
+            )}
+        if base is None:
+            return _handles.no_handle(str(state.get("not_kept") or "not_kept"))
+        rows = state.get("rows") or []
+        order = (
+            str(getattr(retained, "order", "input order"))
+            if isinstance(retained, _live_results.LiveGroupsSet) else "input order"
+        )
+        return {"handle": _handles.handle_block(
+            set_id=base, rows=len(rows), columns=_live_columns(retained, rows),
+            order=order, expires_at=_handles.expires_of(base), read_window=window,
+            stateless=stateless,
+        )}
+
+    def _live_groups_handle(
+        state: Mapping[str, Any], *, ref: str, groups: Sequence[Any], fields: Sequence[str],
+        ranked: bool, call: Mapping[str, Any], ranking_complete: Optional[bool] = None,
+    ) -> dict[str, Any]:
+        """A live aggregate's groups as a handle, `from` the set it grouped."""
+        base = _live_set_id(state, ref)
+        retained = state["set"]
+        rows: list[dict[str, Any]] = []
+        columns: dict[str, None] = {str(f): None for f in fields}
+        for index, (key, computed) in enumerate(_live_results.served_groups(groups)):
+            row = {str(f): key[i] for i, f in enumerate(fields)}
+            row.update(computed)
+            if ranked:
+                row["rank"] = index + 1
+            for name in row:
+                columns[str(name)] = None
+            rows.append(row)
+        if ranked:
+            columns.pop("rank", None)
+            columns["rank"] = None
+        order = "rank" if ranked else "count desc"
+        groups_payload = _live_results.groups_set(
+            rows, columns=list(columns), source=retained, from_id=base, order=order,
+            ranking_complete=ranking_complete,
+        )
+        recipe_call = (
+            dict(state["call"]) if state.get("fresh") and base is None
+            and isinstance(state.get("call"), Mapping)
+            else _handles.producing_call("aggregate", call)
+        )
+        set_id, why = _live_mint(
+            state, groups_payload, rows=len(rows), parent=base, call=recipe_call,
+            key=f"groups:{ref}:{_json.dumps(call, sort_keys=True, default=str)}",
+        )
+        if set_id is None:
+            return _handles.no_handle(str(why))
+        block = _handles.handle_block(
+            set_id=set_id, rows=len(rows), columns=list(columns), order=order,
+            expires_at=_handles.expires_of(set_id),
+            read_window=_live_read_window(retained), from_id=base,
+            stateless=bool(getattr(_live_results.checked_set(retained), "stateless", False)),
+        )
+        # `from` is always said: null when the grouped set has no handle
+        # (the reply's `kept` says why).
+        block["from"] = base
+        return {"handle": block}
 
     def _live_read(
         operator: str,
@@ -15665,6 +16086,7 @@ def _build_server(
         metrics: Any = None,
         order_by: Any = None,
         retain: bool = False,
+        compute: Any = None,
     ) -> dict[str, Any]:
         """`filter`, `map` or `aggregate` over a retained live answer.
 
@@ -15672,23 +16094,46 @@ def _build_server(
         predicates use the graph `filter` grammar on `attrs.<field>` and run
         in memory, outside the store lock. Rows keep upstream order. Served
         values are wrapped as untrusted text again on every page.
+
+        `compute` (`map` only, PACT read-map-compute) adds computed columns
+        to every row the condition keeps; a set that holds computed columns
+        is read by `calc.<name>` in every argument (6.5).
         """
         order_key: Optional[tuple[str, bool]] = None
-        if order_by:
-            if operator == "aggregate":
-                raise _live_results.refuse_argument("order_by", operator)
-            order_key = _live_reader.parse_order_by(order_by)
+        group_order = None
+        sent_predicate, sent_projection, sent_order_by = predicate, projection, order_by
         _refuse_live_retain(operator, retain)
         if metrics is not None and operator != "aggregate":
             raise _live_results.refuse_argument("metrics", operator)
-        _live_results.check_predicate(predicate)
-        _live_results.check_projection(projection, argument=projection_argument)
-        fields = _live_results.check_by(by) if operator == "aggregate" else []
-        parsed_metrics = (
-            _live_results.check_metrics(metrics) if operator == "aggregate" else []
-        )
+        fields: list[str] = []
+        parsed_metrics: list[Any] = []
+        early_state: Optional[dict[str, Any]] = None
+        calc_names: Optional[_map_compute.Names] = None
+        if operator == "aggregate" and _map_compute.bare_by(by):
+            # A bare `by` name may be a computed column of the set (6.5):
+            # the set is opened first, so its columns are known before `by`
+            # is checked.
+            early_state = _live_open(operator, ref_id=str(ref_id), authority=authority)
+            calc_names = _map_compute.resolve_names(
+                operator, _map_compute.columns_of(early_state["set"], early_state["rows"]),
+                predicate=predicate, by=by, metrics=metrics, order_by=order_by,
+                rows_known=bool(early_state["rows"]),
+            )
+            predicate, by, metrics = calc_names.predicate, calc_names.by, calc_names.metrics
+            order_by = calc_names.order_by
+        if operator == "aggregate":
+            # PACT read-aggregate-order-by (N2): the groups' order, checked
+            # before the kept set is opened.
+            group_order = _live_aggregate_order(
+                order_by, by=by, metrics=metrics,
+                call={"input": {"ref": ref_id}, "by": by, "metrics": metrics,
+                      "order_by": order_by},
+            )
+            _live_results.check_predicate(_handles_value_list_shapes(predicate))
+            fields = _live_results.check_by(by)
+            parsed_metrics = _live_results.check_metrics(metrics)
         ref = str(ref_id)
-        state = _live_open(operator, ref_id=ref, authority=authority)
+        state = early_state or _live_open(operator, ref_id=ref, authority=authority)
         if generation_id is not None and str(generation_id) != str(state["generation"]):
             # The anchor is checked at the current default generation; a
             # different pin is a conflict, never silently ignored. (The
@@ -15697,11 +16142,103 @@ def _build_server(
         retained = state["set"]
         rows = state["rows"]
         relation = retained.relation_name
+        groups_in = isinstance(retained, _live_results.LiveGroupsSet)
+        group_columns: Optional[list[str]] = None
+        calc_columns = _map_compute.columns_of(retained, rows)
+        if calc_names is None and (
+            calc_columns
+            or _map_compute.mentions_calc(predicate, projection, order_by, by, metrics)
+        ):
+            # PACT read-map-compute (6.5): `calc.<name>` checked against the
+            # set's computed columns; a bare name equal to one reads it. The
+            # `select` of a map that computes may name its new columns, so it
+            # is checked once they exist.
+            calc_names = _map_compute.resolve_names(
+                operator, calc_columns, predicate=predicate,
+                projection=None if compute is not None else projection,
+                order_by=order_by, by=by, metrics=metrics,
+                rows_known=bool(rows) or groups_in,
+            )
+            predicate, order_by = calc_names.predicate, calc_names.order_by
+            if compute is None:
+                projection = calc_names.projection
+        if calc_names is not None and calc_names.notes:
+            note_adjusted(calc_names.notes)
+        if groups_in:
+            # A groups handle (PACT read-live-handles, 4.1.7): its columns
+            # are named as the reply printed them, matched against the
+            # handle's own columns, never forced through `attrs.`.
+            if operator == "aggregate":
+                raise _live_results.LiveResultPredicateUnsupported(
+                    "aggregate: this handle holds an aggregate's groups; group the "
+                    "set it was made from (its handle's `from`), or read the groups "
+                    "with filter",
+                    data={"argument": "input", "reason": "groups_handle"},
+                    fix_hint='filter(input="<groups handle>", where=..., order_by=...)',
+                )
+            predicate, group_columns, order_by = _live_group_names(
+                retained, predicate, None if compute is not None else projection,
+                order_by, operator,
+            )
+            projection = None
+        if operator != "aggregate":
+            if order_by:
+                order_key = _live_reader.parse_order_by(order_by)
+            _live_results.check_predicate(_handles_value_list_shapes(predicate))
+            if compute is None:
+                _live_results.check_projection(projection, argument=projection_argument)
+        # Values from another live handle (4.1.8): read through `_live_open`
+        # (its re-checks and the decode bound), then compared as a list.
+        value_notes: list[dict[str, Any]] = []
+        predicate = _live_value_lists(operator, predicate, authority, value_notes)
         off = max(0, int(offset))
         # Live typed rows (#3666): record columns, field states, the
         # typo check, then the condition, before any grouping or paging.
         names = _live_reader.names_of(predicate, fields, parsed_metrics)
         _live_reader.check_record_columns(rows, names, operator)
+        if not state.get("fresh"):
+            # #4050: a field growth fetches that no kept row holds means
+            # growth did not run; refused by name, never served as null.
+            projected = (
+                list(projection.values()) if isinstance(projection, Mapping)
+                else list(projection or [])
+            )
+            # A sort on an unfetched field would sort on nulls: its field,
+            # with the direction (`-x`, `x desc`, `x asc`) split off.
+            if isinstance(order_by, str) and order_by.strip():
+                sort_field = order_by.strip().lstrip("-").split()[0]
+                projected.append(sort_field)
+            _live_resolver.refuse_unfetched(
+                getattr(mcp, "_okg_live_types", None), operator, retained, rows,
+                [*names.keys, *(
+                    str(f).split(".", 1)[1] for f in projected
+                    if isinstance(f, str) and f.startswith("attrs.") and len(f) > 6
+                )],
+                ref,
+            )
+        if (
+            order_key is not None and not groups_in
+            and not _live_results.is_record_key(order_key[0]) and rows
+        ):
+            # A sort on a field no row holds (no value, no field state), even
+            # after growth, would serve the rows in input order as if sorted
+            # (review R3-1, #4054): refused by name.
+            sort_key = order_key[0]
+            if not any(
+                isinstance(row, Mapping) and (
+                    sort_key in _live_reader.attrs_of(row)
+                    or sort_key in ((row.get("live") or {}).get("fields") or {})
+                )
+                for row in rows
+            ):
+                raise _live_results.LiveResultPredicateUnsupported(
+                    f"{operator}: no row of this set holds "
+                    f"{_live_reader.fenced_key_list([sort_key], prefix='attrs.')}, so a "
+                    "sort on it would leave the rows in input order",
+                    data={"argument": "order_by", "reason": "order_by_field_not_held",
+                          "key": f"attrs.{sort_key}"},
+                    fix_hint="sort by a field the rows hold, or read the set again naming it",
+                )
         # Refused as a probable typo only on a set that is the whole listing
         # (a raw kept answer counts as whole); on a narrowed live set the
         # key is noted, with the resolver's own note for the conditions it
@@ -15715,10 +16252,24 @@ def _build_server(
             state.get("keys_absent") if state.get("fresh") else None, keys_absent,
         )
         readable, not_read = _live_reader.split_not_read(rows, names.keys)
+        # PACT read-map-compute (6.5): a row with no value in a computed
+        # column the condition, `by` or a metric reads is set aside and
+        # counted, as a row whose field was not read is.
+        readable, calc_aside = _map_compute.set_aside(
+            readable,
+            [
+                name for argument in ("predicate", "by", "metrics")
+                for name in (calc_names.read.get(argument, []) if calc_names else [])
+            ],
+            served_id=lambda row: _live_results.served_node_id(
+                row.get("node_id"), relation,
+                checked=bool(getattr(retained, "ids_checked", False)),
+            ),
+        )
         matched, not_comparable = _live_reader.filter_rows(
             readable, predicate,
             lambda row: _operator_predicate_matches(
-                {"attrs": row}, predicate, declared=None,
+                _live_reader.evaluation_row(row), predicate, declared=None,
             ),
         )
         if state.get("fresh"):
@@ -15740,36 +16291,98 @@ def _build_server(
             reader_notes["not_comparable"] = report_comparable
         if keys_absent is not None:
             reader_notes["keys_absent"] = keys_absent
+        if value_notes:
+            # Value-list rows whose column was not read (review F4): said, with
+            # the counts, never dropped silently.
+            reader_notes["value_lists_not_read"] = value_notes
+        if (report_aside := calc_aside.report()) is not None:
+            reader_notes["not_computed"] = report_aside
+        if compute is not None:
+            return _live_map_compute(
+                state, ref=ref, retained=retained, rows=rows, matched=matched,
+                compute=compute, select=sent_projection, sent_predicate=sent_predicate,
+                limit=limit, offset=off, reader_notes=reader_notes,
+            )
         if operator == "aggregate":
             report = _live_results.group_report(
                 [_live_reader.flat_row(row) for row in matched], fields, parsed_metrics,
             )
             groups, skipped = report.groups, report.skipped
             page = max(1, min(int(limit), _live_results.MAX_GROUPS))
+            labels = [_live_results.metric_label(m) for m in parsed_metrics]
+            short = _live_results.totals_short(retained, _live_coverage(retained, state))
+            ranked_facts: dict[str, Any] = {}
+            if group_order is not None:
+                groups, ranked_facts = _live_ranked_groups(
+                    groups, fields=fields, order=group_order, offset=off, page=page,
+                    relation=relation, reader_notes=reader_notes,
+                    coverage=_live_coverage(retained, state),
+                    rows=rows,
+                )
+                if sent_predicate not in (None, True, {}):
+                    # The condition this read applied to the kept rows: the
+                    # `next` hint repeats it (review M1), as sent.
+                    ranked_facts["predicate"] = sent_predicate
+            # Every group, not the page, kept as a handle with `from` the set
+            # it grouped (4.1.7).
+            groups_handle = _live_groups_handle(
+                state, ref=ref, groups=groups, fields=fields, ranked=group_order is not None,
+                ranking_complete=ranked_facts.get("ranking_complete"),
+                call={"input": {"ref": _live_set_id(state, ref) or ref}, "by": list(fields),
+                      "metrics": list(metrics or ["count"]),
+                      **({"predicate": sent_predicate}
+                         if sent_predicate not in (None, True, {}) else {}),
+                      **({"order_by": sent_order_by} if sent_order_by else {})},
+            )
             visible = groups[off: off + page + 1]
             truncated = len(visible) > page
             cursor = _live_results.page_cursor(off, page, truncated)
+            served_groups = _live_results.fenced_groups(visible[:page], fields, relation)
+            if group_order is not None:
+                served_groups = [
+                    {"rank": off + index + 1, **group}
+                    for index, group in enumerate(served_groups)
+                ]
+            else:
+                # The trap note (C7): a page `limit` cut, in count order,
+                # while the call computes another metric.
+                note = _aggregate_order.order_note(labels, cut=truncated)
+                if note is not None:
+                    ranked_facts["order_note"] = note
             payload: dict[str, Any] = {
                 # A key a row does not carry is the plain `(absent)` group
                 # (#3666, lane ri), apart from a stored null.
-                "groups": _live_results.fenced_groups(visible[:page], fields, relation),
+                "groups": served_groups,
                 "by": fields,
-                "metrics": [_live_results.metric_label(m) for m in parsed_metrics],
+                "metrics": labels,
                 # Rows a computed metric left out, per column: never read as 0.
                 **({"values_skipped": skipped} if any(
                     sum(reasons.values()) for reasons in skipped.values()
                 ) else {}),
                 **({"absent_keys": report.absent} if report.absent else {}),
                 # A sum that added a non-integer value is not exact.
-                **({"sum_not_exact": report.inexact} if report.inexact else {}),
+                # A whole-number float of 2^53 or more is flagged too (L7).
+                **({"sum_not_exact": _live_results.not_exact_labels(report)}
+                   if report.inexact or report.large_floats else {}),
+                **({"sum_large_floats": report.large_floats} if report.large_floats else {}),
                 "rows_counted": len(matched),
-                # What the totals cover, printed first.
-                "totals_cover": _live_results.totals_cover(retained, len(matched)),
+                # What the totals cover, printed first; over a short set
+                # (an upstream cut or a cut typed listing), how short each
+                # metric may be (PACT live-kept-answer-cut).
+                "totals_cover": _live_results.totals_cover(
+                    retained, len(matched), metrics=parsed_metrics,
+                    grouped=bool(fields), coverage=_live_coverage(retained, state),
+                ) + _live_results.partial_rows_text(
+                    parsed_metrics, grouped=bool(fields), counted=len(matched),
+                    not_computed=calc_aside.count,
+                ),
                 **reader_notes,
                 "total_count": len(groups),
                 "groups_total": len(groups),
-                "total_count_basis": "exact",
-                "retrieval_exhaustive": True,
+                # A short set's totals and groups are not the whole answer's.
+                **short,
+                "total_count_basis": "lower_bound" if short else "exact",
+                "retrieval_exhaustive": not short,
                 "selection_basis": _live_results.SERVED_FROM,
                 "truncated": truncated,
                 "limit": page,
@@ -15777,17 +16390,41 @@ def _build_server(
                 **cursor,
                 "pinned_generation_id": state["generation"],
                 **_live_served_fields(retained, ref, state),
+                **ranked_facts,
+                **groups_handle,
             }
+            if payload.get("handle") is not None:
+                # The groups have a handle; `kept` says why their set has none.
+                payload.pop("handle_reason", None)
             return _stamp_operator(_live_resolver.with_live_line(payload, state), operator)
         page = max(1, min(int(limit), 1000))
         if order_key is not None:
             matched = _live_reader.order_rows(matched, *order_key, operator)
         total = len(matched)
         page_rows = matched[off: off + page]
+        # The set this reply's handle names (4.1.1): a filter that narrows
+        # or orders a handle mints a derived one of its own; a no-op filter
+        # and a column-only map name their input's (lead decision Q4).
+        set_handle = _live_set_handle(
+            operator, state, ref=ref, retained=retained, matched=matched,
+            narrowed=predicate not in (None, True, {}),
+            ordered=order_key is not None, order_by=sent_order_by,
+            call={"input": {"ref": _live_set_id(state, ref) or ref},
+                  **({"predicate": sent_predicate}
+                     if sent_predicate not in (None, True, {}) else {}),
+                  **({"order_by": sent_order_by} if sent_order_by else {})},
+        )
         # A typed row's upstream fields are `attrs`; a raw row is its own.
         raw_page = [_live_reader.attrs_of(row) for row in page_rows]
         served_page = _live_results.fence_rows(raw_page, relation)
-        if projection is None:
+        if group_columns is not None:
+            # A groups handle's rows, under the column names the reply printed.
+            keys = [(name, retained.key_of(name)) for name in group_columns]
+            columns = list(group_columns)
+            projected = _live_results.fence_rows(
+                [{name: row.get(key) for name, key in keys} for row in page_rows], relation,
+            )
+        elif projection is None:
             typed = [_live_reader.is_typed(row) for row in page_rows]
             columns = ["node_id", "subtype", "attrs", "live"] if page_rows and all(
                 typed
@@ -15810,6 +16447,13 @@ def _build_server(
                     page_rows, raw_page, served_page, typed,
                 )
             ]
+            if calc_columns:
+                # A map's handle (PACT read-map-compute): its computed
+                # columns print beside the row, as `calc.<name>`.
+                columns = [*columns, *(f"calc.{n}" for n in calc_columns)]
+                for item, row in zip(projected, page_rows):
+                    for name in calc_columns:
+                        item[f"calc.{name}"] = _map_compute.served_value(row, name, relation)
         else:
             pairs, columns = _operator_projection("nodes", projection)
             _live_reader.check_record_columns(
@@ -15817,9 +16461,16 @@ def _build_server(
             )
             projected = _live_results.project(
                 raw_page, served_page, pairs, records=[
-                    {**row, "node_id": _live_results.served_node_id(
-                        row.get("node_id"), relation, checked=ids_checked)}
-                    if _live_reader.is_typed(row) else row
+                    {
+                        **row,
+                        **({"node_id": _live_results.served_node_id(
+                            row.get("node_id"), relation, checked=ids_checked)}
+                           if _live_reader.is_typed(row) else {}),
+                        # Computed columns as served (fenced when built
+                        # from upstream text, PACT read-map-compute 6.8).
+                        **{_map_compute.value_key(name): _map_compute.served_value(
+                            row, name, relation) for name in calc_columns},
+                    }
                     for row in page_rows
                 ],
             )
@@ -15854,13 +16505,312 @@ def _build_server(
         if altered:
             # As on the expand: the served rows' keys were rewritten.
             payload["neutralised_keys"] = list(altered)
+        # The call's own arguments, as sent (a groups handle's columns and a
+        # value list from a handle are echoed as the caller wrote them).
         if operator == "filter":
-            payload["predicate"] = predicate
-            if projection is not None:
-                payload["select"] = projection
+            payload["predicate"] = sent_predicate
+            if sent_projection is not None:
+                payload["select"] = sent_projection
         else:
-            payload["projection"] = projection
+            payload["projection"] = sent_projection
+        if sent_order_by:
+            payload["order_by"] = sent_order_by
+        payload.update(set_handle)
+        if value_notes:
+            # Rows of a value list's handle were not read (review R3-3): the
+            # page is not known to hold every matching row.
+            payload["retrieval_exhaustive"] = False
+        next_call = _live_next_call(
+            operator, payload, projection=sent_projection, order_by=sent_order_by,
+            predicate=sent_predicate, ref=ref, page=page,
+        )
+        if next_call is not None:
+            payload["next_call"] = next_call
         return _stamp_operator(_live_resolver.with_live_line(payload, state), operator)
+
+    def _map_compute_call(
+        *, input: Any, compute: Any, projection: Any, predicate: Any, generation_id: Any,
+        limit: int, offset: int, authority: Any, next: Any,
+    ) -> dict[str, Any]:
+        """`map(compute=...)` (PACT read-map-compute): computed columns on a
+        live set, a live handle, a groups handle or a chain handle. Every
+        refusal here comes before any upstream call or graph read: under
+        access rules first (6.10), then a stored input (until stored
+        handles), an edge set, and `compute` beside a renaming projection."""
+        _map_compute.refuse_under_access_rules(mcp)
+        if next is not None:
+            raise _map_compute.refuse(
+                "compute_on_stored_set",
+                "map: `next` continues a stored read; computed columns over stored "
+                "records come with stored handles",
+                'read a live set or handle: map(input="<l1. handle>", compute={...})',
+            )
+        if isinstance(projection, Mapping):
+            raise _map_compute.refuse(
+                "compute_with_projection",
+                "map: `compute` adds columns and `projection` renames them; send one "
+                "of the two",
+                'name the printed columns with select=[...], or write a rename as '
+                'compute={"<alias>": "<field>"}',
+            )
+        input = as_mapping(_string_handle_input("map", input))
+        predicate = as_mapping(predicate)
+        ref = input.get("ref") if isinstance(input, Mapping) else None
+        if _live_results.is_live_id(ref):
+            return _live_read(
+                "map", ref_id=ref, authority=authority, generation_id=generation_id,
+                limit=limit, offset=offset, predicate=predicate, projection=projection,
+                projection_argument="select", compute=compute,
+            )
+        if isinstance(input, Mapping) and input.get("kind") == "edges":
+            raise _map_compute.refuse(
+                "compute_on_edges",
+                "map: computed columns are added to records; an edge set holds links",
+                'map a live set of records: map(where={"type": "<live type>"}, compute={...})',
+            )
+        raise _map_compute.refuse(
+            "compute_on_stored_set",
+            "map: computed columns over stored records come with stored handles; "
+            + ("this input is a stored handle" if ref is not None else "this input is a stored set"),
+            "computed columns are served on live sets and their handles: "
+            'map(input="<l1. handle>", compute={...}); read stored records with '
+            "filter(select=[...])",
+        )
+
+    def _live_map_compute(
+        state: Mapping[str, Any], *, ref: str, retained: Any, rows: Sequence[Any],
+        matched: Sequence[Any], compute: Any, select: Any, sent_predicate: Any,
+        limit: int, offset: int, reader_notes: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """The rows `matched` with every computed column added (6.1-6.8): the
+        same rows in the same order, kept as a new handle, `select` printed."""
+        import dataclasses as _dc
+
+        relation = retained.relation_name
+        groups_in = isinstance(retained, _live_results.LiveGroupsSet)
+        ids_checked = bool(getattr(retained, "ids_checked", False))
+        program = _map_compute.compile_for(compute, retained, rows)
+        typed = bool(rows) and all(_live_reader.is_typed(row) for row in rows)
+        _map_compute.refuse_operands(program, groups=groups_in, typed=typed or not rows)
+        if not state.get("fresh") and not groups_in:
+            # #4050: a field growth fetches that no kept row holds means
+            # growth did not run; never computed from nulls.
+            _live_resolver.refuse_unfetched(
+                getattr(mcp, "_okg_live_types", None), "map", retained, rows,
+                _map_compute.upstream_keys(compute), ref,
+            )
+        # Review M1 and H1: a column named like an upstream field the rows
+        # hold, and an expression field no row holds, refused by name before
+        # computing (never served as a null with state ok).
+        _map_compute.refuse_shadowing(compute, _map_compute.upstream_names(retained, rows))
+        _map_compute.check_operands_held(program, retained, rows)
+
+        def served_id(row: Mapping[str, Any]) -> Any:
+            return _live_results.served_node_id(
+                row.get("node_id"), relation, checked=ids_checked,
+            )
+
+        computed = _map_compute.computed_rows(program, retained, matched, served_id=served_id)
+        new_rows = computed.rows
+        base = _live_set_id(state, ref)
+        blob = _live_results.encode_rows(new_rows)
+        labels = [column.label for column in program.columns]
+        if groups_in:
+            columns = list(retained.columns) + [
+                label for label in labels if label not in retained.columns
+            ]
+            derived = _dc.replace(
+                retained, rows_json=blob, row_count=len(new_rows), columns=tuple(columns),
+                digest="sha256:" + hashlib.sha256(blob).hexdigest(),
+            )
+        else:
+            fields: dict[str, Any] = {
+                "rows_json": blob, "row_count": len(new_rows), "derived_from": base,
+                "original_rows": getattr(retained, "original_rows", None) or retained.row_count,
+            }
+            if isinstance(retained, _live_resolver.LiveTypedSet):
+                fields["whole_listing"] = (
+                    bool(retained.whole_listing) and sent_predicate in (None, True, {})
+                )
+                fields["grown_from"] = None
+            derived = _dc.replace(retained, **fields)
+        call = {
+            "input": {"ref": base or ref}, "compute": dict(compute),
+            **({"predicate": sent_predicate} if sent_predicate not in (None, True, {}) else {}),
+        }
+        too_large = (
+            len(new_rows) > _live_results.MAX_ROWS or len(blob) > _live_results.MAX_SET_BYTES
+        )
+        set_id, why = (None, "too_large") if too_large else _live_mint(
+            state, derived, rows=len(new_rows), parent=base,
+            call=_handles.producing_call("map", call),
+            key=f"map:{ref}:{_json.dumps(call, sort_keys=True, default=str)}",
+        )
+        # What is printed: `select` (checked now that the new columns exist),
+        # or the record id, the fields the expressions read and the new
+        # columns; over a groups handle, its columns and the new ones.
+        all_calc = _map_compute.columns_of(derived, new_rows) if new_rows else tuple(
+            dict.fromkeys([*_map_compute.columns_of(retained, rows), *(c.name for c in program.columns)])
+        )
+        if select is not None:
+            names = _map_compute.resolve_names("map", all_calc, projection=select)
+            if names.notes:
+                note_adjusted(names.notes)
+            shown = list(names.projection or [])
+        elif groups_in:
+            shown = list(derived.columns)
+        else:
+            shown = _map_compute.default_select(program, typed=typed)
+        page = max(1, min(int(limit), 1000))
+        page_rows = new_rows[offset: offset + page]
+        total = len(new_rows)
+        if groups_in:
+            for name in shown:
+                if derived.key_of(name) is None:
+                    raise _live_results.LiveResultPredicateUnsupported(
+                        f"map: {name!r} is not a column of this groups handle; its "
+                        f"columns are {', '.join(derived.columns)}",
+                        data={"argument": "select", "reason": "groups_column_unknown",
+                              "columns": list(derived.columns)},
+                        fix_hint="name a column as the aggregate reply printed it",
+                    )
+            keys = [(name, derived.key_of(name)) for name in shown]
+            projected = _live_results.fence_rows(
+                [{name: row.get(key) for name, key in keys} for row in page_rows], relation,
+            )
+            out_columns = list(shown)
+        else:
+            _live_results.check_projection(shown, argument="select")
+            _live_reader.check_record_columns(
+                rows, _live_reader.projection_names(shown), "map",
+            )
+            pairs, out_columns = _operator_projection("nodes", shown)
+            raw_page = [_live_reader.attrs_of(row) for row in page_rows]
+            served_page = _live_results.fence_rows(raw_page, relation)
+            records = []
+            for row in page_rows:
+                record = dict(row)
+                if _live_reader.is_typed(row):
+                    record["node_id"] = served_id(row)
+                for name in all_calc:
+                    record[_map_compute.value_key(name)] = _map_compute.served_value(
+                        row, name, relation,
+                    )
+                records.append(record)
+            projected = _live_results.project(raw_page, served_page, pairs, records=records)
+        envelope = _operator_envelope(
+            rows=projected,
+            columns=out_columns,
+            page=page,
+            offset=offset,
+            generation_id=state["generation"],
+            scan_truncated=offset + page < total,
+            count_fields={
+                "total_count": total,
+                "total_count_basis": "exact",
+                "retrieval_exhaustive": True,
+                "selection_basis": _live_results.SERVED_FROM,
+            },
+        )
+        cut = bool(envelope["truncated"])
+        if set_id is None and why == "too_large" and cut:
+            raise _live_results.LiveResultPredicateUnsupported(
+                f"map: the {total:,} computed rows are too large to keep "
+                f"(at most {_live_results.MAX_ROWS:,} rows and "
+                f"{_live_results.MAX_SET_BYTES:,} bytes), and this page holds only "
+                f"part of them, so the rest could not be read",
+                data={"argument": "compute", "reason": "kept_set_too_large",
+                      "rows": total, "bytes": len(blob)},
+                fix_hint="narrow the input with where=..., or compute fewer columns",
+            )
+        notes = [
+            {"rule": "compute_note", "sent": "compute", "served": note}
+            for note in computed.notes
+        ]
+        if notes:
+            note_adjusted(notes)
+        payload: dict[str, Any] = {
+            **envelope,
+            **_live_results.page_cursor(offset, page, cut),
+            "operator_name": "map",
+            "computed": computed.columns,
+            **({"map_input": {
+                "rows": len(matched), "of": len(rows), "handle": ref,
+                "where": sent_predicate,
+            }} if sent_predicate not in (None, True, {}) else {}),
+            **reader_notes,
+            **_live_served_fields(retained, ref, state),
+            "compute": dict(compute),
+        }
+        if select is not None:
+            payload["select"] = list(select)
+        if groups_in and getattr(retained, "ranking_complete", None) is not None:
+            # The groups keep their order (part 2's ranking included), and
+            # whether that ranking was complete (6.3).
+            payload["ranking_complete"] = bool(retained.ranking_complete)
+        if set_id is not None:
+            payload["handle"] = _handles.handle_block(
+                set_id=set_id, rows=total,
+                columns=list(derived.columns) if groups_in else _live_columns(derived, new_rows)
+                + [f"calc.{name}" for name in all_calc],
+                order=str(getattr(retained, "order", "input order"))
+                if groups_in else "input order",
+                expires_at=_handles.expires_of(set_id), read_window=_live_read_window(retained),
+                from_id=base,
+                stateless=bool(getattr(_live_results.checked_set(retained), "stateless", False)),
+            )
+        else:
+            payload.update(_handles.no_handle(str(why)))
+            if why == "too_large":
+                payload["handle_note"] = (
+                    "the computed rows are too large to keep, so this reply cannot be "
+                    "read again by a later call"
+                )
+        if cut and set_id is not None:
+            arguments: dict[str, Any] = {"input": {"ref": set_id}}
+            arguments["select"] = shown
+            if page != 50:
+                arguments["limit"] = page
+            arguments["offset"] = offset + page
+            payload["next_call"] = {"tool": "filter", "arguments": arguments}
+        return _stamp_operator(_live_resolver.with_live_line(payload, state), "map")
+
+    def _live_next_call(
+        operator: str, payload: Mapping[str, Any], *, projection: Any, order_by: Any,
+        predicate: Any, ref: str, page: int,
+    ) -> Optional[dict[str, Any]]:
+        """The one call that reads the next page of a cut live `filter` or
+        `map` page (PACT read-live-handles, 3.7): the whole call on the
+        reply's own handle, which holds the rows being paged in their order.
+        A renaming projection stays `map`; with no handle, the call on the
+        input, its condition included."""
+        offset = payload.get("next_offset")
+        if not isinstance(offset, int) or isinstance(offset, bool):
+            return None
+        handle = payload.get("handle")
+        arguments: dict[str, Any] = {}
+        ordered_handle = False
+        if isinstance(handle, Mapping) and isinstance(handle.get("id"), str):
+            arguments["input"] = {"ref": handle["id"]}
+            ordered_handle = handle.get("order") not in (None, "input order")
+        elif _live_results.is_live_id(ref):
+            arguments["input"] = {"ref": ref}
+            if predicate not in (None, True, {}):
+                arguments["predicate"] = predicate
+        else:
+            return None
+        tool = "filter"
+        if isinstance(projection, Mapping):
+            tool = "map"
+            arguments["projection"] = dict(projection)
+        elif isinstance(projection, list):
+            arguments["select"] = list(projection)
+        if order_by and not ordered_handle:
+            arguments["order_by"] = order_by
+        if page != 50:
+            arguments["limit"] = page
+        arguments["offset"] = offset
+        return {"tool": tool, "arguments": arguments}
 
     def filter(
         input: Optional[SetInput] = None,
@@ -15888,6 +16838,7 @@ def _build_server(
         `order_by` is
         '<field>' or '<field> desc', including a declared attrs.<key>.
         Past offset 10000, `next` alone continues.
+        A live reply names a handle; input=<handle> reads it again.
         """
         keyset: Optional[dict[str, Any]] = None
         if next is not None:
@@ -15916,6 +16867,7 @@ def _build_server(
             )
             return refusal
         date_started = _date_call_started()
+        input = _string_handle_input("filter", input)
         input = as_mapping(input)
         predicate = as_mapping(predicate)
         digest_refusal = _text_digest_operator_refusal(
@@ -16351,13 +17303,28 @@ def _build_server(
         authority: Optional[dict[str, Any]] = None,
         max_bytes: MaxBytes = None,
         next: Optional[str] = None,
+        compute: Optional[dict[str, str]] = None,
+        predicate: Optional[PredicateInput] = None,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Chosen fields of every record in a set.
+        """Add computed columns to every row of a set; never drops a row.
 
-        map(where={"type":"[[subtype]]"}, select=["node_id","attrs.<key>"]).
+        map(input=<handle>, compute={"fill": "attrs.used / attrs.total"}, ...)
+        adds calc.fill. Functions: abs round floor ceil min max coalesce
+        is_null if lower upper len concat substr split_part starts_with
+        ends_with contains regex number string to_unit days_between.[[if tool:filter|aggregate]]
+        Then [[if tool:filter]]filter(input=..., order_by="-calc.fill", limit=5)[[/if]][[if tool:filter tool:aggregate]] or [[/if]][[if tool:aggregate]]aggregate(..., metrics=["sum(calc.x)"])[[/if]].[[/if]]
+        Without compute, map(where={"type":"[[subtype]]"}, select=["node_id"]) picks fields.
         Past offset 10000, `next` alone continues.
         """
+        if compute is not None:
+            return _map_compute_call(
+                input=input, compute=compute, projection=projection,
+                predicate=predicate, generation_id=generation_id, limit=limit,
+                offset=offset, authority=authority, next=next,
+            )
+        if predicate is not None:
+            raise _live_results.refuse_argument("predicate", "map")
         keyset: Optional[dict[str, Any]] = None
         if next is not None:
             arguments, refusal = _keyset_next_call(
@@ -16382,6 +17349,7 @@ def _build_server(
             )
             return refusal
         date_started = _date_call_started()
+        input = _string_handle_input("map", input)
         input = as_mapping(input)
         projection = as_mapping(projection)
         digest_refusal = _text_digest_operator_refusal("map", input=input)
@@ -17200,38 +18168,32 @@ def _build_server(
     # Test seam for scale-operator-attr-reads (task.pushdown): lets the parity
     # suite drive the attr-operator scan with an explicit pushdown predicate
     # (subtype/edge_type/stable clauses) and compare it to the unfiltered scan.
-    mcp._okg_operator_attr_rows = _operator_attr_rows  # type: ignore[attr-defined]
     mcp._okg_attr_scan_pushdown_predicate = (  # type: ignore[attr-defined]
         _attr_scan_pushdown_predicate
     )
-    # Test seam for expose-mcp-node-lookup: lets the lookup suite assert the
-    # generated SQL shape (the GIN-indexed `attrs @> ...` containment) that
-    # the typed attrs lookup pushes into the effective-view scan WHERE.
-    mcp._okg_effective_view_where = _effective_view_where  # type: ignore[attr-defined]
-    # Test seam for issue #1186: the alternate snapshot mode must refuse when
-    # its requested relation is absent instead of dropping to a Chronos scan.
-    mcp._okg_effective_view_source = _effective_view_source  # type: ignore[attr-defined]
     # Test seams for #3201: the operator compiler and the effective relation
     # it compiles over, so the parity suite can evaluate the compiled SQL and
     # the frozen pre-change renderer against the same published rows.
     mcp._okg_compile_operator_predicate = (  # type: ignore[attr-defined]
         _compile_operator_predicate
     )
-    mcp._okg_effective_view_runtime_source = (  # type: ignore[attr-defined]
-        _effective_view_runtime_source
-    )
     mcp._okg_bounded_operator_count = (  # type: ignore[attr-defined]
         _bounded_operator_count
+    )
+    # Test seam for PACT lane-s-storage-redesign-s2: the page read itself,
+    # so the graph-path suite can run it on its own connection (prepared
+    # statements are per connection) under both read paths.
+    mcp._okg_effective_view_sql_page = (  # type: ignore[attr-defined]
+        _effective_view_sql_page
+    )
+    mcp._okg_effective_view_aggregate_groups = (  # type: ignore[attr-defined]
+        _effective_view_aggregate_groups
     )
     mcp._okg_effective_view_order_sql = (  # type: ignore[attr-defined]
         _effective_view_order_sql
     )
     mcp._okg_operator_predicate_matches = (  # type: ignore[attr-defined]
         _operator_predicate_matches
-    )
-    # Test seam for lane-h-mcp-filter-index-driven: the completeness-cache key.
-    mcp._okg_interval_complete_cache_key = (  # type: ignore[attr-defined]
-        _interval_complete_cache_key
     )
 
     # Legacy graph-traversal compat aliases describe_subtype, get_node,
@@ -17482,10 +18444,9 @@ def _build_server(
         if subtype:
             clauses.append({"op": "eq", "field": "subtype", "value": subtype})
         # A resolved search profile narrows this typed lookup too. It MUST be
-        # an `in` node, not an `or` tree: both pushdown renderers drop any
-        # `or` (`_attr_free_pushdown_clauses` keeps only eq/in/exists;
-        # `_effective_view_where.render` has no `or` branch), so an `or` here
-        # would vanish silently and the envelope would report a scope that
+        # an `in` node, not an `or` tree: the pushdown renderer drops any
+        # `or` (`_attr_free_pushdown_clauses` keeps only eq/in/exists), so an
+        # `or` here would vanish silently and the envelope would report a scope that
         # never ran. Pushdown is narrowing-only by design anyway, so the
         # residual Python filter below re-checks it authoritatively.
         scoped_subtypes = filter.get("subtypes")
@@ -18684,14 +19645,9 @@ def _build_server(
 
                 memo_key = ""
                 if reference_wanted:
-                    if not _effective_view_ready(h.conn, h.session.generation_id, "node"):
-                        raise _result_references.unsupported(
-                            "effective_view_not_ready",
-                            message="search: the pinned generation has no effective-"
-                            "attribute view, so no consumer could read a reference",
-                            fix_hint="search without retain, or publish the effective "
-                            "attribute view for this generation",
-                        )
+                    # A reference's consumers read the graph rows, which
+                    # need only an uncompacted pin with its overlay marker.
+                    _graph_read.require_graph_pin(h.conn, h.session)
                     selection = {
                         "query": query, "where": where,
                         "scope": (
@@ -18749,7 +19705,6 @@ def _build_server(
                         select=select,
                         scope=search_scope,
                         rank_by=rank_by,
-                        effective_view_source=_effective_view_source,
                         # Passed UNCONDITIONALLY, not only when the method is
                         # semantic. Gating on the method here would silently
                         # discard the flag on a lexical call and hand back a
@@ -19211,12 +20166,11 @@ def _build_server(
             generation: Any, authority: Any,
         ) -> str:
             with _open(generation, authority=authority) as h:
-                _require_effective_view(h.conn, h.session, "node")
+                _graph_read.require_graph_pin(h.conn, h.session)
                 if definition[0] == "records":
                     predicate = definition[2]
                 else:
                     _tag, node_id, edge_type, direction, far_filter = definition
-                    _require_effective_view(h.conn, h.session, "edge")
                     near, far = ("src", "dst") if direction == "out" else ("dst", "src")
                     clauses: list[dict[str, Any]] = [
                         {"op": "eq", "field": near, "value": node_id},
@@ -19288,7 +20242,7 @@ def _build_server(
         def _links_sql(self, h: Any, edge_type: str, direction: str) -> str:
             """The `edge_type` links as `(near, far)` id pairs, as SQL with
             its parameters bound in: near is the end a join starts from."""
-            _require_effective_view(h.conn, h.session, "edge")
+            _graph_read.require_graph_pin(h.conn, h.session)
             near, far = ("src", "dst") if direction == "out" else ("dst", "src")
             edges = _run_page_meta(
                 h.conn, h.session, "edges",

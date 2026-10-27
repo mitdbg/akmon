@@ -897,12 +897,72 @@ def each_deadline(relation_deadline: float, values: int) -> float:
     return min(EACH_MAX_DEADLINE_SECONDS, float(relation_deadline) * rounds)
 
 
+def _matched_nothing_args(
+    sent: Mapping[str, Any] | None, validated: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The arguments an empty match is said against: the text arguments the
+    caller sent (an expression or a pattern is what matched nothing), else
+    every argument the caller sent."""
+    sent_names = set(sent) if isinstance(sent, Mapping) else set()
+    given = {key: value for key, value in validated.items() if key in sent_names}
+    texts = {key: value for key, value in given.items() if isinstance(value, str)}
+    return texts or given
+
+
+#: Failures that are the external system's answer "nothing", not an outage:
+#: an empty match, and "what you named does not exist" (its own message says
+#: "that is its answer, not an outage"). A call answered so serves 0 rows,
+#: `state: ok`, and says which in its `matched_nothing` note, as a run's live
+#: step already counts them (`VALUE_EMPTY`, `VALUE_NOT_FOUND`).
+_NOTHING_FAILURES = frozenset({"upstream_empty_result", "upstream_not_found"})
+
+
+def _empty_match_as_rows(
+    adapter: Callable[..., Any], note: dict[str, Any],
+    sent: Mapping[str, Any] | None,
+) -> Callable[..., Any]:
+    """The adapter, with the external system's "this matched nothing" or
+    "not found" (`_NOTHING_FAILURES`) read as its answer: 0 rows, said in
+    `note` with the system's own words.
+
+    An empty match is an answer, not a failure (lane re, issue 4). Served
+    as `state: error` it read as a broken call, and the real failures beside
+    it were lost in the same shape."""
+
+    def call(**kwargs: Any) -> Any:
+        try:
+            return adapter(**kwargs)
+        except LiveAdapterError as exc:
+            if exc.failure not in _NOTHING_FAILURES:
+                raise
+            note.update(
+                # `failures` on both forms (a fan-out may mix the two kinds).
+                failure=exc.failure, failures=[exc.failure],
+                args=_matched_nothing_args(sent, kwargs.get("args") or {}),
+                **({"excerpt": exc.excerpt} if exc.excerpt else {}),
+            )
+            return []
+
+    return call
+
+
+class _NothingFor(list):
+    """One fanned-out value the external system answered "nothing" for:
+    no rows, and which failure said so."""
+
+    def __init__(self, failure: str, excerpt: str | None) -> None:
+        super().__init__()
+        self.failure = failure
+        self.excerpt = excerpt
+
+
 def each_adapter(
     adapter: Callable[..., Any],
     key: str,
     per_value: list[dict[str, Any]],
     relation_deadline: float,
     slots: Optional[threading.Semaphore] = None,
+    note: Optional[dict[str, Any]] = None,
 ) -> Callable[..., Any]:
     """An adapter that runs `adapter` once per value and joins the rows.
 
@@ -910,6 +970,11 @@ def each_adapter(
     order. A row (an object) that does not carry the argument gets it as
     its first field, so a total can be grouped or checked by value. Any
     one call's failure fails the whole answer, naming the value.
+
+    With `note`, a value the system answers "nothing" for
+    (`_NOTHING_FAILURES`) is 0 rows for that value, never a failure of the
+    whole answer: the values that answered keep their rows, and `note`
+    names the values that matched nothing, in the caller's order.
 
     `slots` is the binding's shared upstream cap (:func:`upstream_slots`):
     each value's call holds one while it runs, so fan-outs side by side
@@ -933,6 +998,8 @@ def each_adapter(
                     deadline_seconds=max(0.001, min(left, float(relation_deadline))),
                 )
             except LiveAdapterError as exc:
+                if note is not None and exc.failure in _NOTHING_FAILURES:
+                    return _NothingFor(exc.failure, exc.excerpt)
                 raise LiveAdapterError(
                     exc.failure,
                     excerpt=f"each {key}={validated[key]!r}: {exc.excerpt or exc.failure}",
@@ -947,6 +1014,20 @@ def each_adapter(
             thread_name_prefix="okg-live-each",
         ) as pool:
             answers = list(pool.map(one, per_value))
+        nothing = [
+            (validated[key], answer) for validated, answer in zip(per_value, answers)
+            if isinstance(answer, _NothingFor)
+        ]
+        if nothing and note is not None:
+            # One value's own words are kept (bounded), named by that value.
+            worded = next(((value, answer) for value, answer in nothing if answer.excerpt), None)
+            note.update(
+                failures=sorted({answer.failure for _, answer in nothing}),
+                # Printed like `query`: a long list is its count and first few.
+                args=_printed_query({key: [value for value, _ in nothing]}),
+                each_values=len(per_value),
+                **({"excerpt": worded[1].excerpt, "excerpt_for": {key: worded[0]}} if worded else {}),
+            )
         rows: list[Any] = []
         for validated, answer in zip(per_value, answers):
             for row in (answer if isinstance(answer, list) else [answer]):
@@ -1001,17 +1082,19 @@ def resolve_live_relation(
     return bound
 
 
-def _safe_excerpt(text: Any, relation: str) -> str:
+def _safe_excerpt(text: Any, relation: str, *, kind: str = "external_live_error") -> str:
     """Bound, redact and fence an adapter-supplied excerpt.
 
     Redaction first: an excerpt is the one place upstream text is echoed, so
-    any URL in it loses its userinfo before anything else happens.
+    any URL in it loses its userinfo before anything else happens. `kind`
+    names the fence's source: an error's words, or the system's words beside
+    a "nothing" answer (`external_live_said`), which is not an error.
     """
     from okg.substrate.external_backed.resolver import _fence_payload
 
     raw = str(text)[:MAX_ERROR_EXCERPT_CHARS]
     raw = _redact_userinfo(raw)
-    return _fence_payload(raw, source=f"external_live_error:{relation}")
+    return _fence_payload(raw, source=f"{kind}:{relation}")
 
 
 # Redaction now lives in `_http_guard` (#2100 section 7), shared with the
@@ -1858,7 +1941,6 @@ def live_reserve_envelope(
     args_model: type,
     args: Mapping[str, Any] | None,
     generation_id: Any = None,
-    retain: bool = False,
     each: Any = None,
 ) -> dict[str, Any]:
     """The reserve R: the largest envelope this call can return unshrunk.
@@ -1868,9 +1950,15 @@ def live_reserve_envelope(
     and that body is larger than the longest token and its line, in JSON and
     in text (`test_live_next_token.py` holds this).
 
-    With ``retain`` both forms carry the largest `result_reference` block a
-    call can return (a kept set's), so the room the graph step leaves holds
-    it (live result sets).
+    A kept answer's handle needs no room of its own either (PACT
+    read-live-handles: every live set read is kept, so every call carries
+    one). An `ok` form never carries an error body, and that body is larger
+    than the largest `result_reference` block plus the longest token and
+    their lines, in JSON and in text; an error form carries only the short
+    not-kept block, which the digest form's own fields outweigh
+    (`test_live_result_sets.py` and `test_live_rows_text.py` hold both).
+    Adding the block on top made the reserve about 470 B larger in JSON, and
+    a live call at the 4 KiB floor was refused before it ran (#4060).
 
     Sized BEFORE the adapter runs, from the validated arguments, so the
     graph step can be paged to leave room for it (issue #2141). A live call
@@ -1931,13 +2019,6 @@ def live_reserve_envelope(
         "state": "timeout",
         "error": {"reason": "e" * (ERROR_DATA_CAP_BYTES - len('{"reason":""}'))},
     }
-
-    if retain:
-        from okg.substrate.mcp.live_result_sets import largest_block
-
-        block = largest_block(base["observed_at"])
-        digest_form["result_reference"] = block
-        error_form["result_reference"] = block
 
     # Both forms in one (#3666): the text form prints a digest form and an
     # error form very differently from their JSON, so the larger JSON need
@@ -2024,17 +2105,23 @@ def dispatch_live_relation(
     #: A direct call waits for its upstream slot before it takes a live slot.
     capped_slots: Any = slots
     deadline_seconds = relation.deadline_seconds
+    #: Filled when the external system answered "nothing" (matched nothing,
+    #: not found) for the call or for some values of a fan-out: those are
+    #: 0 rows, `state: ok`, and the reply says so.
+    matched_nothing: dict[str, Any] = {}
     if each is not None:
         each_key, per_value = validate_each(bound, args, each, args_model=args_model)
         validated = each_query(each_key, per_value)
         run_adapter = each_adapter(
             adapter, each_key, per_value, relation.deadline_seconds, slots=slots,
+            note=matched_nothing,
         )
         # A fan-out holds one live slot; each value takes its upstream slot.
         capped_slots = None
         deadline_seconds = each_deadline(relation.deadline_seconds, len(per_value))
     else:
         validated = validate_live_arguments(bound, args, args_model=args_model)
+        run_adapter = _empty_match_as_rows(adapter, matched_nothing, args)
     fingerprint = canonical_args_fingerprint(validated)
 
     # WHO this call acts as, resolved on one explicit branch (#2160). An
@@ -2157,6 +2244,16 @@ def dispatch_live_relation(
             # The external system's own cut, said on every form the rows are
             # fitted into, so it is counted in every fit.
             upstream_fragment = _upstream_cut_fragment(bound, validated, payload)
+            if matched_nothing:
+                # Counted in every fit, like the external system's own cut.
+                # The system's own words travel, fenced and redacted like any
+                # upstream excerpt, so a reader can tell its "nothing" apart.
+                said = dict(matched_nothing)
+                if said.get("excerpt"):
+                    said["excerpt"] = _safe_excerpt(
+                        said["excerpt"], relation.name, kind="external_live_said",
+                    )
+                upstream_fragment = {**upstream_fragment, "matched_nothing": said}
             ok_base = {**envelope, "state": "ok", **upstream_fragment}
             # What a kept set records: the FULL arguments, every fanned-out
             # value included (its redo call and its totals' cover line count
@@ -2400,7 +2497,9 @@ def dispatch_live_relation(
                 sample_attrs_extra["text_shortened"] = dict(shaped.text_shortened)
             envelope.update(upstream_fragment)
             envelope.update(next_fragment)
-            if upstream_fragment:
+            if matched_nothing:
+                sample_attrs_extra["matched_nothing"] = True
+            if "upstream_cut" in upstream_fragment:
                 sample_attrs_extra["upstream_cut_rows"] = (
                     upstream_fragment["upstream_cut"]["rows"]
                 )

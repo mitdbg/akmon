@@ -25,10 +25,36 @@ def test_absent_optional_deployment_skips_intentionally(tmp_path: Path) -> None:
         test_file,
         repo_root=repo,
         deployment="af_pubs",
-    )
+    ) is True
+    # Undecided paths answer None, never False: False would stop pytest's
+    # own --ignore rules from running in the folder (#4100).
+    assert should_ignore_optional_deployment_test(
+        repo / "tests" / "af_pubs" / "helpers.py",
+        repo_root=repo,
+        deployment="af_pubs",
+    ) is None
+    assert should_ignore_optional_deployment_test(
+        test_file,
+        repo_root=repo,
+        deployment="af_pubs",
+        filenames={"test_other.py"},
+    ) is None
     with pytest.raises(pytest.skip.Exception) as exc:
         skip_if_optional_deployment_missing(repo, "af_pubs")
     assert "deployments/af_pubs" in str(exc.value)
+
+
+def test_present_optional_deployment_leaves_collection_to_pytest(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "deployments" / "af_pubs").mkdir(parents=True)
+    test_file = tmp_path / "tests" / "af_pubs" / "test_example.py"
+
+    assert should_ignore_optional_deployment_test(
+        test_file,
+        repo_root=tmp_path,
+        deployment="af_pubs",
+    ) is None
 
 
 def test_optional_deployment_marker_is_applied_to_matching_items() -> None:

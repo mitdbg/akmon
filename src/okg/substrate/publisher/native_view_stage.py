@@ -17,7 +17,7 @@ import logging
 import threading
 import time
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 import uuid
@@ -312,6 +312,8 @@ class NativeViewStage:
         ]
         | None = None,
         dirty_scope_unavailable: bool = False,
+        graph_delta_empty: bool = False,
+        branch_name: str = "default",
         graph_store: Any | None = None,
         caller_owned_transaction: bool = False,
     ) -> list[MaterializeOutcome]:
@@ -349,6 +351,12 @@ class NativeViewStage:
 
         input_fact_watermark, input_edge_fact_watermark = self._read_input_watermarks(
             conn
+        )
+        predecessor = _predecessor_generation(
+            conn,
+            deployment_name=self._deployment_name,
+            branch_name=branch_name,
+            generation_id=generation_id,
         )
         for materializer in self._materializers:
             started = time.perf_counter()
@@ -398,6 +406,9 @@ class NativeViewStage:
                         ),
                         reads_delta=(reads_deltas or {}).get(materializer.name),
                         dirty_scope_unavailable=dirty_scope_unavailable,
+                        graph_delta_empty=graph_delta_empty,
+                        predecessor=predecessor,
+                        branch_name=branch_name,
                         graph_store=graph_store,
                     )
                 outcome.asset_id = materializer.asset_id
@@ -605,6 +616,9 @@ class NativeViewStage:
         ]
         | None = None,
         dirty_scope_unavailable: bool = False,
+        graph_delta_empty: bool = False,
+        predecessor: "_PredecessorGeneration | None" = None,
+        branch_name: str = "default",
         graph_store: Any | None = None,
     ) -> MaterializeOutcome:
         total_started = time.perf_counter()
@@ -647,85 +661,53 @@ class NativeViewStage:
         definition_stable = refreshable_manifest_ids is not None
         _record_timing("definition_stability_probe", _stage_t0)
         _stage_t0 = time.perf_counter()
-        carry_forward = False
         declared_reads = bool(
             getattr(materializer, "reads_subtypes", ())
             or getattr(materializer, "reads_edge_types", ())
         )
-        if (
-            definition_stable
-            and dirty_scope_unavailable
-        ):
-            timings_ms["carry_forward_probe.skipped_dirty_scope_unavailable"] = 1.0
-        elif (
-            definition_stable
-            and declared_reads
-            and reads_affected
-        ):
-            # A complete declared-read delta touched this view's input surface,
-            # so the input watermark signature cannot justify carry-forward.
-            timings_ms["carry_forward_probe.skipped_reads_affected"] = 1.0
-        elif (
-            definition_stable
-            and declared_reads
-            and reads_delta is None
-        ):
-            carry_forward = True
-            timings_ms["chronos_semantic_carry_forward"] = 1.0
-            timings_ms["carry_forward_probe.skipped_declared_reads"] = 1.0
-        elif definition_stable:
-            carry_forward = _cached_input_signature_matches(
-                conn,
-                definition_id=definition.definition_id,
-                before_generation_id=generation_id,
-                input_fact_watermark=input_fact_watermark,
-                input_edge_fact_watermark=input_edge_fact_watermark,
-            )
+        external_inputs = _effective_external_inputs(
+            materializer,
+            published_at_aware=published_at_aware,
+        )
+        # PACT view-output-carry-forward-3981: a view's output is carried
+        # forward only on proof that its inputs are unchanged since the build
+        # it would copy. Every refusal below is recorded by name; the input
+        # fact watermark is not a signal (it is (0, 0) under Chronos-native
+        # publishing).
+        refusals = _carry_forward_refusals(
+            conn,
+            view_definition_id=definition.definition_id,
+            definition_stable=definition_stable,
+            refreshable_manifest_ids=refreshable_manifest_ids,
+            predecessor=predecessor,
+            generation_id=generation_id,
+            catalog_version_id=catalog_version_id,
+            dirty_scope_unavailable=dirty_scope_unavailable,
+            declared_reads=declared_reads,
+            reads_affected=reads_affected,
+            reads_delta=reads_delta,
+            graph_delta_empty=graph_delta_empty,
+            external_inputs=external_inputs,
+        )
+        for reason in refusals:
+            timings_ms[f"carry_forward_refused.{reason}"] = 1.0
+        carry_forward = not refusals
+        if carry_forward:
+            timings_ms["carry_forward_proven"] = 1.0
         _record_timing("carry_forward_probe", _stage_t0)
-        # A corpus that explicitly accepts the per-generation publication
-        # timestamp declares that value as an input. Every new checkpoint gets
-        # a new timestamp even when graph facts are unchanged, so neither a
-        # whole-view carry-forward nor a scoped partial rebuild can preserve
-        # prior outputs honestly: eyebrow labels and relation observed_at rows
-        # would retain the predecessor's timestamp. Rebuild the full corpus.
-        if carry_forward and published_at_aware:
-            carry_forward = False
-            timings_ms["published_at_invalidation"] = 1.0
-        # `harden-deltaflow-frontier-blockers`: when the publisher could not
-        # compute the cycle's Chronos dirty scope (the segment-delta query
-        # returned None — non-interval tables or a swallowed query error), there
-        # is NO trustworthy change signal for this cycle. Under chronos-native
-        # the input-fact watermark is dead, so `_can_carry_forward_without_corpus`
-        # returns True and a carry-forward here would silently serve a stale
-        # corpus. We cannot prove the view's inputs are unchanged, so force a
-        # rebuild (the publisher logs the unavailability loudly). Like the
-        # frontier/reads gates below, this only ever cancels a carry-forward —
-        # it never skips a rebuild — so it cannot serve stale output.
-        if carry_forward and dirty_scope_unavailable:
-            carry_forward = False
-        # Definition-stability gate for compute-incremental extraction below: True
-        # iff every output definition has a prior completed manifest whose hashes
-        # match the current definition, so the scheduler will take the scope-level
-        # `refresh_relation_artifact` carry-forward path. Only then is it SAFE to
-        # hand build_corpus a delta scope and emit partial rows — otherwise a full
-        # publish would treat partial rows as the complete relation and drop clean
-        # scopes (a P0). NOT `carry_forward`: that also requires the input-fact
-        # watermark to match, which is always stale under chronos-native (empty
-        # fact log), so it would suppress every scoped run.
-        # `deltaflow-publish-projection`: the change set is the authority on
-        # whether THIS view's inputs moved. If the (fact-log) watermark
-        # would carry the corpus forward but a node this view cited last
-        # time is in the cycle's change set, rebuild instead. This only
-        # ever cancels a carry-forward — it can never skip a rebuild — so
-        # it cannot serve a stale output.
-        #
-        # `harden-akmon-incremental-machine`: the declared reads gate is a
-        # cheaper proof than the lineage frontier. If the cycle touched a
-        # declared subtype/edge type, the view is definitely affected, so avoid
-        # the reverse-index probe that the old ordering paid anyway.
-        if carry_forward and reads_affected:
-            carry_forward = False
-            timings_ms["reads_affected_gate"] = 1.0
+        # The scoped (delta) rebuild below copies every clean scope from the
+        # previous manifest and trusts the change set to name the rest, so it
+        # needs the same adjacency and unchanged-catalog proof as a carry, and
+        # it cannot serve a view with an input the change set does not cover.
+        scoped_rebuild_allowed = (
+            definition_stable
+            and not external_inputs
+            and not {
+                "no_adjacent_generation",
+                "not_adjacent_generation",
+                "catalog_version_changed",
+            } & set(refusals)
+        )
 
         _stage_t0 = time.perf_counter()
         if (
@@ -753,6 +735,7 @@ class NativeViewStage:
                 catalog_version_id=catalog_version_id,
                 trusted_previous_manifest_ids=refreshable_manifest_ids,
                 use_transaction=False,
+                manifest_metadata={"inputs_valid_through_generation": generation_id},
             )
             outcome.timings_ms = {
                 **timings_ms,
@@ -771,8 +754,7 @@ class NativeViewStage:
         # so the scheduler carries every other scope forward.
         delta_scope: ViewDeltaScope | None = None
         if (
-            definition_stable
-            and not published_at_aware
+            scoped_rebuild_allowed
             and reads_delta is not None
             and reads_delta[2]  # can_scope: changed entities fully enumerable
             and _build_corpus_accepts_delta(materializer.build_corpus)
@@ -841,6 +823,9 @@ class NativeViewStage:
                     catalog_version_id=catalog_version_id,
                     trusted_previous_manifest_ids=refreshable_manifest_ids,
                     use_transaction=False,
+                    manifest_metadata={
+                        "inputs_valid_through_generation": generation_id,
+                    },
                 )
                 outcome.corpus_build_ms = corpus_build_ms
                 outcome.corpus_scan_scoped = True
@@ -1001,6 +986,15 @@ class NativeViewStage:
                         else None
                     ),
                     consume_dirty_scopes=explicit_dirty_scope_keys is None,
+                    manifest_metadata=_input_manifest_metadata(
+                        conn,
+                        deployment_name=self._deployment_name,
+                        branch_name=branch_name,
+                        generation_id=generation_id,
+                        published_at=published_at,
+                        catalog_version_id=catalog_version_id,
+                        external_inputs=external_inputs,
+                    ),
                     metrics={
                         **stats.as_dict(),
                         "publisher_native_view_stage": True,
@@ -3183,6 +3177,339 @@ def _can_carry_forward_without_corpus(
     )
 
 
+@dataclass(frozen=True)
+class _PredecessorGeneration:
+    """The published generation immediately before the one being built."""
+
+    generation_id: int
+    catalog_version_id: int | None
+
+
+def _predecessor_generation(
+    conn: psycopg.Connection[Any],
+    *,
+    deployment_name: str,
+    branch_name: str,
+    generation_id: int,
+) -> _PredecessorGeneration | None:
+    """The previous published generation of the same deployment and branch.
+
+    A native view's change set covers only the current segment, so an output
+    is reusable only when it was built for exactly this predecessor. A
+    generation the view skipped (coalesced, failed) or another branch's
+    generation leaves a gap the change set cannot see. The Chronos generation
+    checkpoints are the authority on which generations are published. The
+    checkpoint for ``generation_id`` itself does not exist yet when the views
+    run; if it does, it is skipped. ``None`` when there is no earlier
+    published generation on the branch.
+    """
+
+    from okg.substrate.graph_store import ChronosGraphStore
+
+    # Ask before reading: catching UndefinedTable would abort a caller-owned
+    # transaction. A database with no Chronos checkpoints has no predecessor.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT to_regclass('public._chronos_branch_interval_checkpoints') IS NOT NULL"
+        )
+        if not cur.fetchone()[0]:
+            return None
+    store = ChronosGraphStore.from_connection(conn, ensure_schema=False)
+    latest = store.latest_generation(
+        deployment_name=deployment_name,
+        branch=branch_name,
+        status="published",
+    )
+    candidates = [] if latest is None else [latest]
+    latest_target = None if latest is None else _checkpoint_target(latest)
+    if latest_target is not None and latest_target >= generation_id:
+        candidates = list(
+            store.list_generations(
+                deployment_name=deployment_name,
+                branch=branch_name,
+                status="published",
+            )
+        )
+    earlier = [
+        (target, checkpoint)
+        for checkpoint in candidates
+        for target in [_checkpoint_target(checkpoint)]
+        if target is not None and target < generation_id
+    ]
+    if not earlier:
+        return None
+    target, checkpoint = max(earlier, key=lambda item: item[0])
+    catalog_version = dict(checkpoint.metadata or {}).get("catalog_version_id")
+    return _PredecessorGeneration(
+        generation_id=target,
+        catalog_version_id=(
+            int(catalog_version)
+            if str(catalog_version).lstrip("-").isdigit()
+            else None
+        ),
+    )
+
+
+def _checkpoint_target(checkpoint: Any) -> int | None:
+    raw = dict(checkpoint.metadata or {}).get("target_generation_id")
+    if raw is None:
+        raw = checkpoint.checkpoint_id
+    text = str(raw)
+    return int(text) if text.isdigit() else None
+
+
+def _manifest_target_generation(
+    conn: psycopg.Connection[Any],
+    manifest_id: Any,
+) -> int | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT target_generation_id FROM okg.derived_output_manifests "
+            "WHERE manifest_id = %(manifest_id)s",
+            {"manifest_id": manifest_id},
+        )
+        row = cur.fetchone()
+    return None if row is None else int(row[0])
+
+
+def _effective_external_inputs(
+    materializer: ViewMaterializer,
+    *,
+    published_at_aware: bool,
+) -> tuple[str, ...]:
+    """Declared external inputs, plus ``publish_time`` for a corpus that takes
+    ``published_at``: accepting the argument is how a corpus says it reads it."""
+
+    declared = tuple(getattr(materializer, "external_inputs", ()) or ())
+    if (
+        "publish_time" not in declared
+        and (
+            published_at_aware
+            or _build_corpus_accepts_kwarg(
+                materializer.build_corpus,
+                "published_at",
+            )
+        )
+    ):
+        return ("publish_time", *declared)
+    return declared
+
+
+def _carry_forward_refusals(
+    conn: psycopg.Connection[Any],
+    *,
+    view_definition_id: str,
+    definition_stable: bool,
+    refreshable_manifest_ids: Mapping[str, Any] | None,
+    predecessor: _PredecessorGeneration | None,
+    generation_id: int,
+    catalog_version_id: int | None,
+    dirty_scope_unavailable: bool,
+    declared_reads: bool,
+    reads_affected: bool,
+    reads_delta: Any,
+    graph_delta_empty: bool,
+    external_inputs: Sequence[str],
+) -> list[str]:
+    """Names of the proofs a carry-forward lacks; empty means it may be carried.
+
+    A view's previous output is reused only when all of these hold: the
+    definition is stable; the previous completed manifest belongs to the
+    immediately preceding published generation of the same branch; the change
+    set is available and, for a view with declared reads, touched none of them
+    (for a view without, the graph delta is empty); the catalog version is the
+    predecessor's; and the view has no external input. The cited-node
+    frontier is checked by the caller.
+    """
+
+    refusals: list[str] = []
+    if not definition_stable:
+        refusals.append("definition_unstable")
+    if dirty_scope_unavailable:
+        refusals.append("change_set_unavailable")
+    if external_inputs:
+        refusals.append("external_inputs")
+    if predecessor is None:
+        refusals.append("no_adjacent_generation")
+    else:
+        previous_manifest_id = (refreshable_manifest_ids or {}).get(
+            view_definition_id
+        )
+        previous_generation = (
+            None
+            if previous_manifest_id is None
+            else _manifest_target_generation(conn, previous_manifest_id)
+        )
+        if (
+            previous_generation is None
+            or previous_generation != predecessor.generation_id
+        ):
+            refusals.append("not_adjacent_generation")
+        if (
+            catalog_version_id is None
+            or predecessor.catalog_version_id is None
+            or int(catalog_version_id) != predecessor.catalog_version_id
+        ):
+            refusals.append("catalog_version_changed")
+    if declared_reads:
+        if reads_affected or reads_delta is not None:
+            refusals.append("declared_reads_touched")
+    elif not graph_delta_empty:
+        refusals.append("graph_changed")
+    return refusals
+
+
+def _iso(value: datetime | None) -> str | None:
+    """UTC ISO text, so equal instants compare equal as text."""
+    return None if value is None else value.astimezone(timezone.utc).isoformat()
+
+
+def _live_relation_input_state(
+    conn: psycopg.Connection[Any],
+    *,
+    deployment_name: str,
+    branch_name: str,
+    relation: str,
+    catalog_version_id: int | None,
+    published_at: datetime | None,
+) -> dict[str, Any]:
+    """How current the call samples of one live relation are.
+
+    For each target node of the relation in this generation, the newest
+    successful sample at or before ``published_at`` sets that target's time;
+    the input's time is the oldest of them. A target with no sample at all is
+    counted ``missing``; one whose newest attempt did not succeed is counted
+    ``failed`` (its time stays that of its last success, if any).
+    """
+
+    from okg.substrate.external_backed.call_sample import (
+        RETAINED_ANSWER_READ,
+        table_for_class,
+    )
+
+    if catalog_version_id is None:
+        raise ValueError(
+            f"view declares external input live:{relation} but the catalog "
+            "version is unknown, so the relation cannot be resolved"
+        )
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT name, metadata->'live_relations'->%(relation)s->>'retention_class'
+              FROM okg.subtypes
+             WHERE catalog_version_id = %(catalog_version_id)s
+               AND jsonb_exists(metadata->'live_relations', %(relation)s)
+             ORDER BY name
+            """,
+            {"relation": relation, "catalog_version_id": catalog_version_id},
+        )
+        declared = cur.fetchall()
+    if len(declared) != 1:
+        raise ValueError(
+            f"view declares external input live:{relation} but catalog "
+            f"version {catalog_version_id} declares that live relation on "
+            f"{len(declared)} subtypes (expected exactly one)"
+        )
+    subtype, retention_class = declared[0]
+    table = table_for_class(str(retention_class or "warm"))
+    from okg.substrate.graph_store import ChronosGraphStore
+
+    targets = sorted(
+        {
+            str(row["node_id"])
+            for row in ChronosGraphStore.from_connection(
+                conn, ensure_schema=False,
+            ).checkout(branch_name).query(
+                "SELECT node_id FROM okg.graph_nodes WHERE subtype = :subtype",
+                {"subtype": subtype},
+            )
+        }
+    )
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT node_id,
+                   max(observed_at) FILTER (WHERE status = 'ok'),
+                   (array_agg(status ORDER BY observed_at DESC))[1]
+              FROM {table}
+             WHERE deployment_name = %(deployment_name)s
+               AND relation = %(relation)s
+               AND node_id = ANY(%(targets)s)
+               AND (%(published_at)s::timestamptz IS NULL
+                    OR observed_at <= %(published_at)s::timestamptz)
+               AND coalesce(attrs->>'served_from', '') <> %(retained)s
+             GROUP BY node_id
+            """,  # noqa: S608 - table comes from a closed class map
+            {
+                "deployment_name": deployment_name,
+                "relation": relation,
+                "targets": targets,
+                "published_at": published_at,
+                "retained": RETAINED_ANSWER_READ,
+            },
+        )
+        sampled = {str(row[0]): (row[1], row[2]) for row in cur.fetchall()}
+    times = [ok_at for ok_at, _ in sampled.values() if ok_at is not None]
+    return {
+        "relation": relation,
+        "as_of": _iso(min(times)) if times else None,
+        "targets": len(targets),
+        "with_success": len(times),
+        "missing": sum(1 for node in targets if node not in sampled),
+        "failed": sum(
+            1 for _, newest in sampled.values() if newest != "ok"
+        ),
+    }
+
+
+def _input_manifest_metadata(
+    conn: psycopg.Connection[Any],
+    *,
+    deployment_name: str,
+    branch_name: str,
+    generation_id: int,
+    published_at: datetime | None,
+    catalog_version_id: int | None,
+    external_inputs: Sequence[str],
+) -> dict[str, Any]:
+    """Manifest metadata saying how current a view's inputs are.
+
+    A graph-only view reads the graph as of this generation, so its inputs
+    are valid through ``generation_id``. A view with external inputs records
+    the state of each and ``inputs_as_of``, the oldest of their times (None
+    when any has none), so a rebuild over old or failed samples is never
+    labelled with the publish time.
+    """
+
+    if not external_inputs:
+        return {"inputs_valid_through_generation": int(generation_id)}
+    state: dict[str, Any] = {}
+    times: list[str | None] = []
+    for token in external_inputs:
+        if token.startswith("live:"):
+            item = _live_relation_input_state(
+                conn,
+                deployment_name=deployment_name,
+                branch_name=branch_name,
+                relation=token[len("live:"):],
+                catalog_version_id=catalog_version_id,
+                published_at=published_at,
+            )
+        else:
+            item = {"as_of": _iso(published_at)}
+        state[token] = item
+        times.append(item["as_of"])
+    inputs_as_of = (
+        None
+        if any(item is None for item in times)
+        else min(times, key=lambda value: datetime.fromisoformat(str(value)))
+    )
+    return {
+        "external_inputs_state": state,
+        "inputs_as_of": inputs_as_of,
+    }
+
+
 def _carry_forward_without_corpus(
     conn: psycopg.Connection[Any],
     *,
@@ -3194,6 +3521,7 @@ def _carry_forward_without_corpus(
     catalog_version_id: int | None,
     trusted_previous_manifest_ids: Mapping[str, uuid.UUID] | None = None,
     use_transaction: bool = True,
+    manifest_metadata: Mapping[str, Any] | None = None,
 ) -> MaterializeOutcome:
     total_started = time.perf_counter()
     timings_ms: dict[str, float] = {}
@@ -3281,6 +3609,7 @@ def _carry_forward_without_corpus(
                 metrics=metrics,
                 definition_registered=True,
                 timings_ms=view_timings,
+                manifest_metadata=manifest_metadata,
             )
             for label, elapsed_ms in carried.timings_ms.items():
                 timings_ms[f"view.{label}"] = round(float(elapsed_ms), 3)

@@ -413,6 +413,110 @@ def test_published_python_bodies_are_lexically_searchable(
             assert found["results"], (needle, found)
 
 
+# -- A symbol's stored lines read the symbol's source (#3982) ----------------
+
+_BIG_BODY = "".join(f"    v{j} = {j}  # pad pad pad pad pad\n" for j in range(130))
+SYMBOL_LINES_MODULE = (
+    '"""Module doc."""\n'
+    "import os\n"
+    "\n\n\n\n"
+    "# comment above first\n"
+    "@staticmethod\n"
+    "@other(1,\n"
+    "       2)\n"
+    "def first(x):\n"
+    "    return x\n"
+    "\n\n\n"
+    "X = 1\n"
+    "\n"
+    "class Klass:\n"
+    '    """Doc."""\n'
+    "\n"
+    "    @property\n"
+    "    def prop(self):\n"
+    "        return 1\n"
+    "\n"
+    "    # note\n"
+    "    def plain(self):\n"
+    "        return 2\n"
+    "\n\n"
+    "async def last():\n"
+    "    pass\n"
+    "\n\n"
+    "def big():\n"
+    + _BIG_BODY
+    + "    return 1\n"
+    "\n\n" + "\n" * 300
+    + "def after_long_gap():\n"
+    "    return 9\n"
+)
+
+
+@pytest.mark.postgres
+def test_a_symbols_stored_lines_read_exactly_its_source(
+    clean_runtime: str,
+    tmp_path: Path,
+) -> None:
+    """The range the text pointer names (`_symbol_line_range`, from the
+    start and end line a `code_structure` symbol stores: the same `ast`
+    line numbers `_analyze_python` returns) reads exactly that slice of the
+    source from a real `PythonSymbolChunker` document of the codebase-index
+    template. Covers a decorated function (the range starts at its `def`
+    line, the decorators are not in it), a class method, a function split
+    across chunks, and a definition after a long blank gap."""
+    from okg.substrate.library.sources._code_graph_common import _analyze_python
+    from okg.substrate.mcp.record_text import _symbol_line_range, read_record_text
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "m.py").write_text(SYMBOL_LINES_MODULE, encoding="utf-8")
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        seed_catalog_version(conn)
+    SourceRunner(clean_runtime, source_name="test.symbol-lines").run(
+        _template_source(repo, text_fallback=_template_text_fallback()),
+        mode="scope_complete",
+    )
+    published = Publisher(
+        clean_runtime, "default",
+        catalog_identity=bind_test_catalog_writer(clean_runtime, "default"),
+    ).cycle()
+    assert published["status"] == "published", published
+
+    source_lines = SYMBOL_LINES_MODULE.split("\n")
+    fence = re.compile(r"\u27e6UNTRUSTED_DATA[^\u27e7]*\u27e7\n|\n?\u27e6/UNTRUSTED_DATA\u27e7")
+    symbols = {
+        symbol.qname: symbol
+        for symbol in _analyze_python("t", "m.py", SYMBOL_LINES_MODULE).symbols
+    }
+    for name in ("first", "Klass", "Klass.prop", "Klass.plain", "last", "big",
+                 "after_long_gap"):
+        assert name in symbols, sorted(symbols)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        session = open_session(conn, deployment_name="default")
+        pieces = {}
+        for name, symbol in symbols.items():
+            record = {"subtype": "code_symbol", "attrs": {
+                "start_line": symbol.start_line, "end_line": symbol.end_line}}
+            lines = _symbol_line_range(record)
+            assert lines == [[symbol.start_line, symbol.end_line]], name
+            page = read_record_text(conn, session, "doc:t:m.py", lines=lines)
+            assert page["status"] == "ok", (name, page)
+            assert page["lines"]["basis"] == "source", (name, page["lines"])
+            pieces[name] = len(page["items"])
+            got = fence.sub("", "".join(item["text"] for item in page["items"]))
+            want = "\n".join(source_lines[symbol.start_line - 1:symbol.end_line])
+            assert got.rstrip("\n") == want.rstrip("\n"), name
+    # The decorated function's range starts at the `def` line.
+    first = symbols["first"]
+    assert source_lines[first.start_line - 1].startswith("def first")
+    assert source_lines[first.start_line - 2].strip() == "2)"
+    assert source_lines[symbols["Klass.prop"].start_line - 1].strip() == "def prop(self):"
+    # The long function is served from several chunks; a method from one.
+    assert pieces["big"] > 1, pieces
+    assert pieces["Klass.prop"] == 1, pieces
+    assert symbols["big"].end_line - symbols["big"].start_line > 120
+
+
 # -- Build and deploy files without a telling extension (#2671) --------------
 
 BUILD_FILES = {

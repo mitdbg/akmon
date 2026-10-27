@@ -124,6 +124,10 @@ EDGE_SIGNATURE_KEYS = frozenset({
     "clause_id",
     "src_subtype_optional",
     "dst_subtype_optional",
+    # "refuse" opts a clause out of deferral: an edge that matches it only
+    # when an endpoint is missing or mismatched is refused, as before
+    # (cross-source-endpoint-wedge, design.md 3.1).
+    "endpoint_absent",
 })
 
 
@@ -1471,7 +1475,10 @@ def evaluate_source_run_signature(
     profile: ProducerProfile,
     source: str,
     run_id: str,
+    defer_policy: Any = None,
 ) -> dict[str, Any]:
+    defer_policy = _deferral_available(conn, defer_policy)
+    owner_published = _owner_published_fn(conn, profile, defer_policy)
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -1507,12 +1514,16 @@ def evaluate_source_run_signature(
             profile=profile,
             source=source,
             run_id=run_id,
+            placeholders_missing=_defers(defer_policy),
         )
         try:
             return _evaluate_record_sources(
                 profile=profile,
                 nodes=run_nodes,
                 edges=run_edges,
+                defer_policy=defer_policy,
+                ranked_types=_ranked_for(conn, defer_policy),
+                owner_published=owner_published,
                 # This path reads the projected graph for the run; it does
                 # NOT consult the node-fact log, so it cannot speak to a
                 # node that exists only as an unprojected fact.
@@ -1550,7 +1561,9 @@ def evaluate_source_run_signature(
     missing = sorted(endpoint_ids - set(endpoint_subtypes))
     if missing:
         endpoint_subtypes.update(
-            _chronos_endpoint_subtypes(conn, missing),
+            _chronos_endpoint_subtypes(
+                conn, missing, placeholders_missing=_defers(defer_policy),
+            ),
         )
         # Cross-source endpoints: a source emitting an edge may target a
         # node created by another source whose facts are still pending
@@ -1602,6 +1615,9 @@ def evaluate_source_run_signature(
         ancestors=_load_subtype_ancestors(
             conn, profile.catalog_version_id,
         ),
+        defer_policy=defer_policy,
+        ranked_types=_ranked_for(conn, defer_policy),
+        owner_published=owner_published,
     )
 
 
@@ -1762,8 +1778,10 @@ class _ChronosRunRecords:
         source: str,
         run_id: str,
         plan: tuple[list[str], list[str], bool],
+        placeholders_missing: bool = False,
     ) -> None:
         self._graph = graph
+        self._placeholders_missing = placeholders_missing
         self._kind = kind
         self._source = source
         self._run_id = run_id
@@ -1795,8 +1813,10 @@ class _ChronosRunRecords:
             ]
             relation = (
                 "okg.graph_edges AS e "
-                "LEFT JOIN okg.graph_nodes AS s ON s.node_id = e.src "
-                "LEFT JOIN okg.graph_nodes AS d ON d.node_id = e.dst"
+                "LEFT JOIN okg.graph_nodes AS s ON s.node_id = e.src"
+                + _not_placeholder_clause("s", placeholders_missing)
+                + " LEFT JOIN okg.graph_nodes AS d ON d.node_id = e.dst"
+                + _not_placeholder_clause("d", placeholders_missing)
             )
         # The shape of attrs: an object, empty (SQL NULL or JSON null, which
         # the check reads as {}), or another JSON type, which is refused when
@@ -2002,12 +2022,14 @@ class _ChronosRunRecords:
                    AND n.run_id = :run_id
             """
         else:
-            sql = """
+            sql = f"""
                 SELECT e.edge_id AS ref, e.src, e.edge_type, e.dst, e.attrs,
                        s.subtype AS src_subtype, d.subtype AS dst_subtype
                   FROM okg.graph_edges AS e
                   LEFT JOIN okg.graph_nodes AS s ON s.node_id = e.src
+                       {_not_placeholder_clause("s", self._placeholders_missing)}
                   LEFT JOIN okg.graph_nodes AS d ON d.node_id = e.dst
+                       {_not_placeholder_clause("d", self._placeholders_missing)}
                  WHERE e.edge_id = ANY(:refs)
                    AND e.source = :source
                    AND e.run_id = :run_id
@@ -2065,6 +2087,111 @@ class _ChronosRunRecords:
         }
 
 
+def _deferral_available(
+    conn: psycopg.Connection, defer_policy: Any,
+) -> Any:
+    """The deferral policy, or None when the waiting table is not registered.
+
+    A database that has not run ``okg migrate`` since the table was added
+    cannot hold a waiting edge, and the publish step would find the edge
+    dangling and block. Admission then keeps today's refusal; the verdict
+    says so, so the cause is visible.
+    """
+    if not _defers(defer_policy):
+        return defer_policy
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS (SELECT 1 FROM public._chronos_branch_tables "
+            "WHERE table_name = 'okg.graph_edge_deferrals' "
+            "AND backend = 'interval')"
+        )
+        registered = bool(cur.fetchone()[0])
+    if not registered:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "edge deferral is configured but okg.graph_edge_deferrals is not "
+            "registered; run okg migrate. Admission keeps refusing edges "
+            "whose endpoint is missing."
+        )
+        return None
+    return defer_policy
+
+
+def _owner_published_fn(
+    conn: psycopg.Connection, profile: ProducerProfile, defer_policy: Any,
+) -> Any:
+    """``fn(subtype)``: has a source that owns that subtype published once?
+
+    A source owns a subtype when its active profile's node signature names
+    the subtype or a descendant of it. "Published" is an admission of that
+    source in status ``published``. Used by ``deferred_cap_mode:
+    owner_published``: a deferral to a record whose owner has never
+    published is the ordinary run-order case and does not count toward the
+    cap; one whose owner has published and still lacks the record does.
+    """
+    if not _defers(defer_policy) or defer_policy.cap_mode != "owner_published":
+        return None
+    ancestors = _load_subtype_ancestors(conn, profile.catalog_version_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT p.producer_id, p.output_signature
+              FROM okg.producer_profiles p
+             WHERE p.deployment_name = %s AND p.status = 'active'
+               AND p.producer_id <> %s
+            """,
+            (profile.deployment_name, profile.producer_id),
+        )
+        owners = [
+            (str(pid), {
+                str(rule["subtype"])
+                for rule in (sig or {}).get("nodes") or []
+                if isinstance(rule, Mapping) and rule.get("subtype")
+            })
+            for pid, sig in cur.fetchall()
+        ]
+        cur.execute(
+            """
+            SELECT DISTINCT source FROM okg.admission_envelopes
+             WHERE deployment_name = %s AND status = 'published'
+            """,
+            (profile.deployment_name,),
+        )
+        published = {str(row[0]) for row in cur.fetchall()}
+    cache: dict[str, bool] = {}
+
+    def fn(subtype: str) -> bool:
+        if subtype not in cache:
+            cache[subtype] = any(
+                pid in published
+                and any(_subtype_matches(subtype, own, ancestors) for own in subtypes)
+                for pid, subtypes in owners
+            )
+        return cache[subtype]
+
+    return fn
+
+
+def _defers(defer_policy: Any) -> bool:
+    return defer_policy is not None and bool(defer_policy.enabled)
+
+
+def _ranked_for(conn: psycopg.Connection, defer_policy: Any) -> frozenset[str]:
+    return ranked_edge_types(conn) if _defers(defer_policy) else frozenset()
+
+
+def _not_placeholder_clause(alias: str, active: bool) -> str:
+    """Join condition that reads a #3666 placeholder endpoint as absent."""
+    if not active:
+        return ""
+    from okg.substrate.graph_store_internal.edge_deferrals import (
+        placeholder_predicate,
+    )
+
+    return f" AND NOT {placeholder_predicate(alias)}"
+
+
 def _source_run_record_sources(
     conn: psycopg.Connection,
     *,
@@ -2072,6 +2199,7 @@ def _source_run_record_sources(
     source: str,
     run_id: str,
     branch: str = "default",
+    placeholders_missing: bool = False,
 ) -> tuple[_ChronosRunRecords, _ChronosRunRecords]:
     from okg.substrate.graph_store import ChronosGraphStore
 
@@ -2093,10 +2221,12 @@ def _source_run_record_sources(
         _ChronosRunRecords(
             graph, conn, kind="node", source=source, run_id=run_id,
             plan=plan,
+            placeholders_missing=placeholders_missing,
         ),
         _ChronosRunRecords(
             graph, conn, kind="edge", source=source, run_id=run_id,
             plan=plan,
+            placeholders_missing=placeholders_missing,
         ),
     )
 
@@ -2286,6 +2416,8 @@ def evaluate_node_fact_range_signature(
 def _chronos_endpoint_subtypes(
     conn: psycopg.Connection,
     node_ids: list[str],
+    *,
+    placeholders_missing: bool = False,
 ) -> dict[str, str]:
     """Map each endpoint id present in the branch graph to its subtype.
 
@@ -2317,11 +2449,12 @@ def _chronos_endpoint_subtypes(
         # must never let this read invoke Chronos's per-query commit.
         autocommit=False,
     )
+    not_placeholder = _not_placeholder_clause("n", placeholders_missing)
     rows = store.checkout(str(branch)).query(
-        """
-        SELECT node_id, subtype
-          FROM okg.graph_nodes
-         WHERE node_id = ANY(:node_ids)
+        f"""
+        SELECT n.node_id, n.subtype
+          FROM okg.graph_nodes AS n
+         WHERE n.node_id = ANY(:node_ids){not_placeholder}
         """,
         {"node_ids": node_ids},
     )
@@ -2549,6 +2682,9 @@ def _evaluate_records(
     edge_records: Sequence[Mapping[str, Any]],
     endpoint_scope: str,
     ancestors: Mapping[str, set[str]] | None = None,
+    defer_policy: Any = None,
+    ranked_types: frozenset[str] = frozenset(),
+    owner_published: Any = None,
 ) -> dict[str, Any]:
     """Evaluate one in-memory emission against a producer profile.
 
@@ -2566,6 +2702,9 @@ def _evaluate_records(
         edges=_ListRecordSource(edge_records),
         endpoint_scope=endpoint_scope,
         ancestors=ancestors,
+        defer_policy=defer_policy,
+        ranked_types=ranked_types,
+        owner_published=owner_published,
     )
 
 
@@ -2589,6 +2728,14 @@ def _verdict_shape(outcome: Mapping[str, Any] | None) -> tuple | None:
                 for endpoint in failure.get("missing_endpoints", ())
             ),
         )
+    if outcome.get("deferred") is not None:
+        deferred = outcome["deferred"]
+        return (
+            "deferred",
+            str(deferred["state"]),
+            str(deferred["waiting_role"]),
+            tuple(deferred["clause_ids"]),
+        )
     return (
         "matched",
         str(outcome["clause_id"]),
@@ -2603,6 +2750,9 @@ def _evaluate_record_sources(
     edges: Any,
     endpoint_scope: str,
     ancestors: Mapping[str, set[str]] | None = None,
+    defer_policy: Any = None,
+    ranked_types: frozenset[str] = frozenset(),
+    owner_published: Any = None,
 ) -> dict[str, Any]:
     """Evaluate one emission, given as groups of equivalent records.
 
@@ -2682,6 +2832,13 @@ def _evaluate_record_sources(
         for field, values in (envelope.get("value_vocabularies") or {}).items()
         if isinstance(values, (list, tuple, set, frozenset))
     }
+    defer_rules = (
+        deferral_rules_for_profile(
+            profile, ancestors=ancestors, ranked_types=ranked_types,
+        )
+        if defer_policy is not None and defer_policy.enabled
+        else None
+    )
 
     def _vocabulary_failure(
         record: Mapping[str, Any], kind: str,
@@ -2763,6 +2920,13 @@ def _evaluate_record_sources(
         rule_index, rule = _match_edge_rule(
             edge_rules, record, ancestors=ancestors,
         )
+        if rule is None and defer_rules is not None:
+            deferral = classify_edge_deferral(record, defer_rules)
+            if deferral is not None:
+                return {
+                    "deferred": deferral,
+                    "clause_id": deferral["clause_ids"][0],
+                }
         if rule is None:
             # Which defect is this? An endpoint whose subtype did not resolve
             # is a node that does not exist, not a signature the producer got
@@ -2831,6 +2995,13 @@ def _evaluate_record_sources(
     # Codes are recorded in the order they are first met.
     failure_codes: dict[str, dict[str, Any]] = {}
     narrowing_seen: set[str] = set()
+    deferred_total = 0
+    counted_total = 0
+    #: Deferrals whose owner has never published (owner_published mode): not
+    #: counted against the cap, but bounded by a ceiling of their own.
+    unpublished_owner_total = 0
+    deferred_by_state: dict[str, int] = {}
+    deferred_sample: list[dict[str, Any]] = []
     kind_order = {"node": 0, "edge": 1}
 
     for kind, record_source, outcome_of in (
@@ -2857,6 +3028,30 @@ def _evaluate_record_sources(
                         stage="group guard (first and last record)",
                     )
             if outcome is None:
+                continue
+            deferral = outcome.get("deferred")
+            if deferral is not None:
+                deferred_total += group.count
+                if defer_policy.cap_mode != "owner_published" or (
+                    owner_published is not None
+                    and owner_published(deferral["expected_subtype"])
+                ):
+                    counted_total += group.count
+                else:
+                    unpublished_owner_total += group.count
+                deferred_by_state[deferral["state"]] = (
+                    deferred_by_state.get(deferral["state"], 0) + group.count
+                )
+                if len(deferred_sample) < _DEFERRED_SAMPLE_LIMIT:
+                    deferred_sample.append({
+                        "src": group.record["src"],
+                        "edge_type": group.record["edge_type"],
+                        "dst": group.record["dst"],
+                        "state": deferral["state"],
+                        "waiting_on": deferral["waiting_on"],
+                        "waiting_role": deferral["waiting_role"],
+                    })
+                matched_clause_ids.update(deferral["clause_ids"])
                 continue
             failure = outcome.get("failure")
             if failure is not None:
@@ -2969,17 +3164,62 @@ def _evaluate_record_sources(
             sample_truncated=offending > _OFFENDING_SAMPLE_LIMIT,
         )
 
-    return {
-        "producer_policy": {
-            **profile.evidence(),
-            "status": "matched",
-            "matched_clause_ids": sorted(matched_clause_ids),
-            "failed_clause_ids": sorted(failed_clause_ids),
-            "record_counts": {
+    over_ceiling = (
+        defer_policy is not None
+        and unpublished_owner_total > defer_policy.unpublished_owner_ceiling
+    )
+    if over_ceiling:
+        counted_total = deferred_total
+    if (
+        counted_total and counted_total > defer_policy.limit_for(edge_insert_count)
+    ) or over_ceiling:
+        limit = (
+            defer_policy.unpublished_owner_ceiling if over_ceiling
+            else defer_policy.limit_for(edge_insert_count)
+        )
+        raise _violation(
+            profile=profile,
+            code=DEFERRED_EDGES_OVER_LIMIT_CODE,
+            message=(
+                f"{counted_total} of {edge_insert_count} edge record(s) "
+                f"wait on an endpoint another source has not written, "
+                f"above the per-run limit of {limit} "
+                f"(consistency.deferred_cap_mode={defer_policy.cap_mode}; "
+                f"max_deferred_edges_per_run, max_deferred_edge_fraction); "
+                f"the whole "
+                f"emission is refused. A wrong id prefix or a source that "
+                f"has not run yet looks the same; see the sample"
+            ),
+            failed_clause_ids=[],
+            offending_records=deferred_sample[:_OFFENDING_SAMPLE_LIMIT],
+            record_counts={
                 "node": node_insert_count,
                 "edge": edge_insert_count,
+                "non_insert": (nodes.total + edges.total - node_insert_count - edge_insert_count),
             },
+            offending_record_count=counted_total,
+            sample_truncated=counted_total > _OFFENDING_SAMPLE_LIMIT,
+        )
+
+    producer_policy: dict[str, Any] = {
+        **profile.evidence(),
+        "status": "matched",
+        "matched_clause_ids": sorted(matched_clause_ids),
+        "failed_clause_ids": sorted(failed_clause_ids),
+        "record_counts": {
+            "node": node_insert_count,
+            "edge": edge_insert_count,
         },
+    }
+    if deferred_total:
+        producer_policy["deferred_edges"] = {
+            "count": deferred_total,
+            "by_state": dict(sorted(deferred_by_state.items())),
+            "sample": deferred_sample,
+            "sample_truncated": deferred_total > len(deferred_sample),
+        }
+    return {
+        "producer_policy": producer_policy,
         "catalog": {
             "catalog_version_id": profile.catalog_version_id,
             "narrowings": catalog_narrowings,
@@ -3081,6 +3321,12 @@ def _normalize_signature_list(
                     f"output_signature.{field}[{index}].{optional_string} "
                     "must be a string"
                 )
+        if "endpoint_absent" in raw and raw["endpoint_absent"] != "refuse":
+            raise ValueError(
+                f"source {source_name!r}: admission_policy."
+                f"output_signature.{field}[{index}].endpoint_absent "
+                "must be 'refuse' when present"
+            )
         for optional_bool in (
             "src_subtype_optional",
             "dst_subtype_optional",
@@ -3170,6 +3416,7 @@ def _match_edge_rule(
     ancestors: Mapping[str, set[str]] | None = None,
     *,
     unresolved_endpoint_wildcard: bool = False,
+    force_wildcard_roles: frozenset[str] = frozenset(),
 ) -> tuple[int, Mapping[str, Any] | None]:
     """Find the signature rule this edge record satisfies.
 
@@ -3194,7 +3441,9 @@ def _match_edge_rule(
         # unresolvable at admission. The flag relaxes discoverability, not
         # subtype identity; the narrowing trigger at projection still enforces
         # the catalog against the actual endpoint nodes.
-        if record_src_subtype:
+        if "src" in force_wildcard_roles:
+            pass
+        elif record_src_subtype:
             if not _subtype_matches(
                 str(rule["src_subtype"]), record_src_subtype, ancestors,
             ):
@@ -3209,7 +3458,9 @@ def _match_edge_rule(
         # returned None) only match rules that opt in via
         # dst_subtype_optional. The flag relaxes discoverability,
         # not subtype identity.
-        if record_dst_subtype:
+        if "dst" in force_wildcard_roles:
+            pass
+        elif record_dst_subtype:
             if not _subtype_matches(
                 str(rule["dst_subtype"]), record_dst_subtype, ancestors,
             ):
@@ -3234,6 +3485,181 @@ def _match_edge_rule(
             continue
         return index, rule
     return -1, None
+
+
+DEFERRED_EDGES_OVER_LIMIT_CODE = "producer_deferred_edges_over_limit"
+
+
+@dataclass(frozen=True)
+class DeferralRules:
+    """A producer's clauses as the edge-deferral classifier reads them.
+
+    ``deferrable`` is False for a producer with no edge signature or with
+    unbounded edges or nodes: it keeps today's refusal (design.md 3.1).
+    """
+
+    profile_fingerprint: str
+    edge_rules: tuple[Mapping[str, Any], ...]
+    node_rules: tuple[Mapping[str, Any], ...]
+    ancestors: Mapping[str, set[str]]
+    ranked_types: frozenset[str]
+    deferrable: bool
+
+    @property
+    def own_subtypes(self) -> frozenset[str]:
+        return frozenset(str(rule["subtype"]) for rule in self.node_rules)
+
+    def shape_accepts(self, edge_type: str, src: str, dst: str) -> bool:
+        """Whether some clause accepts this subtype triple, ids aside."""
+        return any(
+            str(rule["edge_type"]) == edge_type
+            and _subtype_matches(str(rule["src_subtype"]), src, self.ancestors)
+            and _subtype_matches(str(rule["dst_subtype"]), dst, self.ancestors)
+            for rule in self.edge_rules
+        )
+
+
+def deferral_rules_for_profile(
+    profile: ProducerProfile,
+    *,
+    ancestors: Mapping[str, set[str]] | None,
+    ranked_types: frozenset[str] = frozenset(),
+) -> DeferralRules:
+    signature = profile.output_signature or {}
+    envelope = profile_write_envelope(profile) or {}
+    unbounded = set(envelope.get("unbounded") or ())
+    edge_rules = tuple(signature.get("edges") or ())
+    return DeferralRules(
+        profile_fingerprint=profile.profile_fingerprint,
+        edge_rules=edge_rules,
+        node_rules=tuple(signature.get("nodes") or ()),
+        ancestors=ancestors or {},
+        ranked_types=ranked_types,
+        deferrable=(
+            profile.status == "active"
+            and bool(edge_rules)
+            and "edges" not in unbounded
+            and "nodes" not in unbounded
+        ),
+    )
+
+
+def ranked_edge_types(conn: psycopg.Connection) -> frozenset[str]:
+    """Edge types the deployment ranks (``okg.edge_precedence``)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('okg.edge_precedence') IS NOT NULL")
+        if not cur.fetchone()[0]:
+            return frozenset()
+        cur.execute("SELECT DISTINCT edge_type FROM okg.edge_precedence")
+        return frozenset(str(row[0]) for row in cur.fetchall())
+
+
+def profile_deferral_rules(
+    conn: psycopg.Connection, profile: ProducerProfile,
+) -> DeferralRules:
+    """A profile's deferral rules, with the catalog's is-a closure read now."""
+    return deferral_rules_for_profile(
+        profile,
+        ancestors=_load_subtype_ancestors(conn, profile.catalog_version_id),
+        ranked_types=ranked_edge_types(conn),
+    )
+
+
+def edge_rules_accept(
+    record: Mapping[str, Any], rules: DeferralRules,
+) -> bool:
+    """Whether a clause accepts the edge with its endpoints as resolved."""
+    _, rule = _match_edge_rule(
+        rules.edge_rules, record, ancestors=rules.ancestors,
+    )
+    return rule is not None
+
+
+def _wildcard_clauses(
+    record: Mapping[str, Any],
+    rules: DeferralRules,
+    roles: frozenset[str],
+) -> list[Mapping[str, Any]]:
+    """Every clause the edge satisfies with ``roles`` read as wildcards."""
+    matched = []
+    for rule in rules.edge_rules:
+        _, hit = _match_edge_rule(
+            (rule,), record, ancestors=rules.ancestors,
+            unresolved_endpoint_wildcard=True,
+            force_wildcard_roles=roles,
+        )
+        if hit is not None:
+            matched.append(hit)
+    return matched
+
+
+def _role_is_foreign(
+    rule: Mapping[str, Any], role: str, rules: DeferralRules,
+) -> bool:
+    """True when the producer's own node signature never emits the endpoint.
+
+    The clause's endpoint subtype must not be, nor have a descendant in, the
+    producer's own node signature: a gap in a record the producer owns is a
+    producer defect and keeps today's refusal.
+    """
+    clause_subtype = str(rule[f"{role}_subtype"])
+    return not any(
+        _subtype_matches(clause_subtype, own, rules.ancestors)
+        for own in rules.own_subtypes
+    )
+
+
+def classify_edge_deferral(
+    record: Mapping[str, Any], rules: DeferralRules,
+) -> dict[str, Any] | None:
+    """Whether and why one edge waits, or None when it keeps today's rule.
+
+    ``record`` carries ``src``, ``dst``, ``edge_type``, ``attrs`` and the
+    endpoint subtypes as resolved (None for a missing endpoint or a
+    placeholder). An edge a clause already accepts, an own-subtype gap, an
+    undeclared edge type, a clause marked ``endpoint_absent: refuse`` and a
+    ranked edge type are not deferrable. When several clauses match, all of
+    them must qualify.
+    """
+    if not rules.deferrable:
+        return None
+    if str(record["edge_type"]) in rules.ranked_types:
+        return None
+    if edge_rules_accept(record, rules):
+        return None
+    missing = [item["role"] for item in _missing_endpoints(record)]
+    if missing:
+        roles = frozenset(missing)
+        clauses = _wildcard_clauses(record, rules, roles)
+        state = "waiting"
+    else:
+        clauses = []
+        roles = frozenset()
+        state = "subtype_mismatch"
+        for role in ("dst", "src"):
+            clauses = _wildcard_clauses(record, rules, frozenset({role}))
+            if clauses:
+                roles = frozenset({role})
+                break
+    if not clauses:
+        return None
+    for clause in clauses:
+        if clause.get("endpoint_absent") == "refuse":
+            return None
+        if not all(_role_is_foreign(clause, role, rules) for role in roles):
+            return None
+    role = "both" if len(roles) > 1 else next(iter(roles))
+    waiting_on_role = "dst" if "dst" in roles else "src"
+    return {
+        "state": state,
+        "waiting_role": role,
+        "waiting_on": str(record[waiting_on_role]),
+        "expected_subtype": str(clauses[0][f"{waiting_on_role}_subtype"]),
+        "clause_ids": [
+            _rule_clause_id(clause, fallback="signature:edges")
+            for clause in clauses
+        ],
+    }
 
 
 def _load_subtype_ancestors(
@@ -3398,6 +3824,8 @@ def _batch_violation_message(
 
 
 _OFFENDING_SAMPLE_LIMIT = 5
+#: Deferred edges named in a verdict; the ids are operator-only.
+_DEFERRED_SAMPLE_LIMIT = 20
 
 
 def _violation(

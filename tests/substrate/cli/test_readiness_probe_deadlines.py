@@ -491,6 +491,9 @@ def test_environment_readiness_is_not_ready_while_a_probe_is_unknown(
             id="probe-env",
             tier="production",
             graph_deployment_name="probe-demo",
+            # The gate resolves the readiness profile from the composed
+            # manifest (#3958); this one declares none, so no problem.
+            manifest=SimpleNamespace(effective_raw={}),
         ),
         {},
     )

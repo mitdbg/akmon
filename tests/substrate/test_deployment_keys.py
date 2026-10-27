@@ -99,12 +99,12 @@ SAMPLES: dict[str, Any] = {
     "object": {},
 }
 
-# The 9 loader keys a sealed definition does not place yet. Placing one means
+# The 8 loader keys a sealed definition does not place yet. Placing one means
 # deciding whether it belongs to the definition or the environment; remove it
 # from here in the same change.
 AWAITING_SEALED_PLACEMENT = frozenset({
     "code_drift", "coverage", "deployment_up", "docker", "host_storage",
-    "mcp", "publisher", "readiness", "search",
+    "mcp", "publisher", "search",
 })
 
 

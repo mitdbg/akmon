@@ -1,0 +1,146 @@
+# Source text for tracked code files, so "what does this function do" can be
+# answered from the graph. OFF by default: `code_structure` already stores each
+# function's signature and docstring, and this source adds the whole text of
+# every function, which costs about 20 times the code's bytes in the database
+# (a repository of 100 MB of code came to roughly 2 GB). A bare `okg ingest`
+# skips it; docs/runbooks/workspace-graph/setup.md lists the steps and the cost.
+#
+# Python is cut per function by PythonSymbolChunker (see this deployment's
+# extractors.yaml); the other languages are stored as plain text windows. A
+# long function is stored in overlapping windows that keep its name, never
+# truncated. This is NOT a secret scanner: the excludes below skip common
+# credential file names, and nothing inspects what the other files contain.
+code_text:
+  enabled_by_default: false
+  predecessor_source: ${deployment_name}.git_files
+  module: okg.substrate.library.sources.doc_corpus
+  class: DocCorpusSource
+  ownership_id: ${deployment_name}.code_text
+  source_class: discovery_crawl
+  record_identity_kind: scoped_locator
+  record_identity_fields: [repo, path]
+  source_revision_kind: content_hash
+  deletion_semantics: missing_from_completed_scope
+  publication_mode: published_generation
+  params:
+    # Must equal git_files' repo, so `inspect` on a file or symbol node can
+    # follow its link to this source's document.
+    repo: ${deployment_name}
+    repo_root: ${repo_root}
+    # extractors.yaml sits in the deployment directory, which the registry
+    # loader fills in when it reads the deployment.
+    extractors_dir: ${deployment_dir}
+    predecessor_source: ${deployment_name}.git_files
+    include_globs:
+      - "**/*.py"
+      - "**/*.js"
+      - "**/*.jsx"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "**/*.go"
+      - "**/*.rs"
+      - "**/*.c"
+      - "**/*.cc"
+      - "**/*.cpp"
+      - "**/*.cxx"
+      - "**/*.h"
+      - "**/*.hpp"
+    # Python goes to the Python parser by default. Without these routes a
+    # matched file in another language becomes a document with no text.
+    extension_to_format:
+      ".js": text
+      ".jsx": text
+      ".ts": text
+      ".tsx": text
+      ".go": text
+      ".rs": text
+      ".c": text
+      ".cc": text
+      ".cpp": text
+      ".cxx": text
+      ".h": text
+      ".hpp": text
+    exclude_globs:
+      # What code_structure skips.
+      - "__pycache__/**"
+      - "**/__pycache__/**"
+      - ".venv/**"
+      - "**/.venv/**"
+      - "node_modules/**"
+      - "**/node_modules/**"
+      - ".git/**"
+      - "**/.git/**"
+      - ".mypy_cache/**"
+      - "**/.mypy_cache/**"
+      - ".pytest_cache/**"
+      - "**/.pytest_cache/**"
+      - ".claude/**"
+      - "**/.claude/worktrees/**"
+      - "data/**"
+      - "testdata/**"
+      - ".scratch/**"
+      - ".tmp/**"
+      - ".artifacts/**"
+      - "memories/**"
+      - "**/*.pyc"
+      # Paths whose contents are credentials. A file named here is still a
+      # file node with its path and size; its text is not stored.
+      - "**/.env"
+      - "**/.env.*"
+      - "**/*.pem"
+      - "**/*.key"
+      - "**/*.p12"
+      - "**/*.pfx"
+      - "**/*.keystore"
+      - "**/*.jks"
+      - "**/id_rsa*"
+      - "**/id_ed25519*"
+      - "**/secrets/**"
+      - "**/secret/**"
+      - "**/credentials/**"
+      - "**/*credentials*"
+      - "**/*.secret"
+      - "**/.npmrc"
+      - "**/.pypirc"
+      - "**/.netrc"
+      - "**/kubeconfig"
+      - "**/*.kubeconfig"
+      # Vendored and generated code.
+      - "**/vendor/**"
+      - "**/third_party/**"
+      - "**/third-party/**"
+      - "**/dist/**"
+      - "**/build/**"
+      - "**/generated/**"
+      - "**/*_pb2.py"
+      - "**/*_pb2_grpc.py"
+      - "**/*.pb.go"
+      - "**/*.min.js"
+      - "**/*.bundle.js"
+      - "**/*.generated.*"
+      - "**/*_generated.*"
+      # Test code, about half the bytes of a typical repository. To store it
+      # too, delete these two lines and raise max_total_bytes (see setup.md).
+      - "tests/**"
+      - "**/tests/**"
+    # More files than this refuses the run.
+    max_files: 10000
+    # A larger file becomes an `oversize` document with no text, and is counted.
+    max_bytes_per_file: 1000000
+    # 64 MiB. A corpus over this refuses the whole run and names its largest
+    # folders; it never reads part of the corpus.
+    max_total_bytes: 67108864
+    # A file the Python parser rejects (Python 2) is stored as text.
+    text_fallback: true
+    git_frontier_skip: true
+  # `okg runtime worker` checks this source every poll.interval_seconds and
+  # re-reads it only when its change probe reports a change. It does so only
+  # once enabled_by_default is true; without the worker, `okg ingest`
+  # refreshes it on demand.
+  sync:
+    triggers: [poll, manual, reconcile]
+    default_event_mode: scope_complete
+    reconcile_mode: scope_complete
+    poll:
+      probe: change_probe
+      interval_seconds: 300

@@ -636,6 +636,46 @@ def retire_pre_publish_incomplete_checkpoints(
     return reports
 
 
+def retire_contracts_of_removed_sources(
+    dsn: str,
+    deployment: str | None = None,
+    *,
+    actor: str | None = None,
+    apply: bool = True,
+) -> list[dict[str, Any]]:
+    """Retire repair contracts whose required sources were removed or renamed.
+
+    With ``deployment``: classify that deployment's `repair_required`
+    contract against its source registry and retire it when
+    :func:`incomplete_recovery.retire_removed_source_contract` says it is
+    safe, as ``actor`` (default ``okg migrate``). Returns the one report, or
+    nothing when the deployment holds no such contract.
+
+    Without ``deployment`` no source registry can be loaded, so each
+    deployment that holds a `repair_required` contract is reported as a
+    candidate naming ``okg migrate --deployment <name> --apply``, and
+    nothing is retired.
+    """
+    from okg.substrate.db.connection import connect as db_connect
+    from okg.substrate.ingest import incomplete_recovery as ir
+
+    if deployment:
+        report = ir.retire_removed_source_contract_for_deployment(
+            dsn=dsn,
+            deployment=deployment,
+            actor=actor or ir.MIGRATE_ACTOR,
+            apply=apply,
+        )
+        return [report] if report is not None else []
+    with db_connect(dsn, autocommit=True) as conn:
+        names = _deployments_with_incomplete_blocks(conn)
+    candidates = [
+        ir.removed_source_contract_candidate(dsn=dsn, deployment=name)
+        for name in names
+    ]
+    return [item for item in candidates if item is not None]
+
+
 __all__ = [
     "INCOMPLETE_REASON",
     "METADATA_KEY",
@@ -656,6 +696,7 @@ __all__ = [
     "partial_failure_may_publish",
     "published_generation_completeness",
     "retire_pre_publish_incomplete_checkpoints",
+    "retire_contracts_of_removed_sources",
     "freeze_state",
     "stamp_freeze",
     "run_changes_published_marker",

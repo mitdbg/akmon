@@ -22,6 +22,7 @@ import functools
 import json
 import pathlib
 import threading
+import types
 import uuid
 from typing import Any, Iterator, Optional
 
@@ -333,7 +334,7 @@ def test_a_read_of_more_than_20_calls_is_kept_and_later_calls_make_none(lab) -> 
     assert lab.example.total() == 31
     ref = body["result_reference"]["id"]
     assert ref.startswith("l1.") and body["input"] == {"ref": ref}
-    assert f"kept as {ref} for 5 min" in body["live_line"]
+    assert f"kept as {ref} for 10 min" in body["live_line"]
     assert by_value(body, "attrs.keep_flag") == {True: 3, "(absent)": 27}
     before = lab.example.total()
     again = lab.ok("aggregate", {"input": {"ref": ref}, "by": ["attrs.keep_flag"],
@@ -350,15 +351,18 @@ def test_a_read_of_more_than_20_calls_is_kept_and_later_calls_make_none(lab) -> 
 
 
 @pytest.mark.postgres
-def test_a_read_of_20_calls_or_fewer_whose_reply_is_whole_is_not_kept(lab) -> None:
+def test_a_read_of_20_calls_or_fewer_whose_reply_is_whole_is_kept_too(lab) -> None:
+    """Re-pinned by PACT read-live-handles (D3, 4.1.1): every live set read
+    is kept now; the old 20-call keep rule is gone."""
     lab.example.set_sites(5)
     body = lab.ok("aggregate", KEEP_AGG)
     assert lab.example.total() == 6
-    assert "result_reference" not in body
-    assert "input" not in body, "a reply names no id a later call could not read"
-    assert body["kept"] == {"kept": False, "reason": "not_needed"}
-    assert body["live_line"].endswith(" · not kept")
-    assert live_result_sets.live_store().count() == 0
+    ref = body["result_reference"]["id"]
+    assert body["input"] == {"ref": ref} and body["handle"]["from"] == ref
+    assert "kept" not in body
+    assert f"kept as {ref} for 10 min" in body["live_line"]
+    # The set and its groups.
+    assert live_result_sets.live_store().count() == 2
 
 
 @pytest.mark.postgres
@@ -394,7 +398,8 @@ def test_the_read_s_rows_reach_the_body_and_a_kept_set_is_committed_once(lab) ->
     lab.example.set_sites(25)
     body = lab.ok("aggregate", KEEP_AGG)
     store = live_result_sets.live_store()
-    assert store.count() == 1 and store.pending_count() == 0
+    # The set and its groups handle (PACT read-live-handles, 4.1.7).
+    assert store.count() == 2 and store.pending_count() == 0
     entry = store._entries[body["result_reference"]["id"]]  # noqa: SLF001
     kept = entry.payload
     assert isinstance(kept, live_resolver.LiveTypedSet)
@@ -406,13 +411,15 @@ def test_the_read_s_rows_reach_the_body_and_a_kept_set_is_committed_once(lab) ->
 
 
 def _fill(store: rr.ResultReferenceStore) -> None:
-    """One set held by another reader, against a server cap of one."""
+    """One reservation of another reader's call in flight, against a server
+    cap of one. Re-pinned by PACT read-live-handles (M1): a committed set
+    would now be evicted for this one, so only a reservation, which nothing
+    evicts, fills the store."""
     store.limits = dataclasses.replace(store.limits, max_per_server=1)
-    draft = store.mint(
+    store.mint(
         reader_key="another-reader", binding={}, members=(), header_claim=None,
         multi_user=False, payload=object(), payload_bytes=1, payload_rows=1,
     )
-    store.commit(draft)
 
 
 @pytest.mark.postgres
@@ -437,9 +444,10 @@ def test_a_full_store_refuses_a_cut_read_by_name_with_the_calls_made(lab) -> Non
     assert data["reason"] == "store_full" and data["calls_made"] == 1
     assert "1 upstream call was already made" in error["message"]
     assert "attrs.kind" in data["narrowing"]
-    assert "narrow the read" in error["fix_hint"] and "retry within 5 min" in error["fix_hint"]
+    assert "narrow the read" in error["fix_hint"] and "retry within 10 min" in error["fix_hint"]
     assert lab.example.total() == 1
-    assert live_result_sets.live_store().pending_count() == 0
+    # Only the other call's reservation remains.
+    assert live_result_sets.live_store().pending_count() == 1
 
 
 # ============================================================ N6: growing a kept set
@@ -469,11 +477,12 @@ def test_a_missing_field_is_fetched_alone_into_a_new_set_with_its_own_lifetime(
     assert by_value(grown, "attrs.static_total") == {100: 25}
     entry = store._entries[new]  # noqa: SLF001
     assert entry.parent is None and entry.payload.grown_from == old
-    assert entry.expires_at == old_expiry + 200, "its own 300 s, not the old set's"
-    # The old set was discarded once the new one was committed.
-    assert old not in store._entries  # noqa: SLF001
+    assert entry.expires_at == old_expiry + 200, "its own 600 s, not the old set's"
+    # Re-pinned by PACT read-live-handles (N4): a handle is an immutable
+    # name; the old set stays until its own expiry.
+    assert old in store._entries  # noqa: SLF001
 
-    clock.now += 150  # the old set's 300 s are over; the new one's are not
+    clock.now += 450  # the old set's 600 s are over; the new one's are not
     calls = lab.example.total()
     both = lab.ok("aggregate", {"input": {"ref": new},
                                 "by": ["attrs.keep_flag", "attrs.static_total"],
@@ -710,3 +719,152 @@ def test_growth_from_a_cut_listing_is_unavailable_and_each_new_field_has_its_tim
     live = page["items"][0]["live"]
     assert live["fields"]["availability"] == "unavailable"
     assert "availability" in live["field_observed_at"], live
+
+
+# ============================================================ a kept read asks the caller again
+
+
+def _deny_expand_only(tool: str) -> None:
+    """SIMULATED: the dispatch gate's verdict when the principal may call
+    filter, map and aggregate but not expand. The real gate decides per tool
+    name; this stands in for that decision, and leaves the policy pin and
+    subject (so the kept set's binding) unchanged."""
+    if tool == "expand":
+        from okg.substrate.errors import SubstrateError
+
+        err = SubstrateError("denied")
+        err.code = "nomos_identity_denied"
+        raise err
+
+
+@contextlib.contextmanager
+def _gate(lab, gate) -> Iterator[None]:
+    original = getattr(lab.mcp, "_okg_dispatch_principal_gate", None)
+    lab.mcp._okg_dispatch_principal_gate = gate
+    try:
+        yield
+    finally:
+        lab.mcp._okg_dispatch_principal_gate = original
+
+
+def _kept_reads(lab, ref: str) -> list[tuple[str, dict[str, Any]]]:
+    """Every shape of a read of a kept set the tools take."""
+    group = {"by": ["attrs.keep_flag"], "metrics": ["count"]}
+    return [
+        ("filter", {"input": {"ref": ref}, "limit": 2}),
+        ("map", {"input": {"ref": ref}, "select": ["node_id"], "limit": 2}),
+        ("aggregate", {"input": {"ref": ref}, **group}),
+        # a JSON string input: decoded before the grammar rewrite (#3989)
+        ("aggregate", {"input": json.dumps({"ref": ref}), **group}),
+        ("aggregate", {"input": json.dumps({"ref": ref}), "by": ["attrs.tier"],
+                       "metrics": ["count"]}),
+        # CONTROL (passes on the dev base too): a read that grows the set
+        # asks the caller check itself.
+        ("filter", {"input": {"ref": ref}, "select": ["attrs.tier"], "limit": 2}),
+        ("expand", {"next": live_result_sets.next_token(ref, 0)}),
+    ]
+
+
+def _run_step(ref: str, string_input: bool) -> dict[str, Any]:
+    source: Any = json.dumps({"ref": ref}) if string_input else {"ref": ref}
+    return {"steps": [{"aggregate": {
+        "input": source, "by": ["attrs.keep_flag"], "metrics": ["count"],
+    }}]}
+
+
+def _served_rows(body: dict[str, Any]) -> bool:
+    text = json.dumps(body)
+    return "groups" in text or '"items"' in text or "live_page" in text
+
+
+@pytest.mark.postgres
+def test_a_kept_set_is_not_read_after_the_gate_denies_expand(lab) -> None:
+    """Rows come back while expand is allowed, none once the dispatch gate
+    denies it (every shape of read, a JSON-string input and a run step
+    included), and again when it allows it: same reader, set, session, pin."""
+    lab.example.set_sites(30)
+    ref = lab.ok("aggregate", KEEP_AGG)["result_reference"]["id"]
+    reads = _kept_reads(lab, ref)
+    for tool, arguments in reads:
+        failed, body = lab.body(tool, arguments)
+        assert not failed and _served_rows(body), (tool, arguments, body)
+    before = lab.example.total()
+    with _gate(lab, _deny_expand_only):
+        for tool, arguments in reads:
+            error = lab.refused(tool, arguments)
+            assert error["code"] == "nomos_identity_denied", (tool, arguments, error)
+        for string_input in (False, True):
+            failed, body = lab.body("run", _run_step(ref, string_input))
+            assert not _served_rows(body) or failed, (string_input, body)
+            assert "nomos_identity_denied" in json.dumps(body), (string_input, body)
+    assert lab.example.total() == before, "a refused read made an upstream call"
+    for tool, arguments in reads:
+        failed, body = lab.body(tool, arguments)
+        assert not failed and _served_rows(body), (tool, arguments, body)
+
+
+@pytest.mark.postgres
+def test_live_each_of_a_kept_set_is_not_read_after_the_gate_denies_expand(lab) -> None:
+    """`expand(live=..., each={arg: {ref, field}})` takes a column of a kept
+    set; the kept read asks the caller check. CONTROL on the dev base: expand
+    itself meets the dispatch gate, so this row passes there too; the
+    type-unserved case of `each` is the hermetic check_caller_sync row."""
+    lab.example.set_sites(30)
+    ref = lab.ok("aggregate", KEEP_AGG)["result_reference"]["id"]
+    call = {"input": lab.hub, "live": {
+        "relation": "example_get_site",
+        "each": {"site": {"ref": ref, "field": "site"}},
+    }}
+    with _gate(lab, _deny_expand_only):
+        failed, body = lab.body("expand", call)
+    assert failed, body
+    assert "nomos_identity_denied" in json.dumps(body), body
+
+
+@pytest.mark.postgres
+def test_a_kept_set_is_not_read_after_expand_leaves_the_session_surface(lab) -> None:
+    """SIMULATED: a real server's session tool list only grows
+    (session_tool_surface.py), so this takes expand out of the visible list
+    by replacing `okg_visible_tools`; it shows the check is asked, not that a
+    real session can lose a tool."""
+    lab.example.set_sites(30)
+    ref = lab.ok("aggregate", KEEP_AGG)["result_reference"]["id"]
+    served = lab.mcp.okg_visible_tools
+    lab.mcp.okg_visible_tools = lambda: frozenset({"filter", "map", "aggregate", "inspect"})
+    try:
+        for tool, arguments in _kept_reads(lab, ref)[:5]:
+            error = lab.refused(tool, arguments)
+            assert error["data"]["reason"] == "expand_not_served", (tool, error)
+    finally:
+        lab.mcp.okg_visible_tools = served
+
+
+@pytest.mark.postgres
+def test_a_kept_set_is_not_read_after_its_type_is_no_longer_served(lab) -> None:
+    """A deployment's served live types are fixed at start; this narrows
+    `agent_surface.live_types` on the running server to show the kept read
+    asks the type check (SIMULATED change of the served list)."""
+    lab.example.set_sites(30)
+    ref = lab.ok("aggregate", KEEP_AGG)["result_reference"]["id"]
+    surface = lab.mcp._okg_agent_surface
+    narrowed = types.SimpleNamespace(**{
+        **{k: getattr(surface, k) for k in dir(surface) if not k.startswith("_")},
+        "live_types": ("item", "system"),
+    })
+    lab.mcp._okg_agent_surface = narrowed
+    try:
+        for tool, arguments in _kept_reads(lab, ref)[:5]:
+            error = lab.refused(tool, arguments)
+            assert error["data"]["reason"] == "live_type_not_served", (tool, error)
+    finally:
+        lab.mcp._okg_agent_surface = surface
+
+
+@pytest.mark.postgres
+def test_a_kept_set_of_another_reader_is_unknown_not_read(lab) -> None:
+    """A set kept by one reader is unknown to another, whatever the gate says."""
+    lab.example.set_sites(30)
+    ref = lab.ok("aggregate", KEEP_AGG)["result_reference"]["id"]
+    store = live_result_sets.live_store()
+    with pytest.raises(rr.ResultReferenceInvalid):
+        store.lookup(ref, reader_key="a-different-reader")

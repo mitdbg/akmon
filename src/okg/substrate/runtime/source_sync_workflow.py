@@ -536,11 +536,7 @@ def _run_one_ingest_with_trace(
     results = result.report.get("results", [])
     publishes = result.report.get("publishes", [])
     failed_results = [r for r in results if r.get("status") != "OK"]
-    failed_publishes = [
-        p for p in publishes
-        if p.get("status") != "published"
-        and not bool(p.get("publish_skipped"))
-    ]
+    failed_publishes = _failed_publishes(publishes)
     first_err = _first_ingest_failure_error(
         failed_results=failed_results,
         failed_publishes=failed_publishes,
@@ -1022,6 +1018,23 @@ def _ingest_failure_details(
                 details["record_set_coverage"] = coverage
             break
     return {k: v for k, v in details.items() if v not in (None, "", {})}
+
+
+def _failed_publishes(publishes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The publish entries that fail the sync.
+
+    A run-end publish refused for a held publish lock is satisfied, not
+    failed, when a newer generation covers the run's writes: the ingest
+    service records ``covered_by_generation`` and counts it published
+    (PACT publisher-starvation-4039). Anything else that is not published and
+    not a deliberate no-work skip fails the sync, as before.
+    """
+    return [
+        p for p in publishes
+        if p.get("status") != "published"
+        and not bool(p.get("publish_skipped"))
+        and not p.get("covered_by_generation")
+    ]
 
 
 def _first_ingest_failure_error(

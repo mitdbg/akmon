@@ -33,7 +33,7 @@
             ]
           }
         },
-        "readinessProfile": {"type": "string", "enum": ["general", "dogfood", "ci"]},
+        "readinessProfile": {"type": "string", "enum": ["general", "dogfood", "ci", "standard"]},
         "runtimeNomosSubject": {"type": "string", "minLength": 1},
         "mcpNomosSubject": {"type": "string", "minLength": 1},
         "repoRoot": {"type": "string", "pattern": "^/"},

@@ -302,7 +302,6 @@ APPROVED_PROGRAM_LOWERED: dict[str, dict[str, tuple[str, ...]]] = {
         "_search_semantic": ("_semantic_visible_rows(",),
     },
     "src/okg/substrate/mcp/server.py": {
-        "_operator_attr_rows": (_FILTER_NODE, _FILTER_EDGE),
         "_effective_view_sql_page": (_FILTER_NODE, _FILTER_EDGE),
         "filter": ("_effective_view_sql_page(",),
         "map": ("_effective_view_sql_page(",),

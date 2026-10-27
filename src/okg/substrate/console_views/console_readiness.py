@@ -84,7 +84,9 @@ CHECKS_NOT_RUN: tuple[str, ...] = (
     "queues.stale",
     "rollout.workspace_graph",
     "runtime.worker_processes",
+    "sources.freshness_advisory",
     "sources.optimization_budget",
+    "sources.readiness_undeclared",
 )
 
 #: Ids the full readiness run emits that are NOT checks of their own.
@@ -121,7 +123,9 @@ IDS_THAT_ARE_NOT_CHECKS: tuple[str, ...] = (
     "publisher.schedule_paused",
     "queues.unavailable",
     "sources.freshness.unavailable",
+    "sources.freshness_advisory_unmeasured",
     "sources.optimization_budget.unavailable",
+    "sources.registry.unavailable",
     "sources.sync_liveness.unavailable",
     "sources.sync_status.unavailable",
 )
@@ -290,6 +294,14 @@ def _source_groups_for_profile(
     )
 
 
+def _resolved_readiness_profile(deployment_dir: Path) -> Any:
+    from okg.substrate.cli.deployment_readiness import (
+        _ready_resolved_readiness_profile,
+    )
+
+    return _ready_resolved_readiness_profile(deployment_dir)
+
+
 def _source_aliases(deployment_dir: Path) -> Any:
     from okg.substrate.cli.deployment_readiness import _ready_source_aliases
 
@@ -343,7 +355,7 @@ def compose_console_readiness(
     deployment_name: str,
     deployment_dir: Path,
     dsn: str,
-    readiness_profile: str = "dogfood",
+    readiness_profile: str | None = None,
     session: Any = None,
 ) -> dict[str, Any]:
     """The bounded readiness the console's Sources reads consume.
@@ -357,10 +369,18 @@ def compose_console_readiness(
     MCP checks describe THAT generation instead of each searching for the
     latest one again, so the generation the page prints and the one these
     checks judged are the same one (issue #2546).
+
+    `readiness_profile` defaults to the profile the deployment is judged by
+    (issue #3958): the same resolver `okg dogfood status` uses, with that
+    profile's source-age limit. A standard deployment that marks no baseline
+    source reports freshness and sync liveness `not_checked`; a profile that
+    cannot be resolved runs no source check and says so.
     """
     from okg.substrate.cli.deployment import (
         _READY_DOGFOOD_MAX_PRODUCER_AGE_SECONDS,
-        _READY_DOGFOOD_MAX_SOURCE_AGE_SECONDS,
+    )
+    from okg.substrate.deployments.readiness_profile import (
+        MAX_SOURCE_AGE_SECONDS,
     )
 
     deployment_path = Path(deployment_dir)
@@ -370,15 +390,46 @@ def compose_console_readiness(
     freshness: dict[str, Any] | None = None
     liveness: dict[str, Any] | None = None
 
-    source_groups = _probe(
-        authority,
-        "source_groups",
-        lambda: _source_groups_for_profile(
-            readiness_profile,
-            deployment=deployment_name,
-            deployment_dir=deployment_path,
-        ),
-    )
+    profile_name: str | None = readiness_profile
+    if profile_name is None:
+        resolved = _probe(
+            authority,
+            "readiness_profile",
+            lambda: _resolved_readiness_profile(deployment_path),
+        )
+        if isinstance(resolved, dict) and resolved.get("problem"):
+            authority["readiness_profile"] = {
+                "status": "unavailable",
+                "reason": str(resolved["problem"].get("code") or ""),
+            }
+        elif isinstance(resolved, dict):
+            profile_name = str(resolved.get("name"))
+            authority["readiness_profile"]["name"] = profile_name
+            authority["readiness_profile"]["source"] = resolved.get("source")
+    if profile_name is None:
+        source_groups = None
+        authority["source_groups"] = {
+            "status": "unavailable",
+            "reason": "readiness_profile_unresolved",
+        }
+    else:
+        resolved_profile = profile_name
+        source_groups = _probe(
+            authority,
+            "source_groups",
+            lambda: _source_groups_for_profile(
+                resolved_profile,
+                deployment=deployment_name,
+                deployment_dir=deployment_path,
+            ),
+        )
+    # Measured and empty, under standard: the deployment promises no
+    # freshness. Not `not_requested`, which reads as "nobody asked".
+    no_baseline = profile_name == "standard" and source_groups == {}
+    not_checked = {
+        "status": "not_checked",
+        "reason": "no_baseline_sources_declared",
+    }
 
     with _connect(dsn) as conn, _statement_timeout(
         conn, CONSOLE_PROBE_TIMEOUT_SECONDS
@@ -396,20 +447,31 @@ def compose_console_readiness(
             # verdict for the same generation and policy (issue #2547).
             authority["mcp"]["verdict_reuse"] = mcp["verdict_reuse"]
         if source_groups:
+            # Only dogfood, ci and standard produce source groups, so the
+            # profile always has an age limit here.
             freshness = _probe(
                 authority,
                 "source_freshness",
                 lambda: _source_freshness_status(
                     conn,
                     deployment=deployment_name,
-                    max_source_age_seconds=_READY_DOGFOOD_MAX_SOURCE_AGE_SECONDS,
+                    max_source_age_seconds=MAX_SOURCE_AGE_SECONDS[
+                        str(profile_name)
+                    ],
                     source_groups=source_groups,
                     progress_freshness_sources=_progress_freshness_sources(
-                        deployment_path, readiness_profile
+                        deployment_path, str(profile_name)
                     ),
                     source_aliases=_source_aliases(deployment_path),
                 ),
             )
+        elif no_baseline:
+            authority["source_freshness"] = dict(not_checked)
+        elif profile_name is None:
+            authority["source_freshness"] = {
+                "status": "unavailable",
+                "reason": "readiness_profile_unresolved",
+            }
         else:
             authority["source_freshness"] = {
                 "status": "not_requested",
@@ -425,10 +487,17 @@ def compose_console_readiness(
                 deployment=deployment_name,
                 deployment_dir=deployment_path,
                 max_producer_age_seconds=_READY_DOGFOOD_MAX_PRODUCER_AGE_SECONDS,
-                readiness_profile=readiness_profile,
+                readiness_profile=str(profile_name),
                 readiness_source_groups=source_groups,
             ),
         )
+    elif no_baseline:
+        authority["source_sync_liveness"] = dict(not_checked)
+    elif profile_name is None:
+        authority["source_sync_liveness"] = {
+            "status": "unavailable",
+            "reason": "readiness_profile_unresolved",
+        }
     else:
         authority["source_sync_liveness"] = {
             "status": "not_requested",
@@ -455,6 +524,8 @@ def compose_console_readiness(
         )
         if sync_status is not None:
             readiness["source_sync_status"] = sync_status
+    elif no_baseline:
+        authority["source_sync_status"] = dict(not_checked)
     else:
         authority["source_sync_status"] = {
             "status": "unavailable",

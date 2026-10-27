@@ -136,9 +136,13 @@ def run_within_budget(
     *,
     links: bool,
     budget_ms: Optional[int] = None,
+    prepare: Optional[bool] = None,
 ) -> tuple[list[Any], Any]:
     """Run a group statement (and its facts statement, when given) under a
     statement timeout of ``budget_ms`` (default :data:`COUNT_BUDGET_MS`).
+    ``prepare`` is psycopg's own option for both statements: the graph read
+    path (PACT lane-s-storage-redesign-s2) passes False so each is planned
+    with its parameters; None keeps psycopg's default.
 
     Returns the group rows and the facts row (None without one). The
     timeout bounds each statement on its own, so the group statement and the
@@ -159,11 +163,11 @@ def run_within_budget(
                 cur.execute(
                     "SELECT set_config('statement_timeout', %s, true)", (f"{budget}ms",),
                 )
-                cur.execute(sql, dict(params))
+                cur.execute(sql, dict(params), prepare=prepare)
                 fetched = cur.fetchall()
                 counted = None
                 if facts_sql:
-                    cur.execute(facts_sql, dict(params))
+                    cur.execute(facts_sql, dict(params), prepare=prepare)
                     counted = cur.fetchone()
                 cur.execute("SELECT set_config('statement_timeout', %s, true)", (previous,))
     except psycopg.errors.QueryCanceled as cancelled:

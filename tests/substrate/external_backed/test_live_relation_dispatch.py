@@ -374,66 +374,178 @@ def test_an_adapter_timeout_carries_the_phase_it_hung_in() -> None:
     assert "did not answer `initialize`" in envelope["error"]["excerpt"]
 
 
-def test_an_empty_result_failure_has_its_own_message_not_unavailable() -> None:
-    """`upstream_empty_result` says the system answered and matched nothing,
-    with the system's own words as the excerpt."""
-    from okg.substrate.external_backed.live_dispatch import (
-        _FAILURE_MESSAGES,
-        LiveAdapterError,
-    )
+def test_an_empty_result_is_an_ok_answer_with_no_rows() -> None:
+    """`upstream_empty_result` says the system answered and matched nothing.
+    That is its answer, 0 rows with `state: ok`, never an error (lane re,
+    issue 4): the envelope names the arguments that matched nothing, and the
+    sample records an `ok` call."""
+    from okg.substrate.external_backed.live_dispatch import LiveAdapterError
 
     adapter = CountingAdapter(raises=LiveAdapterError(
         "upstream_empty_result",
-        excerpt="RSE Expression resulted in an empty set.",
+        excerpt="Unit expression resulted in an empty set.",
     ))
-    envelope = _run(gate=_allow(), adapter=adapter, sampler=RecordingSampler())
-    error = envelope["error"]
-    assert envelope["state"] == "error"
-    assert error["failure"] == "upstream_empty_result"
-    assert error["detail"] == _FAILURE_MESSAGES["upstream_empty_result"]
-    assert "matched nothing" in error["detail"]
-    assert error["detail"] != _FAILURE_MESSAGES["upstream_unavailable"]
-    assert "empty set" in error["excerpt"]
-
-
-def test_a_not_found_failure_has_its_own_message_not_unavailable() -> None:
-    """`upstream_not_found` says the system answered that the named object
-    does not exist (CompOps c006: a rule id read back as an outage), with
-    the system's own words as the excerpt."""
-    from okg.substrate.external_backed.live_dispatch import (
-        _FAILURE_MESSAGES,
-        LiveAdapterError,
+    sampler = RecordingSampler()
+    envelope = _run(
+        gate=_allow(), adapter=adapter, sampler=sampler,
+        args={"q": "type=TAPE", "size": 5},
     )
+    assert len(adapter.calls) == 1
+    assert envelope["state"] == "ok", envelope
+    assert "error" not in envelope
+    assert envelope["rows"] == []
+    # The text argument the caller sent is what matched nothing, and the
+    # system's own words travel with it, fenced.
+    note = envelope["matched_nothing"]
+    assert note["failure"] == "upstream_empty_result"
+    assert note["args"] == {"q": "type=TAPE"}
+    assert "resulted in an empty set" in note["excerpt"]
+    assert sampler.rows[0]["status"] == "ok"
+    text = _live_text(envelope)
+    assert "0 rows: the external system answered that " in text
+    assert "matched nothing for q=\"type=TAPE\"" in text
+    assert "Unit expression resulted in an empty set." in text
+
+
+def test_other_upstream_failures_stay_errors() -> None:
+    """Must-fail partner: only "nothing" answers (empty, not found) become
+    0 rows; every other failure stays an error."""
+    from okg.substrate.external_backed.live_dispatch import LiveAdapterError
+
+    for failure in ("upstream_unavailable", "upstream_rejected_arguments",
+                    "response_over_cap", "result_unusable"):
+        envelope = _run(
+            gate=_allow(), adapter=CountingAdapter(raises=LiveAdapterError(failure)),
+            sampler=RecordingSampler(),
+        )
+        assert envelope["state"] == "error", failure
+        assert envelope["error"]["failure"] == failure
+        assert "matched_nothing" not in envelope
+
+
+def test_a_not_found_answer_is_0_rows_with_its_own_line() -> None:
+    """`upstream_not_found` says the system answered that the named object
+    does not exist. That is its answer, not an outage (its own message says
+    so), so it is served like an empty match: 0 rows, `state: ok`, no error,
+    a line that says "found nothing named so", and the system's own words.
+    A run's live step already counts it so (`VALUE_NOT_FOUND`)."""
+    from okg.substrate.external_backed.live_dispatch import LiveAdapterError
 
     adapter = CountingAdapter(raises=LiveAdapterError(
         "upstream_not_found",
         excerpt=(
-            "Error executing tool rucio_get_replication_rule: No replication "
-            "rule found.\nDetails: No rule with the id "
+            "Error executing tool example_get_record: No record "
+            "found.\nDetails: No record with the id "
             "3fe781fc37294eafb22c0c9eb9a584d6 found"
         ),
     ))
-    envelope = _run(gate=_allow(), adapter=adapter, sampler=RecordingSampler())
-    error = envelope["error"]
+    sampler = RecordingSampler()
+    envelope = _run(gate=_allow(), adapter=adapter, sampler=sampler,
+                    args={"q": "3fe781fc37294eafb22c0c9eb9a584d6"})
+    assert envelope["state"] == "ok", envelope
+    assert "error" not in envelope
+    assert envelope["rows"] == []
+    note = envelope["matched_nothing"]
+    assert note["failure"] == "upstream_not_found"
+    assert "3fe781fc37294eafb22c0c9eb9a584d6" in note["excerpt"]
+    assert sampler.rows[0]["status"] == "ok"
+    text = _live_text(envelope)
+    assert "found nothing named so for q=\"3fe781fc37294eafb22c0c9eb9a584d6\"" in text
+    # Review N-M1: a misspelled name reads the same, so the line says to check it.
+    assert "; if you expected it, check the name and scope" in text
+    assert note["failures"] == ["upstream_not_found"]
+    assert "refused the connection" not in text
+
+
+def _fan_out(adapter: Any, values: list[str]) -> dict[str, Any]:
+    return dispatch_live_relation(
+        bound=_listed_bound(), args_model=compile_args_model(_listed_bound().relation),
+        args={}, node_id="node-1", gate=_allow(), adapter=adapter,
+        write_sample=RecordingSampler(), generation_id=42, room=None,
+        each={"unit_expression": values},
+    )
+
+
+def test_a_fan_out_value_that_matched_nothing_keeps_the_others_rows() -> None:
+    """Review H1 (lane ri, E1): one value that matched nothing failed the
+    whole fan-out, as `isError`, and dropped the rows of the values that
+    answered. Now that value is 0 rows, the others keep theirs, and the
+    reply names the value that matched nothing (and one not found)."""
+    from okg.substrate.external_backed.live_dispatch import LiveAdapterError
+
+    def adapter(*, config, args, node_id, deadline_seconds):
+        value = args["unit_expression"]
+        if value == "tier=9":
+            raise LiveAdapterError(
+                "upstream_empty_result", excerpt="Unit expression resulted in an empty set.",
+            )
+        if value == "site=GONE":
+            raise LiveAdapterError("upstream_not_found", excerpt="Unit not found.")
+        return [{"unit": f"U_{value}"}]
+
+    envelope = _fan_out(adapter, ["tier=1", "tier=9", "site=GONE", "tier=2"])
+    assert envelope["state"] == "ok", envelope
+    assert "error" not in envelope
+    # Upstream values arrive fenced as untrusted data; the order is the caller's.
+    units = [row["unit"] for row in envelope["rows"]]
+    assert len(units) == 2 and "U_tier=1" in units[0] and "U_tier=2" in units[1], units
+    note = envelope["matched_nothing"]
+    assert note["args"] == {"unit_expression": ["tier=9", "site=GONE"]}
+    assert note["failures"] == ["upstream_empty_result", "upstream_not_found"]
+    assert note["each_values"] == 4
+    text = _live_text(envelope)
+    assert "U_tier=1" in text and "U_tier=2" in text
+    assert "0 rows for 2 of 4 values: the external system answered that " in text
+    assert "matched nothing or found nothing named so for " in text
+    # The one kept excerpt is named by the value it belongs to (review low).
+    assert note["excerpt_for"] == {"unit_expression": "tier=9"}
+    assert 'its words for unit_expression="tier=9":' in text
+
+
+def test_a_fan_out_value_that_really_failed_still_fails_the_answer() -> None:
+    """Must-fail partner: only "nothing" answers are 0 rows for a value; a
+    value whose call really failed still fails the fan-out, naming it."""
+    from okg.substrate.external_backed.live_dispatch import LiveAdapterError
+
+    def adapter(*, config, args, node_id, deadline_seconds):
+        if args["unit_expression"] == "tier=9":
+            raise LiveAdapterError("upstream_unavailable")
+        return [{"unit": "U"}]
+
+    envelope = _fan_out(adapter, ["tier=1", "tier=9"])
     assert envelope["state"] == "error"
-    assert error["failure"] == "upstream_not_found"
-    assert error["detail"] == _FAILURE_MESSAGES["upstream_not_found"]
-    assert "not an outage" in error["detail"]
-    assert "refused the connection" not in error["detail"]
-    assert "3fe781fc37294eafb22c0c9eb9a584d6" in error["excerpt"]
+    assert envelope["error"]["failure"] == "upstream_unavailable"
+    assert "tier=9" in envelope["error"]["excerpt"]
+    assert "matched_nothing" not in envelope
 
 
-# ── an answer the external system cut (CompOps g002, R7) ──────────────
+def test_many_fan_out_values_that_matched_nothing_are_counted_not_listed() -> None:
+    """The note is printed like `query`: a long list is its count and the
+    first few values, so it never outgrows the reply's reserve."""
+    from okg.substrate.external_backed.live_dispatch import LiveAdapterError
 
-#: rucio_list_rses as the CompOps deployment declares it: `limit` default
+    def adapter(*, config, args, node_id, deadline_seconds):
+        raise LiveAdapterError("upstream_empty_result")
+
+    envelope = _fan_out(adapter, MANY[:40])
+    assert envelope["state"] == "ok" and envelope["rows"] == []
+    assert envelope["matched_nothing"]["args"] == {
+        "unit_expression": {"values": 40, "first": MANY[:3]},
+    }
+    assert "0 rows for 40 of 40 values" in _live_text(envelope)
+
+
+# ── an answer the external system cut (R7) ──────────────
+
+#: example_list_units as a deployment declares it: `limit` default
 #: 200 then (1000 since the deployment change), at most 1000.
 LISTED = {
-    "action": "external.cms.rucio.read",
+    "action": "external.example.items.read",
     "sample_policy": "inline",
     "retention_class": "hot",
     "deadline_seconds": 5,
     "args": {
-        "rse_expression": {"type": "string", "required": True, "maxLength": 64,
+        "unit_expression": {"type": "string", "required": True, "maxLength": 64,
                            "pattern": "^[A-Za-z0-9_.=<>&|()*\\\\-]{1,64}$"},
         "limit": {"type": "integer", "default": 200, "minimum": 1,
                   "maximum": 1000},
@@ -443,13 +555,13 @@ LISTED = {
 
 def _listed_bound():
     declared = parse_live_relations(
-        {ANNOTATION_KEY: {"rucio_list_rses": LISTED}}, subtype="repo",
+        {ANNOTATION_KEY: {"example_list_units": LISTED}}, subtype="repo",
     )
     bindings = parse_live_bindings(
-        {"rucio_list_rses": {"kind": "http",
+        {"example_list_units": {"kind": "http",
                              "config": {"url": "http://localhost"}}},
     )
-    return bind_live_relations(declared, bindings)["rucio_list_rses"]
+    return bind_live_relations(declared, bindings)["example_list_units"]
 
 
 def _live_text(envelope: dict[str, Any]) -> str:
@@ -461,19 +573,19 @@ def _live_text(envelope: dict[str, Any]) -> str:
     )
 
 
-RSES = [{"rse": f"T2_X_{i}"} for i in range(3)]
+UNITS = [{"unit": f"U2_X_{i}"} for i in range(3)]
 
 
 def test_an_answer_the_upstream_cut_is_never_called_all_shown() -> None:
-    """R7: rucio-mcp sent 200 of 263 RSEs with `truncated: true` and the
+    """R7: a list tool sent 200 of 263 units with `truncated: true` and the
     reply said "200 rows, all shown". Now the status line gives no total
     and the cut line names the call that asks for more."""
     from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
 
     sampler = RecordingSampler()
-    adapter = CountingAdapter(rows=UpstreamCutRows(RSES, received=3))
+    adapter = CountingAdapter(rows=UpstreamCutRows(UNITS, received=3))
     envelope = _run(gate=_allow(), adapter=adapter, sampler=sampler,
-                    bound=_listed_bound(), args={"rse_expression": "*"})
+                    bound=_listed_bound(), args={"unit_expression": "*"})
     assert envelope["state"] == "ok"
     assert envelope["truncated"] is True
     assert envelope["upstream_cut"] == {"rows": 3, "limit": 200, "limit_max": 1000}
@@ -490,10 +602,10 @@ def test_an_answer_the_upstream_cut_is_never_called_all_shown() -> None:
 def test_the_raised_limit_call_the_cut_names_is_accepted_and_runs() -> None:
     """Gate: the call the reply suggests executes. Same relation, limit
     1000, an answer the upstream did not cut: served whole."""
-    adapter = CountingAdapter(rows=list(RSES))
+    adapter = CountingAdapter(rows=list(UNITS))
     envelope = _run(gate=_allow(), adapter=adapter, sampler=RecordingSampler(),
                     bound=_listed_bound(),
-                    args={"rse_expression": "*", "limit": 1000})
+                    args={"unit_expression": "*", "limit": 1000})
     assert adapter.calls[0]["args"]["limit"] == 1000
     assert "truncated" not in envelope and "upstream_cut" not in envelope
     assert "3 rows, all shown" in _live_text(envelope)
@@ -502,10 +614,10 @@ def test_the_raised_limit_call_the_cut_names_is_accepted_and_runs() -> None:
 def test_a_cut_at_the_largest_limit_says_to_narrow_instead() -> None:
     from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
 
-    adapter = CountingAdapter(rows=UpstreamCutRows(RSES, received=3))
+    adapter = CountingAdapter(rows=UpstreamCutRows(UNITS, received=3))
     envelope = _run(gate=_allow(), adapter=adapter, sampler=RecordingSampler(),
                     bound=_listed_bound(),
-                    args={"rse_expression": "*", "limit": 1000})
+                    args={"unit_expression": "*", "limit": 1000})
     text = _live_text(envelope)
     assert "at the largest limit (1000); narrow the other arguments" in text
     assert "ask again with limit" not in text
@@ -524,15 +636,15 @@ def test_one_cut_call_of_a_fan_out_marks_the_joined_answer() -> None:
     from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
 
     def adapter(*, config, args, node_id, deadline_seconds):
-        if args["rse_expression"] == "tier=1":
-            return UpstreamCutRows([{"rse": "Z1_A"}], received=1)
-        return [{"rse": "Z2_B"}]
+        if args["unit_expression"] == "tier=1":
+            return UpstreamCutRows([{"unit": "Z1_A"}], received=1)
+        return [{"unit": "Z2_B"}]
 
     envelope = dispatch_live_relation(
         bound=_listed_bound(), args_model=compile_args_model(_listed_bound().relation),
         args={}, node_id="node-1", gate=_allow(), adapter=adapter,
         write_sample=RecordingSampler(), generation_id=42, room=None,
-        each={"rse_expression": ["tier=1", "tier=2"]},
+        each={"unit_expression": ["tier=1", "tier=2"]},
     )
     assert envelope["upstream_cut"]["calls_cut"] == 1
     assert envelope["upstream_cut"]["calls"] == 2
@@ -556,48 +668,48 @@ def test_a_fan_out_reserve_does_not_grow_with_its_values() -> None:
 
     def reserve(values: list[str]) -> dict[str, Any]:
         return live_reserve_envelope(
-            bound=bound, args_model=model, args={}, retain=True,
-            each={"rse_expression": values},
+            bound=bound, args_model=model, args={},
+            each={"unit_expression": values},
         )
 
     small, large = reserve(MANY[:3]), reserve(MANY)
     size = lambda envelope: len(json.dumps(envelope, default=str))  # noqa: E731
     assert size(large) - size(small) < 200, (size(small), size(large))
     assert size(large) < 16_384
-    assert large["query"]["rse_expression"] == {"values": 1_420, "first": MANY[:3]}
+    assert large["query"]["unit_expression"] == {"values": 1_420, "first": MANY[:3]}
     # The re-fetch pointer never held argument values (its allowlist is
     # empty), so it was never part of the growth.
-    assert "rse_expression" not in large["refetch"]["query"]
+    assert "unit_expression" not in large["refetch"]["query"]
     # Three values or fewer are printed as they are.
-    assert small["query"]["rse_expression"] == MANY[:3]
+    assert small["query"]["unit_expression"] == MANY[:3]
 
 
 def test_a_fan_out_reply_counts_its_values_and_keeps_its_rows() -> None:
-    adapter = CountingAdapter(rows=[{"rse": "Z2_X"}])
+    adapter = CountingAdapter(rows=[{"unit": "Z2_X"}])
     envelope = dispatch_live_relation(
         bound=_listed_bound(), args_model=compile_args_model(_listed_bound().relation),
         args={}, node_id="node-1", gate=_allow(), adapter=adapter,
         write_sample=RecordingSampler(), generation_id=42, room=None,
-        each={"rse_expression": MANY},
+        each={"unit_expression": MANY},
     )
     assert len(adapter.calls) == 1_420
     assert envelope["state"] == "ok"
-    assert envelope["query"]["rse_expression"] == {"values": 1_420, "first": MANY[:3]}
+    assert envelope["query"]["unit_expression"] == {"values": 1_420, "first": MANY[:3]}
     assert len(envelope["rows"]) == 1_420, "no room given: every row is served"
 
 
 def test_an_answer_the_upstream_did_not_cut_is_unchanged() -> None:
     """Must-fail partner: a plain list carries no cut and reads whole."""
-    envelope = _run(gate=_allow(), adapter=CountingAdapter(rows=list(RSES)),
+    envelope = _run(gate=_allow(), adapter=CountingAdapter(rows=list(UNITS)),
                     sampler=RecordingSampler(), bound=_listed_bound(),
-                    args={"rse_expression": "*"})
+                    args={"unit_expression": "*"})
     assert "truncated" not in envelope and "next_unavailable" not in envelope
     assert "3 rows, all shown" in _live_text(envelope)
 
 
 def test_a_rejected_arguments_failure_has_its_own_message() -> None:
     """`upstream_rejected_arguments` says the system rejected the arguments
-    (r36d g002: `"T1_*_Tape"` read as an outage and as an empty match)."""
+    (an unparseable expression read as an outage and as an empty match)."""
     from okg.substrate.external_backed.live_dispatch import (
         _FAILURE_MESSAGES,
         LiveAdapterError,
@@ -606,9 +718,9 @@ def test_a_rejected_arguments_failure_has_its_own_message() -> None:
     adapter = CountingAdapter(raises=LiveAdapterError(
         "upstream_rejected_arguments",
         excerpt=(
-            "Error executing tool rucio_list_rses: Provided RSE expression "
+            "Error executing tool example_list_units: Provided unit expression "
             "is considered invalid.\nDetails: Expression does not comply to "
-            "RSE Expression syntax"
+            "unit expression syntax"
         ),
     ))
     envelope = _run(gate=_allow(), adapter=adapter, sampler=RecordingSampler())
@@ -2114,10 +2226,10 @@ def test_a_pattern_mismatch_prints_the_declared_pattern() -> None:
     assert "must start with '/'" not in exc.message
 
 
-#: A Rucio name argument as the CompOps deployment declares it since its
-#: pattern requires the leading "/" (sources_eval_live.yaml, 12 relations).
-RUCIO_DID = {
-    "action": "external.cms.rucio.read",
+#: A name argument as a deployment declares it since its
+#: pattern requires the leading "/".
+EXAMPLE_ITEM = {
+    "action": "external.example.items.read",
     "sample_policy": "inline",
     "retention_class": "hot",
     "deadline_seconds": 5,
@@ -2129,27 +2241,27 @@ RUCIO_DID = {
     },
 }
 
-#: R1 (nemotron35s q015 a2 call 3) and R2 (q018 a1 call 2): the names sent.
-Q015_NAME = (
-    "ADD-monojet_N-2_MD-10000_TuneCP5_13p6TeV-pythia8/Run3Summer23MiniAODv4-"
-    "130X_mcRun3_2023_realistic_v15-v4/MINIAODSIM"
+#: R1 and R2: the names sent.
+NAME_R1 = (
+    "alpha-sample_N-2_MD-10000_T5-gen8/Campaign3-"
+    "130X_v15-v4/FORMATA"
 )
-Q018_NAME = (
-    "ChargedHiggs_HplusTB_HplusToTB_M-5000_13TeV_amcatnlo_pythia8/"
-    "RunIISummer16NanoAODv4-PUMoriond17_Nano14Dec2018_102X_mcRun2_asymptotic_"
-    "v6-v1/NANOAODSIM"
+NAME_R2 = (
+    "beta-sample_M-5000_13x_gen8/"
+    "Campaign2-Reprocess17_102X_asymptotic_"
+    "v6-v1/FORMATB"
 )
 
 
-def _rucio_did_bound():
+def _item_bound():
     declared = parse_live_relations(
-        {ANNOTATION_KEY: {"rucio_get_did": RUCIO_DID}}, subtype="repo",
+        {ANNOTATION_KEY: {"example_get_item": EXAMPLE_ITEM}}, subtype="repo",
     )
     bindings = parse_live_bindings(
-        {"rucio_get_did": {"kind": "http",
+        {"example_get_item": {"kind": "http",
                            "config": {"url": "http://localhost"}}},
     )
-    return bind_live_relations(declared, bindings)["rucio_get_did"]
+    return bind_live_relations(declared, bindings)["example_get_item"]
 
 
 def _suggested_value(message: str) -> str:
@@ -2160,17 +2272,17 @@ def _suggested_value(message: str) -> str:
     return found.group(1)
 
 
-@pytest.mark.parametrize("name", [Q015_NAME, Q018_NAME], ids=["R1", "R2"])
+@pytest.mark.parametrize("name", [NAME_R1, NAME_R2], ids=["R1", "R2"])
 def test_a_name_without_its_leading_slash_is_told_the_one_fix(name) -> None:
     """Replay R1/R2: refused before any call, the message names the
     corrected value, and that value -- sent as suggested -- is served."""
     from okg.substrate.mcp.result_text import render
 
-    bound = _rucio_did_bound()
+    bound = _item_bound()
     adapter, sampler, gate = CountingAdapter(), RecordingSampler(), _allow()
     with pytest.raises(LiveArgumentsInvalid) as exc:
         _run(gate=gate, adapter=adapter, sampler=sampler, bound=bound,
-             args={"scope": "cms", "name": name})
+             args={"scope": "demo", "name": name})
     assert adapter.calls == [] and gate.calls == [] and sampler.rows == []
     line = render(
         {"status": "refused", "operator_name": "expand",
@@ -2183,7 +2295,7 @@ def test_a_name_without_its_leading_slash_is_told_the_one_fix(name) -> None:
     assert exc.value.data["violations"] == ["name: string_pattern_mismatch"]
     # The call the reply suggests is accepted and runs.
     out = _run(gate=gate, adapter=adapter, sampler=sampler, bound=bound,
-               args={"scope": "cms", "name": suggested})
+               args={"scope": "demo", "name": suggested})
     assert out["state"] == "ok" and len(adapter.calls) == 1
 
 
@@ -2203,13 +2315,13 @@ def test_a_short_path_without_its_slash_gets_the_hint_and_the_fix_runs() -> None
     "args",
     [
         # Too long once the "/" is added (maxLength 500): the fix would fail.
-        pytest.param({"scope": "cms", "name": "a" * 500}, id="too-long-with-slash"),
+        pytest.param({"scope": "demo", "name": "a" * 500}, id="too-long-with-slash"),
         # A character the pattern refuses anywhere: a "/" does not fix it.
-        pytest.param({"scope": "cms", "name": "A/B C/D"}, id="space"),
+        pytest.param({"scope": "demo", "name": "A/B C/D"}, id="space"),
     ],
 )
 def test_no_slash_hint_when_a_slash_would_not_fix_it(args) -> None:
-    bound = _rucio_did_bound()
+    bound = _item_bound()
     with pytest.raises(LiveArgumentsInvalid) as exc:
         _run(gate=_allow(), adapter=CountingAdapter(),
              sampler=RecordingSampler(), bound=bound, args=args)
@@ -2220,7 +2332,7 @@ def test_no_slash_hint_when_a_slash_would_not_fix_it(args) -> None:
 def test_no_slash_hint_for_a_pattern_that_does_not_start_with_one() -> None:
     """`scope` is `^[A-Za-z0-9_.-]{1,25}$`: a value it refuses is never told
     to add a "/"."""
-    bound = _rucio_did_bound()
+    bound = _item_bound()
     with pytest.raises(LiveArgumentsInvalid) as exc:
         _run(gate=_allow(), adapter=CountingAdapter(),
              sampler=RecordingSampler(), bound=bound,

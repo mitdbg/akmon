@@ -79,11 +79,11 @@ OPERATOR_ARGUMENTS: dict[str, tuple[str, ...]] = {
     ),
     "aggregate": (
         "input", "by", "metrics", "generation_id", "limit", "offset",
-        "authority", "max_bytes", "predicate",
+        "authority", "max_bytes", "predicate", "order_by",
     ),
     "map": (
         "input", "projection", "generation_id", "limit", "offset",
-        "authority", "max_bytes", "next",
+        "authority", "max_bytes", "next", "compute", "predicate",
     ),
     "query": (
         "sql", "generation_id", "row_cap", "timeout_ms", "authority",
@@ -118,7 +118,7 @@ _HELP: dict[str, str] = {
     "expand": "Follow edges from a record (MCP expand)",
     "filter": "List every record meeting a condition (MCP filter)",
     "aggregate": "Count records per value (MCP aggregate)",
-    "map": "Read chosen fields of many records (MCP map)",
+    "map": "Add computed columns to every row of a live set (MCP map)",
     "query": "Run one bounded read-only SQL statement (MCP query)",
 }
 

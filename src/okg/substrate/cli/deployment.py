@@ -68,6 +68,10 @@ CI_READY_SOURCES = tuple(sorted({
 }))
 
 _READY_QUEUE_KINDS = ("ingest", "link", "enrich", "publish", "embed")
+#: The `--checks` values `deployment ready`, `deployment up` and `up` accept.
+#: `general` is the smoke level and the default; the other three are the
+#: declarable readiness profiles (issue #3958).
+READY_CHECKS_CHOICES: tuple[str, ...] = ("general", "dogfood", "ci", "standard")
 _READY_DEFAULT_MAX_SOURCE_AGE_SECONDS = 14 * 24 * 60 * 60
 _READY_CI_MAX_SOURCE_AGE_SECONDS = 6 * 60 * 60
 _READY_DOGFOOD_MAX_SOURCE_AGE_SECONDS = 60 * 60
@@ -197,6 +201,20 @@ def _dogfood_local_profile_is_authoritative(args: argparse.Namespace) -> bool:
 def _dogfood_local_profile_command_prefix() -> str:
     """Shell prefix for dogfood commands that must ignore ambient OKG_DSN."""
     return "env -u OKG_DSN "
+
+
+def _ready_checks_flag(readiness_profile: str | None) -> str:
+    """`` --checks <profile>`` for a printed `deployment ready` command.
+
+    Every printed command re-runs the checks this run used (#3958). A name the
+    CLI does not accept (an environment policy such as ``org-private`` reaches
+    the live checks through the environment readiness gate) gets no flag, so
+    the command runs the default ``general`` checks rather than failing to
+    parse.
+    """
+    if readiness_profile in READY_CHECKS_CHOICES:
+        return f" --checks {shlex.quote(str(readiness_profile))}"
+    return ""
 
 
 def _recommended_dsn_commands(
@@ -2249,9 +2267,11 @@ def _deployment_ready_live_checks(
                     "error": {
                         "type": type(exc).__name__,
                     },
+                    # The profile this run judges by (#3958), not a fixed
+                    # dogfood: the repair re-runs the same checks.
                     "repair_command": (
-                        f"{okg_prefix()} deployment ready {deployment} "
-                        "--checks dogfood --json"
+                        f"{okg_prefix()} deployment ready {deployment}"
+                        f"{_ready_checks_flag(readiness_profile)} --json"
                     ),
                 }
             database["postgres_capacity"] = postgres_capacity
@@ -2559,11 +2579,64 @@ def _deployment_ready_live_checks(
                     queues,
                 )
 
-            source_groups = _ready_source_groups_for_profile(
+            from okg.substrate.cli.deployment_readiness import (
+                SourceRegistryUnloadable,
+                _ready_undeclared_agent_context_sources,
+            )
+
+            registry_unloadable = False
+            try:
+                source_groups = _ready_source_groups_for_profile(
+                    readiness_profile,
+                    deployment=deployment,
+                    deployment_dir=deployment_dir,
+                )
+            except SourceRegistryUnloadable as exc:
+                # Issue #3958 (standard): the registry is the only place the
+                # baseline sources are declared, so a registry that does not
+                # load is reported as itself -- red, by name -- and never as
+                # the database failure the outer handler would make of it.
+                registry_unloadable = True
+                source_groups = {}
+                _ready_add_check(
+                    payload,
+                    "sources.registry.unavailable",
+                    "blocker",
+                    "the source registry does not load, so the baseline "
+                    "sources cannot be read",
+                    {
+                        "ok": False,
+                        "status": "unavailable",
+                        "code": "source_registry_unloadable",
+                        "registry_path": str(exc.registry_path),
+                        "error": type(exc.error).__name__,
+                        "message": str(exc.error),
+                    },
+                )
+            standard_runtime = (
+                _ready_declared_runtime_status(deployment_dir)
+                if readiness_profile == "standard"
+                else None
+            )
+
+            undeclared = _ready_undeclared_agent_context_sources(
                 readiness_profile,
                 deployment=deployment,
                 deployment_dir=deployment_dir,
+                source_groups=source_groups,
             )
+            if undeclared:
+                # A registry mistake must not pass silently, and it must not
+                # read as a failure either: warnings leave trust_level alone.
+                _ready_add_check(
+                    payload,
+                    "sources.readiness_undeclared",
+                    "warning",
+                    "agent-context sources not declared in the source "
+                    "registry were left out of readiness: "
+                    + ", ".join(undeclared),
+                    {"undeclared": undeclared},
+                )
             if source_groups:
                 source_aliases = _ready_source_aliases(deployment_dir)
                 progress_freshness_sources = _ready_progress_freshness_sources(
@@ -2587,6 +2660,8 @@ def _deployment_ready_live_checks(
                     deadline=deadline,
                 )
                 payload["source_freshness"] = source_freshness
+                if undeclared and isinstance(source_freshness, dict):
+                    source_freshness["undeclared"] = list(undeclared)
                 if not ok:
                     # Issue #1290: not measured; nothing later reads it.
                     if not _ready_probe_timed_out(source_freshness):
@@ -2611,6 +2686,33 @@ def _deployment_ready_live_checks(
                         source_freshness,
                     )
 
+            if (
+                source_groups
+                and standard_runtime is not None
+                and standard_runtime in {"disabled", "not_declared"}
+            ):
+                # Issue #3958 (standard): sync liveness exists because a
+                # worker should be syncing. A runtime that is off by
+                # declaration, or undeclared (the runtime's own default is
+                # off), has no producers to be live.
+                reason = (
+                    "runtime_disabled_by_config"
+                    if standard_runtime == "disabled"
+                    else "runtime_not_declared"
+                )
+                _ready_add_check(
+                    payload,
+                    "sources.sync_liveness",
+                    "skipped",
+                    "source-sync liveness is not applicable: the runtime is "
+                    + (
+                        "disabled by configuration"
+                        if standard_runtime == "disabled"
+                        else "not declared, which reads as disabled"
+                    ),
+                    {"status": "skipped", "reason": reason},
+                )
+            elif source_groups:
                 ok, source_sync_liveness = _ready_required_dependency(
                     payload,
                     check_id="sources.sync_liveness.unavailable",
@@ -2635,6 +2737,46 @@ def _deployment_ready_live_checks(
                         return payload
                 else:
                     payload["source_sync_liveness"] = source_sync_liveness
+            elif readiness_profile == "standard" and not registry_unloadable:
+                # Issue #3958: a standard deployment that marks no source
+                # `required_for_baseline` promises no freshness. Say so by
+                # name rather than pass by omission, and run the advisory:
+                # stale declared sources become a warning, which cannot
+                # change trust_level. Chat and the console therefore show no
+                # staleness for such a deployment (documented gap).
+                not_checked = {
+                    "status": "not_checked",
+                    "reason": "no_baseline_sources_declared",
+                }
+                payload["source_freshness"] = dict(not_checked)
+                _ready_add_check(
+                    payload,
+                    "sources.freshness",
+                    "skipped",
+                    "no source is marked required_for_baseline, so no source "
+                    "is required to be fresh",
+                    dict(not_checked),
+                )
+                _ready_add_check(
+                    payload,
+                    "sources.sync_liveness",
+                    "skipped",
+                    "source-sync liveness is checked for baseline sources, "
+                    "and none is declared",
+                    dict(not_checked),
+                )
+                from okg.substrate.cli.deployment_readiness import (
+                    _ready_add_source_freshness_advisory,
+                )
+
+                _ready_add_source_freshness_advisory(
+                    payload,
+                    conn,
+                    deployment=deployment,
+                    deployment_dir=deployment_dir,
+                    max_source_age_seconds=max_source_age_seconds,
+                    deadline=deadline,
+                )
 
             ok, mcp = _ready_required_dependency(
                 payload,
@@ -2782,7 +2924,9 @@ def _deployment_ready_live_checks(
         )
         return payload
 
-    if readiness_profile not in {"dogfood", "ci"}:
+    # #3958: standard runs the doctor too; `okg dogfood status` asks for it
+    # only on request (`dogfood doctor`, `--details`), in every profile.
+    if readiness_profile not in {"dogfood", "ci", "standard"}:
         doctor = {
             "ok": None,
             "status": "skipped",
@@ -4709,6 +4853,12 @@ from okg.substrate.cli.deployment_readiness import (  # noqa: E402
     _ready_database_status as _ready_database_status,
     _ready_postgres_capacity_status as _ready_postgres_capacity_status,
     _ready_declared_baseline_source_groups as _ready_declared_baseline_source_groups,
+    _ready_declared_runtime_status as _ready_declared_runtime_status,
+    _ready_manifest_and_origin as _ready_manifest_and_origin,
+    _ready_resolved_readiness_profile as _ready_resolved_readiness_profile,
+    _ready_source_freshness_advisory_status as _ready_source_freshness_advisory_status,
+    _ready_add_source_freshness_advisory as _ready_add_source_freshness_advisory,
+    SourceRegistryUnloadable as SourceRegistryUnloadable,
     _ready_doctor_status as _ready_doctor_status,
     _ready_embeddings_enabled as _ready_embeddings_enabled,
     _ready_add_generation_count_integrity_check as _ready_add_generation_count_integrity_check,
@@ -4817,6 +4967,12 @@ def _compat_reexport_names() -> tuple[Any, ...]:
         _ready_database_status,
         _ready_postgres_capacity_status,
         _ready_declared_baseline_source_groups,
+        _ready_declared_runtime_status,
+        _ready_manifest_and_origin,
+        _ready_resolved_readiness_profile,
+        _ready_source_freshness_advisory_status,
+        _ready_add_source_freshness_advisory,
+        SourceRegistryUnloadable,
         _ready_doctor_status,
         _ready_embeddings_enabled,
         _ready_add_generation_count_integrity_check,

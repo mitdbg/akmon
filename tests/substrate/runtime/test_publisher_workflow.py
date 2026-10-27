@@ -21,6 +21,26 @@ from psycopg.types.json import Json
 from okg.substrate.publisher.repository_provenance import RepositoryProvenance
 
 
+@pytest.fixture(autouse=True)
+def _mock_dbos_has_no_operational_transactions(monkeypatch):
+    """The mock DBOS has no ``sql_session``, so the publisher's typed-outcome
+    transactions (publisher-starvation-4039) cannot run under it. Their
+    recording, replay and reader are covered against a real DBOS in
+    ``test_publisher_cycle_overdue.py``; here they are no-ops."""
+    from types import SimpleNamespace
+
+    from okg.substrate.runtime import workflow_operational_outcomes as outcomes
+
+    monkeypatch.setattr(
+        outcomes,
+        "define_operational_transactions",
+        lambda *, participant: SimpleNamespace(
+            register_execution_tx=lambda: {},
+            record_outcome_tx=lambda _outcome: {},
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # coordination_mode resolution
 # ---------------------------------------------------------------------------
@@ -212,6 +232,43 @@ def test_publisher_admission_feedback_failure_is_structured(
         "admission_feedback_failed"
     )
     assert "dbos teardown race" in summary["admission_feedback"]["error"]
+
+
+def test_the_outcome_is_recorded_after_the_admission_feedback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The outcome's time is the publisher's freshness clock, so it is the end
+    of the whole cycle, feedback included (publisher-starvation-4039)."""
+    from types import SimpleNamespace
+
+    from okg.deployment.testing import mock_dbos_context
+    from okg.substrate.runtime import publisher_workflow
+    from okg.substrate.runtime import workflow_operational_outcomes as outcomes
+
+    order: list[str] = []
+    monkeypatch.setattr(
+        outcomes, "define_operational_transactions",
+        lambda *, participant: SimpleNamespace(
+            register_execution_tx=lambda: order.append("register"),
+            record_outcome_tx=lambda _o: order.append("outcome"),
+        ),
+    )
+    monkeypatch.setattr(
+        publisher_workflow, "_run_one_cycle",
+        lambda *, deployment, branch_name="default", force_enrichers=False: (
+            order.append("cycle") or {"status": "published", "generation_id": "g"}
+        ),
+    )
+    monkeypatch.setattr(
+        publisher_workflow, "_apply_admission_feedback_safely",
+        lambda *, deployment, summary: order.append("feedback") or {"updated": 0},
+    )
+
+    with mock_dbos_context():
+        publisher_workflow.register_publisher_workflow(deployment="test")
+        publisher_workflow.publisher_cycle_workflow()()
+
+    assert order == ["register", "cycle", "feedback", "outcome"]
 
 
 def test_publisher_workflow_forwards_force_enrichers(
@@ -682,10 +739,28 @@ def test_scheduled_enqueue_skips_when_source_sync_active(monkeypatch):
     )
 
     with mock_dbos_context() as mock:
+        from okg.substrate.runtime import publisher_schedule
         from okg.substrate.runtime.publisher_schedule import (
-            _DECORATED, register_publisher_schedule,
+            _DECORATED, PublisherFreshness, register_publisher_schedule,
         )
 
+        # The stub DSN has no database. A publisher that published a minute
+        # ago is not overdue, so the tick yields as before; the overdue
+        # counterpart is in test_publisher_cycle_overdue.py.
+        now = datetime.now(timezone.utc)
+        monkeypatch.setattr(
+            publisher_schedule,
+            "read_publisher_freshness",
+            lambda **_kw: PublisherFreshness(
+                deployment="myapp", branch_name="default", bound_seconds=600.0,
+                last_cycle_at=now, last_generation_at=now, checked_at=now,
+            ),
+        )
+        monkeypatch.setattr(
+            publisher_schedule,
+            "source_sync_workflow_row",
+            lambda **_kw: ("PENDING", 5.0),
+        )
         register_publisher_schedule(
             deployment="myapp", dsn="postgres://stub",
         )

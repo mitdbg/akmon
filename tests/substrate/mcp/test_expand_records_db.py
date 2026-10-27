@@ -348,9 +348,9 @@ def test_a_far_record_the_reader_may_not_see_changes_nothing_in_the_reply(
     deployment = _fan(tmp_path, clean_runtime)
     _activate(clean_runtime, deployment, _DENY_EXTERNAL)
 
-    def replies(server: Tools) -> list[tuple[str, str]]:
+    def replies(server: Tools, calls=_PAIR_CALLS) -> list[tuple[str, str]]:
         out = []
-        for call in _PAIR_CALLS:
+        for call in calls:
             pair = []
             for start in (WITH, WITHOUT):
                 arguments = {"input": {"node_id": start}, **call}
@@ -390,7 +390,8 @@ def test_a_far_record_the_reader_may_not_see_changes_nothing_in_the_reply(
     monkeypatch.delenv("OKG_NOMOS_SUBJECT", raising=False)
     server = Tools(clean_runtime, deployment)
     try:
-        opened = replies(server)
+        # The control asserts on the first call only, so serve that one.
+        opened = replies(server, _PAIR_CALLS[:1])
     finally:
         server.close()
     assert opened[0][0] != opened[0][1] and P2 in opened[0][0]

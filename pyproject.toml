@@ -1,6 +1,6 @@
 [project]
 name = "okg"
-version = "0.3.0"
+version = "0.4.0"
 description = "AKMON (okg): Operational Knowledge Graph — build, query, and traverse typed knowledge graphs from diverse data sources"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -456,6 +456,7 @@ addopts = [
 markers = [
     "postgres: requires a running PostgreSQL instance",
     "slow: tests that take >2s (CLI subprocess, full pipeline builds)",
+    "spawns_source_jobs: keeps the production runtime (one child process per source) in a DB test module that otherwise runs source jobs in-process",
     "integration: end-to-end tests requiring deployment fixtures",
     "dbos_integration: end-to-end tests requiring real Postgres + DBOS runtime (slow; nightly only)",
     "optional_deployment: requires an optional deployment source tree or fixture set",

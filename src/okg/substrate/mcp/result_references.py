@@ -14,7 +14,10 @@ At its own cap a reader's oldest reference is evicted (with its children),
 and the evicted id then refuses ``evicted`` to that reader. The server and
 byte caps refuse ``result_reference_capacity`` instead: one reader never
 evicts another reader's reference. Refusals report the caller's own usage
-and the limits, never the server-wide counts.
+and the limits, never the server-wide counts. (The live handles store sets
+``fair_eviction``: it counts its caps per quota key, the reader plus its
+logical session, and a full server evicts the oldest entry of the quota key
+holding the most; PACT read-live-handles.)
 
 On a multi-user server one authenticated principal (its header identity
 claim) holds at most 128 live references across all its reader keys, so
@@ -112,9 +115,21 @@ class StoreLimits:
     copy_on_lookup: bool = True
     reserve_on_mint: bool = False
     fix_hint: str = _FIX_HINT
+    #: Bytes one quota key holds at most (None: no such cap). Its own oldest
+    #: entry is evicted to make room, as at its count cap.
+    max_quota_bytes: Optional[int] = None
+    #: When the server count or byte cap would be passed, evict the oldest
+    #: entry of the quota key holding the most entries (ties: the most
+    #: bytes) until the draft fits, instead of refusing (PACT
+    #: read-live-handles, M1). The caps count by quota key (reader plus
+    #: logical session) in a store that sets it; the graph store keeps
+    #: today's rule until stored handles (3d).
+    fair_eviction: bool = False
+    #: What a refusal calls one entry ("handle" for live handles).
+    noun: str = "result reference"
 
     def advertised(self) -> dict[str, int]:
-        return {
+        out = {
             "lifetime_seconds": self.lifetime_seconds,
             "members_per_reference": self.max_members,
             "bytes_per_reference": self.max_reference_bytes,
@@ -123,6 +138,9 @@ class StoreLimits:
             "references_per_server": self.max_per_server,
             "total_bytes": self.max_total_bytes,
         }
+        if self.max_quota_bytes is not None:
+            out["bytes_per_reader"] = self.max_quota_bytes
+        return out
 
 
 GRAPH_LIMITS = StoreLimits()
@@ -425,8 +443,9 @@ class ResultReferenceUnsupported(SubstrateError):
     ``reason`` is ``method``, ``rank_by`` or ``argument`` (named in
     ``argument``: ``offset``, ``subtype_filter``, ``order_by``, ``retain``,
     ``select``, ``max_chars`` or ``summary``) for a form refused before any
-    SQL, or ``effective_view_not_ready`` when consumers could not read the
-    pin.
+    SQL. A pin the consumers could not read (no overlay marker) is refused
+    ``overlay_generation_unmaterialized`` instead (PACT
+    lane-s-storage-cutover).
     """
 
     code = "result_reference_unsupported"
@@ -446,12 +465,82 @@ _MESSAGES = {
 }
 
 
-def _invalid(reason: str, fix_hint: str = _FIX_HINT) -> ResultReferenceInvalid:
+#: The same refusals for a live handle (PACT read-live-handles, 3.6): the
+#: message says "handle", and an eviction can be any session's doing.
+_HANDLE_MESSAGES = {
+    **{
+        reason: text.replace("the result reference", "the handle")
+        for reason, text in _MESSAGES.items()
+    },
+    "evicted": "the handle was evicted to make room for newer handles",
+    "unknown": "the handle is unknown to this reader",
+}
+
+
+def _invalid(
+    reason: str, fix_hint: str = _FIX_HINT, noun: str = "result reference",
+) -> ResultReferenceInvalid:
     # Only the reason: never the id, a count or anything that differs between
     # another reader's id and an id that was never issued.
+    messages = _HANDLE_MESSAGES if noun == "handle" else _MESSAGES
     return ResultReferenceInvalid(
-        _MESSAGES[reason], data={"reason": reason}, fix_hint=fix_hint,
+        messages[reason], data={"reason": reason}, fix_hint=fix_hint,
     )
+
+
+#: A handle id of either store: `r1.` (graph) or `l1.` (live).
+_ANY_ID_PATTERN = re.compile(
+    r"(?:r1|l1)\.[A-Za-z0-9_-]{8}\.[0-9]{1,12}\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{22}"
+)
+
+
+def is_handle_id(value: Any) -> bool:
+    """Whether `value` has the form of a handle id of either store.
+
+    The form only: a node id contains `type:` and never matches.
+    """
+
+    return isinstance(value, str) and _ANY_ID_PATTERN.fullmatch(value.strip()) is not None
+
+
+def string_input_shape(value: Any) -> tuple[str, Any]:
+    """The one rule for what a string `input` is (PACT read-live-handles, N7).
+
+    ``("handle", id)`` for a bare handle id, a JSON string literal of one
+    (``'"l1..."'``), or a JSON object string that is exactly
+    ``{"ref": "<id>"}``; ``("json", text)`` for any other text that starts
+    with ``{`` or ``[``; ``("text", value)`` otherwise (a node id, or
+    anything that is not a string). The grammar's handle rewrite and the
+    JSON decoder of #3989 both ask this, so they never disagree.
+    """
+
+    if not isinstance(value, str):
+        return "text", value
+    stripped = value.strip()
+    if is_handle_id(stripped):
+        return "handle", stripped
+    head = stripped[:1]
+    if head == '"' and len(stripped) <= 160:
+        try:
+            decoded = json.loads(stripped)
+        except ValueError:
+            decoded = None
+        if is_handle_id(decoded):
+            return "handle", decoded.strip()
+        return "text", value
+    if head in ("{", "["):
+        if head == "{" and len(stripped) <= 200:
+            try:
+                decoded = json.loads(stripped)
+            except (ValueError, RecursionError):
+                decoded = None
+            if (
+                isinstance(decoded, dict) and set(decoded) == {"ref"}
+                and is_handle_id(decoded["ref"])
+            ):
+                return "handle", decoded["ref"].strip()
+        return "json", value
+    return "text", value
 
 
 def invalid(reason: str, **data: Any) -> ResultReferenceInvalid:
@@ -464,6 +553,25 @@ def invalid(reason: str, **data: Any) -> ResultReferenceInvalid:
 
     return ResultReferenceInvalid(
         _MESSAGES[reason], data={"reason": reason, **data}, fix_hint=_FIX_HINT,
+    )
+
+
+def _replaced_invalid(
+    newer: str, added: int, holds_all: bool,
+) -> ResultReferenceInvalid:
+    """`replaced`: a newer chain handle stands for this one's chain (PACT
+    read-multi-handle-input, N2). Said to the owner only."""
+
+    holds = (
+        f"which holds these answers and {added} more" if holds_all and added
+        else "which holds these answers" if holds_all
+        else "which holds the chain's newest answers"
+    )
+    return ResultReferenceInvalid(
+        f"this handle was replaced by {newer}, {holds}; read {newer} with no "
+        "new upstream calls",
+        data={"reason": "replaced", "replaced_by": newer},
+        fix_hint=f'read input="{newer}" instead',
     )
 
 
@@ -515,6 +623,15 @@ class Draft:
     principal_key: Optional[str] = None
     #: A sibling store's opaque payload (members are then empty).
     payload: Any = None
+    #: What the caps count by: the reader plus its logical session (a live
+    #: handle), or None for the reader alone.
+    quota_key: Optional[str] = None
+    #: A chain handle (PACT read-multi-handle-input): the chain it stands
+    #: for, its sequence number (only a higher one replaces a lower one at
+    #: commit), and the ids it pins against its owner's own eviction.
+    replaces_key: Optional[str] = None
+    seq: int = 0
+    pins: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -532,6 +649,13 @@ class ResultReference:
     principal_key: Optional[str] = None
     #: A sibling store's opaque payload (members are then empty).
     payload: Any = None
+    #: What the caps count by: the reader plus its logical session (a live
+    #: handle), or None for the reader alone.
+    quota_key: Optional[str] = None
+    #: A chain handle's chain, sequence number and pinned ids (see `Draft`).
+    replaces_key: Optional[str] = None
+    seq: int = 0
+    pins: tuple[str, ...] = ()
 
 
 def _normalize_members(members: Any) -> list[dict[str, Any]]:
@@ -577,8 +701,27 @@ class ResultReferenceStore:
         #: principal key -> its committed ids across reader keys, oldest first.
         self._by_principal: dict[str, OrderedDict[str, None]] = {}
         self._children: dict[str, set[str]] = {}
-        #: evicted id -> (reader key, expires_at), oldest eviction first.
-        self._evicted: OrderedDict[str, tuple[str, float]] = OrderedDict()
+        #: evicted id -> (reader key, expires_at, quota key), oldest first.
+        self._evicted: OrderedDict[str, tuple[str, float, Optional[str]]] = OrderedDict()
+        #: quota key -> its committed ids, oldest first (an entry with no
+        #: quota key of its own counts under its reader key).
+        self._by_quota: dict[str, OrderedDict[str, None]] = {}
+        #: expired id -> (reader key, quota key, forget_at): who owned an
+        #: entry the purge dropped, so another session of its reader hears
+        #: `unknown` for it, not `expired` (lead decision, read-live-handles
+        #: Q1). Bounded like the evicted records.
+        self._expired_owners: OrderedDict[str, tuple[str, Optional[str], float]] = (
+            OrderedDict()
+        )
+        #: replaced id -> (reader key, quota key, expires_at, newer id, ids
+        #: the newer adds, whether it holds every id of the replaced one):
+        #: its owner hears `replaced` naming the newer id (PACT
+        #: read-multi-handle-input, N2). Bounded like the evicted records.
+        self._replaced: OrderedDict[
+            str, tuple[str, Optional[str], float, str, int, bool]
+        ] = OrderedDict()
+        #: chain key -> the committed chain handle that stands for it.
+        self._chains: dict[str, str] = {}
         self._bytes = 0
 
     # -- introspection ------------------------------------------------------
@@ -607,56 +750,145 @@ class ResultReferenceStore:
         with self._lock:
             return self._usage_locked(reader_key)
 
-    def _usage_locked(self, reader_key: str) -> dict[str, int]:
-        ids = self._by_reader.get(reader_key, OrderedDict())
+    def _usage_locked(
+        self, reader_key: str, quota_key: Optional[str] = None,
+    ) -> dict[str, int]:
+        ids = self._by_quota.get(quota_key or reader_key, OrderedDict())
         return {
             "references": len(ids),
             "bytes": sum(self._entries[i].canonical_bytes for i in ids),
         }
 
+    def quota_count(self, quota_key: str) -> int:
+        """Live entries one quota key holds (a test and evidence seam)."""
+
+        with self._lock:
+            return len(self._by_quota.get(quota_key, ()))
+
     # -- ids ----------------------------------------------------------------
+
+    def _invalid(self, reason: str) -> ResultReferenceInvalid:
+        return _invalid(reason, self.limits.fix_hint, self.limits.noun)
 
     def _check_id(self, reference_id: Any) -> float:
         """Steps 1-3 of validation, before the lock: form, store, MAC, expiry."""
 
-        hint = self.limits.fix_hint
         if not isinstance(reference_id, str) or len(reference_id) > 128:
-            raise _invalid("malformed", hint)
+            raise self._invalid("malformed")
         match = self._pattern.fullmatch(reference_id)
         if match is None:
-            raise _invalid("malformed", hint)
+            raise self._invalid("malformed")
         epoch, expires, _nonce, supplied_mac = match.groups()
         if not hmac.compare_digest(epoch, self.epoch):
-            raise _invalid("store_lost", hint)
+            raise self._invalid("store_lost")
         prefix = reference_id.rsplit(".", 1)[0]
         if not hmac.compare_digest(supplied_mac, _mac(prefix, self.limits.mac_label)):
-            raise _invalid("signature_invalid", hint)
+            raise self._invalid("signature_invalid")
         expires_at = float(int(expires))
         if self._clock() >= expires_at:
-            raise _invalid("expired", hint)
+            raise self._invalid("expired")
         return expires_at
 
-    def _resolve_locked(self, reference_id: str, reader_key: str) -> ResultReference:
-        hint = self.limits.fix_hint
+    @staticmethod
+    def _other_session(
+        owner_reader: str, owner_quota: Optional[str], reader_key: str,
+        quota_key: Optional[str],
+    ) -> bool:
+        """The same reader in another logical session (or transport scope)."""
+
+        if quota_key is None or not hmac.compare_digest(owner_reader, reader_key):
+            return False
+        owner = owner_quota if owner_quota is not None else owner_reader
+        return not hmac.compare_digest(owner, quota_key)
+
+    def _resolve_locked(
+        self, reference_id: str, reader_key: str, quota_key: Optional[str] = None,
+    ) -> ResultReference:
         entry = self._entries.get(reference_id)
         if entry is not None and hmac.compare_digest(entry.reader_key, reader_key):
+            if self._other_session(entry.reader_key, entry.quota_key, reader_key, quota_key):
+                # Another session of this reader: exactly as never issued,
+                # and the owner's entry stays (lead decision Q1).
+                raise self._invalid("unknown")
             return entry
         evicted = self._evicted.get(reference_id)
         if evicted is not None and hmac.compare_digest(evicted[0], reader_key):
-            raise _invalid("evicted", hint)
-        raise _invalid("unknown", hint)
+            if self._other_session(evicted[0], evicted[2], reader_key, quota_key):
+                raise self._invalid("unknown")
+            raise self._invalid("evicted")
+        replaced = self._replaced.get(reference_id)
+        if replaced is not None and hmac.compare_digest(replaced[0], reader_key):
+            if self._other_session(replaced[0], replaced[1], reader_key, quota_key):
+                raise self._invalid("unknown")
+            raise _replaced_invalid(replaced[3], replaced[4], replaced[5])
+        raise self._invalid("unknown")
 
-    def lookup(self, reference_id: Any, *, reader_key: str) -> ResultReference:
+    def held_for(
+        self, reference_id: Any, *, reader_key: str, quota_key: Optional[str] = None,
+    ) -> Optional[str]:
+        """``"committed"``, ``"pending"`` (a draft not yet served) or None:
+        whether this reader and quota key still hold `reference_id`. Under
+        the lock, with no decode and no gate (PACT read-multi-handle-input,
+        8.3): a hint counts a sibling call's draft as kept."""
+
+        if not isinstance(reference_id, str):
+            return None
+        now = self._clock()
+        quota = quota_key or reader_key
+        with self._lock:
+            entry = self._entries.get(reference_id)
+            if entry is not None and now < entry.expires_at and hmac.compare_digest(
+                entry.reader_key, reader_key,
+            ) and hmac.compare_digest(entry.quota_key or entry.reader_key, quota):
+                return "committed"
+            draft_ = self._pending.get(reference_id)
+            if draft_ is not None and now < draft_.expires_at and hmac.compare_digest(
+                draft_.reader_key, reader_key,
+            ) and hmac.compare_digest(draft_.quota_key or draft_.reader_key, quota):
+                return "pending"
+        return None
+
+    def _expired_for(
+        self, reference_id: str, reader_key: str, quota_key: Optional[str],
+    ) -> ResultReferenceInvalid:
+        """`expired`, or `unknown` to another session of the owning reader."""
+
+        with self._lock:
+            entry = self._entries.get(reference_id)
+            owner: Optional[tuple[str, Optional[str]]] = (
+                (entry.reader_key, entry.quota_key) if entry is not None else None
+            )
+            if owner is None and reference_id in self._evicted:
+                record = self._evicted[reference_id]
+                owner = (record[0], record[2])
+            if owner is None and reference_id in self._expired_owners:
+                record_ = self._expired_owners[reference_id]
+                owner = (record_[0], record_[1])
+        if owner is not None and self._other_session(owner[0], owner[1], reader_key, quota_key):
+            return self._invalid("unknown")
+        return self._invalid("expired")
+
+    def lookup(
+        self, reference_id: Any, *, reader_key: str, quota_key: Optional[str] = None,
+    ) -> ResultReference:
         """The reader's live reference, or a typed ``result_reference_invalid``.
 
         Order: malformed, store_lost, signature_invalid, expired, then under
         the lock evicted (this reader's only) or unknown. Another reader's id
-        answers exactly as an id that was never issued.
+        answers exactly as an id that was never issued. With ``quota_key``
+        (a live handle read), another logical session of the same reader
+        answers ``unknown`` too, for a live, an evicted or an expired id,
+        and the owner's entry is left as it was.
         """
 
-        self._check_id(reference_id)
+        try:
+            self._check_id(reference_id)
+        except ResultReferenceInvalid as exc:
+            if (exc.data or {}).get("reason") == "expired" and quota_key is not None:
+                raise self._expired_for(str(reference_id), reader_key, quota_key) from None
+            raise
         with self._lock:
-            entry = self._resolve_locked(reference_id, reader_key)
+            entry = self._resolve_locked(reference_id, reader_key, quota_key)
         # A sibling store whose payload is immutable hands back the entry
         # itself: copying an 8 MiB set on every read is the cost it avoids.
         return copy.deepcopy(entry) if self.limits.copy_on_lookup else entry
@@ -695,6 +927,10 @@ class ResultReferenceStore:
         payload: Any = None,
         payload_bytes: int = 0,
         payload_rows: int = 0,
+        quota_key: Optional[str] = None,
+        replaces_key: Optional[str] = None,
+        seq: int = 0,
+        pins: Sequence[str] = (),
     ) -> Draft:
         """A draft id and its contents; nothing is stored or counted yet.
 
@@ -761,6 +997,10 @@ class ResultReferenceStore:
             canonical_bytes=size,
             principal_key=principal_key(header_claim, multi_user),
             payload=payload,
+            quota_key=quota_key,
+            replaces_key=replaces_key,
+            seq=int(seq),
+            pins=tuple(str(i) for i in pins),
         )
         if lim.reserve_on_mint:
             with self._lock:
@@ -771,9 +1011,24 @@ class ResultReferenceStore:
 
     def _purge_expired_locked(self, now: float) -> None:
         for reference_id in [i for i, e in self._entries.items() if now >= e.expires_at]:
-            self._remove_locked(reference_id)
-        for reference_id in [i for i, (_, exp) in self._evicted.items() if now >= exp]:
+            entry = self._remove_locked(reference_id)
+            if entry is not None and entry.quota_key is not None:
+                # Who owned it, for one more lifetime: another session of
+                # its reader then hears `unknown`, never `expired`.
+                self._expired_owners[reference_id] = (
+                    entry.reader_key, entry.quota_key,
+                    entry.expires_at + self.limits.lifetime_seconds,
+                )
+                while len(self._expired_owners) > MAX_EVICTED_RECORDS:
+                    self._expired_owners.popitem(last=False)
+        for reference_id in [i for i, record in self._evicted.items() if now >= record[1]]:
             del self._evicted[reference_id]
+        for reference_id in [i for i, record in self._replaced.items() if now >= record[2]]:
+            del self._replaced[reference_id]
+        for reference_id in [
+            i for i, record in self._expired_owners.items() if now >= record[2]
+        ]:
+            del self._expired_owners[reference_id]
         for reference_id in [i for i, d in self._pending.items() if now >= d.expires_at]:
             del self._pending[reference_id]
 
@@ -786,6 +1041,12 @@ class ResultReferenceStore:
         del reader_ids[reference_id]
         if not reader_ids:
             del self._by_reader[entry.reader_key]
+        quota = entry.quota_key or entry.reader_key
+        quota_ids = self._by_quota.get(quota)
+        if quota_ids is not None:
+            quota_ids.pop(reference_id, None)
+            if not quota_ids:
+                del self._by_quota[quota]
         if entry.principal_key is not None:
             principal_ids = self._by_principal[entry.principal_key]
             del principal_ids[reference_id]
@@ -794,7 +1055,37 @@ class ResultReferenceStore:
         self._children.pop(reference_id, None)
         if entry.parent is not None and entry.parent in self._children:
             self._children[entry.parent].discard(reference_id)
+        if entry.replaces_key is not None and self._chains.get(entry.replaces_key) == reference_id:
+            del self._chains[entry.replaces_key]
         return entry
+
+    def _pinned_locked(self, draft: Draft) -> set[str]:
+        """Ids the live chain handles pin, read at eviction time (a source
+        pending at chain mint is protected once it commits), with the
+        draft's own and every reserved draft's."""
+
+        pinned: set[str] = set(draft.pins)
+        for reference_id, entry in self._entries.items():
+            pinned.update(entry.pins)
+            if entry.pins:
+                # A chain handle holds its own place as its sources do: an
+                # unpinned entry goes first, then the oldest pinned one.
+                pinned.add(reference_id)
+        for pending in self._pending.values():
+            pinned.update(pending.pins)
+        return pinned
+
+    def _record_replaced_locked(self, old: Any, newer: Draft | ResultReference) -> None:
+        """`old` (an entry or a draft) answers `replaced` naming `newer`."""
+
+        added = len(set(newer.pins) - set(old.pins))
+        self._replaced[old.id] = (
+            old.reader_key, old.quota_key, old.expires_at, newer.id, added,
+            set(old.pins) <= set(newer.pins),
+        )
+        self._replaced.move_to_end(old.id)
+        while len(self._replaced) > MAX_EVICTED_RECORDS:
+            self._replaced.popitem(last=False)
 
     def _with_descendants_locked(self, reference_id: str) -> list[str]:
         found: list[str] = []
@@ -831,20 +1122,40 @@ class ResultReferenceStore:
             now = self._clock()
             self._purge_expired_locked(now)
             if now >= draft.expires_at:
-                raise _invalid("expired")
+                raise self._invalid("expired")
             if draft.id in self._entries:
                 raise _internal("a result reference draft was committed twice")
             if draft.parent is not None:
                 self._resolve_locked(draft.parent, draft.reader_key)
 
-            evict = self._plan_locked(draft)
+            # A chain handle (PACT read-multi-handle-input, N1/N2): only a
+            # higher sequence number replaces the live one of its chain; a
+            # lower one that commits later is committed as already replaced.
+            replacing: Optional[str] = None
+            if draft.replaces_key is not None:
+                live_id = self._chains.get(draft.replaces_key)
+                live = self._entries.get(live_id) if live_id is not None else None
+                if live is not None and live.seq > draft.seq:
+                    self._record_replaced_locked(draft, live)
+                    self._pending.pop(draft.id, None)
+                    return copy.deepcopy(live) if self.limits.copy_on_lookup else live
+                if live is not None:
+                    replacing = live.id
+
+            evict = self._plan_locked(draft, replacing=replacing)
 
             self._after_capacity_check()
-            for reference_id in evict:
+            if replacing is not None:
+                old = self._remove_locked(replacing)
+                if old is not None:
+                    self._record_replaced_locked(old, draft)
+            for reference_id in (i for i in evict if i != replacing):
                 entry = self._remove_locked(reference_id)
                 if entry is None:
                     raise _internal("an evicted result reference vanished under the lock")
-                self._evicted[reference_id] = (entry.reader_key, entry.expires_at)
+                self._evicted[reference_id] = (
+                    entry.reader_key, entry.expires_at, entry.quota_key,
+                )
                 while len(self._evicted) > MAX_EVICTED_RECORDS:
                     self._evicted.popitem(last=False)
 
@@ -858,9 +1169,18 @@ class ResultReferenceStore:
                 canonical_bytes=draft.canonical_bytes,
                 principal_key=draft.principal_key,
                 payload=draft.payload,
+                quota_key=draft.quota_key,
+                replaces_key=draft.replaces_key,
+                seq=draft.seq,
+                pins=draft.pins,
             )
             self._entries[draft.id] = entry
+            if draft.replaces_key is not None:
+                self._chains[draft.replaces_key] = draft.id
             self._by_reader.setdefault(draft.reader_key, OrderedDict())[draft.id] = None
+            self._by_quota.setdefault(
+                draft.quota_key or draft.reader_key, OrderedDict(),
+            )[draft.id] = None
             if draft.principal_key is not None:
                 self._by_principal.setdefault(draft.principal_key, OrderedDict())[draft.id] = None
             if draft.parent is not None:
@@ -869,56 +1189,123 @@ class ResultReferenceStore:
             self._pending.pop(draft.id, None)
         return copy.deepcopy(entry) if self.limits.copy_on_lookup else entry
 
-    def _plan_locked(self, draft: Draft) -> list[str]:
+    def _plan_locked(self, draft: Draft, *, replacing: Optional[str] = None) -> list[str]:
         """The ids committing ``draft`` evicts, or a capacity refusal.
 
         Every eviction is worked out first; the server and byte caps are
         checked against the state after them, counting every other draft's
         reservation; nothing changes here, so a refused commit evicts
-        nothing.
+        nothing. `replacing` is the chain handle the draft replaces: it
+        leaves at commit, so it is counted gone (and is first in the list).
+
+        The owner's own count, byte and per-principal eviction skips the ids
+        live chain handles pin (PACT read-multi-handle-input, N3). A pin
+        never causes a refusal (P1): when only pinned ids are left, the
+        oldest pinned one goes, and the chain's next read names it.
         """
 
         lim = self.limits
-        usage = self._usage_locked(draft.reader_key)
+        quota = draft.quota_key or draft.reader_key
+        usage = self._usage_locked(draft.reader_key, quota)
         if draft.principal_key is not None:
             usage["principal_references"] = len(
                 self._by_principal.get(draft.principal_key, ())
             )
         ancestors = self._ancestors_locked(draft.parent)
-        evict: list[str] = []
-        if usage["references"] >= lim.max_per_reader:
-            oldest = next(
-                (i for i in self._by_reader[draft.reader_key] if i not in ancestors),
-                None,
-            )
+        own = self._by_quota.get(quota, OrderedDict())
+        evict: list[str] = [replacing] if replacing is not None and replacing in self._entries else []
+        pinned = self._pinned_locked(draft)
+
+        def oldest_of(ids: Any) -> Optional[str]:
+            """The oldest evictable id: unpinned first, then pinned (P1)."""
+            free = [i for i in ids if i not in ancestors and i not in evict]
+            return next((i for i in free if i not in pinned), None) or next(iter(free), None)
+
+        if sum(1 for i in own if i not in evict) >= lim.max_per_reader:
+            oldest = oldest_of(own)
             if oldest is None:
                 raise self._capacity("reader_references", usage)
-            evict = self._with_descendants_locked(oldest)
+            evict += [i for i in self._with_descendants_locked(oldest) if i not in evict]
+        if lim.max_quota_bytes is not None:
+            # The quota key's own bytes: its oldest go first, as at its
+            # count cap (never an ancestor of the draft; pinned ids last).
+            held = usage["bytes"] - sum(
+                self._entries[i].canonical_bytes for i in evict if i in own
+            )
+            while held + draft.canonical_bytes > lim.max_quota_bytes:
+                candidate = oldest_of(own)
+                if candidate is None:
+                    break
+                for gone in self._with_descendants_locked(candidate):
+                    if gone not in evict:
+                        evict.append(gone)
+                        if gone in own:
+                            held -= self._entries[gone].canonical_bytes
+            if held + draft.canonical_bytes > lim.max_quota_bytes:
+                raise self._capacity("reader_bytes", usage)
         if draft.principal_key is not None:
             # One principal varying its authority argument gets many
             # reader keys; this cap bounds them together (rrcap A).
             principal_ids = self._by_principal.get(draft.principal_key, OrderedDict())
             if sum(1 for i in principal_ids if i not in evict) >= lim.max_per_principal:
-                oldest = next(
-                    (i for i in principal_ids if i not in ancestors and i not in evict),
-                    None,
-                )
+                oldest = oldest_of(principal_ids)
                 if oldest is None:
                     raise self._capacity("principal_references", usage)
                 evict += [
                     i for i in self._with_descendants_locked(oldest) if i not in evict
                 ]
-        freed = sum(self._entries[i].canonical_bytes for i in evict)
         reserved = [d for i, d in self._pending.items() if i != draft.id]
         reserved_bytes = sum(d.canonical_bytes for d in reserved)
-        if len(self._entries) - len(evict) + len(reserved) + 1 > lim.max_per_server:
-            raise self._capacity("server_references", usage)
-        if (
-            self._bytes - freed + reserved_bytes + draft.canonical_bytes
-            > lim.max_total_bytes
-        ):
-            raise self._capacity("total_bytes", usage)
+
+        def over() -> Optional[str]:
+            freed = sum(self._entries[i].canonical_bytes for i in evict)
+            if len(self._entries) - len(evict) + len(reserved) + 1 > lim.max_per_server:
+                return "server_references"
+            if (
+                self._bytes - freed + reserved_bytes + draft.canonical_bytes
+                > lim.max_total_bytes
+            ):
+                return "total_bytes"
+            return None
+
+        reason = over()
+        while reason is not None and lim.fair_eviction:
+            # M1: the oldest entry of the quota key that holds the most
+            # (ties: the most bytes), never an ancestor of the draft, one at
+            # a time until the draft fits. A cut reply is then never refused
+            # because other sessions filled the server.
+            # Under the byte cap the holder of the most bytes goes first (review
+            # F3): evicting a session's small handles frees almost nothing.
+            victim = self._largest_holders_oldest_locked(
+                ancestors, evict, by_bytes=reason == "total_bytes",
+            )
+            if victim is None:
+                break
+            evict += [i for i in self._with_descendants_locked(victim) if i not in evict]
+            reason = over()
+        if reason is not None:
+            raise self._capacity(reason, usage)
         return evict
+
+    def _largest_holders_oldest_locked(
+        self, ancestors: set[str], evict: Sequence[str], *, by_bytes: bool = False,
+    ) -> Optional[str]:
+        """The oldest evictable entry of the quota key holding the most:
+        entries, then bytes; with `by_bytes`, bytes, then entries."""
+
+        gone = set(evict)
+        best: Optional[tuple[int, int, str]] = None
+        choice: Optional[str] = None
+        for quota, ids in self._by_quota.items():
+            left = [i for i in ids if i not in gone]
+            candidates = [i for i in left if i not in ancestors]
+            if not candidates:
+                continue
+            size = sum(self._entries[i].canonical_bytes for i in left)
+            rank = (size, len(left), quota) if by_bytes else (len(left), size, quota)
+            if best is None or rank[:2] > best[:2] or (rank[:2] == best[:2] and quota < best[2]):
+                best, choice = rank, candidates[0]
+        return choice
 
     def _after_capacity_check(self) -> None:
         """A seam between the capacity check and the insert, under the lock.
@@ -995,6 +1382,9 @@ class DraftScope:
         #: raise fails the call and releases every draft.
         self._on_finish: list[Callable[[Any], None]] = []
         self._attempt_drafted = False
+        #: Run once when the read call ends, however it ends (the decode
+        #: budget's reservations, PACT read-live-handles 4.1.5).
+        self._on_close: list[Callable[[], None]] = []
         #: Shared by every attempt of this call: a producer freezes its
         #: members on the first (full-limit) attempt, so a byte-fitting
         #: rerun at a smaller limit shrinks delivered rows, never the
@@ -1065,6 +1455,13 @@ class DraftScope:
         for draft_id, (store_, _draft) in drafts.items():
             store_.release(draft_id)
 
+    def close(self) -> None:
+        """Run the close callbacks once, in the order they were registered."""
+
+        callbacks, self._on_close = self._on_close, []
+        for callback in callbacks:
+            callback()
+
 
 def _served_reference_ids(payload: Any) -> set[str]:
     """The draft ids a final payload serves: the read's own reference, and a
@@ -1078,6 +1475,13 @@ def _served_reference_ids(payload: Any) -> set[str]:
         reference = holder.get("result_reference")
         if isinstance(reference, Mapping) and isinstance(reference.get("id"), str):
             found.add(reference["id"])
+    handle = payload.get("handle")
+    if isinstance(handle, Mapping):
+        # A set read's handle, and the set an aggregate grouped (PACT
+        # read-live-handles, 3.7): both are drafts of this call.
+        for key in ("id", "from"):
+            if isinstance(handle.get(key), str):
+                found.add(handle[key])
     if isinstance(live, Mapping) and isinstance(live.get("next"), str):
         # A cut live answer's `next` token holds its kept set's id (#3666).
         from okg.substrate.mcp.live_result_sets import next_set_id
@@ -1085,6 +1489,11 @@ def _served_reference_ids(payload: Any) -> set[str]:
         set_id = next_set_id(live["next"])
         if set_id is not None:
             found.add(set_id)
+    combined = live.get("chain_hint") if isinstance(live, Mapping) else None
+    if isinstance(combined, Mapping) and isinstance(combined.get("chain"), str):
+        # A hand chain's chain handle (PACT read-multi-handle-input): a
+        # draft of this call, kept only when the reply prints its hint.
+        found.add(combined["chain"])
     return found
 
 
@@ -1182,8 +1591,11 @@ def draft_scope() -> Iterator[DraftScope]:
     try:
         yield scope
     finally:
-        scope.release()
-        _SCOPE.reset(token)
+        try:
+            scope.release()
+        finally:
+            scope.close()
+            _SCOPE.reset(token)
 
 
 T = TypeVar("T")
@@ -1227,6 +1639,18 @@ def on_finish(callback: Callable[[Any], None]) -> None:
     if scope is None:
         raise _internal("a finish callback was registered outside a read call")
     scope.on_finish(callback)
+
+
+def on_close(callback: Callable[[], None]) -> None:
+    """Run ``callback()`` once when the open read call ends, however it ends.
+
+    Outside a read call it is a server bug and refuses.
+    """
+
+    scope = _SCOPE.get()
+    if scope is None:
+        raise _internal("a close callback was registered outside a read call")
+    scope._on_close.append(callback)  # noqa: SLF001 — the scope's own list.
 
 
 def call_memo() -> Optional[dict[str, Any]]:

@@ -99,7 +99,7 @@ chronos:
   # do not exhaust interval space during restore/shutdown churn.
   # Swept axis (bench-okg-internals): config.chronos_continuation_pct.
   interval_continuation_percent: {{ chronos_continuation_pct }}
-{% if native_view_min_refresh_interval_ms or native_view_materialization_delay_ms or attribute_effective_view_empty_overlay_fast_path %}
+{% if native_view_min_refresh_interval_ms or native_view_materialization_delay_ms %}
 
 native_views:
 {% if native_view_min_refresh_interval_ms %}
@@ -113,12 +113,6 @@ native_views:
   # non-final native-view refreshes so those layers coalesce into the final
   # forced refresh instead of materializing the same views repeatedly.
   materialization_delay_ms: {{ native_view_materialization_delay_ms }}
-{% endif %}
-{% if attribute_effective_view_empty_overlay_fast_path %}
-  # When no attribute overlays exist, effective attrs equal raw graph attrs.
-  # Avoid copying every raw graph row into a generation-keyed read snapshot on
-  # every tiny benchmark delta; operators retain the Layer-1 raw-graph fallback.
-  attribute_effective_view_empty_overlay_fast_path: true
 {% endif %}
 {% endif %}
 {% if include_code %}

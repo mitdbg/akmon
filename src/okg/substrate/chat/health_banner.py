@@ -326,13 +326,22 @@ def _runtime_disabled_by_config(payload: Mapping[str, Any]) -> bool:
 
     Issue #2987: the dead-letter queue belongs to the runtime worker. With
     ``runtime.enabled: false`` there is no runtime queue to report, so its
-    absence is not a condition to name.
+    absence is not a condition to name. Issue #3958: the same holds for a
+    runtime the ``standard`` profile reads as disabled because it is not
+    declared (``not_declared_default_disabled``).
     """
     worker = payload.get("runtime_worker")
     return (
         isinstance(worker, Mapping)
-        and worker.get("status") == "disabled_by_config"
+        and worker.get("status") in _RUNTIME_OFF_STATUSES
     )
+
+
+#: ``runtime_worker.status`` values meaning no runtime worker is expected.
+_RUNTIME_OFF_STATUSES = frozenset({
+    "disabled_by_config",
+    "not_declared_default_disabled",
+})
 
 
 def _conditions(

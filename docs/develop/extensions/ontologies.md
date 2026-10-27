@@ -29,10 +29,10 @@ Reusable profiles live under
 |---|---|
 | `profile.yaml` | Profile name, version, classification, description, init questions, and sibling file pointers |
 | `modules.yaml` | Ordered ontology modules to compose for the deployment |
-| `source-defaults/*.yaml` | Source registry snippets with `${var}` interpolation from init answers |
+| `source-defaults/*.yaml` | Source registry snippets with `${var}` interpolation from init answers; `${deployment_dir}`, `${manifest_dir}`, `${source_registry_dir}`, `${repo_root}` and `${environment_data_root}` are kept as written and expanded when the deployment loads, unless an init question of that name exists (source defaults only) |
 | `invariants.yaml` | Profile-level invariant bundle copied into the deployment |
 | `dashboards/*.yaml` | Profile dashboards copied into the deployment |
-| `deployment-defaults.yaml` | Optional deployment manifest defaults merged after scaffold-owned keys |
+| `deployment-defaults.yaml` | Optional deployment manifest defaults merged after scaffold-owned keys; `${var}` interpolation applies, and the run-time anchors allowed in source defaults are refused here |
 | profile-specific `cli/` or `skills/` | Optional operator tooling shipped by that profile |
 
 `okg install --profile <name>` discovers built-in profiles, cwd-local
@@ -196,12 +196,12 @@ batch are not visible because its checkout predates the batch.
 
 ## Built-In Ontology Modules
 
-AKMON currently ships 47 reusable ontology modules under the library
+AKMON currently ships 48 reusable ontology modules under the library
 directory.
 
 | Group | Modules | Purpose |
 |---|---|---|
-| Shared foundations | `concepts`, `person`, `dataset`, `document_starter`, `repo_starter`, `service`, `search_systems`, `incident`, `ticket`, `personas`, `external_authority`, `code_artifact` | Common hubs and starter shapes used by more specialized deployments. |
+| Shared foundations | `concepts`, `person`, `dataset`, `document_starter`, `document_versions`, `repo_starter`, `service`, `search_systems`, `incident`, `ticket`, `personas`, `external_authority`, `code_artifact` | Common hubs and starter shapes used by more specialized deployments. `document_versions` keeps every issue of a reissued document (report, wiki page, specification); its facts come from `okg.substrate.library.sources.document_versions`. |
 | Code and engineering | `git_graph`, `code_graph`, `code`, `openspec`, `forge`, `ci`, `quality_evidence`, `compute_env`, `external_repos` | Repositories, commits, files, symbols, package dependencies, legacy OpenSpec records, PACT-era change records, issues/PRs, CI, scanners, runtime facts, and external repo references. |
 | Agent workflow | `agent_sessions`, `agent_memory`, `coordination`, `views`, `views_annotations` | Agent transcripts, tool-use traces, durable claims/decisions, supervisor/work-order state, materialized views, and PDF/viz annotations. |
 | Research knowledge | `scholarly`, `reasoning`, `methodology`, `experimental`, `engram_runs`, `extraction` | Papers, authors, venues, claims, hypotheses, evidence, principles, experiments, Engram run artifacts, and extracted document claims. |
@@ -235,6 +235,7 @@ profile selects is still available for a deployment-local composition.
 | `dataset` | `1.0.0` | `src/okg/substrate/library/ontologies/dataset/module.yaml` |
 | `doc_snapshot` | `1.0.0` | `src/okg/substrate/library/ontologies/doc_snapshot/module.yaml` |
 | `document_starter` | `1.0.0` | `src/okg/substrate/library/ontologies/document_starter/module.yaml` |
+| `document_versions` | `1.0.0` | `src/okg/substrate/library/ontologies/document_versions/module.yaml` |
 | `engram_runs` | `1.0.0` | `src/okg/substrate/library/ontologies/engram_runs/module.yaml` |
 | `experimental` | `1.0.0` | `src/okg/substrate/library/ontologies/experimental/module.yaml` |
 | `external_authority` | `1.0.0` | `src/okg/substrate/library/ontologies/external_authority/module.yaml` |

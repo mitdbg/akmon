@@ -164,7 +164,24 @@ uv run okg generation describe <generation-id> \
   --json
 ```
 
-For continuously refreshed local graphs, also run the dogfood readiness checks:
+`okg dogfood status` judges a deployment by the profile in
+`readiness.profile` (`dogfood`, `ci` or `standard`). This profile writes
+`standard`; a deployment that declares nothing is judged as `standard` too.
+
+- `standard` keeps every real outage red: an unreachable database, no
+  published generation, a failed MCP read, or a source registry that does not
+  load. A source marked `required_for_baseline` that is missing or older than
+  14 days makes the graph `stale_context`. Code drift is a warning, and the
+  runtime checks apply only when `runtime.enabled` is true.
+- If no source is marked `required_for_baseline`, nothing is required to be
+  fresh: `source_freshness` reads `not_checked` with reason
+  `no_baseline_sources_declared`, and a `sources.freshness_advisory` warning
+  lists declared sources older than 14 days. The chat banner and the console
+  show no staleness in that case. Mark the sources you rely on
+  `required_for_baseline` to make staleness visible.
+
+For a team workspace that runs the supervised worker, declare
+`readiness.profile: dogfood` and run the dogfood readiness checks:
 
 ```bash
 uv run okg dogfood status --deployment <deployment> --json
@@ -200,6 +217,78 @@ For automated agents, use `subject:agent` instead.
 Agents should prefer the MCP read tools when policy allows them. Start with
 `inspect`, pin the returned generation id, then use `search`, `expand`,
 `filter`, `map`, `aggregate`, or bounded `query` over `okg.v_*` views.
+
+## Store Function Text (Optional)
+
+A new graph holds each function's signature and docstring, not its body, so
+"what does this function do" has no answer in it. The `code_text` source
+stores the bodies. It is **off by default** because it is the largest thing
+you can add: about 20 times the code's size in the database.
+
+Measured on this project's own source repository (20,575 tracked files),
+plus or minus 50%, before any history growth:
+
+| Scope | Files | Stored text | Database |
+|---|---|---|---|
+| Everything the source matches, tests included | 5,058 | 104 MB | about 2.1 GB |
+| Default (tests left out) | 2,270 | 56 MB | about 1.15 GB |
+| `src/` only | 1,638 | 47 MB | about 0.95 GB |
+
+**Never turn it on first in a live graph, one people read today.** Trial it
+on a copy or a disposable deployment, check the database size and the publish
+time, then decide.
+
+To turn it on:
+
+1. In the deployment's `source_registry.yaml`, set `enabled_by_default: true`
+   under `code_text`. A deployment installed from the profile after this
+   source existed already has that entry and an `extractors.yaml` beside the
+   registry. An older deployment has neither, because the installer writes
+   profile files only once, at install. For one of those, first:
+   - copy `extractors.yaml` from the okg package folder
+     `okg/substrate/library/profiles/workspace-graph/` into the deployment
+     folder, next to `source_registry.yaml`;
+   - copy the `code_text:` block from `source-defaults/code_text.yaml` in that
+     same folder under `sources:` in `source_registry.yaml`, replace
+     `${deployment_name}` with the deployment's name and `${repo_root}` with
+     the repository path (leave `${deployment_dir}` as written), and set
+     `enabled_by_default: true`;
+   - add `doc_snapshot` under `modules:` in `deployment.yaml`, then run
+     `okg catalog load --deployment <deployment> --apply`; without it the
+     publish is blocked.
+2. Commit that edit. An uncommitted change to a deployment kept in git blocks
+   every publish.
+3. Run `uv run okg catalog ownership claim --deployment <deployment>`. A
+   registry edit changes what the deployment publishes, so the next publish
+   is refused until you claim the new manifest.
+4. Run `uv run okg ingest --deployment <deployment> --progress`, then the
+   `okg run --once` command from [Refresh Later](#refresh-later).
+
+`okg ingest --deployment <deployment> --include code_text` reads it once, but
+the worker then leaves it stale; do not use that to keep it current.
+
+- **Size cap.** A corpus over 64 MiB (`max_total_bytes`) is refused whole,
+  with the total and the five largest folders; nothing is stored. Add those
+  folders to `exclude_globs`, or raise the cap once you have priced it above.
+  A file over 1,000,000 bytes is recorded without text.
+- **Events can pass the cap.** The cap is checked when a full read runs. A
+  change event for a few files is not checked, so the corpus can grow past
+  the cap between full reads; the next full read refuses it. A full read that
+  finds no git change is not checked either, so lowering the cap takes effect
+  at the next change.
+- **Tests are left out** (`tests/**` and `**/tests/**`). To store them, delete
+  those two lines from `exclude_globs`; the whole corpus then needs a larger
+  `max_total_bytes`.
+- **Not a secret scanner.** The source skips common credential file names
+  (`.env`, `*.pem`, `secrets/**`, and similar), vendored and generated code. It
+  reads everything else, and a secret in a code file becomes searchable. For a
+  repository whose graph readers are not its committers, narrow `include_globs`
+  or leave the source off.
+- **Reading it.** Search for an exact name with `method: grep`. `inspect` with
+  `kind: text` on a function's `symbol:` node names the document that holds it.
+
+Every edit near the top of a file re-stores the later chunks of that file;
+that growth is not measured, so trial the source before relying on it.
 
 ## Refresh Later
 

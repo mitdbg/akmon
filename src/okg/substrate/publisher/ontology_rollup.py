@@ -64,7 +64,9 @@ rollup marker), on a retype cycle, when forced, OR once every
 every rollup row and insert the full grouped double-join — so the rollup
 self-heals to ground truth. A cycle that changes no edge writes nothing and the
 prior rows remain visible at the new checkpoint automatically (Chronos
-carry-forward).
+carry-forward). A bulk change (``maintained_derivation.is_large_change_set``)
+also recounts in full, recorded as ``large_change_set``: resolving hundreds of
+thousands of changed ids twice costs more than one recount (issue 3955).
 
 The periodic self-heal is defense-in-depth: nothing else forces a recount on a
 live deployment, so an unforeseen future drift source would never heal. The
@@ -86,6 +88,8 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 from okg.substrate.derived_artifacts.maintained_derivation import (
+    FULL_REASON_LARGE_CHANGE_SET,
+    LARGE_CHANGE_SET_MIN_IDS,
     ChronosRegisteredTable,
     CorrectnessOracle,
     DerivationSpec,
@@ -94,6 +98,7 @@ from okg.substrate.derived_artifacts.maintained_derivation import (
     MaintainContext,
     MaintainResult,
     SentinelSpec,
+    is_large_change_set,
     maintain,
     read_cadence_counter,
     read_self_heal_cadence,
@@ -126,6 +131,15 @@ from okg.substrate.graph_store import (
 SELF_HEAL_EVERY_N_GENERATIONS = read_self_heal_cadence(
     "OKG_ONTOLOGY_ROLLUP_SELF_HEAL_EVERY", default=25
 )
+
+# Issue 3955: above this share of the prior edge count (and the kit's 10,000-id
+# floor) the cycle recounts in full instead of resolving every changed edge at
+# two checkouts. Measured break-even on a 339k-edge synthetic graph after a bulk
+# load (two repeats): the two id-list reads cost 0.63-0.76 s at 10 % of the
+# edges changed and 1.08-1.41 s at 20 %, against 0.83-1.03 s for one full
+# recount. 15 % sits in that crossover, so either side is at most about 1.2x
+# slower than the better path near the bound. Not measured at a 4.8M-edge scale.
+LARGE_CHANGE_SET_PERCENT = 15
 
 
 # UNATTRIBUTED_DERIVED_PRODUCER (the SHOWN, never-defaulted bucket for a derived edge
@@ -201,6 +215,14 @@ GROUP BY 1, 2, 3, 4
 # GENERATION. Used against BOTH the current checkout (+1 inserts/updates) and the
 # prior generation's checkout (-1 retracts). One row per edge that is live at the
 # pinned generation (a tombstoned/absent edge simply produces no row).
+#
+# The changed ids enter as a relation the planner joins and can hash, never as
+# ``e.edge_id = ANY(:edge_ids)`` (issue #3955). With the array as a predicate, a
+# parallel plan could scan the nodes first and probe the edges once per node,
+# with the whole array inside the inner index scan's condition, so every probe
+# re-read the array: 325,448 changed edges on a 244,471-node graph ran past
+# 1,200 s, where the hashed plan takes about 1 s. ``DISTINCT`` keeps the old
+# result for a repeated id: one row per live edge.
 _EDGE_BUCKETS_SQL = f"""
 SELECT
   e.edge_id AS edge_id,
@@ -208,10 +230,12 @@ SELECT
   e.edge_type AS edge_type,
   nd.subtype AS dst_subtype,
   {_PRODUCER_EXPR} AS producer
-FROM okg.graph_edges e
+FROM (
+  SELECT DISTINCT unnest(CAST(:edge_ids AS BIGINT[])) AS edge_id
+) AS changed
+JOIN okg.graph_edges e ON e.edge_id = changed.edge_id
 JOIN okg.graph_nodes ns ON ns.node_id = e.src
 JOIN okg.graph_nodes nd ON nd.node_id = e.dst
-WHERE e.edge_id = ANY(:edge_ids)
 """
 
 # The prior rollup rows currently visible at the branch head (the prior
@@ -400,15 +424,20 @@ _ROLLUP_FORCE = [
 ]
 
 
-def _rollup_full_recount(ctx: MaintainContext) -> MaintainResult:
+def _rollup_full_recount(
+    ctx: MaintainContext,
+    existing: dict[tuple[str, str, str, str], int] | None = None,
+) -> MaintainResult:
     """Self-heal full recount: replace every rollup row with a fresh recount.
 
     Reads the fresh recount + the existing rows from the branch-head checkout and
     returns the upserts/deletes; the kit's driver writes them and the sentinel (with
     the cadence counter reset to 0, since this IS a full recount) in one transaction.
+    A caller that already read the existing rows passes them as ``existing``.
     """
     target = _full_recount_rows(ctx.checkout)
-    existing = _current_rollup_rows(ctx.checkout)
+    if existing is None:
+        existing = _current_rollup_rows(ctx.checkout)
     upserts = [_row_for(key, count) for key, count in target.items()]
     # Delete any prior row not in the fresh recount (incl. emptied buckets).
     deletes = [_key_dict(key) for key in existing if key not in target]
@@ -432,6 +461,26 @@ def _rollup_incremental(ctx: MaintainContext) -> MaintainResult:
     # De-dup the changed edge ids on the incremental dispatch ONLY (a None scope is
     # routed to a full recount as "scope_unavailable", never here).
     changed_edge_ids = list(dict.fromkeys(int(e) for e in change.changed_edge_ids))
+
+    # A bulk change (issue 3955): resolving every changed edge at the current
+    # and the prior checkout costs more than one recount of the whole graph.
+    # Every counted edge sits in exactly one prior bucket, so the bucket sum is
+    # the prior edge count. Read only when the floor is reached, so an ordinary
+    # cycle pays nothing extra.
+    if len(changed_edge_ids) >= LARGE_CHANGE_SET_MIN_IDS:
+        existing = _current_rollup_rows(ctx.checkout)
+        if is_large_change_set(
+            len(changed_edge_ids),
+            sum(existing.values()),
+            percent=LARGE_CHANGE_SET_PERCENT,
+        ):
+            # Kit contract for a callback-decided full recount under incremental
+            # dispatch: mode stays "incremental", the cause rides full_reason,
+            # and the cadence restarts at 0 because a full recount just ran.
+            return _rollup_full_recount(ctx, existing)._replace(
+                mode="incremental",
+                full_reason=FULL_REASON_LARGE_CHANGE_SET,
+            )
 
     # Advance the periodic-self-heal counter (absence implies 0; the entry guard
     # forces a full recount when no prior sentinel exists). A stuck counter would

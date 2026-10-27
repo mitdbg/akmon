@@ -100,13 +100,15 @@ def require_planner_preconditions() -> None:
         pytest.fail(f"execution-suite preconditions unmet in CI: {detail}")
     pytest.skip(f"execution-suite preconditions unmet locally: {detail}")
 
-# The tail ordered migrations replayed against populated data. 0014 is the
-# attribute-integrity transition token that dirties every scope; 0015 hardens
-# its authority. Both are written with IF NOT EXISTS / ON CONFLICT guards, so
-# replaying them is safe and exercises the real SQL against real rows.
+# The tail ordered migrations replayed against populated data. 0044 creates
+# the overlay marker and ranges and backfills markers; 0046 drops the attribute
+# copies. Both are written with IF NOT EXISTS / IF EXISTS / ON CONFLICT guards,
+# so replaying them is safe and exercises the real SQL against real rows. (The
+# integrity-receipt migrations 0014 and 0015 used to be replayed here; after
+# 0046 drops the tables they update, a replay of them would fail.)
 _REPLAYED_MIGRATIONS = (
-    "0014_attribute_integrity_transition_token",
-    "0015_attribute_integrity_authority_hardening",
+    "0044_attribute_overlay_generations",
+    "0046_attribute_copies_teardown",
 )
 
 
@@ -1024,16 +1026,26 @@ def test_execution_mode_upgrade_drives_all_phases_over_published_graph(
     assert not_ok == [], (not_ok, detail)
     assert _phase(payload, "readiness"), detail
 
-    # 5. Exactly the four phases we deliberately turned off report a skip. Named
-    #    explicitly so a regression that degrades a WORKING phase into an
-    #    ok-but-skipped shape (backup, migrate, catalog_apply, smoke_publish,
-    #    attribute_read_model) reds this instead of passing quietly.
+    # 5. Exactly the four phases we deliberately turned off report a skip, plus
+    #    the two phases migration 0046 retired with the attribute copies
+    #    (PACT lane-s-storage-drop-copies), which must skip for exactly that
+    #    reason. Named explicitly so a regression that degrades a WORKING phase
+    #    into an ok-but-skipped shape (backup, migrate, catalog_apply,
+    #    smoke_publish) reds this instead of passing quietly.
+    from okg.substrate.deployment_upgrade import _RETIRED_ATTRIBUTE_COPY_PHASE_REASON
+
     skipped = {
         p.get("phase") for p in payload["phases"] if p.get("skipped") is not None
     }
+    retired = {"attribute_read_model", "generation_recovery"}
     assert skipped == {
         "stop_services", "sync_code", "dependency_sync", "restart_services",
+        *retired,
     }, (skipped, detail)
+    for name in retired:
+        assert _phase(payload, name).get("reason") == (
+            _RETIRED_ATTRIBUTE_COPY_PHASE_REASON
+        ), (name, detail)
 
     # 6. The graph survived the upgrade and still serves reads. This does NOT
     #    assert the upgrade published: provision already published into this

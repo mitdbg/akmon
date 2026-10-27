@@ -20,8 +20,8 @@ section 9 item 8). Native PostgreSQL.
   bloated; no build on a table with another actor's invalid ``*_ccnew``;
   step 1 defers a graph table while the reconciler holds the DDL lock.
 * The publisher cycle runs no index DDL; the maintenance workflow body does
-  nothing before the operator opts in, skips its drift checks when the
-  reconcile was refused, preempted or failed, and ends as a failure (with
+  nothing before the operator opts in, reports a refused reconcile, and
+  ends as a failure (with
   the error in ``last_run_report``) when the reconcile raised.
 * ``reconcile --apply`` needs ``--deployment``.
 * Preemption cancels only the reconciler's index statement, once, and never
@@ -475,7 +475,7 @@ def test_no_edge_index_is_built_and_an_old_one_is_retired_not_drift(
     retired by the next run with ``last_reason`` ``kind_not_indexed`` and
     dropped; until then doctor reports it at INFO, never as drift or a
     missing index, and no reader uses it. With no edge index, doctor is OK,
-    ``maintenance_wanted`` is up to date, and ``verify`` compares nodes only.
+    and ``maintenance_wanted`` is up to date.
 
     Failure case: with edges declared again (the step-2 rule), the same
     reconciler builds the edge index, so the node-only result is the rule's
@@ -859,12 +859,10 @@ def test_the_maintenance_workflow_does_nothing_before_the_operator_opts_in(
     s.publish(dsn, identity)
     before = run_index_maintenance(deployment="default", dsn=dsn)
     assert before["reconcile"]["status"] == "not_enabled"
-    assert before["drift"]["status"] == "skipped"
     assert _dattr_indexes(dsn) == {}
     s.reconcile(dsn)
     after = run_index_maintenance(deployment="default", dsn=dsn)
     assert after["reconcile"]["status"] == "converged"
-    assert after["drift"]["status"] == "checked" and after["drift"]["differences"] == 0
     monkeypatch.setenv(dai.MAINTENANCE_ENV, "off")
     assert run_index_maintenance(deployment="default", dsn=dsn)["status"] == "disabled"
 
@@ -895,7 +893,11 @@ def test_reconcile_apply_needs_the_deployment(clean_runtime: str) -> None:
     assert code == 0 and applied["status"] == "converged" and applied["deployment"] == "default"
 
 
-def test_drift_checks_are_skipped_when_the_reconcile_is_refused(clean_runtime: str) -> None:
+def test_a_refused_reconcile_is_reported_and_runs_no_drift_check(clean_runtime: str) -> None:
+    """The workflow reports a refused reconcile and is not an error. PACT
+    lane-s-storage-drop-copies retired the drift check with the view it read,
+    so the report has no ``drift`` part, and migration 0046 dropped the
+    drift-check table."""
     from okg.substrate.runtime.declared_attr_index_workflow import run_index_maintenance
 
     dsn = clean_runtime
@@ -906,16 +908,45 @@ def test_drift_checks_are_skipped_when_the_reconcile_is_refused(clean_runtime: s
         migrate_like.execute("SELECT pg_advisory_lock(hashtext(%s))", (dai.INDEX_DDL_LOCK,))
         out = run_index_maintenance(deployment="default", dsn=dsn)
     assert out["reconcile"]["status"] == "refused", out
-    assert out["drift"] == {"status": "skipped", "reason": "reconcile_refused"}, out
+    assert "drift" not in out, out
     assert out["status"] == "ok"
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM okg.declared_attr_index_drift_checks")
-        assert cur.fetchone()[0] == 0, "no drift check ran"
-    # With the preemption lock held, the drift check itself refuses to scan.
-    with psycopg.connect(dsn, autocommit=True) as preemptor:
-        preemptor.execute("SELECT pg_advisory_lock(hashtext(%s))", (dai.PREEMPT_LOCK,))
-        assert dai.run_drift_checks(dsn) == {"status": "skipped", "reason": "preempt_requested"}
-    assert dai.run_drift_checks(dsn)["status"] == "checked"
+        cur.execute("SELECT to_regclass('okg.declared_attr_index_drift_checks')")
+        assert cur.fetchone()[0] is None, "0046 drops the drift-check table"
+    assert not hasattr(dai, "run_drift_checks")
+    assert not hasattr(dai, "verify_against_graph")
+
+
+def test_the_drift_storage_is_gone_and_readiness_has_no_drift_reason(
+    clean_runtime: str,
+) -> None:
+    """Migration 0046 dropped the drift flag, its detail and the drift-check
+    cursor, and a ready index stays usable with no doctor drift finding:
+    nothing computes drift any more, and readiness has no ``view_graph_drift``
+    reason. Failure case: the same row in ``failed`` state is still not
+    ready."""
+    dsn = clean_runtime
+    _seeded(dsn, dict(_UNINDEXED_DECL))
+    assert s.reconcile(dsn)["status"] == "converged"
+    with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT table_name, column_name FROM information_schema.columns "
+            "WHERE table_schema = 'okg' AND table_name IN "
+            "('declared_attr_indexes', 'declared_attr_index_state') "
+            "AND column_name LIKE 'drift%%'"
+        )
+        assert cur.fetchall() == []
+    with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor(row_factory=dict_row) as cur:
+        ready, _table = dai.reader_readiness(
+            cur, target_kind="node", declared=dict(_UNINDEXED_DECL),
+        )
+    assert ready == {attr: None for attr in _UNINDEXED_DECL}, ready
+    assert "view_graph_drift" not in dai.READINESS_REASONS
+    doctor = dai.doctor_report(dsn)
+    assert not [f for f in doctor["findings"] if "drift" in f["code"]], doctor["findings"]
+    assert _unindexed(dsn) == []
+    _set_row(dsn, "state = 'failed', attempts = 1")
+    assert _unindexed(dsn) == [("t_text", "failed", "WARN")]
 
 
 def test_a_reconcile_that_raises_is_recorded_and_fails_the_workflow(
@@ -938,7 +969,6 @@ def test_a_reconcile_that_raises_is_recorded_and_fails_the_workflow(
     out = run_index_maintenance(deployment="default", dsn=dsn)
     assert out["status"] == "error", out
     assert out["reconcile"]["status"] == "error" and "boom" in out["reconcile"]["error"]
-    assert out["drift"] == {"status": "skipped", "reason": "reconcile_error"}
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute("SELECT * FROM okg.declared_attr_index_state")
         state = cur.fetchone()
@@ -1042,6 +1072,38 @@ def test_a_cancel_landing_on_bookkeeping_under_preemption_is_a_preemption(
     assert s.manifest(dsn)[name]["attempts"] == 0
 
 
+def test_preemption_does_not_wait_out_a_holder_that_is_not_the_reconciler(
+    clean_runtime: str,
+) -> None:
+    """Another index change (a rotation, a concurrent migrate) holds the DDL
+    lock and no reconciler runs: the preemption cannot free that holder, so
+    on entry and in hold_ddl_key it reports not_acquired with that reason
+    after the short grace instead of the full wait, and cancels nothing."""
+    dsn = clean_runtime
+    _seeded(dsn)
+    with psycopg.connect(dsn, autocommit=True) as other:
+        other.execute("SELECT pg_advisory_lock(hashtext(%s))", (dai.INDEX_DDL_LOCK,))
+        begun = time.monotonic()
+        with dai.index_ddl_preemption(dsn, actor="migrate", wait_seconds=30) as preempt:
+            entry = dict(preempt.report)
+            report = preempt.hold_ddl_key()
+            holding = preempt.holding_ddl_key
+        took = time.monotonic() - begun
+        other_pid = other.info.backend_pid
+        for seen in (entry, report):
+            assert seen["status"] == "not_acquired", seen
+            assert seen["reason"] == "held_by_another_index_change", seen
+            assert seen["holders"] == [other_pid], seen
+            assert seen["cancelled_pids"] == [], seen
+        assert holding is False
+        assert entry["waited_seconds"] >= dai.PREEMPT_OTHER_HOLDER_GRACE_SECONDS, entry
+        assert took < 10, took
+    # With the holder gone the same preemption takes the lock.
+    with dai.index_ddl_preemption(dsn, actor="migrate", wait_seconds=30) as preempt:
+        assert preempt.report["status"] == "free", preempt.report
+        assert preempt.hold_ddl_key()["status"] == "acquired"
+
+
 def test_preemption_never_cancels_a_backend_that_reused_the_pid(clean_runtime: str) -> None:
     """The recorded backend start must match: a lock holder whose start time
     differs is waited for, not cancelled."""
@@ -1059,6 +1121,7 @@ def test_preemption_never_cancels_a_backend_that_reused_the_pid(clean_runtime: s
         with dai.index_ddl_preemption(dsn, actor="migrate", wait_seconds=2) as preempt:
             report = preempt.report
         assert report["status"] == "not_acquired", report
+        assert report["reason"] == "wait_expired", report
         assert report["cancelled_pids"] == []
         assert report["unverified_pids"] == [waiting["backend_pid"]]
         assert thread.is_alive(), "the build was not cancelled"
@@ -1151,7 +1214,6 @@ _UNINDEXED_CASES: list[tuple[str, str | None, str | None, str, str]] = [
      "failure_cap", "ERROR"),
     ("declaration_changed", "definition_digest = 'sha256:other'", None,
      "declaration_changed", "WARN"),
-    ("view_graph_drift", "drift = true", None, "view_graph_drift", "ERROR"),
     ("maintenance_disabled", "state = 'pending', state_since = now()", "maintenance_off",
      "maintenance_disabled", "ERROR"),
     ("collation_refuses_text", None, "icu", "collation_refuses_text", "ERROR"),

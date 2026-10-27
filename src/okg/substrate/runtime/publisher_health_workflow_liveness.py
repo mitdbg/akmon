@@ -55,6 +55,8 @@ __all__ = [
     "PAUSED_LONG_SECONDS",
     "PAUSED_WARNING_CODES",
     "PublisherHealthVerdict",
+    "SourceSyncStuckVerdict",
+    "check_source_sync_stuck",
     "check_publisher_workflow_health",
     "check_source_sync_workflow_health",
     "check_embed_workflow_health",
@@ -185,8 +187,18 @@ def check_publisher_workflow_health(
     dsn: str,
     schedule_overrides: dict[str, str] | None = None,
     threshold_multiplier: float = 2.0,
+    yield_bound_seconds: float | None = None,
 ) -> PublisherHealthVerdict:
-    """Publisher-workflow liveness check."""
+    """Publisher-workflow liveness check.
+
+    Freshness, not the newest SUCCESS row: a cycle that yielded to a source
+    sync, or found a run still writing, is a DBOS SUCCESS that published
+    nothing. The check measures the newest non-skipped cycle outcome or
+    published generation against ``yield_bound_seconds`` (the deployment's
+    ``publisher.max_source_sync_yield_seconds``; the manifest default when
+    omitted) + the source-run publish wait + ``threshold_multiplier`` cron
+    intervals, and a stale verdict names the newest skip.
+    """
     from okg.substrate.runtime.publisher_schedule import (
         PUBLISHER_DEFAULT_CRON, PUBLISHER_SCHEDULE_ID,
     )
@@ -200,6 +212,7 @@ def check_publisher_workflow_health(
         threshold_multiplier=threshold_multiplier,
         result_prefix="publisher_workflow",
         pause_aware=True,
+        yield_bound_seconds=yield_bound_seconds,
     )
 
 
@@ -350,6 +363,7 @@ def _check_workflow_health(
     stale_is_fatal: bool = True,
     expected_to_run: bool = True,
     pause_aware: bool = False,
+    yield_bound_seconds: float | None = None,
 ) -> PublisherHealthVerdict:
     """Generic workflow-recent-success probe.
 
@@ -371,6 +385,23 @@ def _check_workflow_health(
     else:
         interval_seconds = _DEFAULT_CRON_SECONDS
     threshold_seconds = interval_seconds * threshold_multiplier
+    yield_bound = 0.0
+    run_wait = 0.0
+    if pause_aware:
+        # A yielding publisher may legitimately publish nothing for the yield
+        # bound, and a sync's own publish may wait a run's publish wait: both
+        # come before the cycles an operator would call stale.
+        from okg.substrate.deployments import (
+            DEFAULT_MAX_SOURCE_SYNC_YIELD_SECONDS,
+        )
+        from okg.substrate.ingest.run_base import publish_wait_seconds
+
+        yield_bound = float(
+            DEFAULT_MAX_SOURCE_SYNC_YIELD_SECONDS
+            if yield_bound_seconds is None else yield_bound_seconds
+        )
+        run_wait = float(publish_wait_seconds())
+        threshold_seconds = yield_bound + run_wait + threshold_seconds
 
     if not expected_to_run:
         return PublisherHealthVerdict(
@@ -430,7 +461,33 @@ def _check_workflow_health(
 
     _wf_id, status, updated_at_secs, _queue = row
 
-    if status != "SUCCESS":
+    skip_note = ""
+    if pause_aware:
+        # The publisher's last SUCCESS row is not its last publish: a cycle
+        # that yielded (or found a run writing) ends SUCCESS too. Judge it by
+        # freshness (PACT publisher-starvation-4039).
+        fresh_secs, skip_note = _publisher_freshness_secs(
+            deployment=deployment, dsn=dsn, workflow_name=workflow_name,
+        )
+        if fresh_secs is None:
+            return PublisherHealthVerdict(
+                deployment=deployment,
+                ok=not never_ran_is_fatal,
+                code=f"{result_prefix}_no_success_yet",
+                message=(
+                    f"{workflow_name} exists for {deployment!r} but has not "
+                    f"published, confirmed the graph current, or cut a "
+                    f"generation yet (current top status: "
+                    f"{status!r}){paused_note}{skip_note}"
+                ),
+                last_success_at=None,
+                seconds_since_last_success=None,
+                threshold_seconds=threshold_seconds,
+                schedule_paused=paused,
+                schedule_last_fired_at=last_fired_at,
+            )
+        last_success_secs = fresh_secs
+    elif status != "SUCCESS":
         with db_connect(dsn) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -692,11 +749,23 @@ def _check_workflow_health(
             ok=not stale_is_fatal,
             code=f"{result_prefix}_stale",
             message=(
-                f"most-recent {workflow_name} SUCCESS for "
-                f"{deployment!r} was {seconds_since:.0f}s ago "
-                f"(threshold: {threshold_seconds:.0f}s = "
-                f"{threshold_multiplier}x cron interval "
-                f"{interval_seconds}s)"
+                (
+                    f"{workflow_name} for {deployment!r} last published, "
+                    f"confirmed the graph current or cut a generation "
+                    f"{seconds_since:.0f}s ago (threshold: "
+                    f"{threshold_seconds:.0f}s = {yield_bound:g}s source-sync "
+                    f"yield bound + {run_wait:g}s source-run publish wait + "
+                    f"{threshold_multiplier}x cron interval "
+                    f"{interval_seconds}s){skip_note}"
+                )
+                if pause_aware
+                else (
+                    f"most-recent {workflow_name} SUCCESS for "
+                    f"{deployment!r} was {seconds_since:.0f}s ago "
+                    f"(threshold: {threshold_seconds:.0f}s = "
+                    f"{threshold_multiplier}x cron interval "
+                    f"{interval_seconds}s)"
+                )
             ),
             last_success_at=last_success_at,
             seconds_since_last_success=seconds_since,
@@ -746,4 +815,268 @@ def _schedule_pause_state(cur, schedule_id: str) -> tuple[bool, str | None]:
     return (
         str(status or "").upper() == "PAUSED",
         None if last_fired_at is None else str(last_fired_at),
+    )
+
+
+def _publisher_freshness_secs(
+    *, deployment: str, dsn: str, workflow_name: str,
+) -> tuple[float | None, str]:
+    """When the publisher last proved itself current, and the newest skip.
+
+    Returns ``(epoch seconds or None, note)``. The moment is the newest of:
+    the end of the newest cycle outcome that is not ``skipped``, the commit
+    time of the newest published generation, and (rows before the
+    publisher's cutover, which have no outcome to read) the newest DBOS
+    SUCCESS row, as the probe judged it before. A SUCCESS row after the
+    cutover counts only through its outcome. The note names the newest
+    skipped cycle's reason and subject, or says none was recorded. A failed
+    read raises.
+    """
+    from okg.substrate.runtime.partition_queue import partition_queue_name
+    from okg.substrate.runtime.publisher_schedule import read_publisher_freshness
+    from okg.substrate.runtime.workflow_operational_outcomes import (
+        PUBLISHER_MIGRATION_ID,
+    )
+
+    fresh = read_publisher_freshness(
+        deployment=deployment, dsn=dsn, bound_seconds=0.0,
+    )
+    moments = [
+        moment.timestamp()
+        for moment in (fresh.last_cycle_at, fresh.last_generation_at)
+        if moment is not None
+    ]
+    queue_name = partition_queue_name(deployment)
+    with db_connect(dsn, autocommit=True) as conn:
+        migration = conn.execute(
+            "SELECT applied_at FROM okg.schema_migrations"
+            " WHERE migration_id = %s AND status = 'applied'",
+            (PUBLISHER_MIGRATION_ID,),
+        ).fetchone()
+        if migration is None:
+            raise RuntimeError(
+                f"migration {PUBLISHER_MIGRATION_ID} is not applied; the "
+                "publisher's outcomes have no cutover to read against"
+            )
+        # The cutover is the migration or, later, the deployment's first
+        # registered publisher outcome (rolling upgrades: a worker on the old
+        # code finishes cycles after the migration without registering).
+        from okg.substrate.runtime.workflow_operational_outcomes import (
+            publisher_effective_cutover_ms,
+        )
+
+        cutover_ms = publisher_effective_cutover_ms(
+            conn, deployment=deployment,
+            migration_applied_ms=int(migration[0].timestamp() * 1000),
+        )
+        legacy = conn.execute(
+            """
+            SELECT completed_at / 1000.0
+              FROM dbos.workflow_status
+             WHERE completed_at < %s
+               AND status = 'SUCCESS'
+               AND name = %s
+               AND queue_name = %s
+             ORDER BY completed_at DESC
+             LIMIT 1
+            """,
+            (cutover_ms, workflow_name, queue_name),
+        ).fetchone()
+        skip = conn.execute(
+            """
+            SELECT o.details ->> 'reason', o.details ->> 'subject',
+                   o.recorded_at
+              FROM okg.workflow_operational_outcomes o
+              JOIN okg.workflow_operational_registrations r USING (workflow_uuid)
+             WHERE o.outcome = 'skipped'
+               AND r.deployment_name = %s
+               AND r.workflow_name = %s
+               AND r.queue_name = %s
+             ORDER BY o.recorded_at DESC
+             LIMIT 1
+            """,
+            (deployment, workflow_name, queue_name),
+        ).fetchone()
+    if legacy is not None and legacy[0] is not None:
+        moments.append(float(legacy[0]))
+    if skip is None:
+        note = "; no skipped cycle was recorded"
+    else:
+        reason, subject, recorded_at = skip
+        note = (
+            f"; newest skipped cycle: reason={reason} subject={subject} at "
+            f"{recorded_at.isoformat(timespec='seconds')}"
+        )
+    return (max(moments) if moments else None), note
+
+
+@dataclass(frozen=True)
+class SourceSyncStuckVerdict:
+    """``source_sync_stuck``: source-sync rows waiting or running past the
+    publisher's yield bound.
+
+    ``severity`` is ``ok``, ``warning`` or ``fatal``. A failed probe is
+    ``failed`` and reads as not ok: never as healthy.
+    """
+
+    deployment: str
+    severity: str
+    code: str
+    message: str
+    bound_seconds: float
+    branch_has_generation: bool | None
+    live_source_run: bool | None
+    rows: tuple[dict, ...]
+
+    @property
+    def ok(self) -> bool:
+        return self.severity in ("ok", "warning")
+
+    def to_dict(self) -> dict:
+        return {
+            "ok": self.ok,
+            "severity": self.severity,
+            "code": self.code,
+            "message": self.message,
+            "deployment": self.deployment,
+            "bound_seconds": self.bound_seconds,
+            "branch_has_generation": self.branch_has_generation,
+            "live_source_run": self.live_source_run,
+            "rows": [dict(row) for row in self.rows],
+        }
+
+
+def check_source_sync_stuck(
+    *,
+    deployment: str,
+    dsn: str,
+    bound_seconds: float,
+    now: datetime | None = None,
+) -> SourceSyncStuckVerdict:
+    """Report each ``okg_source_sync`` row ENQUEUED, PENDING or DELAYED for
+    longer than the yield bound.
+
+    Each row carries its id, status, age and the cancel command, and the
+    verdict says whether any source run of the deployment is live (the
+    run-base liveness lock). Warning; fatal when the branch has no published
+    generation, where the publisher's yield has no bound and the row holds
+    publishing. A failed probe is returned as ``failed``.
+    """
+    from okg.substrate.ingest.run_base import (
+        live_source_run_sessions,
+        source_run_health,
+    )
+    from okg.substrate.runtime.partition_queue import source_sync_queue_name
+    from okg.substrate.runtime.publisher_schedule import read_publisher_freshness
+    from okg.substrate.runtime.source_sync_constants import (
+        SOURCE_SYNC_WORKFLOW_NAME,
+    )
+    from okg.substrate.runtime.workflow_cancel import (
+        cancel_workflow_remedy_command,
+    )
+
+    try:
+        moment = now if now is not None else datetime.now(timezone.utc)
+        cutoff_ms = int((moment.timestamp() - bound_seconds) * 1000)
+        with db_connect(dsn, autocommit=True) as conn:
+            # Two branches, because DBOS's in-flight index covers ENQUEUED and
+            # PENDING only; DELAYED has its own partial index.
+            queue = source_sync_queue_name(deployment)
+            fetched = conn.execute(
+                """
+                (SELECT workflow_uuid, status, created_at
+                   FROM dbos.workflow_status
+                  WHERE queue_name = %s AND status = ANY(%s) AND name = %s
+                    AND created_at < %s
+                  ORDER BY created_at, workflow_uuid LIMIT 50)
+                UNION ALL
+                (SELECT workflow_uuid, status, created_at
+                   FROM dbos.workflow_status
+                  WHERE status = 'DELAYED' AND queue_name = %s AND name = %s
+                    AND created_at < %s
+                  ORDER BY created_at, workflow_uuid LIMIT 50)
+                ORDER BY 3, 1 LIMIT 50
+                """,
+                (
+                    queue, ["ENQUEUED", "PENDING"], SOURCE_SYNC_WORKFLOW_NAME,
+                    cutoff_ms,
+                    queue, SOURCE_SYNC_WORKFLOW_NAME, cutoff_ms,
+                ),
+            ).fetchall()
+        if not fetched:
+            return SourceSyncStuckVerdict(
+                deployment=deployment, severity="ok",
+                code="source_sync_stuck_none",
+                message=(
+                    f"no {SOURCE_SYNC_WORKFLOW_NAME} row has waited or run "
+                    f"longer than {bound_seconds:g}s"
+                ),
+                bound_seconds=bound_seconds, branch_has_generation=None,
+                live_source_run=None, rows=(),
+            )
+        has_generation = read_publisher_freshness(
+            deployment=deployment, dsn=dsn, bound_seconds=bound_seconds,
+        ).has_generation
+        # A run base shows a run only once the branch has a generation; a run
+        # holds its liveness lock (and a named session) from its first write
+        # regardless, so count those sessions too.
+        live_run = bool(source_run_health(dsn, deployment)["in_progress"])
+        if not live_run:
+            with db_connect(dsn, autocommit=True) as conn:
+                live_run = live_source_run_sessions(conn) > 0
+    except Exception as exc:  # noqa: BLE001 - reported as failed, never healthy
+        return SourceSyncStuckVerdict(
+            deployment=deployment, severity="failed",
+            code="source_sync_stuck_probe_failed",
+            message=f"{type(exc).__name__}: {exc}",
+            bound_seconds=bound_seconds, branch_has_generation=None,
+            live_source_run=None, rows=(),
+        )
+    rows = tuple(
+        {
+            "workflow_id": str(workflow_id),
+            "status": str(status),
+            "age_seconds": round(
+                max(0.0, moment.timestamp() - float(created_ms) / 1000.0), 1,
+            ),
+            "cancel_command": cancel_workflow_remedy_command(
+                deployment=deployment, workflow_id=str(workflow_id),
+            ),
+        }
+        for workflow_id, status, created_ms in fetched
+    )
+    named = "; ".join(
+        f"{row['workflow_id']} {row['status']} {row['age_seconds']:.0f}s"
+        for row in rows[:5]
+    )
+    # Fatal only when nothing can be publishing: no first generation (the
+    # publisher yields without bound) AND no source run alive. A healthy first
+    # bootstrap that is still writing stays a warning (Jason board #203,
+    # accepted 2026-10-22T03:12Z, refined after code review).
+    fatal = not has_generation and not live_run
+    return SourceSyncStuckVerdict(
+        deployment=deployment,
+        severity="fatal" if fatal else "warning",
+        code="source_sync_stuck",
+        message=(
+            f"{len(rows)} {SOURCE_SYNC_WORKFLOW_NAME} row(s) older than the "
+            f"{bound_seconds:g}s yield bound: {named}; a source run of this "
+            f"deployment is {'live' if live_run else 'not live'}"
+            + (
+                "; the branch has no published generation and no source run "
+                "is writing, so the publisher yields to these rows without "
+                "bound and nothing publishes: " + rows[0]["cancel_command"]
+                if fatal else
+                "; the branch has no published generation yet, so the "
+                "publisher yields to these rows without bound until the live "
+                "run finishes"
+                if not has_generation else
+                "; the scheduled publisher publishes past them, but a "
+                "stranded row should be cancelled: " + rows[0]["cancel_command"]
+            )
+        ),
+        bound_seconds=bound_seconds,
+        branch_has_generation=has_generation,
+        live_source_run=live_run,
+        rows=rows,
     )

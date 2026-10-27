@@ -943,8 +943,8 @@ _PATH_META = {"searchable_text_fields": ["text"], "path_from": "path",
 def _path_index_corpus(tmp_path, dsn, *, filler: int = 40, declare: bool = True):
     """`doc` reads its catalog path from `attrs.path`, the attribute the
     bounded path-prefix index covers, and (with `declare`) declares it a
-    filterable text attribute, so the drift checks compare it and its
-    readiness gates the narrowing. Fillers sort before every target."""
+    filterable text attribute, so its index readiness gates the narrowing.
+    Fillers sort before every target."""
     from okg.substrate import declared_attr_indexes as dai
     from tests.pytest.catalog_fixture_builders import SubtypeSpec
     from tests.substrate.mcp.search_fixture import make_search_deployment, publish_nodes, node
@@ -1182,8 +1182,8 @@ def test_lookup_where_path_prefix_does_not_narrow_when_it_cannot_trust_the_index
 ):
     """Each guard, with its `not_covered` reason, and the same rows as the
     unnarrowed lookup: a read pinned to an older generation
-    (`pinned_generation`), a drift flag on the declared `path` index
-    (`view_graph_drift`), a prefix with more candidates than the bound
+    (`pinned_generation`), a failed declared `path` index
+    (`index_failed`), a prefix with more candidates than the bound
     (`broad_prefix`), and a deployment that does not declare `path`
     (`not_declared`)."""
     from okg.substrate.mcp import grep_search
@@ -1215,9 +1215,9 @@ def test_lookup_where_path_prefix_does_not_narrow_when_it_cannot_trust_the_index
         check("broad_prefix", ["doc:zz-anyb", "doc:zz-padded", "doc:zz-under"])
         monkeypatch.setattr(grep_search, "PATH_PREFIX_CANDIDATE_BOUND", bound)
         with psycopg.connect(clean_runtime, autocommit=True) as conn:
-            conn.execute("UPDATE okg.declared_attr_indexes SET drift = true "
+            conn.execute("UPDATE okg.declared_attr_indexes SET state = 'failed' "
                          "WHERE target_kind = 'node' AND attr_id = 'path'")
-        check("view_graph_drift", ["doc:zz-anyb", "doc:zz-padded", "doc:zz-under"])
+        check("index_failed", ["doc:zz-anyb", "doc:zz-padded", "doc:zz-under"])
     finally:
         mcp._okg_pool.close()
 
@@ -1225,7 +1225,7 @@ def test_lookup_where_path_prefix_does_not_narrow_when_it_cannot_trust_the_index
 def test_lookup_where_path_prefix_needs_path_declared(
     clean_runtime, okg_mcp_can_log_in, tmp_path, monkeypatch,
 ):
-    """Without a `path` declaration the drift checks never compare it, so
+    """Without a `path` declaration no index covers it, so
     nothing narrows (`not_declared`) and the rows are the unnarrowed ones."""
     monkeypatch.delenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", raising=False)
     deployment, _ = _path_index_corpus(tmp_path, clean_runtime, declare=False)
@@ -1494,10 +1494,13 @@ def _page(dsn, deployment, query, **kwargs):
 
 def test_lexical_pages_match_the_base_helper_on_a_published_generation(clean_runtime, tmp_path, monkeypatch) -> None:
     deployment = _basic(tmp_path, clean_runtime)
+    # Every where x rank_by cell is crossed with four (query, offset, filter)
+    # triples that put each value of the three beside both values of each of
+    # the others (all pairs), not the eight triples of the full product.
     cases = [(q, where, rank_by, filt, offset)
-             for q in (QUERY, TERM) for where in LEXICAL_WHERE
-             for rank_by in ("self", "records") for filt in ({}, {"subtype": "ticket"})
-             for offset in (0, 2)]
+             for q, offset, filt in ((QUERY, 0, {}), (QUERY, 2, {"subtype": "ticket"}),
+                                     (TERM, 0, {"subtype": "ticket"}), (TERM, 2, {}))
+             for where in LEXICAL_WHERE for rank_by in ("self", "records")]
     current, generations, nonempty = {}, set(), 0
     for index, (q, where, rank_by, filt, offset) in enumerate(cases):
         page, generation = _page(clean_runtime, deployment, q, where=where, rank_by=rank_by,

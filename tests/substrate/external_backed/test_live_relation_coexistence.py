@@ -6,10 +6,10 @@ deletion to issue #2087. Live relations and the deployment `agent_tools` /
 changes nothing about the old one.
 
 That coexistence needs a test, not a promise. The census behind the deferral
-found four deployments in the reference-deployments repository that still declare
-`agent_tools` -- `cms` (four tools, every one `boundary: external_live` with
-`requires_env`), `cern-twiki` (twelve), `wisdqm` (seven) -- or enrol the
-`external_authority` ontology module (two of them, `cms` among them). A regression here
+found deployments in the reference-deployments repository that still declare
+`agent_tools` (one block has four tools, every one `boundary: external_live`
+with `requires_env`) or enrol the `external_authority` ontology module (two of
+them). A regression here
 would not fail in this repository; it would fail on someone else's deployment
 at load, which is exactly why the deletion was split out.
 
@@ -30,16 +30,16 @@ import yaml
 from okg.substrate.deployment_contract import audit_deployment_portfolio
 from okg.substrate.deployments import DeploymentManifest
 
-#: Shaped after the real `cms` block: a credentialed live tool. The deletion
+#: Shaped after a real deployment block: a credentialed live tool. The deletion
 #: would have refused this manifest outright at load.
-CMS_SHAPED_TOOL = {
-    "module": "cms_tools.monit_live",
-    "function": "rucio_search",
+CREDENTIALED_TOOL = {
+    "module": "example_tools.live_search",
+    "function": "example_search",
     "boundary": "external_live",
-    "requires_env": ["MONIT_GRAFANA_TOKEN"],
+    "requires_env": ["EXAMPLE_SERVICE_TOKEN"],
     "optional": True,
     "description": (
-        "Search live external MONIT Rucio events. Results are live external "
+        "Search live external example records. Results are live external "
         "data, not generation-pinned OKG reads."
     ),
 }
@@ -85,19 +85,19 @@ def _write_manifest(root: Path, *, agent_tools: dict) -> Path:
 def test_a_manifest_declaring_external_live_agent_tools_still_loads(
     tmp_path: Path,
 ) -> None:
-    """The `cms` shape parses, and its tool survives the round trip.
+    """The credentialed-tool shape parses, and its tool survives the round trip.
 
     This is the assertion the four external deployments depend on. Under the
     parked deletion the key is refused by name at load, so this test is the
     difference between this branch and that one.
     """
-    path = _write_manifest(tmp_path, agent_tools={"rucio_search": CMS_SHAPED_TOOL})
+    path = _write_manifest(tmp_path, agent_tools={"example_search": CREDENTIALED_TOOL})
     manifest = DeploymentManifest._from_yaml_uncached(path)
 
-    assert manifest.agent_tools == {"rucio_search": CMS_SHAPED_TOOL}
-    assert manifest.agent_tools["rucio_search"]["boundary"] == "external_live"
-    assert manifest.agent_tools["rucio_search"]["requires_env"] == [
-        "MONIT_GRAFANA_TOKEN",
+    assert manifest.agent_tools == {"example_search": CREDENTIALED_TOOL}
+    assert manifest.agent_tools["example_search"]["boundary"] == "external_live"
+    assert manifest.agent_tools["example_search"]["requires_env"] == [
+        "EXAMPLE_SERVICE_TOKEN",
     ]
 
 
@@ -128,9 +128,9 @@ def test_the_credentialed_live_tool_contract_check_still_runs(
     finding; the same tool with it is still clean. Asserting only the clean
     side would pass with the check deleted.
     """
-    missing = dict(CMS_SHAPED_TOOL)
+    missing = dict(CREDENTIALED_TOOL)
     del missing["boundary"]
-    _write_manifest(tmp_path / "bad", agent_tools={"rucio_search": missing})
+    _write_manifest(tmp_path / "bad", agent_tools={"example_search": missing})
     report = audit_deployment_portfolio(root=tmp_path / "bad")
     codes = {
         finding["code"]
@@ -139,7 +139,9 @@ def test_the_credentialed_live_tool_contract_check_still_runs(
     }
     assert "deployment_contract.akmon.external_live_boundary_missing" in codes
 
-    _write_manifest(tmp_path / "good", agent_tools={"rucio_search": CMS_SHAPED_TOOL})
+    _write_manifest(
+        tmp_path / "good", agent_tools={"example_search": CREDENTIALED_TOOL},
+    )
     clean = audit_deployment_portfolio(root=tmp_path / "good")
     clean_codes = {
         finding["code"]
@@ -178,6 +180,6 @@ def test_live_relations_add_no_key_to_the_legacy_manifest_path(
     A deployment that declares no `agent_surface` keeps exactly the behaviour
     it had, which is the freeze this change promises.
     """
-    path = _write_manifest(tmp_path, agent_tools={"rucio_search": CMS_SHAPED_TOOL})
+    path = _write_manifest(tmp_path, agent_tools={"example_search": CREDENTIALED_TOOL})
     manifest = DeploymentManifest._from_yaml_uncached(path)
     assert getattr(manifest, "agent_surface", None) is None

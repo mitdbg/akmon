@@ -142,7 +142,7 @@ RECORDED_REASON_TO_CAUSE: dict[str, str] = {
     "envelope_violation": CAUSE_ENVELOPE_VIOLATION,
     "operator_failure": CAUSE_OPERATOR_FAILURE,
 
-    # -- maintained_derivation.FULL_RECOMPUTE_CAUSES (derived_artifacts/maintained_derivation.py:118-135)
+    # -- maintained_derivation.FULL_RECOMPUTE_CAUSES (derived_artifacts/maintained_derivation.py:118-153)
     #    (the summary['full_reason'] / by_full_reason histogram values)
     "forced": CAUSE_OPERATIONAL_GATE_FAILURE,
     "scope_unavailable": CAUSE_INCONCLUSIVE_SCORE_OR_TIEBREAK,
@@ -162,6 +162,11 @@ RECORDED_REASON_TO_CAUSE: dict[str, str] = {
     # licensed until one full recount backfills the new shape — a changed
     # pipeline version, exactly like selection_schema_upgrade.
     "dimension_shape_upgrade": CAUSE_CHANGED_PIPELINE_VERSION,
+    # The cycle changed a large share of the graph (a bulk load), so the
+    # rollup recounted the whole generation instead of resolving every
+    # changed id twice (issue 3955). Locality was available; the full read is
+    # a configured cost choice, like the periodic self-heal.
+    "large_change_set": CAUSE_OPERATIONAL_GATE_FAILURE,
 
     # -- ir_locality FrontierPlan.reason: scope_plan_reason (consistency/ir_locality.py)
     "claim_state_surface_bucket_locality_pending":  # :60 CLAIM_STATE_FULL_REASON

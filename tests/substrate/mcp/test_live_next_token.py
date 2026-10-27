@@ -484,7 +484,7 @@ def test_an_expired_or_unknown_kept_answer_is_said_plainly_with_its_redo_call() 
     reason = gone.value.data["reason"]
     assert reason == "expired"
     message = _lrs("NEXT_GONE_MESSAGES")[reason]
-    assert "expired" in message and "300 seconds" in message
+    assert "expired" in message and "600 seconds" in message  # re-pinned: PACT read-live-handles, 10 min
     call = _lrs("remembered_call")(set_id, READER)
     from okg.substrate.mcp.result_text import call_text
 

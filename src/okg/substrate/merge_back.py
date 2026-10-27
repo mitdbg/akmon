@@ -318,6 +318,28 @@ def _merge_back_locked(
                         staging_branch=staging,
                         blocked_reason="pending_declarations_unreadable",
                     )
+                # Cross-source endpoint wedge: the same for waiting edges. A
+                # write that changes only a waiting row is in no checkpoint
+                # yet, and its source has moved its watermark past it.
+                try:
+                    pending_deferrals = (
+                        locked_store.edge_deferrals_since_generation(
+                            pre_land_generation_id, branch=target,
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001 - block before landing
+                    logger.error(
+                        "merge-back: cannot read waiting edges written since "
+                        "%s (%s); not landing, since a rollback could not put "
+                        "them back",
+                        pre_land_generation_id,
+                        exc,
+                    )
+                    return MergeBackResult(
+                        status="blocked",
+                        staging_branch=staging,
+                        blocked_reason="pending_deferrals_unreadable",
+                    )
 
                 # LAND (replay): merge the SOURCE-ONLY staging branch onto target's OWN head
                 # (a normal write -- does NOT shrink target's interval, so repeated
@@ -392,6 +414,27 @@ def _merge_back_locked(
                             blocked_reason=(
                                 f"land_gate_blocked_rolled_back:{reason}:"
                                 "declarations_not_reapplied"
+                            ),
+                        )
+                    try:
+                        locked_store.reapply_edge_deferrals(
+                            pending_deferrals, branch=target,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - report, never raise past the rollback
+                        logger.error(
+                            "merge-back rollback: re-applying %d waiting "
+                            "edges written since %s failed (%s); their "
+                            "sources must rerun to write them again",
+                            len(pending_deferrals),
+                            pre_land_generation_id,
+                            exc,
+                        )
+                        return MergeBackResult(
+                            status="blocked",
+                            staging_branch=staging,
+                            blocked_reason=(
+                                f"land_gate_blocked_rolled_back:{reason}:"
+                                "deferrals_not_reapplied"
                             ),
                         )
                     if rollback_incomplete:

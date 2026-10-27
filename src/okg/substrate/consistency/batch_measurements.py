@@ -517,7 +517,7 @@ def okg_repo_binding(
     if not commit:
         _refuse(REFUSAL_ADAPTER_SURFACE, "$.binding.okg_commit",
                 "git reported no HEAD commit")
-    status = runner(["status", "--porcelain"])
+    status = runner(["--no-optional-locks", "status", "--porcelain"])
     return ReproducibilityBinding(
         okg_commit=commit,
         okg_tree_status=TREE_DIRTY if status.strip() else TREE_CLEAN,

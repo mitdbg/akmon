@@ -134,6 +134,10 @@ FULL_REASON_SELECTION_SCHEMA_UPGRADE = "selection_schema_upgrade"
 # so the first post-upgrade cycle recomputes in full — once; the backfill makes
 # the detection predicate false for every later cycle (quiescence).
 FULL_REASON_DIMENSION_SHAPE_UPGRADE = "dimension_shape_upgrade"
+# The cycle changed so large a share of the graph that one full recount costs
+# less than resolving every changed id at two checkouts (issue 3955: a bulk
+# load). See :func:`is_large_change_set`.
+FULL_REASON_LARGE_CHANGE_SET = "large_change_set"
 FULL_RECOMPUTE_CAUSES: frozenset[str] = frozenset({
     FULL_REASON_FORCED,
     FULL_REASON_SCOPE_UNAVAILABLE,
@@ -145,7 +149,30 @@ FULL_RECOMPUTE_CAUSES: frozenset[str] = frozenset({
     FULL_REASON_LINKED_PAIR,
     FULL_REASON_SELECTION_SCHEMA_UPGRADE,
     FULL_REASON_DIMENSION_SHAPE_UPGRADE,
+    FULL_REASON_LARGE_CHANGE_SET,
 })
+
+# Issue 3955: a running-sum rollup resolves each changed id at the current
+# checkout and again at the prior one, so its cost grows with the change set,
+# while a full recount reads the graph once. Each rollup passes its own bound,
+# in whole percent, set at its measured break-even (see ontology_rollup and
+# console_count_rollup). The floor keeps ordinary cycles on small graphs
+# incremental; above it, a cycle whose changed ids exceed the bound's share of
+# the prior rollup's counted items recounts in full and records
+# ``large_change_set``.
+LARGE_CHANGE_SET_MIN_IDS = 10_000
+
+
+def is_large_change_set(changed: int, prior_total: int, *, percent: int) -> bool:
+    """True when ``changed`` ids are at least :data:`LARGE_CHANGE_SET_MIN_IDS`
+    and strictly more than ``percent`` % of ``prior_total``, the number of
+    items the prior rollup counted. Integer arithmetic, so exactly ``percent``
+    % is not large. A prior total of 0 (or below) counts as 0, so any change
+    at the floor is large."""
+    return (
+        changed >= LARGE_CHANGE_SET_MIN_IDS
+        and changed * 100 > percent * max(0, prior_total)
+    )
 
 
 class MaintainResult(NamedTuple):

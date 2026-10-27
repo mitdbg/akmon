@@ -762,11 +762,32 @@ pytestmark = pytest.mark.anyio
 # write/admin 5,517. Surfaces that do not serve `run` (discovery,
 # inspect+search, okg-workspace's declared `served`) do not move. No
 # ceiling moves.
-FULL_READ_SURFACE_BASELINE_TOKENS = 4_326
-DISCOVERY_SURFACE_BASELINE_TOKENS = 2_856
-READER_SURFACE_BASELINE_TOKENS = 4_326
-WRITE_ADMIN_SURFACE_BASELINE_TOKENS = 5_517
-TWO_TOOL_SURFACE_BASELINE_TOKENS = 2_448
+# Then read-aggregate-order-by, measured on the lab: +42 on every surface
+# serving `aggregate`: its description's order_by sentence ('order_by=
+# "<metric or by field> desc" ranks every group before limit, e.g.
+# order_by="max(attrs.size) desc", limit=2.') and the published `order_by`
+# argument. Full read and reader 4,368, discovery 2,898, write/admin
+# 5,559; inspect+search unchanged. No ceiling moves.
+# Then PACT read-live-handles (3a-i), measured on the lab: +53 on surfaces serving
+# filter, map and aggregate (the handle sentence "A live reply names a
+# handle; input=<handle> reads it again." in each description, the
+# published `filter.input` line, and the `map`/`aggregate` input lines
+# naming a handle), +10 on discovery (aggregate only). Full read and reader
+# 4,421, discovery 2,908, write/admin 5,612; inspect+search unchanged.
+# Then okg-attribute-history-read (+25, inspect's history sentence,
+# merged from dev).
+# Then PACT read-multi-handle-input (+19 on surfaces serving aggregate, measured on
+# the lab): the aggregate sentence "After several similar live calls, the reply
+# names one handle holding all their answers."
+# Then PACT read-map-compute, measured on the lab: +112 on surfaces serving map
+# and aggregate: map's description teaches compute and keeps one runnable
+# column-only example and its paging line (+94 with its published `compute` argument), and aggregate's metric pattern takes sum(calc.<name>)
+# (+18; discovery serves aggregate only, +18).
+FULL_READ_SURFACE_BASELINE_TOKENS = 4_577
+DISCOVERY_SURFACE_BASELINE_TOKENS = 2_970
+READER_SURFACE_BASELINE_TOKENS = 4_577
+WRITE_ADMIN_SURFACE_BASELINE_TOKENS = 5_768
+TWO_TOOL_SURFACE_BASELINE_TOKENS = 2_473
 
 #: okg-workspace, the deployment that declares an `agent_surface` block.
 #: Measured because req.esd.workspace asks for an exact number rather than a
@@ -844,8 +865,17 @@ TWO_TOOL_SURFACE_BASELINE_TOKENS = 2_448
 #: as the full read pins): 4,076 read, 5,267 write.
 #: Then read-names-list-3666 (+21, search's grep names-list sentence, as the
 #: full read pins): 4,097 read, 5,288 write.
-WORKSPACE_READ_SURFACE_BASELINE_TOKENS = 4_179
-WORKSPACE_WRITE_SURFACE_BASELINE_TOKENS = 5_370
+#: Then read-aggregate-order-by (+42, aggregate's order_by sentence and
+#: argument, as the full read pins): 4,221 read, 5,412 write.
+#: Then PACT read-live-handles (3a-i), measured on the lab (+53, the handle teaching, as the
+#: full read pins): 4,274 read, 5,465 write.
+#: Then okg-attribute-history-read (+25, inspect's history sentence,
+#: merged from dev).
+#: Then read-multi-handle-input (+19, the aggregate chain-handle sentence).
+#: Then read-map-compute (+112, map's compute teaching and aggregate's calc.
+#: metric pattern, as the full read pins).
+WORKSPACE_READ_SURFACE_BASELINE_TOKENS = 4_430
+WORKSPACE_WRITE_SURFACE_BASELINE_TOKENS = 5_621
 #: read-query-guide-3666, query-by-default (Jason, via orchestrator chat
 #: 2026-10-13): okg-workspace's manifest sets access rules to `enforce`, so
 #: its launches withhold `query` (6 read tools, 17 write). The two pins
@@ -875,8 +905,16 @@ WORKSPACE_WRITE_SURFACE_BASELINE_TOKENS = 5_370
 #: 3,812 read, 5,003 write.
 #: Then read-names-list-3666 (+21, search's grep names-list sentence):
 #: 3,833 read, 5,024 write.
-WORKSPACE_ENFORCE_READ_SURFACE_BASELINE_TOKENS = 3_915
-WORKSPACE_ENFORCE_WRITE_SURFACE_BASELINE_TOKENS = 5_106
+#: Then read-aggregate-order-by (+42, aggregate's order_by sentence and
+#: argument): 3,957 read, 5,148 write.
+#: Then PACT read-live-handles (3a-i), measured on the lab (+53, the handle teaching): 4,010
+#: read, 5,201 write.
+#: Then okg-attribute-history-read (+25, inspect's history sentence,
+#: merged from dev).
+#: Then read-multi-handle-input (+19, the aggregate chain-handle sentence).
+#: Then read-map-compute (+112, as the full read pins).
+WORKSPACE_ENFORCE_READ_SURFACE_BASELINE_TOKENS = 4_166
+WORKSPACE_ENFORCE_WRITE_SURFACE_BASELINE_TOKENS = 5_357
 
 #: The opensearch-reference deployment (PACT `opensearch-reference-integration`,
 #: issue #2014, req.ori.budget). Its `agent_surface.served` names five tools;
@@ -977,8 +1015,16 @@ WORKSPACE_ENFORCE_WRITE_SURFACE_BASELINE_TOKENS = 5_106
 #: `within` enum): 2,883 read, 3,209 write.
 #: Then read-names-list-3666 (+21, search's grep names-list sentence):
 #: 2,904 read, 3,230 write.
-REFERENCE_READ_SURFACE_BASELINE_TOKENS = 3_021
-REFERENCE_WRITE_SURFACE_BASELINE_TOKENS = 3_347
+#: Then okg-attribute-history-read (+25, inspect's history sentence):
+#: 3,046 read, 3,372 write.
+#: Then doc-nodes-4052 (-67: this fixture holds no file-text source, so the
+#: `doc:<repo>:<path>` id and the `file:` to `doc:` step are not served):
+#: 2,979 read, 3,305 write.
+#: Then git-ids-4064 (-31: this fixture declares no git source, so the
+#: `file:` and `commit:` ids and the `source_file` lookups are not served):
+#: 2,948 read, 3,274 write.
+REFERENCE_READ_SURFACE_BASELINE_TOKENS = 2_948
+REFERENCE_WRITE_SURFACE_BASELINE_TOKENS = 3_274
 
 #: The `live-http-ci` test fixture (PACT `laptop-monitor-live-example`, issue
 #: #2164, req.lmle.budget). Its `agent_surface.served` names four tools; a
@@ -1068,8 +1114,14 @@ REFERENCE_WRITE_SURFACE_BASELINE_TOKENS = 3_347
 #: `within` enum): 2,883 read, 3,077 write.
 #: Then read-names-list-3666 (+21, search's grep names-list sentence):
 #: 2,904 read, 3,098 write.
-LIVE_HTTP_CI_READ_SURFACE_BASELINE_TOKENS = 3_021
-LIVE_HTTP_CI_WRITE_SURFACE_BASELINE_TOKENS = 3_215
+#: Then okg-attribute-history-read (+25, inspect's history sentence):
+#: 3,046 read, 3,240 write.
+#: Then doc-nodes-4052 (-67, as opensearch-reference: no file-text source):
+#: 2,979 read, 3,173 write.
+#: Then git-ids-4064 (-31, as opensearch-reference: no git source):
+#: 2,948 read, 3,142 write.
+LIVE_HTTP_CI_READ_SURFACE_BASELINE_TOKENS = 2_948
+LIVE_HTTP_CI_WRITE_SURFACE_BASELINE_TOKENS = 3_142
 
 #: Where that fixture's manifest lives. `measure_surface` resolves a
 #: deployment by NAME against the deployments root, and the directory name
@@ -2005,8 +2057,17 @@ async def test_read_and_write_moved_by_the_same_amount_in_this_change() -> None:
     # grep names-list sentence.
     # run-composed-3666: +147 on both (`run` and the instructions' run
     # sentence), as measured on lane RB's branch.
-    assert read.total_tokens - 5_697 == -96 - 1 - 2 - 51 - 77 + 6 - 30 - 2 + 12 + 55 + 3 + 75 + 119 + 14 + 1 - 1 - 2 - 89 + 9 + 55 + 18 + 9 - 1 + 1 - 1 - 2 - 2213 - 14 + 1 + 151 - 13 - 13 - 1 - 12 + 27 + 200 + 63 - 22 + 29 + 29 - 14 + 4 + 7 + 11 + 30 + 29 + 46 + 32 + 21 + 82 + 147, measured_delta_message(read)
-    assert write.total_tokens - 6_896 == -123 - 1 - 2 - 51 - 49 + 6 - 30 - 2 + 12 + 55 + 3 + 75 + 119 + 14 + 1 - 1 - 2 - 89 + 9 + 55 + 18 + 9 - 1 + 1 - 1 - 2 - 2222 - 14 + 1 + 151 - 13 - 13 - 1 - 12 + 27 + 200 + 63 - 22 + 29 + 29 - 14 + 4 + 7 + 11 + 30 + 29 + 46 + 32 + 21 + 82 + 147, measured_delta_message(write)
+    # read-aggregate-order-by: +42 on both. aggregate's order_by sentence
+    # and its published order_by argument.
+    # read-live-handles: +53 on both. The handle sentence in the filter,
+    # map and aggregate descriptions and the published input lines.
+    # Then okg-attribute-history-read (+25, inspect's history sentence,
+    # merged from dev).
+    # read-multi-handle-input: +19 on both (aggregate's chain-handle sentence).
+    # read-map-compute: +112 on both (map's compute teaching, aggregate's
+    # calc. metric pattern).
+    assert read.total_tokens - 5_697 == -96 - 1 - 2 - 51 - 77 + 6 - 30 - 2 + 12 + 55 + 3 + 75 + 119 + 14 + 1 - 1 - 2 - 89 + 9 + 55 + 18 + 9 - 1 + 1 - 1 - 2 - 2213 - 14 + 1 + 151 - 13 - 13 - 1 - 12 + 27 + 200 + 63 - 22 + 29 + 29 - 14 + 4 + 7 + 11 + 30 + 29 + 46 + 32 + 21 + 82 + 147 + 42 + 53 + 25 + 19 + 112, measured_delta_message(read)
+    assert write.total_tokens - 6_896 == -123 - 1 - 2 - 51 - 49 + 6 - 30 - 2 + 12 + 55 + 3 + 75 + 119 + 14 + 1 - 1 - 2 - 89 + 9 + 55 + 18 + 9 - 1 + 1 - 1 - 2 - 2222 - 14 + 1 + 151 - 13 - 13 - 1 - 12 + 27 + 200 + 63 - 22 + 29 + 29 - 14 + 4 + 7 + 11 + 30 + 29 + 46 + 32 + 21 + 82 + 147 + 42 + 53 + 25 + 19 + 112, measured_delta_message(write)
 
 
 def measured_delta_message(measured) -> str:
@@ -2106,9 +2167,17 @@ def measured_delta_message(measured) -> str:
 # sentence): 4,128, 5,319, 2,443.
 # Then run-composed-3666 (as the `full` pins): +147, +147, 0: 4,357 full
 # read, 5,548 write/admin.
-NONE_FULL_READ_SURFACE_BASELINE_TOKENS = 4_357
-NONE_WRITE_ADMIN_SURFACE_BASELINE_TOKENS = 5_548
-NONE_TWO_TOOL_SURFACE_BASELINE_TOKENS = 2_479
+# Then read-aggregate-order-by (as the `full` pins): +42, +42, 0: 4,399
+# full read, 5,590 write/admin.
+# Then PACT read-live-handles (3a-i), measured on the lab (as the `full` pins): +53, +53, 0:
+# 4,452 full read, 5,643 write/admin.
+# Then okg-attribute-history-read (+25, inspect's history sentence,
+# merged from dev).
+# Then read-multi-handle-input (+19, the aggregate chain-handle sentence).
+# Then read-map-compute (+112, as the `full` pins).
+NONE_FULL_READ_SURFACE_BASELINE_TOKENS = 4_608
+NONE_WRITE_ADMIN_SURFACE_BASELINE_TOKENS = 5_799
+NONE_TWO_TOOL_SURFACE_BASELINE_TOKENS = 2_504
 NONE_GENERATED_INSTRUCTIONS_TOKENS = 31
 
 

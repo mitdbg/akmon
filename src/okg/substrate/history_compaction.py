@@ -21,10 +21,6 @@ from typing import Any, Iterator, Mapping, Sequence
 import psycopg
 from psycopg import sql
 
-from okg.substrate.attributes import (
-    ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,
-    EFFECTIVE_INTERVAL_OPEN_ORD,
-)
 from okg.substrate.errors import SubstrateError
 from okg.substrate.graph_store_internal.common import (
     DEFAULT_BRANCH,
@@ -40,8 +36,7 @@ _DURATION = re.compile(r"^([1-9][0-9]*)([smhdw])$")
 _DURATION_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 _POLICY_KEYS = frozenset({"default", "audit_tail_generations", "nodes", "edges"})
 _RULE_KEYS = frozenset({"horizon"})
-_DATA_BATCHES = ("nodes", "edges", "effective")
-_OPEN_INTERVAL_ORDINAL = 9223372036854775807
+_DATA_BATCHES = ("nodes", "edges")
 _log = logging.getLogger(__name__)
 
 _COMPACTION_LOCK_NAMESPACE = 0x4F4B4743  # "OKGC"
@@ -149,9 +144,6 @@ def resolve_history_retention(
                 "(default.horizon 14d, audit_tail_generations 50). Declare it "
                 "in deployment.yaml to choose your own rules:\n"
                 + HISTORY_RETENTION_YAML_SNIPPET
-                + "Declaring it also turns OFF the publisher per-cycle prune "
-                "of the attribute-effective interval sidecar, making the "
-                "confirmed compaction plan the sole deletion authority."
             ),
         )
     if not isinstance(policy_raw, Mapping):
@@ -215,9 +207,8 @@ def check_history_retention(
     superseded interval rows forever, and nothing said so until an operator
     tried to compact during an incident (#1309).  This probe is the standing
     statement: how big the interval tables are, what share of their rows are no
-    longer visible at the published head, whether a policy is declared, and --
-    because declaring one turns the publisher per-cycle prune OFF -- whether a
-    compaction has ever actually completed.
+    longer visible at the published head, whether a policy is declared, and
+    whether a compaction has ever actually completed.
     """
     # Three states, not two. A policy that is PRESENT but malformed stops both
     # the publisher ("must be a mapping before publisher startup") and
@@ -312,32 +303,6 @@ def check_history_retention(
         branch_rows += rows_branch
         branch_superseded += superseded_branch
         total_bytes += table_bytes
-    # The attribute-effective interval sidecar is reported too: declaring a
-    # policy turns OFF the publisher per-cycle prune that is the ONLY thing
-    # bounding it, so leaving it out would hide the growth this change causes.
-    # Closed intervals are the sidecar's dead history: what the per-cycle
-    # prune deletes and, once a policy is declared, only compaction does.
-    # One pass for both counts: the table can hold 150M rows.
-    effective_rows, effective_closed = (
-        int(value) for value in conn.execute(
-            f"SELECT count(*), count(*) FILTER (WHERE to_ord < %s) "
-            f"FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} WHERE branch_id = %s",
-            (EFFECTIVE_INTERVAL_OPEN_ORD, branch),
-        ).fetchone()
-    )
-    effective_bytes = int(
-        conn.execute(
-            "SELECT pg_total_relation_size(%s::regclass)",
-            (ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,),
-        ).fetchone()[0]
-    )
-    tables["effective"] = {
-        "table": ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,
-        "rows_total": effective_rows,
-        "rows_closed": effective_closed,
-        "relation_bytes": effective_bytes,
-    }
-    total_bytes += effective_bytes
     ratio = round(branch_superseded / branch_rows, 4) if branch_rows else 0.0
     report["tables"] = tables
     report["interval_relation_bytes"] = total_bytes
@@ -349,15 +314,13 @@ def check_history_retention(
     report["completed_compactions"] = completed_compactions
     # Issue #3578: a new graph has no history to retire yet, so the warnings
     # below would only alarm a newcomer. They fire from the first superseded
-    # version or closed sidecar interval: from then on that history stays
-    # until something retires it.
-    dead_rows = branch_superseded + effective_closed
+    # version: from then on that history stays until something retires it.
+    dead_rows = branch_superseded
     report["dead_history_rows"] = dead_rows
     size_text = (
         f"interval tables hold {total_bytes} bytes; of the {branch_rows} rows "
         f"this branch owns, {branch_superseded} ({ratio:.0%}) are no longer "
-        f"visible at the published head, and the attribute-effective sidecar "
-        f"holds {effective_rows} rows"
+        f"visible at the published head"
     )
 
     if declared_invalid is not None:
@@ -365,7 +328,6 @@ def check_history_retention(
             ok=True,
             status="warn",
             code="history_retention_declared_invalid",
-            publisher_per_cycle_prune="unknown",
             message=(
                 "chronos.history_retention is declared but does not parse "
                 f"({declared_invalid}), so both the publisher and compaction "
@@ -376,7 +338,6 @@ def check_history_retention(
 
     if policy_raw is None and branch_superseded == 0:
         report.update(
-            publisher_per_cycle_prune="on",
             message=(
                 "chronos.history_retention is not declared; this branch owns "
                 "no superseded node or edge version yet, so nothing needs "
@@ -387,16 +348,13 @@ def check_history_retention(
         )
         return report
     if policy_raw is None:
-        # The publisher's per-cycle prune still runs here, but it only bounds
-        # the attribute-effective sidecar -- the node and edge interval tables
-        # it does not touch are the ones that reached 88% dead on
-        # okg-workspace. So once any version is superseded, an undeclared
-        # policy is worth saying.
+        # Once any version is superseded, an undeclared policy is worth
+        # saying: the node and edge interval tables reached 88% dead on
+        # okg-workspace.
         report.update(
             ok=True,
             status="warn",
             code="history_retention_unset",
-            publisher_per_cycle_prune="on",
             message=(
                 "chronos.history_retention is not declared, so node and edge "
                 f"history is never retired: {size_text}. `okg generation "
@@ -407,14 +365,12 @@ def check_history_retention(
         )
         return report
 
-    report["publisher_per_cycle_prune"] = "off"
     report["deletion_authority"] = "confirmed_compaction_plan"
-    # No ratio gate here. Declaring the policy already turned the per-cycle
-    # prune off, so until one compaction has completed NOTHING is deleting
-    # history -- including the attribute-effective sidecar the prune used to
-    # bound. A scaffolded deployment that never schedules compaction is
-    # exactly this state, and it must not read as healthy once a single row
-    # of dead history exists. Before that there is nothing to delete.
+    # No ratio gate here: until one compaction has completed NOTHING is
+    # deleting history. A scaffolded deployment that never schedules
+    # compaction is exactly this state, and it must not read as healthy once
+    # a single row of dead history exists. Before that there is nothing to
+    # delete.
     if completed_compactions == 0 and dead_rows == 0:
         report["message"] = (
             "chronos.history_retention is declared and no compaction has "
@@ -430,19 +386,19 @@ def check_history_retention(
             status="warn",
             code="history_retention_declared_but_never_applied",
             message=(
-                "chronos.history_retention is declared, which turns OFF the "
-                "publisher per-cycle prune and makes a confirmed compaction "
-                "plan the only thing that deletes history -- and no compaction "
-                f"has completed for this deployment: {size_text}. Run `okg "
-                f"generation compact --deployment {deployment_name}` or "
-                "schedule the history_compaction workflow."
+                "chronos.history_retention is declared, which makes a "
+                "confirmed compaction plan the only thing that deletes "
+                "history -- and no compaction has completed for this "
+                f"deployment: {size_text}. Run `okg generation compact "
+                f"--deployment {deployment_name}` or schedule the "
+                "history_compaction workflow."
             ),
         )
         return report
     report["message"] = (
-        "chronos.history_retention is declared; the publisher per-cycle prune "
-        "is off and a confirmed compaction plan is the sole deletion "
-        f"authority ({completed_compactions} completed so far). {size_text}."
+        "chronos.history_retention is declared; a confirmed compaction plan "
+        f"is the sole deletion authority ({completed_compactions} completed "
+        f"so far). {size_text}."
     )
     return report
 
@@ -870,9 +826,6 @@ def offline_reclaim_history_storage(
     if status != "complete":
         raise SubstrateError("offline reclaim requires a completed compaction plan")
     tables = [str(value) for value in plan["physical_tables"].values()]
-    effective = plan.get("effective_table")
-    if effective:
-        tables.append(str(effective))
     before = _relation_sizes(conn, tables)
     # Callers commonly inspect logical results before reclaim, which opens an
     # implicit read transaction. VACUUM FULL requires autocommit and cannot run
@@ -974,9 +927,6 @@ def _snapshot(
     with _phase(progress, "classifier_inventory"):
         observed_nodes = _distinct_classifier(conn, physical[NODE_TABLE], "subtype")
         observed_edges = _distinct_classifier(conn, physical[EDGE_TABLE], "edge_type")
-        effective_nodes, effective_edges = _effective_classifiers(conn, branch=branch)
-        observed_nodes.update(effective_nodes)
-        observed_edges.update(effective_edges)
     active_catalog_version = _assert_head_catalog_active(
         conn,
         catalog_version_id=head.catalog_version_id,
@@ -1116,7 +1066,6 @@ def _snapshot(
         # timings are a diagnostic, and apply must never treat "the plan took
         # a different amount of time" as drift.
         "planner_progress": list(progress.phases) if progress is not None else [],
-        "effective_table": ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,
         "expected_index_impact": "dead tuples become reusable; physical bytes change only after offline reclaim",
     }
 
@@ -1314,54 +1263,6 @@ def _catalog_subtypes(
     return {str(row[0]) for row in rows if row[0] is not None}
 
 
-def _effective_classifiers(
-    conn: psycopg.Connection[Any], *, branch: str
-) -> tuple[set[str], set[str]]:
-    invalid = conn.execute(
-        f"""
-        SELECT target_kind, count(*)
-          FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE}
-         WHERE branch_id = %s AND target_kind NOT IN ('node', 'edge')
-         GROUP BY target_kind
-        """,
-        (branch,),
-    ).fetchall()
-    if invalid:
-        raise SubstrateError(
-            "effective-attribute history has an invalid target kind",
-            data={"invalid_target_kinds": {str(kind): int(count) for kind, count in invalid}},
-        )
-    missing = conn.execute(
-        f"""
-        SELECT target_kind, count(*)
-          FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE}
-         WHERE branch_id = %s
-           AND ((target_kind = 'node' AND subtype IS NULL)
-             OR (target_kind = 'edge' AND edge_type IS NULL))
-         GROUP BY target_kind
-        """,
-        (branch,),
-    ).fetchall()
-    if missing:
-        raise SubstrateError(
-            "effective-attribute history is missing its stored classifier",
-            data={"missing_by_target_kind": {str(kind): int(count) for kind, count in missing}},
-        )
-    rows = conn.execute(
-        f"""
-        SELECT target_kind,
-               CASE WHEN target_kind = 'node' THEN subtype ELSE edge_type END AS classifier
-          FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE}
-         WHERE branch_id = %s
-         GROUP BY target_kind, classifier
-        """,
-        (branch,),
-    ).fetchall()
-    nodes = {str(classifier) for kind, classifier in rows if kind == "node"}
-    edges = {str(classifier) for kind, classifier in rows if kind == "edge"}
-    return nodes, edges
-
-
 def _distinct_classifier(conn: psycopg.Connection[Any], table: str, column: str) -> set[str]:
     missing_query = sql.SQL("SELECT count(*) FROM {} WHERE {} IS NULL").format(
         _qualified_identifier(table), sql.Identifier(column)
@@ -1535,36 +1436,6 @@ def _grouped_table_counts(
     }
 
 
-def _grouped_effective_eligible_rows(
-    conn: psycopg.Connection[Any],
-    *,
-    branch: str,
-    target_kind: str,
-    classifier: str,
-    floors: Mapping[str, int],
-) -> int:
-    """The same single-pass treatment for the attribute-effective table."""
-    if not floors:
-        return 0
-    values = sorted(floors)
-    ordinals = [int(floors[value]) for value in values]
-    query = sql.SQL(
-        "SELECT count(*) FROM unnest(%s::text[], %s::bigint[]) AS f(cls, ord_hi) "
-        "JOIN {} AS t ON t.{} = f.cls "
-        "WHERE t.branch_id = %s AND t.target_kind = %s "
-        "AND t.to_ord < %s AND t.to_ord <= f.ord_hi"
-    ).format(
-        _qualified_identifier(ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE),
-        sql.Identifier(classifier),
-    )
-    return int(
-        conn.execute(
-            query,
-            (values, ordinals, branch, target_kind, _OPEN_INTERVAL_ORDINAL),
-        ).fetchone()[0]
-    )
-
-
 def _estimate_rows_and_bytes(
     conn: psycopg.Connection[Any],
     physical: Mapping[str, str],
@@ -1631,47 +1502,6 @@ def _estimate_rows_and_bytes(
             "logical_eligible_bytes_estimate": int(relation_bytes * eligible / max(1, total)),
             "physical_relation_bytes": relation_bytes,
         }
-    with _phase(
-        progress,
-        "estimate_effective",
-        table=ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,
-    ):
-        effective_total = int(
-            conn.execute(
-                f"SELECT count(*) FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} WHERE branch_id = %s",
-                (branch,),
-            ).fetchone()[0]
-        )
-        effective_eligible = 0
-        for target_kind, classifier, selectors in (
-            ("node", "subtype", floors["nodes"]),
-            ("edge", "edge_type", floors["edges"]),
-        ):
-            effective_eligible += _grouped_effective_eligible_rows(
-                conn,
-                branch=branch,
-                target_kind=target_kind,
-                classifier=classifier,
-                floors={
-                    value: int(floor["ordinal"])
-                    for value, floor in selectors.items()
-                    if floor["ordinal"] is not None
-                },
-            )
-        effective_bytes = int(
-            conn.execute(
-                "SELECT pg_total_relation_size(%s::regclass)",
-                (ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,),
-            ).fetchone()[0]
-        )
-    output["effective"] = {
-        "rows_total": effective_total,
-        "rows_eligible": effective_eligible,
-        "logical_eligible_bytes_estimate": int(
-            effective_bytes * effective_eligible / max(1, effective_total)
-        ),
-        "physical_relation_bytes": effective_bytes,
-    }
     return output
 
 
@@ -1795,8 +1625,7 @@ def _delete_batches(
                     # permits to coexist and whose checkpoints `_checkpoints`
                     # never enumerates, so they are neither protected nor
                     # tombstoned -- a read there would silently come back
-                    # short). The sibling effective-interval delete below is
-                    # already branch-scoped; this one was not. Restricting to
+                    # short). Restricting to
                     # `writer_segment_id` in the branch's own segment lineage
                     # is conservative by construction: rows inherited from a
                     # parent branch are simply never reclaimed, which is the
@@ -1823,40 +1652,10 @@ def _delete_batches(
                 if deleted < batch_size:
                     break
     else:
-        table = str(plan["effective_table"])
-        for target_kind, selectors in (("node", plan["floors"]["nodes"]), ("edge", plan["floors"]["edges"])):
-            classifier = "subtype" if target_kind == "node" else "edge_type"
-            for value, floor in selectors.items():
-                ordinal = floor.get("ordinal")
-                if ordinal is None:
-                    continue
-                while True:
-                    with conn.transaction(), conn.cursor() as cur:
-                        cur.execute(
-                            sql.SQL(
-                                "DELETE FROM {} WHERE ctid IN (SELECT ctid FROM {} "
-                                "WHERE branch_id = %s AND target_kind = %s AND {} = %s AND to_ord < %s "
-                                "AND to_ord <= %s LIMIT %s)"
-                            ).format(
-                                _qualified_identifier(table),
-                                _qualified_identifier(table),
-                                sql.Identifier(classifier),
-                            ),
-                            (
-                                plan["branch"],
-                                target_kind,
-                                value,
-                                _OPEN_INTERVAL_ORDINAL,
-                                int(ordinal),
-                                batch_size,
-                            ),
-                        )
-                        deleted = int(cur.rowcount)
-                        total_deleted += deleted
-                        _write_progress(cur, str(plan["plan_id"]), batch_name, total_deleted)
-                    on_progress(total_deleted)
-                    if deleted < batch_size:
-                        break
+        raise SubstrateError(
+            "unknown history compaction batch",
+            data={"batch": batch_name, "batches": list(_DATA_BATCHES)},
+        )
     return total_deleted
 
 

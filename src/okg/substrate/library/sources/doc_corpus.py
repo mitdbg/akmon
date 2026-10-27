@@ -44,6 +44,14 @@ Oversize files (issues #2245, #1692):
   `source_too_large`). Its bytes are never loaded; it is logged and
   counted in `last_run_stats`, and the run continues.
 
+Total size guard:
+  `max_total_bytes` (default None, no guard) caps the summed size of the
+  candidate files, after the globs and not counting files over
+  `max_bytes_per_file`. A corpus over it refuses the whole run with
+  `DocCorpusOversize` and the largest top-level folders. It never reads
+  part of the corpus: a partial completed-scope read would retract
+  every file it skipped.
+
 Document-to-file link:
   `doc:<repo>:<path> derived_from file:<repo>:<path>` is asserted
   exactly when the `source_file` node exists in the graph (issue
@@ -210,9 +218,9 @@ class DocCorpusNotGitWorkTree(SubstrateError):
 
 
 class DocCorpusOversize(SubstrateError):
-    """File-discovery exceeded the configured `max_files` budget.
-    Loud refusal so operators tighten `exclude_globs` rather
-    than silently truncating the corpus."""
+    """File-discovery exceeded the configured `max_files` or
+    `max_total_bytes` budget. Loud refusal so operators tighten
+    `exclude_globs` rather than silently truncating the corpus."""
 
     code = "doc_corpus_oversize"
 
@@ -733,6 +741,14 @@ class DocCorpusSource:
     max_files: int = 25_000
     # A file over this size is recorded as an `oversize` Document, not fatal.
     max_bytes_per_file: int = 50 * 1024 * 1024
+    # Cap on the summed size of the candidate files (after the globs, not
+    # counting a file over `max_bytes_per_file`). None, the default, sets no
+    # cap and leaves every read as it was. Over the cap, a completed-scope
+    # run raises `DocCorpusOversize` naming the largest folders and reads
+    # nothing: a partial read would retract the files it skipped. It is not
+    # part of the change probe or the extractor fingerprint, so changing it
+    # re-reads nothing.
+    max_total_bytes: Optional[int] = None
     # Git candidate selection (issue #2357). Default: tracked files only.
     # `include_untracked` adds untracked files git does not ignore, the same
     # set `git ls-files --others --exclude-standard` reports (git-files'
@@ -857,6 +873,20 @@ class DocCorpusSource:
         self.repo_root = Path(self.repo_root).expanduser().resolve()
         self.extractors_dir = Path(self.extractors_dir).expanduser().resolve()
         self._contained_reader = None
+        if self.max_total_bytes is not None and (
+            isinstance(self.max_total_bytes, bool)
+            or not isinstance(self.max_total_bytes, int)
+            or self.max_total_bytes <= 0
+        ):
+            raise SubstrateError(
+                "DocCorpusSource max_total_bytes must be a positive integer "
+                f"or unset; got {self.max_total_bytes!r}",
+                data={"max_total_bytes": self.max_total_bytes},
+                fix_hint=(
+                    "write the cap as a number of bytes, e.g. 67108864 for "
+                    "64 MiB, or remove the key for no cap"
+                ),
+            )
         if isinstance(self.include_ignored_paths, str):
             self.include_ignored_paths = (self.include_ignored_paths,)
         self.include_ignored_paths = tuple(
@@ -1140,6 +1170,91 @@ class DocCorpusSource:
         return True
 
     def _walk_files(
+        self,
+        scope_keys: Sequence[str] | None = None,
+        *,
+        enforce_total_bytes: bool = True,
+    ) -> list[Path]:
+        """Candidate files, refusing a corpus over `max_total_bytes`.
+
+        The size check covers a whole-corpus walk only: a scoped walk names a
+        handful of files an event touched and never reads part of the corpus
+        in place of all of it. The scoped run's second, unscoped walk (the
+        full file list its link checks need) passes
+        ``enforce_total_bytes=False``, so an event run does not recheck.
+        """
+        files = self._walk_candidate_files(scope_keys)
+        if (
+            enforce_total_bytes
+            and not scope_keys
+            and self.max_total_bytes is not None
+        ):
+            self._assert_within_total_bytes(files)
+        return files
+
+    def _assert_within_total_bytes(self, files: Sequence[Path]) -> None:
+        """Refuse a candidate set whose bytes exceed ``max_total_bytes``.
+
+        Counts the size of each file the run would read, through the same
+        contained reader the read uses (so a symlink is treated as the read
+        treats it), and a file over ``max_bytes_per_file`` (recorded as an
+        oversize document with no text) does not count. The refusal names the
+        five largest top-level folders so the operator knows what to exclude.
+
+        A run that returns early because git reports no change never gets
+        here, on purpose: its files are the ones an earlier run already
+        accepted under the cap, so the total is unchanged. A lowered cap takes
+        effect at the next run that sees a change. A scoped (event) run does
+        not check either, so events can grow the corpus past the cap until the
+        next full run refuses it.
+        """
+        if self._contained_reader is None:
+            raise FileContainmentError("DocCorpus secure reader is not active")
+        cap = self.max_total_bytes
+        assert cap is not None
+        root = self.repo_root.resolve()
+        total = 0
+        counted = 0
+        by_folder: dict[str, int] = {}
+        for path in files:
+            try:
+                size = self._contained_reader.stat(path).st_size
+            except FileNotFoundError:
+                # Gone since the walk listed it; the read would not see it.
+                continue
+            if size > self.max_bytes_per_file:
+                continue
+            total += size
+            counted += 1
+            parts = Path(path).relative_to(root).parts
+            folder = parts[0] if len(parts) > 1 else "(repository root files)"
+            by_folder[folder] = by_folder.get(folder, 0) + size
+        if total <= cap:
+            return
+        largest = sorted(by_folder.items(), key=lambda item: (-item[1], item[0]))[:5]
+        listing = ", ".join(f"{name} {size:,} bytes" for name, size in largest)
+        raise DocCorpusOversize(
+            f"DocCorpusSource: corpus is {total:,} bytes in {counted:,} files, "
+            f"over max_total_bytes={cap:,}; largest top-level folders: "
+            f"{listing}. Nothing was read.",
+            data={
+                "total_bytes": total,
+                "max_total_bytes": cap,
+                "files_counted": counted,
+                "largest_directories": [
+                    {"path": name, "bytes": size} for name, size in largest
+                ],
+                "repo_root": str(self.repo_root),
+            },
+            fix_hint=(
+                "add the largest folders to `exclude_globs`, or raise "
+                "`max_total_bytes` if the database can hold the corpus; "
+                "a partial read is never done, because it would retract "
+                "the files it skipped"
+            ),
+        )
+
+    def _walk_candidate_files(
         self,
         scope_keys: Sequence[str] | None = None,
     ) -> list[Path]:
@@ -2005,6 +2120,9 @@ class DocCorpusSource:
             prior_git_frontier = (
                 cursor.get("git_frontier") if isinstance(cursor, dict) else None
             )
+            # This early return skips the `max_total_bytes` check on purpose:
+            # an unchanged git frontier means the same files the last accepted
+            # run read, so the total cannot have grown.
             if (
                 cursor_has_record_set_authority(cursor)
                 and current_git_frontier is not None
@@ -2261,7 +2379,9 @@ class DocCorpusSource:
                 deployment=self.deployment or self.repo,
                 settlement_dsn=self.dsn,
             )
-        all_files = self._walk_files(None) if scoped else files
+        all_files = (
+            self._walk_files(None, enforce_total_bytes=False) if scoped else files
+        )
         selected_figure_paths = {
             item.path
             for project in (

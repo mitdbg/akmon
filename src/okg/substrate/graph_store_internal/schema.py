@@ -392,22 +392,14 @@ class ChronosGraphSchemaMixin:
         self.ensure_node_declarers_table()
         # Shared-edge declarers and the edge ranking (item 92a).
         self.ensure_edge_declarers_table()
+        # Waiting cross-source edges (pact cross-source-endpoint-wedge).
+        self.ensure_edge_deferrals_table()
         self._grant_chronos_public_tables_to_mcp_if_present()
         self._ensure_interval_source_read_indexes()
         db.commit()
 
-    def ensure_interval_storage_upgrade(
-        self, *, tolerate_pre_narrow_split: bool = False
-    ) -> None:
-        """Idempotently upgrade interval backing columns and visibility indexes.
-
-        ``tolerate_pre_narrow_split`` is migrate()'s flag: its internal
-        ensures may observe the pre-0020 wide attribute shape without
-        refusing, because migrate's orchestration loop runs the 0020
-        multi-phase driver immediately after its transaction commits. Every
-        other caller keeps the default and refuses a populated wide database
-        (phase-interval-narrow-split-migration).
-        """
+    def ensure_interval_storage_upgrade(self) -> None:
+        """Idempotently upgrade interval backing columns and visibility indexes."""
         if getattr(self.context, "backend_name", None) != "interval":
             return
         from okg.substrate.attributes import ensure_attribute_schema_db
@@ -415,11 +407,8 @@ class ChronosGraphSchemaMixin:
         # Existing registered deployments take the migration path below because
         # ensure_schema early-returns for their already-registered graph. Keep
         # new OKG-owned side tables in that path too, otherwise migrate reports
-        # success while interval cutover tables are still absent.
-        ensure_attribute_schema_db(
-            self.context.db,
-            tolerate_pre_narrow_split=tolerate_pre_narrow_split,
-        )
+        # success while those tables are still absent.
+        ensure_attribute_schema_db(self.context.db)
         ensure_generation_ordinal_schema(self.context.db)
         self.context.register_table(NODE_TABLE, ["node_id"])
         self.context.register_table(EDGE_TABLE, ["edge_id"])
@@ -433,6 +422,8 @@ class ChronosGraphSchemaMixin:
         self.ensure_node_declarers_table()
         # ...and the shared-edge declarer table and edge ranking (item 92a).
         self.ensure_edge_declarers_table()
+        # Waiting cross-source edges (pact cross-source-endpoint-wedge).
+        self.ensure_edge_deferrals_table()
         self._grant_chronos_public_tables_to_mcp_if_present()
         self._ensure_interval_source_read_indexes()
         self.context.db.commit()
@@ -595,6 +586,44 @@ class ChronosGraphSchemaMixin:
         self.context.register_table(EDGE_DECLARERS_TABLE, EDGE_DECLARERS_PK)
         db.commit()
 
+    def ensure_edge_deferrals_table(self) -> None:
+        """Idempotently create + register the waiting-edge table.
+
+        ``okg.graph_edge_deferrals`` keeps an edge whose endpoint another
+        source has not written (or whose subtype its clause does not accept)
+        until the record exists and the checks pass. Registration makes it a
+        Chronos interval table: it branches, merges, checkpoints and rolls
+        back with the graph. Its physical tables are withheld from every read
+        role by the grant block below. The index on each endpoint makes
+        promotion a lookup.
+        """
+        from okg.substrate.graph_store_internal.edge_deferrals import (
+            CREATE_EDGE_DEFERRALS_TABLE_SQL,
+            EDGE_DEFERRALS_PK,
+            EDGE_DEFERRALS_TABLE,
+        )
+
+        db = self.context.db
+        db.execute(CREATE_EDGE_DEFERRALS_TABLE_SQL)
+        db.commit()
+        self.context.register_table(EDGE_DEFERRALS_TABLE, EDGE_DEFERRALS_PK)
+        db.commit()
+        backend = getattr(self.context, "_backend", None)
+        meta = getattr(backend, "tables", {}).get(EDGE_DEFERRALS_TABLE)
+        if meta is not None:
+            physical = quote_physical_table(meta.physical_name)
+            for column in ("src", "dst", "source"):
+                index_name = chronos_interval_index_name(
+                    meta.physical_name, f"deferral_{column}",
+                )
+                # A reviewed dynamic CREATE site: scripts/
+                # check_migration_drop_recreate.py acknowledges it.
+                db.execute(
+                    f"CREATE INDEX IF NOT EXISTS {quote_ident(index_name)} "
+                    f"ON {physical} ({quote_ident(column)})"
+                )
+            db.commit()
+
     def _grant_chronos_public_tables_to_mcp_if_present(self) -> None:
         """Grant MCP read access to Chronos-owned public tables only.
 
@@ -655,7 +684,27 @@ class ChronosGraphSchemaMixin:
               last_error  text;
               queue_ready boolean := to_regclass('okg.pending_grants')
                                        IS NOT NULL;
+              -- The waiting-edge table (pact cross-source-endpoint-wedge) is
+              -- never served to a read role: its physical tables, current
+              -- and every schema version, stay out of the pattern grant
+              -- below and okg_mcp loses any grant an earlier run made.
+              withheld    text[] := '{}'::text[];
             BEGIN
+              IF to_regclass('public._chronos_branch_tables') IS NOT NULL THEN
+                withheld := withheld || ARRAY(
+                  SELECT physical_table FROM public._chronos_branch_tables
+                   WHERE table_name = 'okg.graph_edge_deferrals'
+                );
+              END IF;
+              IF to_regclass(
+                   'public._chronos_branch_table_schema_versions'
+                 ) IS NOT NULL THEN
+                withheld := withheld || ARRAY(
+                  SELECT physical_table
+                    FROM public._chronos_branch_table_schema_versions
+                   WHERE table_name = 'okg.graph_edge_deferrals'
+                );
+              END IF;
               -- Collect the retry queue, but do NOT apply it first. A grant
               -- that exhausted its retries on an earlier run is queued in
               -- okg.pending_grants and replayed here, so the next epoch change
@@ -677,6 +726,18 @@ class ChronosGraphSchemaMixin:
                 FOR rec IN SELECT statement FROM okg.pending_grants
                             ORDER BY statement
                 LOOP
+                  -- An earlier build revoked the waiting table from the
+                  -- remediator (#4057). A queued copy of that REVOKE would
+                  -- replay after the GRANT below and undo it: drop it. (A
+                  -- regex, not LIKE: psycopg reads a percent sign as a
+                  -- parameter marker.)
+                  IF rec.statement ~
+                       '^REVOKE ALL ON TABLE .* FROM projection_remediator$'
+                  THEN
+                    DELETE FROM okg.pending_grants
+                     WHERE statement = rec.statement;
+                    CONTINUE;
+                  END IF;
                   queued := queued || rec.statement;
                 END LOOP;
               END IF;
@@ -708,6 +769,7 @@ class ChronosGraphSchemaMixin:
                  WHERE n.nspname = 'public'
                    AND c.relkind IN ('r', 'p')
                    AND left(c.relname, 8) = '_chronos'
+                   AND NOT (c.relname = ANY (withheld))
                  -- ORDER IS LOCK ORDER. Without it this is catalog order,
                  -- which two sessions need not agree on -- and a second
                  -- emitter walking the same relations in a different order is
@@ -739,6 +801,7 @@ class ChronosGraphSchemaMixin:
                  WHERE n.nspname = 'public'
                    AND c.relkind = 'S'
                    AND left(c.relname, 8) = '_chronos'
+                   AND NOT (c.relname = ANY (withheld))
                  ORDER BY 1
               LOOP
                 IF EXISTS (
@@ -747,6 +810,38 @@ class ChronosGraphSchemaMixin:
                 ) THEN
                   stmts := stmts || (
                     'GRANT USAGE, SELECT, UPDATE ON SEQUENCE ' ||
+                    rec.relation_name || ' TO projection_remediator'
+                  );
+                END IF;
+              END LOOP;
+
+              FOR rec IN
+                SELECT quote_ident(n.nspname) || '.' ||
+                       quote_ident(c.relname) AS relation_name
+                  FROM pg_class c
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = 'public'
+                   AND c.relkind IN ('r', 'p')
+                   AND c.relname = ANY (withheld)
+                 ORDER BY 1
+              LOOP
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'okg_mcp') THEN
+                  stmts := stmts || (
+                    'REVOKE ALL ON TABLE ' || rec.relation_name ||
+                    ' FROM okg_mcp'
+                  );
+                END IF;
+                -- The remediator is a writer, not a read role: its retraction
+                -- withdraws the producer's waiting rows with the edges, an
+                -- interval splice that reads, inserts, updates and deletes
+                -- physical rows. It gets the same set as every other _chronos
+                -- table (#4057 revoked it, so alias remediation failed).
+                IF EXISTS (
+                  SELECT 1 FROM pg_roles
+                   WHERE rolname = 'projection_remediator'
+                ) THEN
+                  stmts := stmts || (
+                    'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE ' ||
                     rec.relation_name || ' TO projection_remediator'
                   );
                 END IF;

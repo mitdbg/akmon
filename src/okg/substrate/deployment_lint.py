@@ -17,6 +17,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from okg.substrate import fastyaml
+from okg.substrate.deployments.readiness_profile import (
+    COMPOSED_ONLY_READINESS_KEYS,
+    READINESS_PROFILES,
+    dogfood_signals,
+    readiness_profile_problem,
+)
 from okg.substrate.library.sources.change_probe import (
     BANNED_PROBE_KINDS,
     CHANGE_PROBE_KIND_ATTR,
@@ -233,6 +239,7 @@ def lint_deployment(
         manifest_path=manifest_path,
         findings=findings,
     )
+    _check_views_registry(deployment_dir=deployment_dir, findings=findings)
     _check_checkpoint_attestors(
         raw_manifest,
         deployment_dir=deployment_dir,
@@ -251,6 +258,20 @@ def lint_deployment(
         manifest_path=manifest_path,
         findings=findings,
         live=live,
+    )
+    _check_readiness_profile(
+        raw_manifest,
+        manifest_path=manifest_path,
+        findings=findings,
+    )
+    _check_readiness_profile_in_definition(
+        manifest_path.parent / "definition.yaml",
+        findings=findings,
+    )
+    _check_readiness_profile_declared(
+        raw_manifest,
+        manifest_path=manifest_path,
+        findings=findings,
     )
     _check_deployment_posture(
         raw_manifest,
@@ -2933,6 +2954,44 @@ def _extractor_ancestry_from_ast(
     return resolve(module_name, class_name, 0)
 
 
+def _check_views_registry(
+    *,
+    deployment_dir: Path,
+    findings: list[DiagnosticFinding],
+) -> None:
+    """Refuse a views_registry.yaml the publisher would fail to load.
+
+    The publisher parses the registry at start and does not catch a parse
+    error, so an unknown key or external_inputs value would stop publishing.
+    This runs the same parse and reports the same named error.
+    """
+
+    registry_path = deployment_dir / "views_registry.yaml"
+    if not registry_path.is_file():
+        return
+    from okg.substrate.errors import SubstrateError
+    from okg.substrate.views.registry import load_views_registry
+
+    try:
+        load_views_registry(deployment_dir)
+    except SubstrateError as exc:
+        findings.append(_finding(
+            code="deployment.views_registry.invalid",
+            severity="blocker",
+            stage="views",
+            message=str(exc),
+            why=(
+                "The publisher loads views_registry.yaml when it starts; "
+                "an entry it refuses stops publishing."
+            ),
+            location=_loc(registry_path),
+            observed=str(exc),
+            expected="a views_registry.yaml that okg accepts",
+            next_action=getattr(exc, "fix_hint", None)
+            or "fix views_registry.yaml",
+        ))
+
+
 def _check_enrichers(
     raw: Mapping[str, Any],
     *,
@@ -3593,6 +3652,172 @@ def _check_source_privacy_posture(
                 "the privacy extra's detector, else ingest holds the facts)"
             ),
         ))
+
+
+def _check_readiness_profile(
+    raw: Mapping[str, Any],
+    *,
+    manifest_path: Path,
+    findings: list[DiagnosticFinding],
+) -> None:
+    """Check the authored ``readiness`` block's profile declaration (#3958).
+
+    ``readiness.profile`` must be one of ``READINESS_PROFILES``. The loader does
+    not check the value (a bad name must not stop MCP or ingest from starting),
+    so this is where an operator learns of a typo. ``environment_policy`` is
+    written only by environment composition; an authored one is refused so a
+    manifest cannot claim the descriptor's authority.
+    """
+    readiness = raw.get("readiness")
+    if not isinstance(readiness, Mapping):
+        # A non-mapping block is reported as deployment.manifest.key_type.
+        return
+    if "profile" in readiness:
+        problem = readiness_profile_problem(readiness["profile"])
+        if problem is not None:
+            findings.append(_finding(
+                code="deployment.readiness.profile_invalid",
+                severity="blocker",
+                stage="manifest",
+                message=problem,
+                why=(
+                    "okg dogfood status judges a deployment by its declared "
+                    "readiness profile; a name outside the closed set cannot "
+                    "be judged."
+                ),
+                location=_loc(manifest_path, pointer="/readiness/profile"),
+                observed=readiness["profile"],
+                expected=" | ".join(READINESS_PROFILES),
+                next_action=(
+                    "set readiness.profile to one of "
+                    + ", ".join(READINESS_PROFILES)
+                ),
+            ))
+    for key in COMPOSED_ONLY_READINESS_KEYS:
+        if key not in readiness:
+            continue
+        findings.append(_finding(
+            code="deployment.readiness.environment_policy_authored",
+            severity="blocker",
+            stage="manifest",
+            message=(
+                f"readiness.{key} is written by environment composition and "
+                "must not be authored"
+            ),
+            why=(
+                "The environment descriptor's readiness.policy is the only "
+                "source of readiness.environment_policy; an authored copy "
+                "would let a manifest claim the descriptor's authority."
+            ),
+            location=_loc(manifest_path, pointer=f"/readiness/{key}"),
+            observed=readiness[key],
+            expected="key absent",
+            next_action=(
+                f"delete readiness.{key}; set readiness.policy in the "
+                "environment descriptor instead"
+            ),
+        ))
+
+
+def _check_readiness_profile_declared(
+    raw: Mapping[str, Any],
+    *,
+    manifest_path: Path,
+    findings: list[DiagnosticFinding],
+) -> None:
+    """Report a manifest that declares no ``readiness.profile`` (#3958).
+
+    Such a deployment is judged as ``standard`` by ``okg dogfood status``. That
+    is a warning when the manifest carries a dogfood signal (a
+    ``dogfood_workspace`` deployment class, a Nomos posture listing dogfood, or
+    a ``sync_root``), because its operator likely expects the stricter
+    contract, and information otherwise. A profile declared in the sibling
+    ``definition.yaml`` (the sealed path) counts as declared.
+    """
+    readiness = raw.get("readiness")
+    if isinstance(readiness, Mapping) and "profile" in readiness:
+        return
+    if readiness is not None and not isinstance(readiness, Mapping):
+        # A non-mapping block is reported as deployment.manifest.key_type.
+        return
+    if _definition_declares_readiness_profile(
+        manifest_path.parent / "definition.yaml"
+    ):
+        # A sealed deployment declares its profile in the definition; the
+        # composed manifest carries it, so "judged as standard" would be
+        # untrue there (#3958).
+        return
+    signals = dogfood_signals(raw)
+    findings.append(_finding(
+        code="deployment.readiness.profile_undeclared",
+        severity="warning" if signals else "info",
+        stage="manifest",
+        message=(
+            "readiness.profile is not declared, so okg dogfood status judges "
+            "this deployment as standard"
+            + (
+                " although it carries dogfood signals: " + ", ".join(signals)
+                if signals
+                else ""
+            )
+        ),
+        why=(
+            "The readiness profile decides which checks okg dogfood status "
+            "runs and how old a source may be; an undeclared profile "
+            "defaults to standard."
+        ),
+        location=_loc(manifest_path, pointer="/readiness/profile"),
+        observed=None,
+        expected=" | ".join(READINESS_PROFILES),
+        next_action=(
+            "declare readiness.profile in deployment.yaml (one of "
+            + ", ".join(READINESS_PROFILES)
+            + ")"
+        ),
+        details={"signals": signals},
+    ))
+
+
+def _definition_declares_readiness_profile(definition_path: Path) -> bool:
+    """Does a sibling ``definition.yaml`` declare ``readiness.profile``?
+
+    A definition that is absent or does not parse declares nothing here; the
+    environment loader reports a broken one by name.
+    """
+    if not definition_path.is_file():
+        return False
+    try:
+        raw = fastyaml.safe_load(definition_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - the environment loader reports it.
+        return False
+    readiness = raw.get("readiness") if isinstance(raw, Mapping) else None
+    return isinstance(readiness, Mapping) and "profile" in readiness
+
+
+def _check_readiness_profile_in_definition(
+    definition_path: Path,
+    *,
+    findings: list[DiagnosticFinding],
+) -> None:
+    """Run the readiness-profile check on a sibling ``definition.yaml``.
+
+    A sealed deployment declares its profile in the definition. A definition
+    that is absent, or does not parse to a mapping, is not this lint's subject
+    (the environment loader refuses it by name), so it is left to that loader
+    rather than reported twice.
+    """
+    if not definition_path.is_file():
+        return
+    try:
+        raw = fastyaml.safe_load(definition_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - the environment loader reports it.
+        return
+    if isinstance(raw, Mapping):
+        _check_readiness_profile(
+            raw,
+            manifest_path=definition_path,
+            findings=findings,
+        )
 
 
 def _check_deployment_posture(

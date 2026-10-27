@@ -55,13 +55,18 @@ def _seed_published(dsn: str) -> None:
                 {"rev": "a"},
             )
         ])
+    from okg.substrate.attributes import materialize_effective_attributes_for_generation
+
     with psycopg.connect(dsn, autocommit=True) as conn:
-        ChronosGraphStore.from_connection(conn).checkpoint_generation(
+        generation = ChronosGraphStore.from_connection(conn).checkpoint_generation(
             deployment_name="default",
             branch="default",
             catalog_version_id=catalog_version_id,
             metadata={"correlation_id": "test-seed"},
         )
+        # A publish writes the overlay marker; the graph read path refuses a
+        # pin without one, so a bare checkpoint must write it too.
+        materialize_effective_attributes_for_generation(conn, generation_id=generation)
 
 
 def _count_trace_rows(conn: psycopg.Connection, **where: object) -> int:

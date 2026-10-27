@@ -658,10 +658,19 @@ def _write_report(report_path: Path, rows: Sequence[dict]) -> None:
     )
 
 
+# TLC names a violated invariant two ways: "Invariant X is violated" for a
+# reachable state, and "The invariant of X is equal to FALSE" when X is a
+# constant-level formula (no state variables) that fails before the search.
+_VIOLATED_INVARIANT = re.compile(
+    r"\bInvariant\s+([A-Za-z_][A-Za-z0-9_!]*)\s+is violated\b"
+    r"|\bThe invariant of\s+([A-Za-z_][A-Za-z0-9_!]*)\s+is equal to FALSE\b"
+)
+
+
 def _tlc_invariant_violated(stdout: str) -> bool:
     return "Error: Invariant" in stdout or (
         "Invariant" in stdout and "is violated" in stdout
-    )
+    ) or _VIOLATED_INVARIANT.search(stdout) is not None
 
 
 def _tlc_distinct_states(stdout: str) -> int | None:
@@ -675,10 +684,7 @@ def _tlc_distinct_states(stdout: str) -> int | None:
 
 
 def _tlc_violated_invariants(stdout: str) -> tuple[str, ...]:
-    matches = re.findall(
-        r"\bInvariant\s+([A-Za-z_][A-Za-z0-9_!]*)\s+is violated\b",
-        stdout,
-    )
+    matches = [a or b for a, b in _VIOLATED_INVARIANT.findall(stdout)]
     return tuple(dict.fromkeys(matches))
 
 
@@ -712,12 +718,12 @@ def _tlc_expected_counterexample_line(
     line: str,
     expected_invariants: set[str],
 ) -> bool:
-    match = re.search(
-        r"\bInvariant\s+([A-Za-z_][A-Za-z0-9_!]*)\s+is violated\b",
-        line,
-    )
+    match = _VIOLATED_INVARIANT.search(line)
     if match is None:
         return False
+    if match.group(2) is not None:
+        # A constant-level failure counts only when a witness names it.
+        return match.group(2) in expected_invariants
     return not expected_invariants or match.group(1) in expected_invariants
 
 

@@ -1,0 +1,581 @@
+{
+  "okg-workspace-production": {
+    "kwargs": {
+      "deployment": "okg-workspace",
+      "deployment_dir": "<repo>/deployments/okg-workspace",
+      "max_active_queue_depth": 0,
+      "max_producer_age_seconds": 900,
+      "max_source_age_seconds": 3600,
+      "readiness_profile": "dogfood",
+      "skip_doctor": true
+    },
+    "payload": {
+      "blockers": [],
+      "code_drift": {
+        "commits_behind": 0,
+        "ok": true,
+        "problems": [],
+        "status": "current"
+      },
+      "database": {},
+      "deployment": "okg-workspace",
+      "deployment_apply": {
+        "managed": true,
+        "ok": true,
+        "status": "ready"
+      },
+      "doctor": {
+        "ok": null,
+        "status": "skipped"
+      },
+      "generation": {
+        "generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789",
+        "status": "published"
+      },
+      "host_storage": {},
+      "mcp": {
+        "ok": true,
+        "pinned_generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789"
+      },
+      "next_action": {
+        "code": "none",
+        "command": "env -u OKG_DSN okg dogfood status --deployment okg-workspace --json",
+        "owner": "agent"
+      },
+      "nomos_runtime": {},
+      "nomos_source_lineage": {},
+      "ok": true,
+      "queues": {
+        "source_sync": {},
+        "substrate": {
+          "active_queue_depth": 0,
+          "dlq_count": 0,
+          "dlq_status": "measured",
+          "max_active_queue_depth": 0,
+          "ok": true,
+          "queue_depth": {
+            "embed": 0,
+            "enrich": 0,
+            "ingest": 0,
+            "publish": 0
+          },
+          "queue_health_measured": true,
+          "status": "ready"
+        }
+      },
+      "read_authority": {
+        "generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789",
+        "generation_status": "published",
+        "mcp_graph_read": true,
+        "mcp_pinned_generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789",
+        "ok": true
+      },
+      "recovery_commands": {
+        "deployment_env": "env -u OKG_DSN okg deployment env okg-workspace --json",
+        "dogfood_doctor": "env -u OKG_DSN okg dogfood doctor --deployment okg-workspace --json",
+        "dogfood_down": "env -u OKG_DSN okg dogfood down --deployment okg-workspace --apply --json",
+        "dogfood_down_plan": "env -u OKG_DSN okg dogfood down --deployment okg-workspace --json",
+        "dogfood_ready_gate": "env -u OKG_DSN okg deployment ready okg-workspace --checks dogfood --json",
+        "dogfood_restart": "env -u OKG_DSN okg dogfood restart --deployment okg-workspace --apply --json",
+        "dogfood_restart_plan": "env -u OKG_DSN okg dogfood restart --deployment okg-workspace --json",
+        "dogfood_status": "env -u OKG_DSN okg dogfood status --deployment okg-workspace --json",
+        "dogfood_up": "env -u OKG_DSN okg dogfood up --deployment okg-workspace --apply --json",
+        "dogfood_up_plan": "env -u OKG_DSN okg dogfood up --deployment okg-workspace --json",
+        "runtime_service_docs": "docs/operate/deployments/runtime.md",
+        "runtime_worker_foreground": "env -u OKG_DSN okg runtime worker --deployment okg-workspace",
+        "service_render_docker_compose": "env -u OKG_DSN okg dogfood service render --deployment okg-workspace --adapter docker-compose --json",
+        "service_render_launchd": "env -u OKG_DSN okg dogfood service render --deployment okg-workspace --adapter launchd --json",
+        "service_render_systemd": "env -u OKG_DSN okg dogfood service render --deployment okg-workspace --adapter systemd --json",
+        "source_sync_dbos_gc_apply": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace --stale-after-seconds 600 --queue-name okg-okg-workspace-source-sync --workflow-name okg_source_sync --status ENQUEUED --confirm --apply --json",
+        "source_sync_dbos_gc_dry_run": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace --stale-after-seconds 600 --queue-name okg-okg-workspace-source-sync --workflow-name okg_source_sync --status ENQUEUED --json",
+        "source_sync_health": "env -u OKG_DSN okg sync health --deployment okg-workspace --json"
+      },
+      "runtime_config": {
+        "enabled": true,
+        "manifest_path": "<repo>/deployments/okg-workspace/deployment.yaml",
+        "status": "enabled"
+      },
+      "runtime_health_policy": {
+        "schema": "okg.runtime_health_policy.v1",
+        "source_sync_backlog": {
+          "failed_terminal_history": {
+            "description": "Current-version failed terminal source-sync rows are DLQ-like history and block readiness until acknowledged or fixed.",
+            "operator_action": "operator_acknowledge_or_fix",
+            "readiness": "blocker",
+            "safe_gc": false
+          },
+          "fresh_active_work": {
+            "description": "PENDING/ENQUEUED/DELAYED source-sync work below the stale window is expected transient DBOS work.",
+            "operator_action": "monitor",
+            "readiness": "nonblocking",
+            "safe_gc": false
+          },
+          "running_pending_work": {
+            "description": "A started PENDING DBOS row is treated as running until a stronger runtime signal proves it is abandoned.",
+            "operator_action": "monitor_worker_liveness",
+            "readiness": "nonblocking",
+            "safe_gc": false
+          },
+          "stale_replaceable_work": {
+            "apply_command": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace --stale-after-seconds 600 --queue-name okg-okg-workspace-source-sync --workflow-name okg_source_sync --status ENQUEUED --confirm --apply --json",
+            "apply_command_key": "source_sync_dbos_gc_apply",
+            "description": "Old replaceable source-sync wakeups block readiness and may be cancelled by DBOS GC after dry-run review.",
+            "dry_run_command": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace --stale-after-seconds 600 --queue-name okg-okg-workspace-source-sync --workflow-name okg_source_sync --status ENQUEUED --json",
+            "dry_run_command_key": "source_sync_dbos_gc_dry_run",
+            "operator_action": "dry_run_then_confirm_apply",
+            "readiness": "blocker",
+            "safe_gc": true
+          },
+          "terminal_history": {
+            "description": "Historical SUCCESS and benign CANCELLED/ERROR rows remain visible as DBOS audit history and do not count as active work.",
+            "operator_action": "report",
+            "readiness": "nonblocking",
+            "safe_gc": false
+          }
+        }
+      },
+      "runtime_processes": {
+        "ok": true,
+        "process_count": 1,
+        "processes": [],
+        "root_count": 1,
+        "roots": [
+          {
+            "command": "okg runtime worker",
+            "pid": 4242,
+            "ppid": 1
+          }
+        ],
+        "split_executor": false,
+        "status": "single_executor"
+      },
+      "runtime_worker": {
+        "code_identity": {
+          "checkout_code_revision": null,
+          "compared_root": null,
+          "modified_module_count": null,
+          "modified_modules": [],
+          "observed_age_minutes": null,
+          "ok": null,
+          "reasons": [
+            "worker_code_identity_not_reported"
+          ],
+          "status": "not_observed",
+          "worker_code_revision": null,
+          "worker_pid": null,
+          "worker_started_at": null
+        },
+        "heartbeat_status": "not_observed",
+        "measured": false,
+        "ok": null,
+        "process_evidence": {
+          "root_count": 1,
+          "root_pids": [
+            4242
+          ],
+          "status": "single_executor"
+        },
+        "requires": "a runtime-services overlay row for this deployment, read from the deployment database; an unreachable database, a failed probe, or a row owned by another deployment yields no measurement, not a down worker",
+        "status": "process_observed_no_heartbeat"
+      },
+      "schema": "okg.dogfood.runtime_status.v1",
+      "source_freshness": {},
+      "source_sync_convergence": {},
+      "source_sync_status": {},
+      "trust_level": "ready",
+      "unknowns": [],
+      "warnings": [],
+      "workflow_recovery": {
+        "ok": null,
+        "reason": "dbos_workflow_status_unavailable",
+        "status": "unavailable"
+      }
+    }
+  },
+  "okg-workspace-staging": {
+    "kwargs": {
+      "deployment": "okg-workspace-staging",
+      "deployment_dir": "<repo>/deployments/okg-workspace",
+      "max_active_queue_depth": 0,
+      "max_producer_age_seconds": 900,
+      "max_source_age_seconds": 3600,
+      "readiness_profile": "dogfood",
+      "skip_doctor": true
+    },
+    "payload": {
+      "blockers": [],
+      "code_drift": {
+        "commits_behind": 0,
+        "ok": true,
+        "problems": [],
+        "status": "current"
+      },
+      "database": {},
+      "deployment": "okg-workspace-staging",
+      "deployment_apply": {
+        "managed": true,
+        "ok": true,
+        "status": "ready"
+      },
+      "doctor": {
+        "ok": null,
+        "status": "skipped"
+      },
+      "generation": {
+        "generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789",
+        "status": "published"
+      },
+      "host_storage": {},
+      "mcp": {
+        "ok": true,
+        "pinned_generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789"
+      },
+      "next_action": {
+        "code": "none",
+        "command": "env -u OKG_DSN okg dogfood status --deployment okg-workspace-staging --json",
+        "owner": "agent"
+      },
+      "nomos_runtime": {},
+      "nomos_source_lineage": {},
+      "ok": true,
+      "queues": {
+        "source_sync": {},
+        "substrate": {
+          "active_queue_depth": 0,
+          "dlq_count": 0,
+          "dlq_status": "measured",
+          "max_active_queue_depth": 0,
+          "ok": true,
+          "queue_depth": {
+            "embed": 0,
+            "enrich": 0,
+            "ingest": 0,
+            "publish": 0
+          },
+          "queue_health_measured": true,
+          "status": "ready"
+        }
+      },
+      "read_authority": {
+        "generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789",
+        "generation_status": "published",
+        "mcp_graph_read": true,
+        "mcp_pinned_generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789",
+        "ok": true
+      },
+      "recovery_commands": {
+        "deployment_env": "env -u OKG_DSN okg deployment env okg-workspace-staging --json",
+        "dogfood_doctor": "env -u OKG_DSN okg dogfood doctor --deployment okg-workspace-staging --json",
+        "dogfood_down": "env -u OKG_DSN okg dogfood down --deployment okg-workspace-staging --apply --json",
+        "dogfood_down_plan": "env -u OKG_DSN okg dogfood down --deployment okg-workspace-staging --json",
+        "dogfood_ready_gate": "env -u OKG_DSN okg deployment ready okg-workspace-staging --checks dogfood --json",
+        "dogfood_restart": "env -u OKG_DSN okg dogfood restart --deployment okg-workspace-staging --apply --json",
+        "dogfood_restart_plan": "env -u OKG_DSN okg dogfood restart --deployment okg-workspace-staging --json",
+        "dogfood_status": "env -u OKG_DSN okg dogfood status --deployment okg-workspace-staging --json",
+        "dogfood_up": "env -u OKG_DSN okg dogfood up --deployment okg-workspace-staging --apply --json",
+        "dogfood_up_plan": "env -u OKG_DSN okg dogfood up --deployment okg-workspace-staging --json",
+        "runtime_service_docs": "docs/operate/deployments/runtime.md",
+        "runtime_worker_foreground": "env -u OKG_DSN okg runtime worker --deployment okg-workspace-staging",
+        "service_render_docker_compose": "env -u OKG_DSN okg dogfood service render --deployment okg-workspace-staging --adapter docker-compose --json",
+        "service_render_launchd": "env -u OKG_DSN okg dogfood service render --deployment okg-workspace-staging --adapter launchd --json",
+        "service_render_systemd": "env -u OKG_DSN okg dogfood service render --deployment okg-workspace-staging --adapter systemd --json",
+        "source_sync_dbos_gc_apply": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace-staging --stale-after-seconds 600 --queue-name okg-okg-workspace-staging-source-sync --workflow-name okg_source_sync --status ENQUEUED --confirm --apply --json",
+        "source_sync_dbos_gc_dry_run": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace-staging --stale-after-seconds 600 --queue-name okg-okg-workspace-staging-source-sync --workflow-name okg_source_sync --status ENQUEUED --json",
+        "source_sync_health": "env -u OKG_DSN okg sync health --deployment okg-workspace-staging --json"
+      },
+      "runtime_config": {
+        "enabled": true,
+        "manifest_path": "<repo>/deployments/okg-workspace/deployment.yaml",
+        "status": "enabled"
+      },
+      "runtime_health_policy": {
+        "schema": "okg.runtime_health_policy.v1",
+        "source_sync_backlog": {
+          "failed_terminal_history": {
+            "description": "Current-version failed terminal source-sync rows are DLQ-like history and block readiness until acknowledged or fixed.",
+            "operator_action": "operator_acknowledge_or_fix",
+            "readiness": "blocker",
+            "safe_gc": false
+          },
+          "fresh_active_work": {
+            "description": "PENDING/ENQUEUED/DELAYED source-sync work below the stale window is expected transient DBOS work.",
+            "operator_action": "monitor",
+            "readiness": "nonblocking",
+            "safe_gc": false
+          },
+          "running_pending_work": {
+            "description": "A started PENDING DBOS row is treated as running until a stronger runtime signal proves it is abandoned.",
+            "operator_action": "monitor_worker_liveness",
+            "readiness": "nonblocking",
+            "safe_gc": false
+          },
+          "stale_replaceable_work": {
+            "apply_command": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace-staging --stale-after-seconds 600 --queue-name okg-okg-workspace-staging-source-sync --workflow-name okg_source_sync --status ENQUEUED --confirm --apply --json",
+            "apply_command_key": "source_sync_dbos_gc_apply",
+            "description": "Old replaceable source-sync wakeups block readiness and may be cancelled by DBOS GC after dry-run review.",
+            "dry_run_command": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace-staging --stale-after-seconds 600 --queue-name okg-okg-workspace-staging-source-sync --workflow-name okg_source_sync --status ENQUEUED --json",
+            "dry_run_command_key": "source_sync_dbos_gc_dry_run",
+            "operator_action": "dry_run_then_confirm_apply",
+            "readiness": "blocker",
+            "safe_gc": true
+          },
+          "terminal_history": {
+            "description": "Historical SUCCESS and benign CANCELLED/ERROR rows remain visible as DBOS audit history and do not count as active work.",
+            "operator_action": "report",
+            "readiness": "nonblocking",
+            "safe_gc": false
+          }
+        }
+      },
+      "runtime_processes": {
+        "ok": true,
+        "process_count": 1,
+        "processes": [],
+        "root_count": 1,
+        "roots": [
+          {
+            "command": "okg runtime worker",
+            "pid": 4242,
+            "ppid": 1
+          }
+        ],
+        "split_executor": false,
+        "status": "single_executor"
+      },
+      "runtime_worker": {
+        "code_identity": {
+          "checkout_code_revision": null,
+          "compared_root": null,
+          "modified_module_count": null,
+          "modified_modules": [],
+          "observed_age_minutes": null,
+          "ok": null,
+          "reasons": [
+            "worker_code_identity_not_reported"
+          ],
+          "status": "not_observed",
+          "worker_code_revision": null,
+          "worker_pid": null,
+          "worker_started_at": null
+        },
+        "heartbeat_status": "not_observed",
+        "measured": false,
+        "ok": null,
+        "process_evidence": {
+          "root_count": 1,
+          "root_pids": [
+            4242
+          ],
+          "status": "single_executor"
+        },
+        "requires": "a runtime-services overlay row for this deployment, read from the deployment database; an unreachable database, a failed probe, or a row owned by another deployment yields no measurement, not a down worker",
+        "status": "process_observed_no_heartbeat"
+      },
+      "schema": "okg.dogfood.runtime_status.v1",
+      "source_freshness": {},
+      "source_sync_convergence": {},
+      "source_sync_status": {},
+      "trust_level": "ready",
+      "unknowns": [],
+      "warnings": [],
+      "workflow_recovery": {
+        "ok": null,
+        "reason": "dbos_workflow_status_unavailable",
+        "status": "unavailable"
+      }
+    }
+  },
+  "plain": {
+    "kwargs": {
+      "deployment": "okg-workspace",
+      "deployment_dir": "<repo>/deployments/okg-workspace",
+      "max_active_queue_depth": 0,
+      "max_producer_age_seconds": 900,
+      "max_source_age_seconds": 3600,
+      "readiness_profile": "dogfood",
+      "skip_doctor": true
+    },
+    "payload": {
+      "blockers": [],
+      "code_drift": {
+        "commits_behind": 0,
+        "ok": true,
+        "problems": [],
+        "status": "current"
+      },
+      "database": {},
+      "deployment": "okg-workspace",
+      "deployment_apply": {
+        "managed": true,
+        "ok": true,
+        "status": "ready"
+      },
+      "doctor": {
+        "ok": null,
+        "status": "skipped"
+      },
+      "generation": {
+        "generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789",
+        "status": "published"
+      },
+      "host_storage": {},
+      "mcp": {
+        "ok": true,
+        "pinned_generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789"
+      },
+      "next_action": {
+        "code": "none",
+        "command": "env -u OKG_DSN okg dogfood status --deployment okg-workspace --json",
+        "owner": "agent"
+      },
+      "nomos_runtime": {},
+      "nomos_source_lineage": {},
+      "ok": true,
+      "queues": {
+        "source_sync": {},
+        "substrate": {
+          "active_queue_depth": 0,
+          "dlq_count": 0,
+          "dlq_status": "measured",
+          "max_active_queue_depth": 0,
+          "ok": true,
+          "queue_depth": {
+            "embed": 0,
+            "enrich": 0,
+            "ingest": 0,
+            "publish": 0
+          },
+          "queue_health_measured": true,
+          "status": "ready"
+        }
+      },
+      "read_authority": {
+        "generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789",
+        "generation_status": "published",
+        "mcp_graph_read": true,
+        "mcp_pinned_generation_id": "okg:okg-workspace:branch:default:gen:20261021T000000000000Z:abc123456789",
+        "ok": true
+      },
+      "recovery_commands": {
+        "deployment_env": "env -u OKG_DSN okg deployment env okg-workspace --json",
+        "dogfood_doctor": "env -u OKG_DSN okg dogfood doctor --deployment okg-workspace --json",
+        "dogfood_down": "env -u OKG_DSN okg dogfood down --deployment okg-workspace --apply --json",
+        "dogfood_down_plan": "env -u OKG_DSN okg dogfood down --deployment okg-workspace --json",
+        "dogfood_ready_gate": "env -u OKG_DSN okg deployment ready okg-workspace --checks dogfood --json",
+        "dogfood_restart": "env -u OKG_DSN okg dogfood restart --deployment okg-workspace --apply --json",
+        "dogfood_restart_plan": "env -u OKG_DSN okg dogfood restart --deployment okg-workspace --json",
+        "dogfood_status": "env -u OKG_DSN okg dogfood status --deployment okg-workspace --json",
+        "dogfood_up": "env -u OKG_DSN okg dogfood up --deployment okg-workspace --apply --json",
+        "dogfood_up_plan": "env -u OKG_DSN okg dogfood up --deployment okg-workspace --json",
+        "runtime_service_docs": "docs/operate/deployments/runtime.md",
+        "runtime_worker_foreground": "env -u OKG_DSN okg runtime worker --deployment okg-workspace",
+        "service_render_docker_compose": "env -u OKG_DSN okg dogfood service render --deployment okg-workspace --adapter docker-compose --json",
+        "service_render_launchd": "env -u OKG_DSN okg dogfood service render --deployment okg-workspace --adapter launchd --json",
+        "service_render_systemd": "env -u OKG_DSN okg dogfood service render --deployment okg-workspace --adapter systemd --json",
+        "source_sync_dbos_gc_apply": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace --stale-after-seconds 600 --queue-name okg-okg-workspace-source-sync --workflow-name okg_source_sync --status ENQUEUED --confirm --apply --json",
+        "source_sync_dbos_gc_dry_run": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace --stale-after-seconds 600 --queue-name okg-okg-workspace-source-sync --workflow-name okg_source_sync --status ENQUEUED --json",
+        "source_sync_health": "env -u OKG_DSN okg sync health --deployment okg-workspace --json"
+      },
+      "runtime_config": {
+        "enabled": true,
+        "manifest_path": "<repo>/deployments/okg-workspace/deployment.yaml",
+        "status": "enabled"
+      },
+      "runtime_health_policy": {
+        "schema": "okg.runtime_health_policy.v1",
+        "source_sync_backlog": {
+          "failed_terminal_history": {
+            "description": "Current-version failed terminal source-sync rows are DLQ-like history and block readiness until acknowledged or fixed.",
+            "operator_action": "operator_acknowledge_or_fix",
+            "readiness": "blocker",
+            "safe_gc": false
+          },
+          "fresh_active_work": {
+            "description": "PENDING/ENQUEUED/DELAYED source-sync work below the stale window is expected transient DBOS work.",
+            "operator_action": "monitor",
+            "readiness": "nonblocking",
+            "safe_gc": false
+          },
+          "running_pending_work": {
+            "description": "A started PENDING DBOS row is treated as running until a stronger runtime signal proves it is abandoned.",
+            "operator_action": "monitor_worker_liveness",
+            "readiness": "nonblocking",
+            "safe_gc": false
+          },
+          "stale_replaceable_work": {
+            "apply_command": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace --stale-after-seconds 600 --queue-name okg-okg-workspace-source-sync --workflow-name okg_source_sync --status ENQUEUED --confirm --apply --json",
+            "apply_command_key": "source_sync_dbos_gc_apply",
+            "description": "Old replaceable source-sync wakeups block readiness and may be cancelled by DBOS GC after dry-run review.",
+            "dry_run_command": "env -u OKG_DSN okg db dbos-gc --deployment okg-workspace --stale-after-seconds 600 --queue-name okg-okg-workspace-source-sync --workflow-name okg_source_sync --status ENQUEUED --json",
+            "dry_run_command_key": "source_sync_dbos_gc_dry_run",
+            "operator_action": "dry_run_then_confirm_apply",
+            "readiness": "blocker",
+            "safe_gc": true
+          },
+          "terminal_history": {
+            "description": "Historical SUCCESS and benign CANCELLED/ERROR rows remain visible as DBOS audit history and do not count as active work.",
+            "operator_action": "report",
+            "readiness": "nonblocking",
+            "safe_gc": false
+          }
+        }
+      },
+      "runtime_processes": {
+        "ok": true,
+        "process_count": 1,
+        "processes": [],
+        "root_count": 1,
+        "roots": [
+          {
+            "command": "okg runtime worker",
+            "pid": 4242,
+            "ppid": 1
+          }
+        ],
+        "split_executor": false,
+        "status": "single_executor"
+      },
+      "runtime_worker": {
+        "code_identity": {
+          "checkout_code_revision": null,
+          "compared_root": null,
+          "modified_module_count": null,
+          "modified_modules": [],
+          "observed_age_minutes": null,
+          "ok": null,
+          "reasons": [
+            "worker_code_identity_not_reported"
+          ],
+          "status": "not_observed",
+          "worker_code_revision": null,
+          "worker_pid": null,
+          "worker_started_at": null
+        },
+        "heartbeat_status": "not_observed",
+        "measured": false,
+        "ok": null,
+        "process_evidence": {
+          "root_count": 1,
+          "root_pids": [
+            4242
+          ],
+          "status": "single_executor"
+        },
+        "requires": "a runtime-services overlay row for this deployment, read from the deployment database; an unreachable database, a failed probe, or a row owned by another deployment yields no measurement, not a down worker",
+        "status": "process_observed_no_heartbeat"
+      },
+      "schema": "okg.dogfood.runtime_status.v1",
+      "source_freshness": {},
+      "source_sync_convergence": {},
+      "source_sync_status": {},
+      "trust_level": "ready",
+      "unknowns": [],
+      "warnings": [],
+      "workflow_recovery": {
+        "ok": null,
+        "reason": "dbos_workflow_status_unavailable",
+        "status": "unavailable"
+      }
+    }
+  }
+}

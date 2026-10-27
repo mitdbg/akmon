@@ -93,6 +93,31 @@ def _add_cycle(
                 application_version,
             ),
         )
+        if (
+            status == "SUCCESS"
+            and name == "okg_publisher_cycle"
+            and queue_name == f"okg-{deployment}"
+        ):
+            # Since publisher-starvation-4039 the probe reads freshness from
+            # the cycle's typed outcome, not from the SUCCESS row: a SUCCESS
+            # after the publisher's cutover with no outcome proves nothing.
+            # A cycle that published records the clean outcome the workflow
+            # writes (the skipped outcome has its own tests).
+            conn.execute(
+                "INSERT INTO okg.workflow_operational_registrations "
+                "(workflow_uuid, deployment_name, workflow_name, queue_name, "
+                "contract_version, registered_at) "
+                "VALUES (%s, %s, %s, %s, 1, to_timestamp(%s / 1000.0))",
+                (workflow_id, deployment, name, queue_name, at),
+            )
+            conn.execute(
+                "INSERT INTO okg.workflow_operational_outcomes "
+                "(workflow_uuid, contract_version, outcome, succeeded_count, "
+                "failed_count, semantic_units, details, recorded_at) "
+                "VALUES (%s, 1, 'clean', 1, 0, '{}'::jsonb, '{}'::jsonb, "
+                "to_timestamp(%s / 1000.0))",
+                (workflow_id, at),
+            )
     return workflow_id
 
 
@@ -122,9 +147,20 @@ def dbos_dsn(clean_runtime: str) -> str:
     return clean_runtime
 
 
+@pytest.fixture(autouse=True)
+def _no_yield_allowance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These cases judge the pause and the age against twice the cron period.
+    The probe's limit also allows the source-sync yield bound and the
+    source-run publish wait (publisher-starvation-4039); both are zero here so
+    the numbers below keep their meaning. The allowance has its own cases in
+    ``test_publisher_health_freshness.py``."""
+    monkeypatch.setenv("OKG_PUBLISH_WAIT_FOR_SOURCE_RUNS_SECONDS", "0")
+
+
 def _probe(dsn: str, deployment: str):
     return check_publisher_workflow_health(
-        deployment=deployment, dsn=dsn, schedule_overrides=_CRON
+        deployment=deployment, dsn=dsn, schedule_overrides=_CRON,
+        yield_bound_seconds=0.0,
     )
 
 

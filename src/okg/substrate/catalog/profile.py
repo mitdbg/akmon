@@ -77,7 +77,11 @@ CLI handles those when scaffolding.
 
 `interpolate(value, answers)` does single-pass `${var}` text
 substitution from init answers into source-default config
-strings. Undefined references raise `ProfileError`.
+strings. Undefined references raise `ProfileError`. In source
+defaults only (`keep_runtime=True`), the run-time path anchors in
+`RUNTIME_PLACEHOLDERS` (`${deployment_dir}` and the like) pass through unchanged, because the source
+registry loader expands them when it reads the deployment, where
+the real location is known. An init answer with the same name wins.
 """
 
 from __future__ import annotations
@@ -117,6 +121,7 @@ __all__ = [
     "load_profile",
     "load_profile_modules",
     "interpolate",
+    "RUNTIME_PLACEHOLDERS",
     "validate_answer",
 ]
 
@@ -802,14 +807,41 @@ def load_profile_modules(profile: Profile) -> list[str]:
 # template engine."
 _VAR_PATTERN = re.compile(r"\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
+#: Path anchors that `okg.substrate.sources.registry` expands when it loads a
+#: deployment's `source_registry.yaml` (`_substitute_registry_placeholders`).
+#: The installer does not know the deployment's final location, so it leaves
+#: these in the rendered registry for that loader. Spelled here rather than
+#: imported, for the same reason as `_STRICT_CONTRACT` above; a test keeps the
+#: two lists equal.
+RUNTIME_PLACEHOLDERS: frozenset[str] = frozenset(
+    {
+        "deployment_dir",
+        "manifest_dir",
+        "source_registry_dir",
+        "repo_root",
+        "environment_data_root",
+    }
+)
 
-def interpolate(value: str, answers: dict[str, Any]) -> str:
+
+def interpolate(
+    value: str,
+    answers: dict[str, Any],
+    *,
+    keep_runtime: bool = False,
+) -> str:
     """Single-pass `${var}` substitution from `answers` into
     `value`.
 
     Undefined references raise `ProfileError` (loud failure
     rather than silent leave-as-is, per
     `history/openspec/project.md`'s no-silent-fallbacks discipline).
+    With `keep_runtime=True` (source defaults only), a name in
+    `RUNTIME_PLACEHOLDERS` that no init answer defines is kept
+    verbatim, because the source registry loader resolves it at load
+    time. Deployment defaults leave it False: the manifest loader
+    expands only three of the five names, so there they stay refused.
+    An unknown name is refused either way.
 
     The substitution does NOT recurse: if an answer's value
     itself contains `${...}`, the resulting interpolated string
@@ -823,6 +855,8 @@ def interpolate(value: str, answers: dict[str, Any]) -> str:
 
     def replace_match(match: re.Match[str]) -> str:
         key = match.group(1)
+        if keep_runtime and key not in answers and key in RUNTIME_PLACEHOLDERS:
+            return match.group(0)
         if key not in answers:
             raise ProfileError(
                 f"undefined variable reference {match.group(0)!r} in "
@@ -832,7 +866,10 @@ def interpolate(value: str, answers: dict[str, Any]) -> str:
                 fix_hint=(
                     f"add an init_question with id {key!r} to the "
                     f"profile, or remove the reference from the "
-                    f"source default"
+                    f"source default (source defaults may "
+                    f"also use the run-time anchors "
+                    f"{', '.join(sorted(RUNTIME_PLACEHOLDERS))}, "
+                    f"which are kept for the registry loader)"
                 ),
             )
         v = answers[key]

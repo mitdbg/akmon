@@ -1105,7 +1105,7 @@ def test_record_text_pages_equal_through_both_paths(
     # connection cannot serve them, so it keeps the plain pointer.
     monkeypatch.setattr(
         record_text, "_text_twin_move",
-        lambda conn, session, node_id: record_text.NO_TEXT_NODE_MOVE,
+        lambda conn, session, node_id, **_: record_text.NO_TEXT_NODE_MOVE,
     )
 
     def per_row_shim(conn: Any, session: Any, rows: Any, *, row_kind: str) -> list[dict]:

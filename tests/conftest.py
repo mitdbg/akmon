@@ -354,24 +354,56 @@ _OPTIONAL_DEPLOYMENT_TEST_ROOTS = {
 }
 
 
-def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
-    """Ignore deployment-specific tests when that deployment is absent."""
-    root = Path(str(config.rootpath))
-    path = Path(collection_path)
-    try:
-        rel = path.relative_to(root)
-    except ValueError:
-        return False
+# Cache key: the hook's pure inputs are config.rootpath and the constant
+# table above, both fixed for a session. Whether deployments/<name> exists is
+# read from the disk on every match, not cached: it is the one input a
+# session could change.
+_IGNORE_ROOTS_KEY = pytest.StashKey[tuple[tuple[str, tuple[str, ...]], ...]]()
 
-    for deployment, test_roots in _OPTIONAL_DEPLOYMENT_TEST_ROOTS.items():
-        if (root / "deployments" / deployment).exists():
-            continue
-        if any(
-            rel == test_root or rel.is_relative_to(test_root)
+
+def _optional_root_prefixes(
+    config: pytest.Config,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Per deployment: its folder, and its test roots as absolute strings.
+
+    Computed once per pytest session (the stash lives on the config object, so
+    each xdist worker builds its own) instead of once per file pytest visits.
+    """
+    cached = config.stash.get(_IGNORE_ROOTS_KEY, None)
+    if cached is None:
+        root = Path(str(config.rootpath))
+        cached = tuple(
+            (
+                str(root / "deployments" / deployment),
+                tuple(str(root / test_root) for test_root in sorted(test_roots)),
+            )
+            for deployment, test_roots in _OPTIONAL_DEPLOYMENT_TEST_ROOTS.items()
+        )
+        config.stash[_IGNORE_ROOTS_KEY] = cached
+    return cached
+
+
+def pytest_ignore_collect(
+    collection_path: Path, config: pytest.Config
+) -> bool | None:
+    """Ignore deployment-specific tests when that deployment is absent.
+
+    Returns True to ignore a path and None for every path this hook does not
+    decide. It must never return False: pytest runs this hook first-result-wins,
+    and False means "collect this path" and ends the search, so pytest's own
+    rules (`--ignore`, `--ignore-glob`, `collect_ignore`, `__pycache__` and
+    virtualenv skips) would never run (issue #4094).
+    """
+    path = str(collection_path)
+    for deployment_dir, test_roots in _optional_root_prefixes(config):
+        if not any(
+            path == test_root or path.startswith(test_root + os.sep)
             for test_root in test_roots
         ):
+            continue
+        if not Path(deployment_dir).exists():
             return True
-    return False
+    return None
 
 
 @pytest.fixture

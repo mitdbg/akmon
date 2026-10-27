@@ -15,6 +15,7 @@ independent).
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -32,6 +33,17 @@ from tests.substrate import test_ingest_service as fixtures
 
 
 pytestmark = pytest.mark.postgres
+
+# A test marked `spawns_source_jobs` keeps the production runtime (a spawned
+# child per source) as the smoke test of this fixture; the rest prove publish
+# logic, which an in-process run proves just as well.
+@pytest.fixture(autouse=True)
+def _inline_source_jobs(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if request.node.get_closest_marker("spawns_source_jobs") is None:
+        use_inline_source_jobs(monkeypatch)
 
 
 def _deployment(tmp_path: Path, dsn: str) -> tuple[Path, IngestOptions]:
@@ -206,6 +218,7 @@ def test_group_failure_leaves_no_blocking_checkpoint(
     assert ir.recovery_from_redrive_state(state, deployment="svc") is None
 
 
+@pytest.mark.spawns_source_jobs
 def test_group_failure_publishes_sibling_with_incomplete_marker(
     tmp_path: Path,
     clean_runtime: str,
@@ -214,6 +227,10 @@ def test_group_failure_publishes_sibling_with_incomplete_marker(
 
     dep, options = _deployment(tmp_path, clean_runtime)
     baseline = run_ingest(options)
+    # This test keeps the real runtime: every source ran in its own child.
+    assert baseline.report["results"]
+    for result in baseline.report["results"]:
+        assert result["source_process"]["pid"] != os.getpid(), result
     (baseline_publish,) = baseline.report["publishes"]
     assert _completeness(clean_runtime)["status"] == "complete"
     healthy = _break_second(dep, clean_runtime)

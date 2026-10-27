@@ -28,6 +28,7 @@ from okg.substrate.graph_store import ChronosGraphStore
 from okg.substrate.library.sources.base import EdgeFact, NodeFact
 from okg.substrate.mcp.continuation import ContinuationTokenInvalid
 from okg.substrate.attributes import (
+    ATTRIBUTE_EFFECTIVE_TABLE,
     materialize_effective_attributes_for_generation,
     record_attribute_observation,
 )
@@ -699,16 +700,15 @@ def test_an_override_that_fakes_adjacency_lends_no_continuity(
     generation = _seed(clean_runtime)
     _declare_docs_producer(tmp_path, monkeypatch)
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
-        (edge_id,) = conn.execute(
-            """
-            SELECT v.target_id
-              FROM okg.attribute_effective_view AS view
-              JOIN okg.attribute_versions AS v USING (target_kind, target_id, attrs_hash)
-             WHERE view.generation_id = %s AND view.target_kind = 'edge'
-               AND v.attrs @> %s::jsonb
-            """,
-            (generation, '{"char_offset": 15, "doc_char_length": 26}'),
-        ).fetchone()
+        # The edge doc:gap's second passage hangs on, read from the graph rows
+        # at the generation (the only place its stored position lives).
+        [row] = ChronosGraphStore.from_connection(
+            conn, ensure_schema=False,
+        ).checkout_generation(generation).query(
+            "SELECT edge_id::text AS edge_id FROM okg.graph_edges "
+            "WHERE attrs @> '{\"char_offset\": 15, \"doc_char_length\": 26}'::jsonb", {},
+        )
+        edge_id = str(row["edge_id"] if isinstance(row, dict) else row[0])
         # Five stored spaces would fill the five-character gap exactly.
         record_attribute_observation(
             conn, target_kind="edge", target_id=edge_id, generation_id=generation,
@@ -742,17 +742,17 @@ def test_an_override_relabelling_text_as_a_table_lends_no_continuity(
             producer="test:relabel-table",
         )
         materialize_effective_attributes_for_generation(conn, generation_id=generation)
+        # The accepted override is effective: its overlay row at this
+        # generation holds the relabelled kind (the Chronos row still says
+        # "paragraph").
         (kind,) = conn.execute(
-            """
-            SELECT v.attrs->>'chunk_kind'
-              FROM okg.attribute_effective_view AS view
-              JOIN okg.attribute_versions AS v USING (target_kind, target_id, attrs_hash)
-             WHERE view.generation_id = %s AND view.target_kind = 'node'
-               AND view.target_id = 'chunk:doc:untab:02'
-            """,
+            f"SELECT value #>> '{{}}' FROM {ATTRIBUTE_EFFECTIVE_TABLE} "
+            "WHERE generation_id = %s AND target_kind = 'node' "
+            "AND target_id = 'chunk:doc:untab:02' AND attr_key = 'chunk_kind' "
+            "AND namespace = 'default'",
             (generation,),
         ).fetchone()
-        assert kind == "table"  # the override is accepted and effective
+        assert kind == "table"
     mcp = build_server(dsn=clean_runtime, deployment_name="default")
     try:
         with pytest.raises(WindowContinuityUnknown):
@@ -1095,7 +1095,9 @@ _WALKS = {
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("budget", [4096, 16384, 131072])
+# 4096 takes the multi-page branch and 131072 the single-page one; 16384 is
+# the same multi-page branch as 4096 (the pages only come larger).
+@pytest.mark.parametrize("budget", [4096, 131072])
 @pytest.mark.parametrize("walk", sorted(_WALKS))
 async def test_text_and_json_walks_carry_the_same_answer(served, walk, budget) -> None:
     """req.read-record-windows.wire: every page of both formats fits the

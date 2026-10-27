@@ -47,13 +47,23 @@ def should_ignore_optional_deployment_test(
     repo_root: Path,
     deployment: str,
     filenames: set[str] | None = None,
-) -> bool:
+) -> bool | None:
+    """True to skip a test of an absent optional deployment, else None.
+
+    None, not False: pytest runs `pytest_ignore_collect` first-result-wins and
+    reads False as "collect this path", which would stop `--ignore`,
+    `--ignore-glob`, `collect_ignore` and pytest's default folder skips from
+    running inside the calling folder (issue #4100, as #4094 was for the root
+    conftest).
+    """
     if optional_deployment_available(repo_root, deployment):
-        return False
+        return None
     path = Path(collection_path)
     if filenames is not None:
-        return path.name in filenames
-    return path.suffix == ".py" and path.name.startswith("test_")
+        ignored = path.name in filenames
+    else:
+        ignored = path.suffix == ".py" and path.name.startswith("test_")
+    return True if ignored else None
 
 
 def mark_optional_deployment_items(

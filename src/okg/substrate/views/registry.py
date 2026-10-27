@@ -190,6 +190,11 @@ class ViewRegistryEntry:
     # the frozen dataclass stays hashable; the YAML parse yields lists.
     reads_subtypes: tuple[str, ...] = ()
     reads_edge_types: tuple[str, ...] = ()
+    # Inputs a view's corpus reads from OUTSIDE the graph, from the closed
+    # vocabulary in :data:`EXTERNAL_INPUT_TOKENS` / ``live:<relation>``. A view
+    # with any such input is never carried forward: its output is rebuilt every
+    # published generation and labelled with the age of the inputs.
+    external_inputs: tuple[str, ...] = ()
 
     def to_read_asset_contract(self) -> ReadAssetContract:
         """Adapt this legacy row into a canonical, inert typed view asset.
@@ -247,6 +252,7 @@ class ViewRegistryEntry:
             lineage_sources=[
                 *(f"subtype:{item}" for item in self.reads_subtypes),
                 *(f"edge:{item}" for item in self.reads_edge_types),
+                *(f"external:{item}" for item in self.external_inputs),
             ] or [f"legacy-registry:{self.deployment}"],
             config={
                 "view_name": self.view_name,
@@ -291,6 +297,10 @@ class ViewRegistryEntry:
             "anchor_resolver_ref": self.anchor_resolver,
             "reads_subtypes": list(self.reads_subtypes),
             "reads_edge_types": list(self.reads_edge_types),
+            **(
+                {"external_inputs": list(self.external_inputs)}
+                if self.external_inputs else {}
+            ),
             "view_def_hash": self._hash(),
             "canonical_asset_id": contract.asset.qualified_id,
             "canonical_asset_digest": contract.asset.digest,
@@ -300,27 +310,113 @@ class ViewRegistryEntry:
         """Stable identity hash over the wiring fields.
 
         A change here invalidates native fragment-cache reuse on the
-        next refresh per the umbrella's view_def_hash rule.
+        next refresh per the umbrella's view_def_hash rule. ``external_inputs``
+        joins the hash only when declared, so a view that declares none keeps
+        the hash it had before the field existed.
         """
-        payload = json.dumps(
-            {
-                "view_def_factory": self.view_def_factory,
-                "build_corpus": self.build_corpus,
-                "params": self.params,
-                "llm_client": self.llm_client,
-                "tracking_mode": self.tracking_mode,
-                "anchor_resolver": self.anchor_resolver,
-                "reads_subtypes": list(self.reads_subtypes),
-                "reads_edge_types": list(self.reads_edge_types),
-            },
-            sort_keys=True,
-        )
+        fields: dict[str, Any] = {
+            "view_def_factory": self.view_def_factory,
+            "build_corpus": self.build_corpus,
+            "params": self.params,
+            "llm_client": self.llm_client,
+            "tracking_mode": self.tracking_mode,
+            "anchor_resolver": self.anchor_resolver,
+            "reads_subtypes": list(self.reads_subtypes),
+            "reads_edge_types": list(self.reads_edge_types),
+        }
+        if self.external_inputs:
+            fields["external_inputs"] = list(self.external_inputs)
+        payload = json.dumps(fields, sort_keys=True)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 # ---------------------------------------------------------------------------
 # Parse / validate
 # ---------------------------------------------------------------------------
+
+
+#: Entry-level keys a ``views_registry.yaml`` view may carry. Anything else is
+#: refused at parse time (PACT view-output-carry-forward-3981): an unknown key
+#: used to be dropped without a word, so a misspelt ``external_inputs`` or
+#: ``reads_subtypes`` quietly left a view undeclared.
+VIEW_ENTRY_KEYS = frozenset({
+    "view_def_id",
+    "view_name",
+    "view_def_factory",
+    "build_corpus",
+    "anchor_resolver",
+    "schedule",
+    "params",
+    "llm_client",
+    "tracking_mode",
+    "reads_subtypes",
+    "reads_edge_types",
+    "external_inputs",
+})
+
+#: Closed vocabulary for ``external_inputs``, plus the ``live:<relation>`` form.
+#: ``publish_time``: the generation's ``published_at``. ``source_runs``: source
+#: run status read up to publish time. ``live:<relation>``: call samples of a
+#: declared live relation, up to publish time.
+EXTERNAL_INPUT_TOKENS = ("publish_time", "source_runs")
+LIVE_EXTERNAL_INPUT_PREFIX = "live:"
+_LIVE_RELATION_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.\-]*")
+
+
+def is_valid_external_input(token: Any) -> bool:
+    """True for ``publish_time``, ``source_runs`` or ``live:<relation>``."""
+    if not isinstance(token, str):
+        return False
+    if token in EXTERNAL_INPUT_TOKENS:
+        return True
+    if token.startswith(LIVE_EXTERNAL_INPUT_PREFIX):
+        return bool(
+            _LIVE_RELATION_NAME_RE.fullmatch(
+                token[len(LIVE_EXTERNAL_INPUT_PREFIX):]
+            )
+        )
+    return False
+
+
+def _read_external_inputs(
+    value: Any,
+    *,
+    entry_id: str,
+    source_path: Path | str,
+) -> tuple[str, ...]:
+    allowed = (
+        f"{', '.join(EXTERNAL_INPUT_TOKENS)} or "
+        f"{LIVE_EXTERNAL_INPUT_PREFIX}<relation>"
+    )
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise SubstrateError(
+            f"views_registry.yaml entry {entry_id!r} key 'external_inputs' "
+            f"must be a list; allowed values are {allowed}; got {value!r}",
+            data={"path": str(source_path), "view_def_id": entry_id},
+        )
+    seen: list[str] = []
+    for token in value:
+        if not is_valid_external_input(token):
+            raise SubstrateError(
+                f"views_registry.yaml entry {entry_id!r} key "
+                f"'external_inputs' has unknown value {token!r}; allowed "
+                f"values are {allowed}",
+                data={
+                    "path": str(source_path),
+                    "view_def_id": entry_id,
+                    "value": token,
+                    "allowed": [
+                        *EXTERNAL_INPUT_TOKENS,
+                        f"{LIVE_EXTERNAL_INPUT_PREFIX}<relation>",
+                    ],
+                },
+                fix_hint=f"use one of: {allowed}",
+            )
+        if token not in seen:
+            seen.append(token)
+    return tuple(seen)
 
 
 def load_views_registry(deployment_dir: Path | str) -> list[ViewRegistryEntry]:
@@ -403,6 +499,25 @@ def parse_views_registry(
                     data={"path": str(source_path)},
                 )
         view_def_id = raw["view_def_id"]
+        unknown_keys = sorted(
+            str(key) for key in raw if key not in VIEW_ENTRY_KEYS
+        )
+        if unknown_keys:
+            raise SubstrateError(
+                f"views_registry.yaml entry {view_def_id!r} has unknown "
+                f"key(s) {unknown_keys}; allowed keys are "
+                f"{sorted(VIEW_ENTRY_KEYS)}",
+                data={
+                    "path": str(source_path),
+                    "view_def_id": view_def_id,
+                    "unknown_keys": unknown_keys,
+                    "allowed_keys": sorted(VIEW_ENTRY_KEYS),
+                },
+                fix_hint=(
+                    "remove the key or fix its spelling; an unknown key "
+                    "used to be dropped silently"
+                ),
+            )
         if view_def_id in seen_ids:
             raise SubstrateError(
                 f"views_registry.yaml has duplicate view_def_id "
@@ -447,6 +562,11 @@ def parse_views_registry(
 
         reads_subtypes = _read_string_list("reads_subtypes")
         reads_edge_types = _read_string_list("reads_edge_types")
+        external_inputs = _read_external_inputs(
+            raw.get("external_inputs"),
+            entry_id=view_def_id,
+            source_path=source_path,
+        )
         tracking_mode = raw.get("tracking_mode") or "disabled"
         if tracking_mode not in {"disabled", "optional", "required"}:
             raise SubstrateError(
@@ -467,6 +587,7 @@ def parse_views_registry(
             anchor_resolver=anchor_resolver_raw,
             reads_subtypes=reads_subtypes,
             reads_edge_types=reads_edge_types,
+            external_inputs=external_inputs,
         ))
     return entries
 
@@ -938,6 +1059,7 @@ def materializers_from_catalog(
             anchor_resolver=attrs.get("anchor_resolver_ref") or "",
             reads_subtypes=tuple(attrs.get("reads_subtypes") or ()),
             reads_edge_types=tuple(attrs.get("reads_edge_types") or ()),
+            external_inputs=tuple(attrs.get("external_inputs") or ()),
         )
         for attrs in attrs_rows
     ]
@@ -997,6 +1119,7 @@ def _materializer_from_attrs(
     )
     reads_subtypes = tuple(attrs.get("reads_subtypes") or ())
     reads_edge_types = tuple(attrs.get("reads_edge_types") or ())
+    external_inputs = tuple(attrs.get("external_inputs") or ())
 
     def view_def_factory(
         factory=factory,
@@ -1012,6 +1135,7 @@ def _materializer_from_attrs(
         anchor_resolver=anchor_resolver,
         reads_subtypes=reads_subtypes,
         reads_edge_types=reads_edge_types,
+        external_inputs=external_inputs,
         asset_id=asset_id or attrs.get("canonical_asset_id"),
         asset_digest=asset_digest or attrs.get("canonical_asset_digest"),
         asset_execution_token=asset_execution_token,

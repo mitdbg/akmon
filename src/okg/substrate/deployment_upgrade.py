@@ -69,7 +69,6 @@ def _code_checkout_fleet():
 
     return deployment_fleet(Path(__file__).resolve().parents[3])
 
-_GENERATION_RECOVERY_FAILPOINT: Callable[[str], None] | None = None
 BACKUP_ARCHIVE_CHECKS = (
     "size_ok",
     "private_mode",
@@ -1295,14 +1294,6 @@ def run_deployment_upgrade(
         for row in phase_results
     ):
         ctx.data["views_registry_deferred"] = True
-    for row in reversed(phase_results):
-        if row.get("phase") == "preflight" and isinstance(
-            row.get("attribute_recovery_classification"), dict
-        ):
-            ctx.data["attribute_recovery_classification"] = row[
-                "attribute_recovery_classification"
-            ]
-            break
     ctx.data["source_recovery_workflows"] = list(
         state.get("source_recovery_workflows") or ()
     )
@@ -4279,484 +4270,27 @@ def _run_phase(ctx: UpgradeContext, phase: str) -> dict[str, Any]:
     return row
 
 
-def _adopt_deferred_recovery_classification(
-    ctx: UpgradeContext, deferred: dict[str, Any]
-) -> dict[str, Any]:
-    """First-classification adoption for a preflight that recorded a deferral.
-
-    Preflight could not run the recovery classifier (its queries need the
-    schema the pending migration creates), so this is the binding BASELINE,
-    not a re-inspection: verify the migration actually applied, run the
-    classifier once against the migrated schema, validate the payload shape
-    exactly as preflight would have, and hand the result back for the
-    ordinary flow — whose subsequent binding re-inspection then compares two
-    real post-migrate reads, never a vacuous self-comparison.
-    """
-    pending_migration = str(
-        deferred.get("pending_migration") or _NARROW_SPLIT_MIGRATION_ID
-    )
-    migrations = _run_okg(
-        ctx, ["db", "migrations", "--deployment", ctx.options.deployment]
-    )
-    if not migrations.ok:
-        return _failed_command(
-            "deferred recovery adoption could not read migration status",
-            migrations,
-        )
-    status = migrations.json_payload()
-    if not isinstance(status, dict):
-        return _unreadable_command(
-            "deferred recovery adoption migration status was unreadable",
-            migrations,
-        )
-    if "pending" not in status or not isinstance(status["pending"], list):
-        # Fail closed on the KEY's absence, not just on membership: a
-        # migrations payload without a readable pending list must never
-        # read as "the migration applied" (absence is not agreement).
-        return {
-            "ok": False,
-            "reason": (
-                "deferred recovery adoption could not read the pending "
-                "migration list from the migration status"
-            ),
-            "status_keys": sorted(status.keys()),
-            "deferred_classification": deferred,
-        }
-    still_pending = pending_migration in {
-        str(row.get("migration_id") or "")
-        for row in status["pending"]
-        if isinstance(row, dict)
-    }
-    if still_pending:
-        return {
-            "ok": False,
-            "reason": (
-                "recovery classification was deferred at preflight for "
-                f"pending migration {pending_migration}, and migrate did "
-                "not apply it (skipped or failed); refusing to treat the "
-                "deferral as a satisfied classification"
-            ),
-            "deferred_classification": deferred,
-            "pending_migration": pending_migration,
-            "fix_hint": (
-                "re-run okg up without --skip-migrate so the migration "
-                "applies through the multi-phase driver"
-            ),
-        }
-    fresh_result = _run_okg(
-        ctx,
-        [
-            "db",
-            "inspect-effective-attribute-recovery",
-            "--deployment",
-            ctx.options.deployment,
-        ],
-    )
-    if not fresh_result.ok:
-        return _failed_command(
-            "deferred recovery classification failed after migrate",
-            fresh_result,
-        )
-    fresh = fresh_result.json_payload()
-    if not isinstance(fresh, dict):
-        return _unreadable_command(
-            "deferred recovery classification was unreadable", fresh_result
-        )
-    if fresh.get("classification") not in {
-        "no_published_generation",
-        "no_repair",
-        "ordinary_repair",
-        "corrupt_state_recovery",
-    } or not str(fresh.get("binding_digest") or "").startswith("sha256:"):
-        return {
-            "ok": False,
-            "reason": (
-                "deferred recovery classification returned an invalid "
-                "payload after migrate"
-            ),
-            "result": fresh,
-            "deferred_classification": deferred,
-        }
-    ctx.data["attribute_recovery_classification"] = fresh
-    return {"ok": True, "classification": fresh}
+#: PACT lane-s-storage-drop-copies retired the attribute copies (the
+#: per-generation snapshot, the interval front and their version store) and,
+#: with them, the corrupt-predecessor recovery and the read-model repair the
+#: ``generation_recovery`` and ``attribute_read_model`` phases ran. The phase
+#: names stay in the lifecycle contract; each reports that it has nothing to
+#: do and why, never a silent success.
+_RETIRED_ATTRIBUTE_COPY_PHASE_REASON = (
+    "the attribute copies are retired (migration "
+    "0046_attribute_copies_teardown): the attribute read model is the graph "
+    "rows plus the overlay validity ranges, which every root-branch publish "
+    "syncs in its publication transaction, so there is no copy to recover or "
+    "rebuild"
+)
 
 
 def _phase_generation_recovery(ctx: UpgradeContext) -> dict[str, Any]:
-    """Break a mis-stamped predecessor/read-model deadlock via one successor."""
-    if ctx.options.plan_only:
-        return {
-            "ok": True,
-            "planned": "classify and recover a corrupt published predecessor",
-            "skipped": "generation recovery skipped (--plan)",
-        }
-    classification = ctx.data.get("attribute_recovery_classification")
-    if not isinstance(classification, dict):
-        return {
-            "ok": False,
-            "reason": "preflight did not supply an attribute recovery classification",
-        }
-    adopted_deferred = False
-    if (
-        classification.get("classification")
-        == _DEFERRED_RECOVERY_CLASSIFICATION
-    ):
-        # phase-interval-narrow-split-migration (#1114): preflight recorded a
-        # deferral because the recovery classifier needed the schema that
-        # migration 0020 creates. Migrate has run by this phase — perform the
-        # FIRST classification now and adopt it as the binding baseline. Fail
-        # closed if the migration is still pending (--skip-migrate): the
-        # deferred payload must never be treated as a satisfied
-        # classification.
-        adoption = _adopt_deferred_recovery_classification(ctx, classification)
-        if adoption.get("ok") is not True:
-            return adoption
-        classification = adoption["classification"]
-        adopted_deferred = True
-    kind = classification.get("classification")
-    known = {
-        "no_published_generation",
-        "no_repair",
-        "ordinary_repair",
-        "corrupt_state_recovery",
-        "schema_migration_pending",
-    }
-    if kind not in known:
-        return {
-            "ok": False,
-            "reason": "preflight returned an unknown recovery classification",
-            "classification": classification,
-        }
-    deferred_from_preflight: dict[str, Any] | None = None
-    if kind == "schema_migration_pending":
-        # okg#1114: preflight could not classify at all -- the database's
-        # attribute relations still predated the interval narrow split, so the
-        # payload-parity fingerprint had no column to hash. Preflight recorded
-        # that as a schema verdict rather than inventing a data one. The
-        # migrate phase has since run, so take the real classification NOW and
-        # continue on it; there is no earlier graph anchor to preserve because
-        # preflight never bound one. If the schema is STILL pre-split here,
-        # migrate did not do its job and this refuses rather than proceeding on
-        # an unverifiable read model.
-        deferred_result = _run_okg(
-            ctx,
-            [
-                "db",
-                "inspect-effective-attribute-recovery",
-                "--deployment",
-                ctx.options.deployment,
-            ],
-        )
-        if not deferred_result.ok:
-            return _failed_command(
-                "post-migrate attribute recovery classification failed",
-                deferred_result,
-            )
-        deferred = deferred_result.json_payload()
-        if not isinstance(deferred, dict):
-            return _unreadable_command(
-                "could not read post-migrate attribute recovery classification",
-                deferred_result,
-            )
-        deferred_kind = deferred.get("classification")
-        if deferred_kind not in known or deferred_kind == "schema_migration_pending":
-            return {
-                "ok": False,
-                "reason": (
-                    "the migrate phase did not install the attribute payload "
-                    "columns the recovery classification needs"
-                ),
-                "classification": classification,
-                "observed": deferred,
-            }
-        if not str(deferred.get("binding_digest") or "").startswith("sha256:"):
-            return {
-                "ok": False,
-                "reason": "post-migrate attribute recovery classification is unbound",
-                "observed": deferred,
-            }
-        deferred_from_preflight = classification
-        classification = deferred
-        kind = deferred_kind
-        ctx.data["attribute_recovery_classification"] = classification
-    if kind != "corrupt_state_recovery":
-        # Migrate/catalog phases are authorized to rebuild derived attribute
-        # snapshots before this boundary. That can legitimately change the
-        # recovery binding digest. The required production backup also leaves
-        # the worker live, so the graph can advance before stop_services while
-        # remaining an ordinary, count-exact same-branch successor. Re-inspect
-        # after services stop and bind the no-op preparation to that complete
-        # current identity. Corrupt-state recovery keeps its separate one-use
-        # successor authorization below.
-        current_result = _run_okg(
-            ctx,
-            [
-                "db",
-                "inspect-effective-attribute-recovery",
-                "--deployment",
-                ctx.options.deployment,
-            ],
-        )
-        if not current_result.ok:
-            return _failed_command(
-                "attribute recovery no-op binding inspection failed",
-                current_result,
-            )
-        current = current_result.json_payload()
-        if not isinstance(current, dict):
-            return _unreadable_command(
-                "attribute recovery no-op binding inspection was unreadable",
-                current_result,
-            )
-        current_kind = current.get("classification")
-        graph_anchor_fields = (
-            "deployment",
-            "branch",
-            "branch_id",
-            "generation_id",
-            "ordinal",
-            "checkpoint_counts",
-            "pinned_counts",
-            "count_stamp_recovery",
-        )
-        graph_anchor_matches = all(
-            current.get(field) == classification.get(field)
-            for field in graph_anchor_fields
-        )
-        compatible_kind = (
-            current_kind == kind
-            or (
-                kind in {"no_repair", "ordinary_repair"}
-                and current_kind in {"no_repair", "ordinary_repair"}
-            )
-        )
-        prior_ordinal = classification.get("ordinal")
-        current_ordinal = current.get("ordinal")
-        prior_generation = classification.get("generation_id")
-        current_generation = current.get("generation_id")
-        prior_checkpoint_counts = classification.get("checkpoint_counts")
-        current_checkpoint_counts = current.get("checkpoint_counts")
-        prior_pinned_counts = classification.get("pinned_counts")
-        current_pinned_counts = current.get("pinned_counts")
-        same_graph_scope = (
-            classification.get("schema")
-            == "okg.effective_attribute_recovery_classification.v1"
-            and current.get("schema")
-            == "okg.effective_attribute_recovery_classification.v1"
-            and all(
-                isinstance(classification.get(field), str)
-                and bool(classification.get(field))
-                and current.get(field) == classification.get(field)
-                for field in ("deployment", "branch", "branch_id")
-            )
-        )
-        monotonic_ordinary_successor = (
-            kind in {"no_repair", "ordinary_repair"}
-            and current_kind in {"no_repair", "ordinary_repair"}
-            and same_graph_scope
-            and isinstance(prior_generation, str)
-            and bool(prior_generation)
-            and isinstance(current_generation, str)
-            and bool(current_generation)
-            and current_generation != prior_generation
-            and isinstance(prior_ordinal, int)
-            and not isinstance(prior_ordinal, bool)
-            and isinstance(current_ordinal, int)
-            and not isinstance(current_ordinal, bool)
-            and current_ordinal > prior_ordinal
-            and isinstance(prior_checkpoint_counts, dict)
-            and prior_checkpoint_counts == prior_pinned_counts
-            and isinstance(current_checkpoint_counts, dict)
-            and current_checkpoint_counts == current_pinned_counts
-            and "count_stamp_recovery" in classification
-            and classification.get("count_stamp_recovery") is None
-            and "count_stamp_recovery" in current
-            and current.get("count_stamp_recovery") is None
-            and str(current.get("binding_digest") or "").startswith("sha256:")
-        )
-        if not compatible_kind or (
-            not graph_anchor_matches and not monotonic_ordinary_successor
-        ):
-            return {
-                "ok": False,
-                "reason": "attribute recovery graph anchor changed after preflight",
-                "classification": classification,
-                "observed": current,
-                "graph_anchor_matches": graph_anchor_matches,
-                "compatible_classification": compatible_kind,
-                "same_graph_scope": same_graph_scope,
-                "monotonic_ordinary_successor": monotonic_ordinary_successor,
-            }
-        revalidated_result = _run_okg(
-            ctx,
-            [
-                "db",
-                "prepare-effective-attribute-recovery",
-                "--deployment",
-                ctx.options.deployment,
-                "--expected-binding-digest",
-                str(current.get("binding_digest") or ""),
-                "--expected-classification",
-                json.dumps(current, sort_keys=True, separators=(",", ":")),
-                "--apply",
-            ],
-        )
-        if not revalidated_result.ok:
-            return _failed_command(
-                "attribute recovery no-op binding revalidation failed",
-                revalidated_result,
-            )
-        revalidated = revalidated_result.json_payload()
-        if not isinstance(revalidated, dict) or revalidated.get("prepared") is not False:
-            return _unreadable_command(
-                "attribute recovery no-op revalidation returned an invalid receipt",
-                revalidated_result,
-            )
-        ctx.data["attribute_recovery_classification"] = current
-        return {
-            "ok": True,
-            "classification": classification,
-            "revalidated_classification": revalidated.get("classification"),
-            "binding_rebased": (
-                current.get("binding_digest") != classification.get("binding_digest")
-            ),
-            "graph_anchor_rebased": not graph_anchor_matches,
-            "monotonic_ordinary_successor": monotonic_ordinary_successor,
-            "adopted_deferred_preflight_classification": adopted_deferred,
-            "recovered": False,
-            **(
-                {"deferred_preflight_classification": deferred_from_preflight}
-                if deferred_from_preflight is not None
-                else {}
-            ),
-        }
-    current_result = _run_okg(
-        ctx,
-        [
-            "db",
-            "inspect-effective-attribute-recovery",
-            "--deployment",
-            ctx.options.deployment,
-        ],
-    )
-    if not current_result.ok:
-        return _failed_command("recovery binding revalidation failed", current_result)
-    current = current_result.json_payload()
-    if not isinstance(current, dict):
-        return _unreadable_command("could not read recovery binding revalidation", current_result)
-    current_receipt = current.get("count_stamp_recovery")
-    if current.get("generation_id") != classification.get("generation_id"):
-        if isinstance(current_receipt, dict) and current_receipt.get(
-            "classification_binding_digest"
-        ) == classification.get("binding_digest"):
-            return {
-                "ok": True,
-                "recovered": True,
-                "resumed_after_successor_publish": True,
-                "classification": classification,
-                "successor_generation": current.get("generation_id"),
-                "successor_classification": current,
-            }
-        return {
-            "ok": False,
-            "reason": "published predecessor changed after recovery preflight",
-            "classification": classification,
-            "observed": current,
-        }
-    prepared_result = _run_okg(
-        ctx,
-        [
-            "db",
-            "prepare-effective-attribute-recovery",
-            "--deployment",
-            ctx.options.deployment,
-            "--expected-binding-digest",
-            str(classification.get("binding_digest") or ""),
-            "--expected-classification",
-            json.dumps(classification, sort_keys=True, separators=(",", ":")),
-            "--apply",
-        ],
-    )
-    if not prepared_result.ok:
-        return _failed_command("corrupt-state recovery preparation failed", prepared_result)
-    prepared = prepared_result.json_payload()
-    if not isinstance(prepared, dict):
-        return _unreadable_command(
-            "could not read corrupt-state recovery preparation", prepared_result
-        )
-    authorization = prepared.get("authorization")
-    if prepared.get("prepared") is not True or not isinstance(authorization, dict):
-        return {
-            "ok": False,
-            "reason": "corrupt-state preparation did not issue an authorization",
-            "result": prepared,
-        }
-    publish_result = _run_okg(
-        ctx,
-        _deployment_publish_command(ctx),
-        env_overrides={
-            "OKG_COUNT_STAMP_RECOVERY_AUTHORIZATION": json.dumps(
-                authorization, sort_keys=True, separators=(",", ":")
-            )
-        },
-    )
-    if not publish_result.ok:
-        return _failed_command("recovery successor publish failed", publish_result)
-    published = publish_result.json_payload()
-    if not isinstance(published, dict):
-        return _unreadable_command("could not read recovery successor publish", publish_result)
-    successor = _smoke_generation(published)
-    statuses = [
-        row.get("status")
-        for row in published.get("publishes", [])
-        if isinstance(row, dict)
-    ]
-    if successor is None or (statuses and statuses[-1] != "published"):
-        return {
-            "ok": False,
-            "reason": "recovery successor was not published",
-            "result": published,
-        }
-    if _GENERATION_RECOVERY_FAILPOINT is not None:
-        _GENERATION_RECOVERY_FAILPOINT("after_successor_publish")
-    described_result = _run_okg(
-        ctx,
-        [
-            "generation",
-            "describe",
-            str(successor),
-            "--deployment",
-            ctx.options.deployment,
-        ],
-    )
-    if not described_result.ok:
-        return _failed_command("recovery successor describe failed", described_result)
-    described = described_result.json_payload()
-    if not isinstance(described, dict):
-        return _unreadable_command("could not read recovery successor", described_result)
-    metadata = described.get("metadata") if isinstance(described.get("metadata"), dict) else described
-    recovery_receipt = metadata.get("count_stamp_recovery") if isinstance(metadata, dict) else None
-    if not isinstance(recovery_receipt, dict) or recovery_receipt.get(
-        "authorization_digest"
-    ) != authorization.get("authorization_digest"):
-        return {
-            "ok": False,
-            "reason": "successor does not carry the exact recovery authorization receipt",
-            "generation": described,
-        }
+    """Retired: there is no attribute copy whose predecessor could deadlock."""
     return {
         "ok": True,
-        "recovered": True,
-        "classification": classification,
-        "preparation": prepared,
-        "successor_publish": published,
-        "successor_generation": successor,
-        "successor_describe": described,
-        "adopted_deferred_preflight_classification": adopted_deferred,
-        **(
-            {"deferred_preflight_classification": deferred_from_preflight}
-            if deferred_from_preflight is not None
-            else {}
-        ),
+        "skipped": "generation recovery retired",
+        "reason": _RETIRED_ATTRIBUTE_COPY_PHASE_REASON,
     }
 
 
@@ -5791,43 +5325,38 @@ def _wait_for_source_recovery_workflow(
     }
 
 
-_NARROW_SPLIT_MIGRATION_ID = "0020_interval_narrow_split"
-_DEFERRED_RECOVERY_CLASSIFICATION = "deferred_pre_interval_narrow_split"
-_DEFERRED_RECOVERY_SCHEMA = (
-    "okg.effective_attribute_recovery_classification.deferred.v1"
-)
+def _views_registry_preflight(ctx: UpgradeContext) -> dict[str, Any] | None:
+    """Refuse the upgrade when views_registry.yaml would not load.
 
-
-def _deferred_recovery_classification(deployment: str) -> dict[str, Any]:
-    """The RECORDED reason preflight defers the recovery classification.
-
-    A schema-tagged payload with its own binding digest, so the deferral is
-    auditable in the phase receipt and round-trips the resume path exactly
-    like a real classification — while remaining impossible to mistake for
-    one (its classification value is outside the classifier's vocabulary,
-    and generation_recovery refuses to proceed on it unless migrate applied
-    the pending migration).
+    The publisher parses the registry at start and does not catch a parse
+    error, so an unknown key or external_inputs value would stop publishing
+    after the upgrade. This runs the same parse okg deployment lint runs and
+    returns the same named error, before anything is changed.
     """
-    payload = {
-        "schema": _DEFERRED_RECOVERY_SCHEMA,
-        "classification": _DEFERRED_RECOVERY_CLASSIFICATION,
-        "deployment": deployment,
-        "pending_migration": _NARROW_SPLIT_MIGRATION_ID,
-        "reason": (
-            "the recovery classifier reads the narrow attribute shape "
-            f"(attrs_hash) that pending migration "
-            f"{_NARROW_SPLIT_MIGRATION_ID} creates; classification is "
-            "deferred to the generation_recovery phase, which runs after "
-            "migrate"
-        ),
-    }
-    payload["binding_digest"] = "sha256:" + hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-    return payload
+    from okg.substrate.deployments import find_deployment_dir
+    from okg.substrate.views.registry import load_views_registry
+
+    deployment_dir = find_deployment_dir(ctx.options.deployment)
+    if deployment_dir is None or not (
+        Path(deployment_dir) / "views_registry.yaml"
+    ).is_file():
+        return None
+    try:
+        load_views_registry(deployment_dir)
+    except SubstrateError as exc:
+        return {
+            "ok": False,
+            "reason": f"views_registry.yaml is refused: {exc}",
+            "views_registry": str(Path(deployment_dir) / "views_registry.yaml"),
+            "fix_hint": exc.fix_hint or "fix views_registry.yaml",
+        }
+    return None
 
 
 def _phase_preflight(ctx: UpgradeContext) -> dict[str, Any]:
+    registry_refusal = _views_registry_preflight(ctx)
+    if registry_refusal is not None:
+        return registry_refusal
     dev_database = _ensure_dev_isolated_database(ctx)
     if dev_database is not None:
         ctx.data["dev_database"] = dev_database
@@ -5843,19 +5372,19 @@ def _phase_preflight(ctx: UpgradeContext) -> dict[str, Any]:
                 "checksum_mismatches": [],
             }
             ctx.data["migrations_before"] = migration_status
-            recovery = {
-                "schema": "okg.effective_attribute_recovery_classification.v1",
-                "classification": "planned",
-                "read_only": True,
+            predecessor = {
+                "schema": _PREDECESSOR_GENERATION_SCHEMA,
+                "status": "planned",
+                "deployment": ctx.options.deployment,
             }
-            ctx.data["attribute_recovery_classification"] = recovery
+            ctx.data["predecessor_generation"] = predecessor
             return {
                 "ok": True,
                 "planned": dev_database["planned"],
                 "dev_database": dev_database,
                 "migration_status": migration_status,
                 "destructive_pending": [],
-                "attribute_recovery_classification": recovery,
+                "predecessor_generation": predecessor,
             }
         # A worktree-isolated dev clone is created empty. The backup phase
         # classifies the target effect by reading live catalog/nomos tables,
@@ -5889,78 +5418,63 @@ def _phase_preflight(ctx: UpgradeContext) -> dict[str, Any]:
             ),
         }
     ctx.data["migrations_before"] = payload
-    # phase-interval-narrow-split-migration (#1114): the recovery classifier
-    # reads the narrow attribute shape (attrs_hash) that migration
-    # 0020_interval_narrow_split creates, and preflight runs five phases
-    # before migrate — so on a pre-0020 database the classifier fails with
-    # UndefinedColumn and the guard requires the migration it guards. Detect
-    # the pending migration from the status we already read and RECORD a
-    # deferred classification (never a silent skip); the generation_recovery
-    # phase, which runs after migrate, performs the real classification
-    # against the migrated schema and fails closed if migrate was skipped.
-    if _NARROW_SPLIT_MIGRATION_ID in {
-        str(row.get("migration_id") or "")
-        for row in (payload.get("pending") or [])
-        if isinstance(row, dict)
-    }:
-        recovery = _deferred_recovery_classification(ctx.options.deployment)
-        ctx.data["attribute_recovery_classification"] = recovery
-        dev_schema = ctx.data.get("dev_schema")
-        return {
-            "ok": True,
-            "migration_status": payload,
-            "destructive_pending": destructive_pending,
-            "attribute_recovery_classification": recovery,
-            **({"dev_database": dev_database} if dev_database is not None else {}),
-            **({"dev_schema": dev_schema} if dev_schema is not None else {}),
-        }
-    recovery_result = _run_okg(
-        ctx,
-        [
-            "db",
-            "inspect-effective-attribute-recovery",
-            "--deployment",
-            ctx.options.deployment,
-        ],
-    )
-    if not recovery_result.ok:
-        return _failed_command(
-            "effective-attribute recovery preflight failed", recovery_result
-        )
-    recovery = recovery_result.json_payload()
-    if not isinstance(recovery, dict):
-        return _unreadable_command(
-            "could not read effective-attribute recovery preflight",
-            recovery_result,
-        )
-    if recovery.get("classification") not in {
-        "no_published_generation",
-        "no_repair",
-        "ordinary_repair",
-        "corrupt_state_recovery",
-        # okg#1114: preflight runs five phases BEFORE migrate, so a database
-        # whose attribute relations predate the interval narrow split cannot be
-        # classified yet -- the parity fingerprint needs a column migrate has
-        # not created. That is a schema verdict, not a data verdict, and it is
-        # deliberately NOT a pass: generation_recovery reclassifies for real
-        # after migrate (see _phase_generation_recovery) and refuses if the
-        # schema is somehow still pre-split by then.
-        "schema_migration_pending",
-    } or not str(recovery.get("binding_digest") or "").startswith("sha256:"):
-        return {
-            "ok": False,
-            "reason": "effective-attribute recovery preflight returned an invalid classification",
-            "result": recovery,
-        }
-    ctx.data["attribute_recovery_classification"] = recovery
+    predecessor = _preflight_predecessor_generation(ctx)
+    ctx.data["predecessor_generation"] = predecessor
     dev_schema = ctx.data.get("dev_schema")
     return {
         "ok": True,
         "migration_status": payload,
         "destructive_pending": destructive_pending,
-        "attribute_recovery_classification": recovery,
+        "predecessor_generation": predecessor,
         **({"dev_database": dev_database} if dev_database is not None else {}),
         **({"dev_schema": dev_schema} if dev_schema is not None else {}),
+    }
+
+
+_PREDECESSOR_GENERATION_SCHEMA = "okg.deployment_predecessor_generation.v1"
+
+
+def _preflight_predecessor_generation(ctx: UpgradeContext) -> dict[str, Any]:
+    """Record the published head as it was before this upgrade mutates anything.
+
+    ``okg deployment prove-live`` binds its predecessor to this record: the
+    generation id, the counts its checkpoint stamped and a count of its pinned
+    checkout (the same readout ``okg deployment ready`` reports for the head).
+    Until okg#3112 S3 the preflight's effective-attribute recovery
+    classification carried these fields; that classification went with the
+    attribute copies it classified.
+
+    A database this read cannot reach or read records ``status:
+    unavailable`` with the error. Preflight does not refuse on it, because the
+    record is evidence for the later proof, not an upgrade precondition: the
+    proof fails ``predecessor_bound`` on a record without a generation id,
+    loudly. A deployment with nothing published records ``status: missing``.
+    """
+    from okg.substrate.cli.deployment_readiness import _ready_generation_status
+    from okg.substrate.db.connection import connect as db_connect
+
+    record: dict[str, Any] = {
+        "schema": _PREDECESSOR_GENERATION_SCHEMA,
+        "deployment": ctx.options.deployment,
+    }
+    try:
+        with db_connect(ctx.dsn, connect_timeout=5, autocommit=True) as conn:
+            generation = _ready_generation_status(conn, ctx.options.deployment)
+    except Exception as exc:  # noqa: BLE001 - recorded; the proof fails closed on it.
+        return {
+            **record,
+            "status": "unavailable",
+            "error": {"type": type(exc).__name__, "message": str(exc)},
+        }
+    integrity = generation.get("count_integrity")
+    integrity = dict(integrity) if isinstance(integrity, Mapping) else {}
+    return {
+        **record,
+        "status": str(generation.get("status") or "missing"),
+        "generation_id": generation.get("generation_id"),
+        "checkpoint_counts": integrity.get("checkpoint"),
+        "pinned_counts": integrity.get("pinned"),
+        "count_integrity": integrity or None,
     }
 
 
@@ -7466,12 +6980,6 @@ _MANIFEST_CONFIGURATION_CHECK_HINTS: dict[str, str] = {
         "runtime.smoke_sources in deployment.yaml declares no deployment-owned, "
         "versioned source (an empty selection is refused: absence is not "
         "proof); declare at least one"
-    ),
-    "attribute_read_model_rebuildable": (
-        "native_views.attribute_effective_view_empty_overlay_fast_path is not "
-        "true in deployment.yaml, or OKG_IVM_GENERATION_ORDINAL disables the "
-        "generation ordinal; the attribute read model cannot be rebuilt from "
-        "a backup without both"
     ),
 }
 _AUTHORITY_CHECK_HINTS: dict[str, str] = {
@@ -9130,7 +8638,7 @@ def _git_dirty_lines(
         for line in str(
             _git_command(
                 repo_root,
-                ["status", "--porcelain=v1", "--untracked-files=no"],
+                ["--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=no"],
             )
         ).splitlines()
         if line.strip() and _git_status_paths(line) != excluded
@@ -11087,29 +10595,6 @@ def _target_smoke_inventory(
     }
 
 
-def _target_attribute_read_model_rebuildable(
-    ctx: UpgradeContext,
-    raw_manifest: Mapping[str, Any],
-) -> bool:
-    from okg.substrate.graph_store_internal.generation_ordinal import (
-        interval_representation_flag_enabled,
-    )
-
-    native_views = raw_manifest.get("native_views")
-    native_views = native_views if isinstance(native_views, Mapping) else {}
-    # The same configuration predicate the publisher and the effective-attribute
-    # materializer use. This answer feeds a REFUSAL gate that runs before
-    # pg_dump, so it has to be true only when the read model really can be
-    # rebuilt. OKG_IVM_GENERATION_ORDINAL=0 (issue #1514) leaves generations
-    # without an ordinal, and the repair verb this claim promises resolves the
-    # ordinal and fails loud without one -- so claiming rebuildable there would
-    # wave the upgrade past the gate and then strand it after stop_services.
-    return (
-        interval_representation_flag_enabled(ctx.env)
-        and native_views.get("attribute_effective_view_empty_overlay_fast_path") is True
-    )
-
-
 _PRE_709_CATALOG_OWNERSHIP_COLUMNS = {
     "deployment_name": ("text", True),
     "owner_fingerprint": ("text", True),
@@ -11341,10 +10826,6 @@ def _collect_effect_inventory(
             and target_catalog == live_catalog["owner_catalog_fingerprint"]
             and target_manifest == live_catalog["manifest_fingerprint"]
         )
-        attribute_rebuildable = _target_attribute_read_model_rebuildable(
-            ctx,
-            target["raw_manifest"],
-        )
         # Carry provenance from the release the upgrade planned against last
         # to the one it plans now, and refuse a silent owner drop before any
         # database effect is described.
@@ -11380,10 +10861,6 @@ def _collect_effect_inventory(
             },
             "nomos": target["nomos"],
             "smoke": target["smoke"],
-            "attribute_read_model": {
-                "mode": "derived_interval_repair",
-                "rebuildable": attribute_rebuildable,
-            },
         }
         # The effect digest describes the immutable target plan, while the full
         # inventory below also records live prerequisites.  This keeps the plan
@@ -11413,7 +10890,6 @@ def _collect_effect_inventory(
                 ),
             },
             "smoke_effect_capabilities": target["smoke"]["effect_capabilities"],
-            "attribute_read_model": details["attribute_read_model"],
         }
         digest = _canonical_digest(effect_plan)
         inventory_digest = _canonical_digest(details)
@@ -11432,7 +10908,6 @@ def _collect_effect_inventory(
             "smoke_source_versioned": (
                 target["smoke"]["versioned_and_deployment_owned"] is True
             ),
-            "attribute_read_model_rebuildable": attribute_rebuildable,
             "no_external_effects": (target["smoke"]["no_external_effects"] is True),
             "effect_digest_stable": (
                 expected_digest is None or digest == expected_digest
@@ -11637,7 +11112,11 @@ def _database_logical_identity(conn: Any) -> dict[str, Any]:
                    ), '[]'),
                    c.relpersistence, c.relreplident,
                    COALESCE(c.reloptions::text, ''), COALESCE(am.amname, ''),
-                   a.attnum, a.attname,
+                   -- Column order, not attnum: a dropped column leaves a
+                   -- gap in the source's attnums that pg_restore closes,
+                   -- so the raw number would fail every restore of a
+                   -- table a migration dropped a middle column from.
+                   a.attname,
                    format_type(a.atttypid, a.atttypmod), a.attnotnull,
                    a.attidentity, a.attgenerated,
                    CASE WHEN a.attcollation = 0 THEN '' ELSE
@@ -11831,7 +11310,7 @@ def _database_logical_identity(conn: Any) -> dict[str, Any]:
         migrations, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     schema_catalog = {
-        "inventory_version": 4,
+        "inventory_version": 5,
         "schemas": schemas,
         "relations": relations,
         "views": views,
@@ -14997,7 +14476,6 @@ _REFUSAL_EFFECT_AUTHORITY_CHECKS = (
     "planner_trusted",
     "plan_readable",
     "smoke_source_versioned",
-    "attribute_read_model_rebuildable",
 )
 
 
@@ -16016,68 +15494,11 @@ def _resolve_upgrade_deployment(ctx: UpgradeContext):
 
 
 def _phase_attribute_read_model(ctx: UpgradeContext) -> dict[str, Any]:
-    """Make generation-pinned attribute operators ready before service start."""
-    if ctx.options.plan_only:
-        return {
-            "ok": True,
-            "planned": "repair latest published effective-attribute interval view",
-            "skipped": "attribute read-model repair skipped (--plan)",
-        }
-    from okg.substrate.graph_store_internal.generation_ordinal import (
-        interval_representation_flag_enabled,
-    )
-
-    # Either switch disables the interval read model. OKG_IVM_GENERATION_ORDINAL=0
-    # (issue #1514) additionally leaves the latest generations with no ordinal,
-    # which the repair verb below resolves and fails loud on -- refuse by name
-    # here rather than crashing mid-upgrade, after stop_services.
-    if not interval_representation_flag_enabled(ctx.env):
-        return {
-            "ok": False,
-            "reason": "interval-backed attribute view is disabled",
-            "fix_hint": (
-                "remove OKG_IVM_INTERVAL_VIEW=0 / OKG_IVM_GENERATION_ORDINAL=0 "
-                "and rerun deployment up; Nomos-safe attribute operators "
-                "require the interval read model"
-            ),
-        }
-    backup_revalidation = None
-    if isinstance(getattr(ctx, "data", {}).get("backup_result"), dict):
-        backup_revalidation = _ensure_backup_revalidated_for_mutation(ctx)
-        if backup_revalidation.get("ok") is not True:
-            return backup_revalidation
-
-    result = _run_okg(
-        ctx,
-        [
-            "db",
-            "repair-effective-attribute-intervals",
-            "--deployment",
-            ctx.options.deployment,
-            "--apply",
-        ],
-    )
-    if not result.ok:
-        return _failed_command("attribute read-model repair failed", result)
-    payload = result.json_payload()
-    if not isinstance(payload, dict):
-        return _unreadable_command(
-            "could not read attribute read-model repair result", result
-        )
-    if payload.get("ok") is not True:
-        return {
-            "ok": False,
-            "reason": "attribute read-model repair did not report success",
-            "result": payload,
-        }
+    """Retired: there is no attribute copy to rebuild before service start."""
     return {
         "ok": True,
-        **(
-            {"backup_revalidation": backup_revalidation}
-            if backup_revalidation is not None
-            else {}
-        ),
-        "result": payload,
+        "skipped": "attribute read-model repair retired",
+        "reason": _RETIRED_ATTRIBUTE_COPY_PHASE_REASON,
     }
 
 

@@ -146,7 +146,9 @@ async def test_the_arguments_published_again_are_published_with_their_short_text
     }
     assert "list" in str(schemas["search"]["properties"]["view"])
     assert set(PUBLISHED_AGAIN["map"]) == set(PUBLISHED_AGAIN["aggregate"]) == {"offset", "input"}
-    assert "input" not in PUBLISHED_AGAIN["filter"]
+    # PACT read-live-handles: `filter.input` is published again (one line):
+    # every live reply names a handle and the descriptions teach input=<handle>.
+    assert set(PUBLISHED_AGAIN["filter"]) == {"offset", "input"}
     assert PUBLISHED_AGAIN["expand"]["offset"] == "One hop only."
     for tool, arguments in PUBLISHED_AGAIN.items():
         for argument, description in arguments.items():
@@ -281,7 +283,7 @@ async def test_a_read_launch_lists_what_it_accepts_and_does_not_show(lean):
     assert set(page["served_tools"]) == set(OPERATOR_TOOLS)
     lines = page["accepted_not_shown"].split("\n")
     for expected in ("search(method=...): also", "expand(depth=...)",
-                     "filter(input=...)", 'inspect target kind "coverage"', "where: also"):
+                     "filter(predicate=...)", 'inspect target kind "coverage"', "where: also"):
         assert any(line.startswith(expected) for line in lines), expected
     # read-passage-rows-3666 (D1): search's `view` is published, so it is
     # not listed as accepted-but-hidden.
@@ -390,7 +392,18 @@ async def test_the_read_tools_publish_far_fewer_tokens(lean, full):
     # the grep names-list sentence.
     # Then 3,108 (+82, read fixes): live `each`, kept-answer
     # sum/min/max, and inspect text `matching`.
-    assert after == 3_108, after
+    # Then 3,150 (+42, read-aggregate-order-by): aggregate's description
+    # gains the order_by sentence and its schema the order_by argument.
+    # Then 3,203 (+53, read-live-handles): the handle sentence in the
+    # filter, map and aggregate descriptions and the published input lines.
+    # Then 3,228 (+25, okg-attribute-history-read): inspect names the
+    # `node_history` and `subtype_diff` kinds.
+    # Then 3,247 (+19, read-multi-handle-input): aggregate names the chain
+    # handle a hand chain of live calls gets.
+    # Then 3,359 (+112, read-map-compute): map's description teaches
+    # compute (with one runnable column-only example and its paging line) and its published
+    # `compute` argument; aggregate's metric pattern takes sum(calc.<name>).
+    assert after == 3_359, after
     assert before - after >= 1_200, (before, after)
 
 
@@ -414,6 +427,10 @@ async def test_every_old_search_method_and_inspect_kind_still_validates(lean, fu
         "node": {"node_id": "n:1"}, "nodes": {"node_ids": ["n:1"]},
         "text": {"node_id": "n:1"}, "subtype": {"subtype": "doc"},
         "texts": {"items": [{"key": "a", "node_id": "n:1"}]},
+        # PACT okg-attribute-history-read: the two history kinds' required
+        # fields.
+        "node_history": {"node_id": "n:1"},
+        "subtype_diff": {"subtype": "doc", "from_generation": "g"},
     }
     seen = []
     for member in members:

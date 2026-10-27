@@ -76,10 +76,16 @@ DECLARE
   trigger_name text;
   operation text;
 BEGIN
+  -- Audited edit (PACT lane-s-storage-drop-copies): to_regclass, not a cast,
+  -- so a fresh install, where nothing creates the copies before 0046 drops
+  -- them, skips the absent tables. The DDL on an existing table is identical;
+  -- the legacy checksum is registered in
+  -- management._ORDERED_MIGRATION_CHECKSUM_COMPATIBILITIES.
   FOREACH protected_table IN ARRAY ARRAY[
-    'okg.attribute_effective_view'::regclass,
-    'okg.attribute_effective_view_intervals'::regclass
+    to_regclass('okg.attribute_effective_view'),
+    to_regclass('okg.attribute_effective_view_intervals')
   ] LOOP
+    CONTINUE WHEN protected_table IS NULL;
     FOREACH operation IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] LOOP
       trigger_name := 'attribute_integrity_dirty_' || lower(operation) ||
         '_' || substr(md5(protected_table::text), 1, 10);

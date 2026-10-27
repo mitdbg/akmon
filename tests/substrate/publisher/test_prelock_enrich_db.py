@@ -317,13 +317,13 @@ def _snapshot(dsn: str, out: dict[str, Any]) -> dict[str, Any]:
         receipts = [tuple(r) for r in cur.fetchall()]
         cur.execute(
             """
-            SELECT target_kind, target_id, encode(attrs_hash, 'hex'),
-                   attrs::text, raw_attrs::text
-              FROM okg.attribute_versions
-             ORDER BY 1, 2, 3
+            SELECT target_kind, target_id, namespace, attr_key, value::text,
+                   value_hash
+              FROM okg.attribute_effective_attrs
+             ORDER BY 1, 2, 3, 4
             """
         )
-        attribute_versions = [tuple(r) for r in cur.fetchall()]
+        attribute_overlays = [tuple(r) for r in cur.fetchall()]
     counts = {
         key: out.get(key)
         for key in ("node_count", "edge_count", "nodes_added", "edges_added",
@@ -333,7 +333,7 @@ def _snapshot(dsn: str, out: dict[str, Any]) -> dict[str, Any]:
     return {
         "nodes": nodes, "edges": edges, "edge_facts": edge_facts,
         "progress": progress, "envelopes": envelopes, "receipts": receipts,
-        "attribute_versions": attribute_versions, "counts": counts,
+        "attribute_overlays": attribute_overlays, "counts": counts,
         "enrichers": sorted(
             (r.get("name"), r.get("status"), r.get("n_edges_emitted"),
              r.get("n_edges_skipped"))
@@ -455,7 +455,6 @@ def test_prelock_publish_matches_under_lock_publish(
         }
         assert ("references", "test-case") in linked, linked
         assert ("points_to", "stack-frame") in linked, linked
-        assert hot_snapshot["attribute_versions"], "attribute rows compared"
     finally:
         _drop(cold_dsn)
 
@@ -781,51 +780,6 @@ def test_enricher_state_fingerprint_sees_a_fact_inserted_and_deleted(
         )
         after = enricher_state_fingerprint(conn, deployment_name=DEPLOYMENT)
     assert differing_keys(before, after) == ["edge_fact_sequence"]
-
-
-def test_uncaught_enrich_pass_error_still_drops_the_hash_cache(
-    clean_runtime: str, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The enricher pass runs after the attribute hash pass in the same
-    hook. An error type the pass does not absorb (a bug) propagates; the
-    hash cache's TEMP tables must not stay on the connection."""
-    from okg.substrate.publisher import Publisher
-    from tests.substrate.test_attribute_parallel_hash import _seed
-
-    _seed(clean_runtime)
-    built: list[Any] = []
-    original_hash = Publisher._prelock_attribute_hash
-
-    def hash_wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
-        cache = original_hash(self, *args, **kwargs)
-        built.append(cache)
-        return cache
-
-    def bug(self: Any, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("a bug in the enricher pass")
-
-    monkeypatch.setattr(Publisher, "_prelock_attribute_hash", hash_wrapper)
-    monkeypatch.setattr(Publisher, "_prelock_enrich", bug)
-    publisher = Publisher(
-        clean_runtime,
-        "default",
-        catalog_identity=bind_test_catalog_writer(clean_runtime, "default"),
-    )
-
-    def cache_tables(conn: psycopg.Connection) -> list[str]:
-        return sorted(
-            r[0] for r in conn.execute(
-                "SELECT relname FROM pg_class WHERE relkind = 'r' "
-                "AND relpersistence = 't' "
-                "AND relname LIKE '\\_eff\\_prelock\\_hash\\_%'"
-            ).fetchall()
-        )
-
-    with psycopg.connect(clean_runtime, autocommit=True) as conn:
-        with pytest.raises(RuntimeError, match="a bug in the enricher pass"):
-            publisher.cycle(conn=conn)
-        assert built and built[0] is not None, "the hash pass must have run"
-        assert cache_tables(conn) == []
 
 
 def test_publish_lock_held_in_another_database_does_not_skip_the_pass(

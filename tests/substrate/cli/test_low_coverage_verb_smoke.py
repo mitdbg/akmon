@@ -63,10 +63,6 @@ _NO_DSN_NONZERO: list[tuple[str, list[str]]] = [
     ("db_status", ["db", "status", "--deployment", "x"]),
     ("db_doctor", ["db", "doctor", "--deployment", "x"]),
     ("db_migrations", ["db", "migrations", "--deployment", "x"]),
-    ("db_prune_effective_intervals",
-     ["db", "prune-effective-intervals", "--deployment", "x"]),
-    ("db_backfill_effective_interval_raw_attrs",
-     ["db", "backfill-effective-interval-raw-attrs", "--deployment", "x"]),
     ("db_cold_history", ["db", "cold-history", "--deployment", "x"]),
     # lease
     ("lease_ls", ["lease", "ls"]),

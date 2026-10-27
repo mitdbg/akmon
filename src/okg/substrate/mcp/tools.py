@@ -54,6 +54,7 @@ from okg.substrate.mcp.continuation import (
     continuation_binding,
     issue_continuation,
 )
+from okg.substrate.mcp.near_names import name_stem, rank_near
 from okg.substrate.mcp.path_diagnostics import (
     PATH_WORK_CAP,
     InvalidPathDirection,
@@ -515,6 +516,14 @@ def close_node_ids(
     read (a name only): the check began and was cut, so near ids were not
     all checked.
 
+    Last, only when nothing above names a record and no read was cut, and
+    only where the deployment runs no access rules (issue 4053): ids under
+    the same head whose last part starts with that part's `name_stem`,
+    the few just before and just after the id in id order
+    (`_sibling_ids`, two bounded node-id index reads in what is left of the
+    budget). For a `<kind>:<name>` id this is the only read; when it names
+    nothing the check stays "no_path".
+
     The reader's own filter runs BEFORE any path or URL is compared, so
     neither a hidden node nor a masked value is ever confirmed. Nothing is
     served in the id's place. Returns the ids (at most `CLOSE_IDS_SHOWN`)
@@ -550,7 +559,14 @@ def close_node_ids(
         and (len(parts) >= 3 or (len(parts) == 2 and _is_hash_like(last)))
         else None
     )
-    if path is None and not forms and by_last is None and url is None:
+    # Issue 4053: ids under the same head whose last part starts like this
+    # one (`page:ReportMay2013` for `page:ReportJune2013`), read last and
+    # only when nothing else names a record. Not under access rules: which
+    # rows fill the two bounded reads could depend on hidden rows.
+    sibling = _sibling_stem(cleaned) if missing is None else None
+    if sibling is not None and not reader_sees_every_row(session):
+        sibling = None
+    if path is None and not forms and by_last is None and url is None and sibling is None:
         return [], "no_path"
     spelled: list[str] = []
     found: dict[str, str] = {}
@@ -707,11 +723,74 @@ def close_node_ids(
         for found_id in dict.fromkeys([*spelled, *ranked, *sorted(by_url), *by_name])
         if found_id != node_id
     ]
+    if not ids and not cut and round_two_done and sibling is not None:
+        near = _sibling_ids(conn, session, node_id, cleaned, sibling, deadline)
+        if near:
+            return near, "checked"
     if cut or not round_two_done:
         return ids[:CLOSE_IDS_SHOWN], "incomplete"
     if missing is not None and not ids:
         return [], "id_incomplete"
+    if not ids and path is None and not forms and by_last is None and url is None:
+        # Only the sibling read ran (a `<kind>:<name>` id) and it named
+        # nothing: no other prefix was looked at, so not "checked".
+        return [], "no_path"
     return ids[:CLOSE_IDS_SHOWN], "checked"
+
+
+def _sibling_stem(cleaned: str) -> Optional[tuple[str, str]]:
+    """The head (every part but the last, with its `:`) and the `name_stem`
+    of the last part of a cleaned id, or None: no head, a last part that
+    holds a `/` (a path, read by the path lookups) or reads as a hash, or
+    one with no usable stem."""
+    head, sep, last = cleaned.rpartition(":")
+    if not sep or not head or not last or "/" in last or _is_hash_like(last):
+        return None
+    stem = name_stem(last)
+    return None if stem is None else (head + sep, stem)
+
+
+def _sibling_ids(
+    conn: psycopg.Connection,
+    session: Session,
+    node_id: str,
+    cleaned: str,
+    sibling: tuple[str, str],
+    deadline: float,
+) -> list[str]:
+    """Up to `CLOSE_IDS_SHOWN` visible ids that start with the head and stem
+    of `sibling` and sit next to `cleaned` in id order: the
+    `CLOSE_IDS_SHOWN` before it and the `CLOSE_IDS_SHOWN` after it, two
+    bounded reads of the node-id index inside the id range of that start,
+    closest names first (`rank_near` on the last parts). What is left of the
+    close-id budget bounds both; a read that fails or runs out of time
+    gives no ids, never a guess."""
+    head, stem = sibling
+    low = head + stem
+    high = low[:-1] + chr(ord(low[-1]) + 1)
+    left = int((deadline - time.monotonic()) * 1000)
+    if left < 1:
+        return []
+    try:
+        with _read_budget(conn, session, left) as read:
+            rows = read(
+                where="WHERE node_id >= :sib_low AND node_id < :sib_id",
+                params={"sib_low": low, "sib_id": cleaned},
+                limit=CLOSE_IDS_SHOWN, descending=True,
+            ) + read(
+                where="WHERE node_id > :sib_id AND node_id < :sib_high",
+                params={"sib_id": cleaned, "sib_high": high},
+                limit=CLOSE_IDS_SHOWN,
+            )
+    except Exception:  # noqa: BLE001 - diagnosis only, never the answer
+        logger.debug("sibling-id read for %r failed", node_id, exc_info=True)
+        return []
+    found = [
+        (str(row["node_id"]), str(row["node_id"])[len(head):])
+        for row in rows
+        if str(row["node_id"]).startswith(low) and str(row["node_id"]) != node_id
+    ]
+    return rank_near(cleaned[len(head):], found, shown=CLOSE_IDS_SHOWN)
 
 
 def _like_escape(text: str) -> str:
@@ -1074,6 +1153,7 @@ def node_not_visible(
     generation_id: Any,
     *,
     close: Optional[tuple[list[str], str]] = None,
+    every_row_readable: Optional[bool] = None,
 ) -> NodeNotFound:
     """The refusal for a node that is absent OR hidden from this reader.
 
@@ -1083,6 +1163,12 @@ def node_not_visible(
     path by design: absence and denial must be indistinguishable to a
     least-privilege reader. `close` (from `close_node_ids`) names visible
     ids the caller may have meant: the exact fix for a hand-built id.
+
+    `every_row_readable` (issue 4053, `reader_sees_every_row`): True when
+    the deployment runs no access rules, so the lookup saw every stored row
+    and the message says plainly that no record has the id; False says "no
+    record you can read", the same words for an absent and a hidden node;
+    None (a caller that does not know) keeps the older "is not visible".
     """
     data: dict[str, Any] = {
         "node_id": node_id,
@@ -1090,11 +1176,18 @@ def node_not_visible(
         "pinned_generation_id": generation_id,
         "exists": False,
     }
-    message = (
-        f"node {node_id!r} is not visible at "
-        f"generation {generation_id} "
-        "(exists: false at this pin)"
-    )
+    if every_row_readable is None:
+        message = (
+            f"node {node_id!r} is not visible at "
+            f"generation {generation_id} "
+            "(exists: false at this pin)"
+        )
+    else:
+        who = "no record" if every_row_readable else "no record you can read"
+        message = (
+            f"{who} has id {node_id!r} at generation {generation_id} "
+            "(exists: false at this pin)"
+        )
     fix_hint = NODE_NOT_VISIBLE_FIX_HINT
     if close is not None:
         ids, check = close
@@ -1124,6 +1217,21 @@ def node_not_visible(
                 "no visible id has that last part under any prefix; "
             ) + NODE_NOT_VISIBLE_FIX_HINT
     return NodeNotFound(message, data=data, fix_hint=fix_hint)
+
+
+def reader_sees_every_row(session: Optional[Session]) -> bool:
+    """Whether a node lookup for this session sees every stored row: the
+    deployment runs no access rules (`deployment_requires_nomos_runtime` is
+    false), so the read filter keeps every row. Decided by the deployment,
+    never by a row, so saying it reveals nothing about hidden rows. False
+    without a session: nothing is known, so nothing is claimed."""
+    if session is None:
+        return False
+    from okg.substrate.nomos.runtime_enforcement import (
+        deployment_requires_nomos_runtime,
+    )
+
+    return not deployment_requires_nomos_runtime(session.deployment_name)
 
 
 def _edge_not_visible(edge_id: str, generation_id: Any) -> NodeNotFound:
@@ -1174,6 +1282,7 @@ def _visible_attr_target(
             raise node_not_visible(
                 target_id, session.generation_id,
                 close=close_node_ids(conn, session, target_id),
+                every_row_readable=reader_sees_every_row(session),
             )
         return rows[0]
     # `okg.graph_edges.edge_id` is BIGINT: a non-numeric id names no edge.
@@ -1788,9 +1897,11 @@ def _visible_node_rows(
     limit: Optional[int] = None,
     stored_ids: list[str] | None = None,
     candidates: Optional[str] = None,
+    descending: bool = False,
 ) -> list[dict[str, Any]]:
     """Node rows at the pin, filtered for this reader. `limit` bounds the
-    read (the first rows in node_id order) before the filter runs.
+    read (the first rows in node_id order, the last ones with `descending`)
+    before the filter runs.
     `stored_ids`, when given, receives the ids of every stored row read,
     hidden ones included (only their ids: what lies past a bound).
 
@@ -1816,7 +1927,7 @@ def _visible_node_rows(
                source, source_record_id, source_revision
           FROM okg.graph_nodes
           {where}
-         ORDER BY node_id
+         ORDER BY node_id{" DESC" if descending else ""}
          {bound}
         """,
         params or {},

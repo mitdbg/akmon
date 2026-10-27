@@ -88,12 +88,14 @@ nav:
       - Database schema: reference/database-schema.md
       - SDK API: reference/sdk-api.md
       - Live HTTP bindings: reference/live-http-bindings.md
+      - Native views: reference/views.md
   - Develop AKMON:
       - Overview: develop/index.md
       - Architecture:
           - System overview: develop/architecture/overview.md
           - Code architecture: develop/architecture/pipeline.md
           - Responsibility map: develop/architecture/responsibility-map.md
+          - Waiting edges: develop/architecture/waiting-edges.md
           - Runtime: develop/architecture/runtime.md
           - Privacy: develop/architecture/privacy.md
           - Consistency: develop/architecture/consistency.md

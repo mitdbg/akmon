@@ -43,6 +43,7 @@ from tests.substrate.mcp.test_live_result_sets import (  # noqa: F401 (fixtures)
     _gate,
     _ok,
     _refused,
+    _retain,
     _rows,
     live_store,
     world,
@@ -507,3 +508,218 @@ def test_the_cover_line_prints_first() -> None:
     text = result_text.render(page, tool="aggregate")
     assert "! totals cover: 3 rows of hits(q=x)" in text.split("count")[0]
     assert text.count("3 rows of hits(q=x)") == 1
+
+
+# ============================================================ a kept answer the upstream cut
+# PACT live-kept-answer-cut: the external system's cut is kept with the set,
+# so every total over it says the set is short (a direct call is 1 of 1).
+
+#: What the cover line adds over a set the external system cut.
+CUT_ONE_OF_ONE = (
+    "; the external system cut 1 of 1 calls, so totals count only the rows it sent"
+)
+
+
+def test_a_kept_cut_answer_records_the_cut_and_every_kept_form_keeps_it(live_store) -> None:
+    import dataclasses
+
+    from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
+    from okg.substrate.mcp import result_references
+    from tests.substrate.mcp.test_live_result_sets import _hook, _room
+
+    bound = _bound()
+    with result_references.draft_scope() as scope:
+        envelope = dispatch_live_relation(
+            bound=bound, args_model=compile_args_model(bound.relation),
+            args={"q": "x"}, node_id="node-1", gate=_gate(True),
+            adapter=lambda **kw: UpstreamCutRows([{"n": 1}, {"n": 2}], received=2),
+            write_sample=RecordingSampler(), generation_id="7", room=_room(1_000_000),
+            retain=_hook(live_store, bound),
+        )
+        scope.finish({"external_live": envelope})
+    set_id = envelope["result_reference"]["id"]
+    kept = live_store.lookup(set_id, reader_key="reader-a").payload
+    # A direct call is one call: cut 1 of 1.
+    assert kept.upstream_cut == {"rows": 2, "calls_cut": 1, "calls": 1}
+    derived = dataclasses.replace(kept, rows_json=b"[]", row_count=0)
+    assert derived.upstream_cut == kept.upstream_cut
+    groups = live_result_sets.groups_set(
+        [{"count": 2}], columns=["count"], source=kept, from_id=set_id, order="count desc",
+    )
+    assert groups.upstream_cut == kept.upstream_cut
+
+
+def test_over_a_cut_set_only_a_count_is_at_least_and_every_other_metric_is_over() -> None:
+    """Review M1: a row not received may hold a negative value, so a sum is
+    never "at least", whatever the received rows hold."""
+    kept = _with_cut(_kept({"q": "x", "size": 10}), {"rows": 3, "calls_cut": 1, "calls": 1})
+    metrics = [("count", None), ("min", "size"), ("sum", "size")]
+    assert live_result_sets.totals_cover(kept, 3, metrics=metrics) == (
+        "3 rows of hits(q=x, size=10); nothing outside these calls is counted"
+        + CUT_ONE_OF_ONE
+        + "; count is at least the value shown; min(attrs.size) and sum(attrs.size) "
+        "are over the rows received only"
+    )
+    assert live_result_sets.totals_cover(
+        kept, 2, metrics=[("sum", "size"), ("max", "size")],
+    ).endswith("; sum(attrs.size) and max(attrs.size) are over the rows received only")
+    # With `by`, a group only unreceived rows hold is missing too (L3).
+    assert live_result_sets.totals_cover(
+        kept, 3, metrics=[("count", None)], grouped=True,
+    ).endswith(
+        "; count is at least the value shown in each group; a group held only by "
+        "rows not received is missing"
+    )
+
+
+@pytest.mark.parametrize("rows, shown", [
+    # All received values are >= 0: still not "at least" (review M1).
+    ([{"size": 5}, {"size": 0}], 5),
+    # A float (L2), a null and an absent field (L1): the sum is still over the
+    # rows received only, and a sum with no number received shows null.
+    ([{"size": 1.5}, {"size": 2}], 2),
+    ([{"size": None}, {}], None),
+])
+def test_a_sum_over_a_cut_set_is_over_the_rows_received_whatever_was_received(
+    rows: list[dict[str, Any]], shown: Any,
+) -> None:
+    kept = _with_cut(_kept({"q": "x"}), {"rows": len(rows), "calls_cut": 1, "calls": 1})
+    metrics = [("sum", "size")]
+    (_key, computed), = live_result_sets.group_report(rows, [], metrics).groups
+    assert computed["sum(attrs.size)"] == shown
+    assert live_result_sets.totals_cover(kept, len(rows), metrics=metrics).endswith(
+        CUT_ONE_OF_ONE + "; sum(attrs.size) is over the rows received only",
+    )
+
+
+def test_a_cut_block_without_rows_records_no_cut() -> None:
+    """Review L4: a malformed block is no cut, never a KeyError."""
+    assert live_result_sets.kept_cut({}) is None
+    assert live_result_sets.kept_cut(None) is None
+    assert live_result_sets.kept_cut({"rows": 3}) == {"rows": 3, "calls_cut": 1, "calls": 1}
+    assert live_result_sets.kept_cut({"rows": 8, "calls_cut": 2, "calls": 5}) == {
+        "rows": 8, "calls_cut": 2, "calls": 5,
+    }
+
+
+def test_a_cut_typed_listing_says_its_cut_on_the_cover_line() -> None:
+    coverage = {"cut": True, "cuts": ["sites listing cut at 1000"]}
+    cover = live_result_sets.totals_cover(
+        _kept({"q": "x"}), 1000, metrics=[("count", None)], coverage=coverage,
+    )
+    assert cover == (
+        "1000 rows of hits(q=x); nothing outside these calls is counted; the live "
+        "listing was cut (sites listing cut at 1000), so totals count only the rows "
+        "listed; count is at least the value shown"
+    )
+    assert live_result_sets.totals_short(_kept({"q": "x"}), coverage) == {
+        "listing_cut": ["sites listing cut at 1000"],
+    }
+
+
+def test_a_total_over_a_whole_answer_says_nothing_of_a_cut() -> None:
+    cover = live_result_sets.totals_cover(
+        _kept({"q": "x"}), 2, metrics=[("count", None)], coverage={"cut": False},
+    )
+    assert cover == "2 rows of hits(q=x); nothing outside these calls is counted"
+    assert live_result_sets.totals_short(_kept({"q": "x"}), {"cut": False}) == {}
+
+
+def _with_cut(kept: Any, cut: dict[str, int]) -> Any:
+    import dataclasses
+
+    return dataclasses.replace(kept, upstream_cut=cut)
+
+
+@pytest.mark.postgres
+def test_a_kept_cut_call_aggregated_says_the_totals_are_short(world) -> None:
+    from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
+
+    world["adapter"].rows = UpstreamCutRows(_rows(40), received=40)
+    set_id = _retain(world)["result_reference"]["id"]
+    mcp = world["mcp"]
+    total = _ok(mcp, "aggregate", {
+        "input": {"ref": set_id}, "by": [],
+        "metrics": ["count", "sum(attrs.size)", "min(attrs.size)"],
+    })
+    (group,) = total["groups"]
+    assert group["count"] == 40 and group["sum(attrs.size)"] == sum(range(40))
+    assert total["totals_cover"] == (
+        "40 rows of lrs_rows(q=x, size=10); nothing outside these calls is counted"
+        + CUT_ONE_OF_ONE
+        + "; count is at least the value shown; sum(attrs.size) and "
+        "min(attrs.size) are over the rows received only"
+    )
+    # Review M2: the JSON fields say it too, not only the text. The
+    # producer's retrieval_exhaustive is carried on the wire as
+    # coverage.retrieval.status (envelope.py).
+    assert total["upstream_cut"] == {"rows": 40, "calls_cut": 1, "calls": 1}
+    assert total["coverage"]["retrieval"]["status"] == "bounded"
+    assert total["total_count_basis"] == "lower_bound"
+    text = result_text.render(total, tool="aggregate")
+    assert "! totals cover: 40 rows of lrs_rows" in text and CUT_ONE_OF_ONE in text
+    # A narrowed handle of the cut set is still short, and says so.
+    narrowed = _ok(mcp, "filter", {
+        "input": {"ref": set_id},
+        "predicate": {"op": "prefix", "field": "attrs.name", "value": "row-0001"},
+    })
+    derived_id = narrowed["handle"]["id"]
+    assert derived_id != set_id
+    again = _ok(mcp, "aggregate", {"input": {"ref": derived_id}, "by": [], "metrics": ["count"]})
+    assert again["groups"][0]["count"] == 10
+    assert again["totals_cover"].endswith(
+        CUT_ONE_OF_ONE + "; count is at least the value shown",
+    )
+    assert again["upstream_cut"] == total["upstream_cut"]
+    assert again["coverage"]["retrieval"]["status"] == "bounded"
+    assert len(world["adapter"].calls) == 1
+
+
+@pytest.mark.postgres
+def test_a_whole_kept_call_aggregated_stays_exact(world) -> None:
+    """Failure case: an answer the external system did not cut keeps the
+    exact fields and no cut field."""
+    set_id = _retain(world)["result_reference"]["id"]
+    total = _ok(world["mcp"], "aggregate", {
+        "input": {"ref": set_id}, "by": [], "metrics": ["count"],
+    })
+    assert total["coverage"]["retrieval"]["status"] == "exhaustive"
+    assert total["total_count_basis"] == "exact"
+    assert "upstream_cut" not in total and "listing_cut" not in total
+    assert "external system" not in total["totals_cover"]
+
+
+@pytest.mark.postgres
+def test_a_fan_out_with_two_of_five_calls_cut_says_two_of_five(world) -> None:
+    from okg.substrate.external_backed.live_dispatch import UpstreamCutRows
+
+    class CutPerValue(type(world["adapter"])):
+        """Cuts the answers for `b` and `d` only."""
+
+        def __call__(self, **kwargs: Any) -> Any:
+            self.calls.append(kwargs)
+            rows = _rows(4)
+            if kwargs["args"]["q"] in ("b", "d"):
+                return UpstreamCutRows(rows, received=len(rows))
+            return rows
+
+    world["adapter"].__class__ = CutPerValue
+    mcp = world["mcp"]
+    body = _ok(mcp, "expand", {
+        "input": {"node_id": world["hub"]}, "direction": "in",
+        "live": {"relation": "lrs_rows", "each": {"q": ["a", "b", "c", "d", "e"]}},
+        "max_bytes": 16_384,
+    })
+    live = body["external_live"]
+    assert live["upstream_cut"]["calls_cut"] == 2 and live["upstream_cut"]["calls"] == 5
+    total = _ok(mcp, "aggregate", {
+        "input": {"ref": live["result_reference"]["id"]}, "by": [], "metrics": ["count"],
+    })
+    assert total["groups"][0]["count"] == 20
+    assert total["totals_cover"] == (
+        "20 rows of lrs_rows(q=<5 values>, size=10), one call per q (5 values); "
+        "nothing outside these calls is counted; the external system cut 2 of 5 "
+        "calls, so totals count only the rows it sent; count is at least the value shown"
+    )
+    assert total["upstream_cut"] == {"rows": 20, "calls_cut": 2, "calls": 5}
+    assert total["coverage"]["retrieval"]["status"] == "bounded"

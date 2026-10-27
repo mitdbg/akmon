@@ -15,7 +15,6 @@ import pytest
 
 from chronos_core.branching import BranchingError
 
-from okg.substrate.errors import EffectiveIntervalBackfillRequired
 from okg.substrate.graph_store import ChronosGraphStore
 from okg.substrate.library.sources.base import NodeFact
 from tests.pytest.catalog_fixture_builders import bind_test_catalog_writer  # noqa: E402
@@ -169,11 +168,9 @@ def _default_publisher(dsn: str):
     return Publisher(dsn, "default", consistency_gates=[TransformConsistencyGate()], catalog_identity=bind_test_catalog_writer(dsn, "default"))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=EffectiveIntervalBackfillRequired,
-    reason="#2317 store.fast_forward records no graph counts or ordinal, so the next publish refuses",
-)
+# #2317: store.fast_forward records no graph counts or ordinal. The next
+# publish used to refuse on the interval precondition; okg#3112 S3 retired that
+# precondition, so this proof now runs (it was a strict xfail).
 def test_fast_forward_no_phantom_retraction(clean_runtime: str) -> None:
     # The load-bearing soundness proof, through the REAL publisher: after a fast-forward,
     # the next default publish must NOT phantom-retract the merged rows.

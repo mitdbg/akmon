@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -82,6 +83,33 @@ PROPERTIES = [
     ),
 ]
 
+# Non-vacuity witness (moved here from a pytest that no per-PR lane could run:
+# none has Java). Two of the external-effect invariants are ENTAILED by the
+# others plus the classification, so a model that drops "external_effect" from
+# the forced-current-restore class still passes them vacuously.
+# EffectClassificationPartitionsFailures is the one that can fail, and this
+# witness proves it does; without it the classification is documentation.
+DECLASSIFY_EXTERNAL_EFFECT = "declassify-external-effect"
+_DECLASSIFY_FROM = '    "nomos_changed", "external_effect"\n'
+_DECLASSIFY_TO = '    "nomos_changed"\n'
+COUNTEREXAMPLE_PROPERTIES = {
+    DECLASSIFY_EXTERNAL_EFFECT: (
+        TLCProperty(
+            "DeclassifiedExternalEffectCounterexample",
+            "TLC refuted EffectClassificationPartitionsFailures on the model "
+            "with external_effect dropped from the forced-current-restore "
+            "class, so the partition invariant fires rather than being listed.",
+            refinement_tests=(
+                "tests/pact/test_deployment_backup_policy_model_contract.py::"
+                "test_effect_classification_partitions_every_field",
+                "tests/pact/test_deployment_backup_policy_model_contract.py::"
+                "test_external_effect_is_a_known_physical_effect_in_the_model",
+            ),
+            expected_invariants=("EffectClassificationPartitionsFailures",),
+        ),
+    ),
+}
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
@@ -109,21 +137,50 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         dest="property_ids",
     )
+    parser.add_argument(
+        "--witness-id",
+        choices=sorted(COUNTEREXAMPLE_PROPERTIES),
+        default=None,
+        help="run a registered non-vacuity witness (needs --expect-counterexample)",
+    )
+    parser.add_argument(
+        "--expect-counterexample",
+        action="store_true",
+        help="succeed only when TLC refutes the witness's named invariant",
+    )
     parser.add_argument("--timeout-seconds", type=int, default=120)
     args = parser.parse_args(argv)
+
+    if bool(args.witness_id) != args.expect_counterexample:
+        parser.error("--witness-id and --expect-counterexample go together")
+    model_dir = MODEL_DIR
+    model = args.model
+    config = args.config
+    properties = PROPERTIES
+    checker_command = args.checker_command
+    if args.witness_id:
+        properties = list(COUNTEREXAMPLE_PROPERTIES[args.witness_id])
+        model_dir, model, config = _write_declassified_model(args.out)
+        checker_command = (
+            "uv run --extra dev python "
+            "scripts/check_formal_deployment_backup_policy.py "
+            f"--witness-id {args.witness_id} --expect-counterexample"
+        )
 
     try:
         result = run_tlc_formal_report(
             repo_root=REPO_ROOT,
-            model_dir=MODEL_DIR,
-            model=args.model,
-            config=args.config,
+            model_dir=model_dir,
+            model=model,
+            config=config,
             out_dir=args.out,
-            properties=select_properties(PROPERTIES, args.property_ids),
-            expected_properties=PROPERTIES,
-            checker_command=args.checker_command,
+            properties=select_properties(properties, args.property_ids),
+            expected_properties=properties,
+            checker_command=checker_command,
             extra_refinement_tests=args.extra_refinement_tests,
+            expect_counterexample=args.expect_counterexample,
             timeout_seconds=args.timeout_seconds,
+            include_checker_output=args.expect_counterexample,
         )
     except TLCSetupError as exc:
         print(f"formal-deployment-backup-policy: {exc}", file=sys.stderr)
@@ -135,10 +192,38 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return result.exit_code or 1
+    if args.expect_counterexample:
+        print(
+            "formal-deployment-backup-policy: expected counterexample "
+            f"captured; report at {result.report_path}"
+        )
+        return 0
     print(
         f"formal-deployment-backup-policy: TLC passed; report at {result.report_path}"
     )
     return 0
+
+
+def _write_declassified_model(out_dir: Path) -> tuple[Path, Path, Path]:
+    """Copy the model with external_effect dropped from the forced class.
+
+    The copy keeps the module's file name (TLC requires it to match the
+    MODULE line) in its own directory under the run's output.
+    """
+    witness_dir = out_dir.resolve() / "declassified-model"
+    witness_dir.mkdir(parents=True, exist_ok=True)
+    text = (MODEL_DIR / "DeploymentBackupPolicy.tla").read_text(encoding="utf-8")
+    mutated = text.replace(_DECLASSIFY_FROM, _DECLASSIFY_TO)
+    if mutated == text:
+        raise SystemExit(
+            "formal-deployment-backup-policy: model shape changed; "
+            "update the declassify-external-effect witness"
+        )
+    model = witness_dir / "DeploymentBackupPolicy.tla"
+    model.write_text(mutated, encoding="utf-8")
+    config = witness_dir / "DeploymentBackupPolicy.cfg"
+    shutil.copy(MODEL_DIR / "DeploymentBackupPolicy.cfg", config)
+    return witness_dir, model, config
 
 
 if __name__ == "__main__":

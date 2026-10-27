@@ -32,6 +32,7 @@ from okg.substrate.chat.source_admin import AUTH_OPEN, AUTH_REQUIRED, AUTH_UNKNO
 from okg.substrate.chat.sync import (
     MCP_HTTP_AUTH_PRODUCER,
     WRITE_CONNECTION_SUFFIX,
+    WRITE_PRESET_SUFFIX,
     WRITE_UNAUTHORIZED_NO_ADMIN_GROUP,
     WRITE_UNAUTHORIZED_READ_ONLY_ENDPOINT,
     ChatSyncError,
@@ -285,7 +286,7 @@ def test_write_connection_listing_contains_record_and_propose(
 
     # The preset that binds it is granted to the ADMIN group and to no other,
     # read back off the instance's own model row.
-    row = instance.model_row(f"okg-fixture{WRITE_CONNECTION_SUFFIX}")
+    row = instance.model_row(f"okg-fixture{WRITE_PRESET_SUFFIX}")
     assert row["meta"]["toolIds"] == [f"server:mcp:{WRITE_SERVER_ID}"]
     granted = {g["principal_id"] for g in row["access_grants"]}
     assert granted == {"group-admins"}
@@ -315,7 +316,7 @@ def test_write_preset_carries_the_answer_contract_and_the_read_preset_does_not(
     )
     assert report.ok, report.to_dict()
 
-    write_system = instance.model_row(f"okg-fixture{WRITE_CONNECTION_SUFFIX}")[
+    write_system = instance.model_row(f"okg-fixture{WRITE_PRESET_SUFFIX}")[
         "params"
     ]["system"]
     read_system = instance.model_row("okg-fixture")["params"]["system"]
@@ -638,3 +639,42 @@ def test_withdrawing_the_authorization_withdraws_the_connection(
     assert set(
         _listing(instance, "okg-fixture", advertised=WRITE_CAPABLE_TOOLS)
     ) == set(READ_TOOLS)
+
+
+def test_an_earlier_release_write_connection_migrates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#3960 review F5: `okg-fixture-write` becomes `okg_fixture_write`.
+
+    The earlier release is the current code with its old suffix; the write
+    preset id (`okg-fixture-write`) does not move, its toolIds do.
+    """
+    import dataclasses
+
+    from okg.substrate.chat import sync as sync_module
+
+    _pin_endpoint(monkeypatch, advertised=WRITE_CAPABLE_TOOLS, enforces_auth=True)
+    instance = _instance()
+    old = _make_inputs(tmp_path, manifest=_raw_manifest(sso=True))
+    monkeypatch.setattr(sync_module, "WRITE_CONNECTION_SUFFIX", "-write")
+    assert _run(old, instance, advertised=WRITE_CAPABLE_TOOLS).ok
+    ids = sorted(str((e.get("info") or {}).get("id")) for e in instance.tool_servers)
+    assert ids == ["okg-fixture", "okg-fixture-write"]
+    instance.models["hand-write"] = {
+        "id": "hand-write", "name": "x", "base_model_id": "base/model-a",
+        "meta": {"toolIds": ["server:mcp:okg-fixture-write"]}, "params": {},
+    }
+
+    monkeypatch.setattr(sync_module, "WRITE_CONNECTION_SUFFIX", "_write")
+    new = dataclasses.replace(old, mcp_server_id="okg_fixture")
+    migrated = _run(new, instance, advertised=WRITE_CAPABLE_TOOLS)
+    assert migrated.ok, migrated.to_dict()
+    ids = sorted(str((e.get("info") or {}).get("id")) for e in instance.tool_servers)
+    assert ids == ["okg_fixture", "okg_fixture_write"]
+    assert instance.model_row(f"okg-fixture{WRITE_PRESET_SUFFIX}")["meta"]["toolIds"] == [
+        "server:mcp:okg_fixture_write"
+    ]
+    notes = " ".join(n for s in migrated.surfaces.values() for n in s.notes)
+    assert "['hand-write'] still name ['server:mcp:okg-fixture-write']" in notes
+    again = _run(new, instance, advertised=WRITE_CAPABLE_TOOLS)
+    assert again.ok and again.changes == 0

@@ -34,7 +34,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import (
-    Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Optional, Sequence,
+    Any, Callable, Iterable, Iterator, Mapping, Optional, Sequence,
 )
 
 import psycopg
@@ -173,11 +173,6 @@ from okg.substrate.transform.commit import (
 from okg.substrate.transform.programs import enrichment_program
 
 
-_COUNT_STAMP_RECOVERY_AUTHORIZATION_ENV = (
-    "OKG_COUNT_STAMP_RECOVERY_AUTHORIZATION"
-)
-
-
 def _publish_telemetry_status_message(
     blocked_reason: Mapping[str, Any] | str | None,
 ) -> str | None:
@@ -229,156 +224,6 @@ def _write_race_backoff_seconds(attempt: int) -> float:
     import random
 
     return 0.5 * attempt * random.uniform(0.5, 1.5)
-
-
-def _validate_count_stamp_recovery_authorization(
-    raw: str | None,
-    *,
-    conn: psycopg.Connection,
-    deployment: str,
-    branch: str,
-    predecessor_generation_id: str,
-    recorded_counts: tuple[int, int],
-    pinned_counts: tuple[int, int],
-) -> dict[str, Any] | None:
-    """Validate the one-predecessor recovery capability carried by deployment up."""
-    if not raw:
-        return None
-    try:
-        authorization = json.loads(raw)
-    except (TypeError, ValueError) as exc:
-        raise SubstrateError(
-            "count-stamp recovery authorization is not valid JSON"
-        ) from exc
-    required_keys = {
-        "schema", "deployment", "branch", "branch_id",
-        "predecessor_generation_id", "checkpoint_counts", "pinned_counts",
-        "classification_binding_digest", "prepared_binding_digest",
-        "authorization_digest",
-    }
-    if not isinstance(authorization, dict) or set(authorization) != required_keys:
-        raise SubstrateError(
-            "count-stamp recovery authorization has an invalid schema",
-            data={
-                "observed_keys": (
-                    sorted(authorization) if isinstance(authorization, dict) else []
-                )
-            },
-        )
-    unsigned = dict(authorization)
-    observed_digest = str(unsigned.pop("authorization_digest"))
-    expected_digest = "sha256:" + hashlib.sha256(
-        json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-    expected_checkpoint = {"node": recorded_counts[0], "edge": recorded_counts[1]}
-    expected_pinned = {"node": pinned_counts[0], "edge": pinned_counts[1]}
-    checks = {
-        "schema": authorization.get("schema")
-        == "okg.count_stamp_recovery_authorization.v1",
-        "digest": observed_digest == expected_digest,
-        "deployment": authorization.get("deployment") == deployment,
-        "branch": authorization.get("branch") == branch,
-        "predecessor": authorization.get("predecessor_generation_id")
-        == predecessor_generation_id,
-        "checkpoint_counts": authorization.get("checkpoint_counts")
-        == expected_checkpoint,
-        "pinned_counts": authorization.get("pinned_counts") == expected_pinned,
-        "prepared_binding_digest": str(
-            authorization.get("prepared_binding_digest") or ""
-        ).startswith("sha256:"),
-        "classification_binding_digest": str(
-            authorization.get("classification_binding_digest") or ""
-        ).startswith("sha256:"),
-    }
-    if not all(checks.values()):
-        raise SubstrateError(
-            "count-stamp recovery authorization does not match the current predecessor",
-            data={
-                "checks": checks,
-                "predecessor_generation_id": predecessor_generation_id,
-            },
-        )
-    classification_digest = str(authorization["classification_binding_digest"])
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT deployment_name, branch_name, predecessor_generation_id, "
-            "stage, authorization_payload, consumed_by_generation_id "
-            "FROM okg.effective_attribute_recovery_attempts "
-            "WHERE classification_binding_digest = %s",
-            (classification_digest,),
-        )
-        attempt = cur.fetchone()
-    journal_checks = {
-        "exists": attempt is not None,
-        "deployment": attempt is not None and str(attempt[0]) == deployment,
-        "branch": attempt is not None and str(attempt[1]) == branch,
-        "predecessor": (
-            attempt is not None and str(attempt[2]) == predecessor_generation_id
-        ),
-        "prepared": attempt is not None and str(attempt[3]) == "prepared",
-        "authorization_exact": (
-            attempt is not None
-            and isinstance(attempt[4], dict)
-            and dict(attempt[4]) == authorization
-        ),
-        "unconsumed": attempt is not None and attempt[5] is None,
-    }
-    if not all(journal_checks.values()):
-        raise SubstrateError(
-            "count-stamp recovery authorization has no matching prepared journal authority",
-            data={"checks": journal_checks},
-        )
-    from okg.substrate.attributes import classify_effective_attribute_recovery
-
-    current = classify_effective_attribute_recovery(
-        conn,
-        deployment_name=deployment,
-        branch=branch,
-    )
-    if current.get("binding_digest") != authorization["prepared_binding_digest"]:
-        raise SubstrateError(
-            "count-stamp recovery prepared view changed before successor publication",
-            data={
-                "expected": authorization["prepared_binding_digest"],
-                "observed": current.get("binding_digest"),
-            },
-        )
-    return authorization
-
-
-_COUNT_STAMP_RECOVERY_FAILPOINT: Callable[[str], None] | None = None
-
-# How far behind the generation being published an attribute-integrity receipt
-# may be and still hold closed interval rows open against the retention prune
-# (okg#1603). Past this the sidecar bound wins: the prune reclaims, and the
-# receipt refuses and re-anchors instead of subtracting deleted history.
-_MAX_PROTECTED_RECEIPT_LAG = 32
-
-
-def _consume_count_stamp_recovery_authorization(
-    conn: psycopg.Connection,
-    *,
-    authorization: Mapping[str, Any],
-    successor_generation_id: str,
-) -> None:
-    # The caller owns the transaction that also creates the successor checkpoint.
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE okg.effective_attribute_recovery_attempts "
-            "SET consumed_by_generation_id = %s, consumed_at = now(), updated_at = now() "
-            "WHERE classification_binding_digest = %s AND stage = 'prepared' "
-            "AND consumed_by_generation_id IS NULL AND authorization_payload = %s",
-            (
-                successor_generation_id,
-                authorization["classification_binding_digest"],
-                json.dumps(dict(authorization)),
-            ),
-        )
-        if cur.rowcount != 1:
-            raise SubstrateError(
-                "count-stamp recovery journal authority was not consumed exactly once",
-                data={"successor_generation_id": successor_generation_id},
-            )
 
 
 # Commit-witness (PACT route-all-writers): the enrichment stage stamps every fact
@@ -658,6 +503,15 @@ _CHRONOS_DELTA_COUNT_KEYS = (
     "edges_updated",
 )
 
+#: Waiting-edge changes since the previous generation (cross-source endpoint
+#: wedge). A publish whose only change is to the waiting table is a graph
+#: change: it cuts a generation.
+_DEFERRED_DELTA_COUNT_KEYS = (
+    "deferred_added",
+    "deferred_retracted",
+    "deferred_updated",
+)
+
 
 def _build_invariant_summary(phase_b: PhaseBResult) -> dict[str, Any]:
     """Produce the `graph_generations.invariant_summary` JSONB
@@ -790,30 +644,32 @@ def _count_stamp_self_heal_every() -> int:
         return 20
 
 
-#: Issue 2941 fix 5: the fewest rows written since the last checkpoint for
-#: which an incremental cycle hashes them before the publish lock. Below it
-#: the materialize stages them in a small TEMP table and hashes them serially
-#: (_PARALLEL_HASH_MIN_ROWS in attributes.py); a pre-lock pass would cost
-#: more than it saves.
-_PRELOCK_CHANGED_MIN_ROWS = 20_000
+def _full_cycle_reasons(
+    *,
+    has_previous: bool,
+    block_intervened: bool,
+    has_cadence_stamp: bool,
+    cadence_position: int,
+    self_heal_every: int,
+) -> list[str]:
+    """Name every predicate that makes this publish a full-count cycle.
 
-
-class _PrelockHashPlan(NamedTuple):
-    """Whether, and over which rows, to hash attributes before the lock.
-
-    ``code`` is a stable machine-readable reason; ``reason`` explains it.
-    ``scope`` is "full" (every visible row) or "changed" (the rows written in
-    ``segment_ids``, the writer segments since the last checkpoint).
-    ``changed_rows`` is the bounded count of row versions written in those
-    segments (at most _PRELOCK_CHANGED_MIN_ROWS), when it was counted.
+    Issue 3955: the cycle report did not say why a cycle recounted the whole
+    graph. The publisher's decision (``_count_self_heal``) is ``bool()`` of
+    this list, so the report and the decision cannot drift. A first publish
+    reports only ``first_publish`` (it has no cadence stamp either, by
+    definition).
     """
-
-    run: bool
-    reason: str
-    code: str
-    scope: str | None = None
-    segment_ids: tuple[int, ...] = ()
-    changed_rows: int | None = None
+    if not has_previous:
+        return ["first_publish"]
+    reasons: list[str] = []
+    if block_intervened:
+        reasons.append("blocked_generation_between")
+    if not has_cadence_stamp:
+        reasons.append("previous_has_no_cadence_stamp")
+    if cadence_position % self_heal_every == 0:
+        reasons.append(f"cadence_every_{self_heal_every}")
+    return reasons
 
 
 @contextmanager
@@ -835,41 +691,6 @@ def _publisher_timed_stage(
                 "started_perf": started,
                 "ended_perf": ended,
             })
-
-
-@contextmanager
-def _attribute_integrity_transition_guard(
-    conn: psycopg.Connection,
-    *,
-    deployment_name: str,
-    branch: str,
-) -> Iterator[dict[str, Any]]:
-    """Clear publisher-only transition authority on every cycle exit."""
-    transition: dict[str, Any] = {}
-    try:
-        yield transition
-    finally:
-        transition_active = bool(transition.get("transition_backend_bound"))
-        if transition_active:
-            from okg.substrate.attribute_integrity import (
-                clear_attribute_integrity_transition,
-            )
-
-            primary_error = sys.exc_info()[0] is not None
-            try:
-                clear_attribute_integrity_transition(
-                    conn,
-                    deployment_name=deployment_name,
-                    branch=branch,
-                    namespace="default",
-                    transition_active=True,
-                )
-            except Exception:  # noqa: BLE001 - never replace the cycle failure.
-                logging.getLogger(__name__).exception(
-                    "attribute integrity transition cleanup failed"
-                )
-                if not primary_error:
-                    raise
 
 
 def _publisher_round_ms(value: Any) -> float | None:
@@ -2024,7 +1845,6 @@ class Publisher:
         enricher_projection_deltas_hint: Any = (),
         native_view_min_refresh_interval_ms: int = 0,
         native_view_materialization_delay_ms: int = 0,
-        attribute_effective_view_empty_overlay_fast_path: bool = False,
         history_retention_policy: Mapping[str, Any] | None | object = _UNSET,
         checkpoint_attestors: Optional[Sequence[Any]] = None,
         source_sync_priority_probe: Callable[[], str | None] | None = None,
@@ -2263,9 +2083,6 @@ class Publisher:
             materialization_delay_ms=max(
                 0, int(native_view_materialization_delay_ms or 0),
             ),
-        )
-        self.attribute_effective_view_empty_overlay_fast_path = bool(
-            attribute_effective_view_empty_overlay_fast_path
         )
         if history_retention_policy is _UNSET:
             try:
@@ -2631,6 +2448,9 @@ class Publisher:
     ) -> str | None:
         # Every caller honours the source-sync signal (#3003), including a
         # publish from inside a sync; the signal excludes this run's own hold.
+        # Only the workflow-row probe below can be off: an overdue scheduled
+        # publisher wires one that ignores source-sync rows (publisher-
+        # starvation-4039). The signal above is never skipped.
         if conn is not None:
             blocking_intent = (
                 source_sync_admission_intent_workflow_id_on_connection(
@@ -2665,7 +2485,14 @@ class Publisher:
 
     def _yield_to_source_sync(self, blocking: str, deadline: float) -> None:
         """A scheduled publish yields at once; a sync's own publish waits for
-        the other sync until the publish-lock deadline, then refuses."""
+        the other sync until the publish-lock deadline, then refuses.
+
+        "Yields at once" is to what ``source_sync_priority_probe`` reports. The
+        admission intent (#3003) is always reported. The workflow-row probe of
+        the scheduled publisher stops reporting source-sync rows once that
+        publisher is overdue (PACT publisher-starvation-4039): the run-base
+        guard and the checkpoint-cut recheck then decide whether a run is
+        still writing, and refuse the publish if one is."""
         if not self._inside_source_sync() or time.monotonic() >= deadline:
             self._raise_source_sync_priority(blocking)
         time.sleep(min(1.0, max(0.05, deadline - time.monotonic())))
@@ -2863,302 +2690,6 @@ class Publisher:
             finally:
                 if cleanup is not None:
                     cleanup()
-
-    def _prelock_attribute_hash_plan(
-        self, conn: psycopg.Connection
-    ) -> _PrelockHashPlan:
-        """Whether this cycle should hash attributes before taking the lock.
-
-        Issue 2941 fixes 2 and 5. The materialize hashes every row it merges.
-        A first publish, and a full count-stamp cycle whose previous snapshot
-        is partial, merge every row: the pass then hashes every visible row
-        (scope "full"). Every other cycle merges only the rows changed since
-        the last checkpoint (dirty-driven, or carry-forward over a full
-        snapshot): the pass then hashes only the rows the branch wrote since
-        its last checkpoint (scope "changed"), and runs only when at least
-        _PRELOCK_CHANGED_MIN_ROWS row versions were written. Before fix 5
-        such cycles always skipped the pass, so a new source that landed most
-        of the graph in one incremental cycle had all of it hashed under the
-        lock.
-
-        It is a prediction made without the lock; a wrong one costs time,
-        never correctness, because the materialize checks every reused hash
-        against the rows it stages under the lock. It is skipped when the
-        session already holds an advisory lock (a caller that took the
-        publish or branch write lock would hold it through the pass) or is
-        inside a transaction, and when another session holds the publish
-        lock.
-        """
-        if os.environ.get("OKG_ATTR_HASH_PRELOCK", "1") == "0":
-            return _PrelockHashPlan(
-                False, "disabled by OKG_ATTR_HASH_PRELOCK=0", "disabled",
-            )
-        if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
-            return _PrelockHashPlan(
-                False, "connection is inside a transaction", "in_transaction",
-            )
-        if not conn.autocommit:
-            # The pass must leave the caller's connection as it found it; on a
-            # non-autocommit connection its first read would open a transaction.
-            return _PrelockHashPlan(
-                False, "connection is not in autocommit mode", "not_autocommit",
-            )
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
-                "AND pid = pg_backend_pid() AND granted"
-            )
-            held = int(cur.fetchone()[0])
-        if held:
-            return _PrelockHashPlan(
-                False,
-                f"the session already holds {held} advisory lock(s); the pass "
-                "would run under them",
-                "advisory_lock_held",
-            )
-        # A publisher queued behind another would run its parallel scan and
-        # hash while the holder works, taking workers and CPU from the hold
-        # it is waiting on. Read pg_locks only; this never takes the lock.
-        # Advisory locks are per database, and pg_locks lists every database
-        # on the server: a publish of the same deployment name in another
-        # database holds an unrelated lock, so only this database counts.
-        classid, objid = _advisory_keys(self.deployment_name)
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
-                "AND granted AND objsubid = 2 AND pid <> pg_backend_pid() "
-                "AND database = (SELECT oid FROM pg_database "
-                "WHERE datname = current_database()) "
-                "AND classid = %s::bigint::oid AND objid = %s::bigint::oid",
-                (classid & 0xFFFFFFFF, objid & 0xFFFFFFFF),
-            )
-            others = int(cur.fetchone()[0])
-        if others:
-            return _PrelockHashPlan(
-                False,
-                "another session holds the publish lock; hashing now would "
-                "compete with its publish",
-                "publish_lock_busy",
-            )
-        from okg.substrate.graph_store import ChronosGraphStore
-
-        store = ChronosGraphStore.from_connection(
-            conn, ensure_schema=False, autocommit=True
-        )
-        previous = store.latest_generation(
-            deployment_name=self.deployment_name,
-            branch=self.branch_name,
-            status="published",
-        )
-        if previous is None:
-            return _PrelockHashPlan(
-                True, "first publish of the branch", "first_publish", "full",
-            )
-        metadata = dict(getattr(previous, "metadata", None) or {})
-        full_cycle = True
-        if "count_stamp_cadence" in metadata:
-            cadence = int(metadata.get("count_stamp_cadence", 0) or 0)
-            full_cycle = (cadence + 1) % _count_stamp_self_heal_every() == 0
-        has_writes = self._chronos_current_segment_has_graph_writes(
-            conn, branch_name=self.branch_name,
-        )
-        if has_writes is False:
-            return _PrelockHashPlan(
-                False, "no graph writes since the last checkpoint",
-                "no_graph_writes",
-            )
-        if full_cycle:
-            # A full cycle copies every unchanged row that the previous
-            # generation's snapshot holds (carry-forward) and hashes only the
-            # rest. A partial snapshot (the usual changed-only one) leaves
-            # most rows to hash: hash every row. A full one (a fork branch,
-            # or right after a full cycle) leaves only the rows changed since
-            # then: decide on those, as an incremental cycle does.
-            from okg.substrate.attributes import prior_snapshot_coverage
-
-            coverage = prior_snapshot_coverage(conn, str(previous.checkpoint_id))
-            if not all(
-                expected is not None and covered >= expected
-                for covered, expected in coverage.values()
-            ):
-                return _PrelockHashPlan(
-                    True, "a full count-stamp cycle is expected", "full_cycle",
-                    "full",
-                )
-            basis = (
-                "a full count-stamp cycle over a full previous snapshot ("
-                f"{coverage['node'][0]} node rows, {coverage['edge'][0]} edge "
-                "rows) is expected"
-            )
-        else:
-            basis = "an incremental cycle is expected"
-        changed = self._chronos_rows_written_since_checkpoint(
-            conn, branch_name=self.branch_name, limit=_PRELOCK_CHANGED_MIN_ROWS,
-        )
-        if changed is None:
-            return _PrelockHashPlan(
-                False,
-                f"{basis}, and the rows written since the last checkpoint "
-                "cannot be listed (no interval storage or no writer segment)",
-                "changed_rows_unknown",
-            )
-        segment_ids, rows = changed
-        if rows < _PRELOCK_CHANGED_MIN_ROWS:
-            return _PrelockHashPlan(
-                False,
-                f"{basis}, and only {rows} row version(s) were written since "
-                f"the last checkpoint (below {_PRELOCK_CHANGED_MIN_ROWS}); "
-                "hashing them under the lock costs less than a pass",
-                "changed_rows_below_threshold",
-                None, segment_ids, rows,
-            )
-        return _PrelockHashPlan(
-            True,
-            f"{basis}, and at least {rows} row versions were written since "
-            "the last checkpoint; hashing those before the lock",
-            "changed_rows", "changed", segment_ids, rows,
-        )
-
-    @staticmethod
-    def _chronos_rows_written_since_checkpoint(
-        conn: psycopg.Connection,
-        *,
-        branch_name: str,
-        limit: int,
-    ) -> tuple[tuple[int, ...], int] | None:
-        """The writer segments since the last checkpoint and a bounded count.
-
-        Counts the node and edge row versions written in those segments (the
-        segment walk of _chronos_current_segment_has_graph_writes), stopping
-        at ``limit``; each count reads the (writer_segment_id, key) index.
-        None when the branch has no interval storage or no such segment.
-        """
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT physical_table
-                  FROM _chronos_branch_tables
-                 WHERE table_name IN ('okg.graph_nodes', 'okg.graph_edges')
-                   AND backend = 'interval'
-                 ORDER BY table_name DESC
-                """
-            )
-            physical_tables = [str(row[0]) for row in cur.fetchall()]
-            if not physical_tables:
-                return None
-            cur.execute(
-                _CHRONOS_SEGMENTS_SINCE_LAST_CHECKPOINT_SQL, (branch_name,),
-            )
-            segment_ids = tuple(sorted({int(row[0]) for row in cur.fetchall()}))
-            if not segment_ids:
-                return None
-            rows = 0
-            for physical_table in physical_tables:
-                if rows >= limit:
-                    break
-                cur.execute(
-                    sql.SQL(
-                        "SELECT count(*) FROM (SELECT 1 FROM {physical} "
-                        "WHERE writer_segment_id = ANY(%s) LIMIT %s) s"
-                    ).format(physical=sql.Identifier(physical_table)),
-                    (list(segment_ids), limit - rows),
-                )
-                rows += int(cur.fetchone()[0])
-        return segment_ids, rows
-
-    def _prelock_attribute_hash(
-        self,
-        conn: psycopg.Connection,
-        timings_ms: dict[str, Any],
-        report: dict[str, Any],
-    ) -> Any:
-        """Run the pre-lock hash pass; return the cache or None.
-
-        Never raises for an ordinary failure: the cycle then hashes every row
-        under the lock, as before, and ``report`` plus one warning say why.
-        """
-        started = time.perf_counter()
-        try:
-            plan = self._prelock_attribute_hash_plan(conn)
-            report["planned"] = plan.run
-            report["reason"] = plan.reason
-            report["reason_code"] = plan.code
-            if plan.scope is not None:
-                report["scope"] = plan.scope
-            if plan.changed_rows is not None:
-                report["changed_rows_counted"] = plan.changed_rows
-            if not plan.run:
-                return None
-            from okg.substrate.attributes import (
-                prepare_prelock_attribute_hash_cache,
-            )
-
-            cache = prepare_prelock_attribute_hash_cache(
-                conn,
-                branch=self.branch_name,
-                statement_timeout_ms=self._publish_statement_timeout_ms() or None,
-                writer_segment_ids=(
-                    plan.segment_ids if plan.scope == "changed" else None
-                ),
-            )
-            report["rows"] = {
-                "node": cache.report.get("node"),
-                "edge": cache.report.get("edge"),
-            }
-            report["parallel"] = cache.report.get("parallel")
-            return cache
-        except (psycopg.Error, SubstrateError, BranchingError) as exc:
-            # The failures a database pass can have: a database error, a
-            # refusal from the cache builder, or a Chronos branch error. The
-            # cycle then hashes every row under the lock and says why; any
-            # other exception is a bug and propagates.
-            if conn.info.transaction_status == psycopg.pq.TransactionStatus.INERROR:
-                conn.rollback()
-            report["planned"] = report.get("planned", False)
-            if "reason_code" not in report:
-                # The plan itself raised: there is no plan reason to report.
-                report["reason"] = "the pre-lock plan failed"
-                report["reason_code"] = "plan_failed"
-            report["failed"] = f"{type(exc).__name__}: {exc}"
-            logging.getLogger(__name__).warning(
-                "pre-lock attribute hash failed for deployment=%s (%s); the "
-                "publish hashes every row under the lock",
-                self.deployment_name,
-                report["failed"],
-            )
-            return None
-        finally:
-            elapsed = round((time.perf_counter() - started) * 1000.0, 3)
-            report["elapsed_ms"] = elapsed
-            timings_ms["attribute_hash_prelock"] = elapsed
-            # Issue 2941 fix 5: one structured record per cycle, written when
-            # the pass is over, so a slow publish can say why the pass did or
-            # did not run, how many rows it hashed, how long it took, and why
-            # it failed. A bug that propagates is logged here too. Outcome
-            # values come from cli/run_summary.STATUS_CLASSES.
-            if sys.exc_info()[0] is not None:
-                outcome = "error"
-            elif "failed" in report:
-                outcome = "failed"
-            elif report.get("planned"):
-                outcome = "completed"
-            else:
-                outcome = "skipped"
-            event = {
-                "event": "publisher.prelock_attribute_hash_plan",
-                "deployment": self.deployment_name,
-                "branch": self.branch_name,
-                "outcome": outcome,
-                **report,
-            }
-            logging.getLogger(__name__).info(
-                "pre-lock attribute hash for deployment=%s: %s (%s) %s",
-                self.deployment_name,
-                outcome,
-                report.get("reason", "the pass raised an unexpected error"),
-                json.dumps(event, sort_keys=True, default=str),
-                extra={"okg_event": event},
-            )
 
     def _attach_prelock_enrich_report(
         self,
@@ -6893,6 +6424,8 @@ class Publisher:
                 reads_affected_view_ids=reads_affected_view_ids,
                 reads_deltas=reads_deltas,
                 dirty_scope_unavailable=dirty_scope_unavailable,
+                graph_delta_empty=self._graph_delta_empty(chronos_dirty_scope),
+                branch_name=self.branch_name,
                 graph_store=graph_store,
                 caller_owned_transaction=caller_owned_transaction,
             )
@@ -6930,6 +6463,22 @@ class Publisher:
             "degraded_view_count": len(view_degradations),
             "degraded_views": view_degradations,
         }
+
+    @staticmethod
+    def _graph_delta_empty(
+        chronos_dirty_scope: _ChronosDirtyScope | None,
+    ) -> bool:
+        """True only when the cycle's change set is known and names no node
+        or edge change. A view that declares no reads is assumed to read any
+        graph type, so this is its proof that nothing it reads moved; an
+        unavailable change set proves nothing."""
+        if chronos_dirty_scope is None or not chronos_dirty_scope[2]:
+            # no change set, or edges could not be listed: nothing is proven
+            return False
+        return not (
+            Publisher._semantic_dirty_nodes_by_subtype(chronos_dirty_scope)
+            or Publisher._semantic_dirty_edges_by_type(chronos_dirty_scope)
+        )
 
     def _view_reads_deltas(
         self,
@@ -9455,6 +9004,56 @@ class Publisher:
         }
 
     @staticmethod
+    def _chronos_deferral_delta(
+        conn: psycopg.Connection,
+        *,
+        branch_name: str,
+        previous: Any,
+    ) -> dict[str, int]:
+        """Waiting-edge rows added, retracted and updated since ``previous``.
+
+        Zero when the database has no waiting table yet. A read failure
+        propagates: a count that could not be taken is not a count of zero.
+        """
+        zeros: dict[str, int] = {}
+        previous_ref = getattr(previous, "ref", None)
+        if previous_ref is None:
+            return zeros
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT physical_table
+                  FROM _chronos_branch_tables
+                 WHERE table_name = 'okg.graph_edge_deferrals'
+                   AND backend = 'interval'
+                """
+            )
+            row = cur.fetchone()
+        if row is None:
+            return zeros
+        added, retracted, updated = Publisher._chronos_segment_table_delta(
+            conn,
+            physical_table=str(row[0]),
+            key_column="edge_id",
+            compare_columns=("state", "edge_type", "attrs", "profile_fingerprint"),
+            branch_name=branch_name,
+            previous_segment_id=str(previous_ref),
+            since_base_segments=Publisher._chronos_segments_written_since(
+                conn,
+                branch_name=branch_name,
+                base_segment_id=str(previous_ref),
+            ),
+        )
+        counts = {
+            "deferred_added": added,
+            "deferred_retracted": retracted,
+            "deferred_updated": updated,
+        }
+        # Only a real change is reported, so a delta with no waiting-edge
+        # change keeps exactly the six node and edge counts.
+        return {key: value for key, value in counts.items() if value}
+
+    @staticmethod
     def _chronos_current_segment_delta_counts(
         conn: psycopg.Connection,
         *,
@@ -9519,6 +9118,9 @@ class Publisher:
             "edges_added": edges_added,
             "edges_retracted": edges_retracted,
             "edges_updated": edges_updated,
+            **Publisher._chronos_deferral_delta(
+                conn, branch_name=branch_name, previous=previous,
+            ),
         }
 
     @staticmethod
@@ -9544,7 +9146,7 @@ class Publisher:
                     """
                     SELECT table_name, physical_table
                       FROM _chronos_branch_tables
-                     WHERE table_name IN ('okg.graph_nodes', 'okg.graph_edges')
+                     WHERE table_name IN ('okg.graph_nodes', 'okg.graph_edges', 'okg.graph_edge_deferrals')
                        AND backend = 'interval'
                     """
                 )
@@ -9554,6 +9156,7 @@ class Publisher:
                 for table in (
                     tables.get("okg.graph_nodes"),
                     tables.get("okg.graph_edges"),
+                    tables.get("okg.graph_edge_deferrals"),
                 )
                 if table
             ]
@@ -10501,6 +10104,9 @@ class Publisher:
             and int(delta_counts["edges_added"]) == 0
             and int(delta_counts["edges_retracted"]) == 0
             and int(delta_counts.get("edges_updated", 0)) == 0
+            and int(delta_counts.get("deferred_added", 0) or 0) == 0
+            and int(delta_counts.get("deferred_retracted", 0) or 0) == 0
+            and int(delta_counts.get("deferred_updated", 0) or 0) == 0
         )
 
     @staticmethod
@@ -10666,7 +10272,7 @@ class Publisher:
         )
         self._last_native_view_refresh = native_view_refresh
         native_view_refresh = self._native_view_refresh_report()
-        attribute_effective_view_refresh = {
+        attribute_overlay_refresh = {
             "status": "reused",
             "reason": "chronos_noop_same_catalog",
             "generation_id": generation_id,
@@ -10698,8 +10304,8 @@ class Publisher:
             native_view_refresh=native_view_refresh,
             lens_outcomes=[],
         )
-        timing_details["attribute_effective_view_refresh"] = (
-            attribute_effective_view_refresh
+        timing_details["attribute_overlay_refresh"] = (
+            attribute_overlay_refresh
         )
         self._attach_prelock_enrich_report(timing_details, timings_ms)
         timing_details["skipped_stages"] = list(skipped_stages)
@@ -10765,7 +10371,7 @@ class Publisher:
             "reused_generation": True,
             "native_views_reused": bool(self.native_view_stage.materializers),
             "native_view_refresh": native_view_refresh,
-            "attribute_effective_view_refresh": attribute_effective_view_refresh,
+            "attribute_overlay_refresh": attribute_overlay_refresh,
             "reuse_reason": "chronos_noop_same_catalog",
             "noop_reuse_stage": reuse_stage,
             "noop_reuse_checks": dict(reuse_checks),
@@ -11153,11 +10759,11 @@ class Publisher:
         timings_ms: dict[str, Any] = {
             _PUBLISHER_TIMING_EVENTS_KEY: [],
         }
-        attribute_effective_view_refresh: dict[str, Any] = {
-            "status": "not_run",
-            "final_view_refresh": native_view_refresh_final,
-            "force_native_view_refresh": force_native_view_refresh,
-        }
+        # The overlay materialization and overlay-range sync this cycle ran.
+        attribute_overlay_refresh: dict[str, Any] = {"status": "not_run"}
+        # Issue 3955: why this cycle is (or is not) a full-proof cycle; set
+        # where the publisher decides it, None when the cycle stops earlier.
+        full_cycle_report: dict[str, Any] | None = None
         lock_started = time.perf_counter()
         lock_acquired_at: float | None = None
         lock_hold_ms: float | None = None
@@ -11174,14 +10780,10 @@ class Publisher:
         # path that reaches the receipt has run the gate. The declaration is
         # here only so the name has a type and a definition at function scope.
         gate_excluded_sources: list[str] = []
-        # Issue 2941 fix 2: hash the attributes of a predicted full cycle
-        # before the lock. Only a final (or forced) refresh materializes the
-        # view, and a caller-verified publish already owns a transaction.
-        prelock_hash_report: dict[str, Any] = {}
-        prelock_hash_cache: Any = None
         # Issue 2941 fix 1: compute the dirty scope, enricher output and the
         # derived-fact apply's compute half before the lock; each is used
-        # under the lock only after a recheck (see prelock_enrich.py).
+        # under the lock only after a recheck (see prelock_enrich.py). A
+        # caller-verified publish already owns a transaction and skips it.
         prelock_enrich_report: dict[str, Any] = {}
         prelock_enrich_state: Any = None
         self._last_prelock_enrich_report = prelock_enrich_report
@@ -11189,29 +10791,7 @@ class Publisher:
         def _before_publish_lock(
             locked_conn: psycopg.Connection,
         ) -> Callable[[], None] | None:
-            nonlocal lock_started, prelock_hash_cache, prelock_enrich_state
-            if native_view_refresh_final or force_native_view_refresh:
-                prelock_hash_cache = self._prelock_attribute_hash(
-                    locked_conn, timings_ms, prelock_hash_report,
-                )
-
-            def _drop() -> None:
-                if prelock_hash_cache is None:
-                    return
-                from okg.substrate.attributes import (
-                    drop_prelock_attribute_hash_cache,
-                )
-
-                try:
-                    drop_prelock_attribute_hash_cache(
-                        locked_conn, prelock_hash_cache,
-                    )
-                except Exception:  # noqa: BLE001 - TEMP tables end with the session
-                    logging.getLogger(__name__).warning(
-                        "could not drop the pre-lock attribute hash cache",
-                        exc_info=True,
-                    )
-
+            nonlocal lock_started, prelock_enrich_state
             try:
                 prelock_enrich_state = self._prelock_enrich(
                     locked_conn,
@@ -11220,9 +10800,6 @@ class Publisher:
                     force_enrichers=force_enrichers,
                 )
             except BaseException:
-                # The cycle never gets the cleanup callback when this hook
-                # raises; drop the hash cache's TEMP tables here so the
-                # pooled connection does not keep them.
                 if (
                     locked_conn.info.transaction_status
                     == psycopg.pq.TransactionStatus.INERROR
@@ -11235,13 +10812,10 @@ class Publisher:
                             "enricher pass raised",
                             exc_info=True,
                         )
-                _drop()
                 raise
-            # The lock wait is measured from here, not across the passes.
+            # The lock wait is measured from here, not across the pass.
             lock_started = time.perf_counter()
-            if prelock_hash_cache is None:
-                return None
-            return _drop
+            return None
 
         prelock_hook = (
             _before_publish_lock
@@ -11255,12 +10829,7 @@ class Publisher:
         # so the guard is a no-op.
         with self._locked_connection(conn, before_lock=prelock_hook) as conn, \
                 ExitStack() as guarded_branch_writes, \
-                _phase_event_failure_flush(timings_ms), \
-                _attribute_integrity_transition_guard(
-                    conn,
-                    deployment_name=self.deployment_name,
-                    branch=self.branch_name,
-                ) as _attribute_transition_guard:
+                _phase_event_failure_flush(timings_ms):
             timings_ms["locked_connection"] = round(
                 max(0.0, (time.perf_counter() - lock_started) * 1000.0),
                 3,
@@ -11381,17 +10950,14 @@ class Publisher:
                     status="published",
                 )
                 # `previous_counts` baselines the RUNNING-COUNTER stamp path
-                # (`_chronos_counts_after_delta` -> previous_counts + delta_counts),
-                # used only under OKG_IVM_INTERVAL_VIEW=1 (the interval-tracked branch
-                # path below). delta_counts is the continuation-segment delta, which
+                # (`_chronos_counts_after_delta` -> previous_counts + delta_counts).
+                # delta_counts is the continuation-segment delta, which
                 # advances at every checkpoint (published OR blocked), so the running
                 # baseline MUST be the last CHECKPOINT's counts -- NOT the last
                 # *published* gen's; otherwise a blocked gen's delta is dropped. `previous`
                 # stays the last PUBLISHED gen (the ontology / count rollup -1 baseline).
                 # In the all-published case last-checkpoint == last-published, so this is
-                # a no-op. NOTE: this is NOT what fixes the DEFAULT (flag-off) path -- there
-                # the stamp is the effective-attribute-view materialize cardinality, fixed
-                # by the `_block_intervened` full-scan force below.
+                # a no-op.
                 previous_checkpoint = store.latest_generation(
                     deployment_name=self.deployment_name,
                     branch=self.branch_name,
@@ -11481,101 +11047,6 @@ class Publisher:
                                 blocker=publish_blocker_payload,
                             )
                         )
-            # Capture the receipt epoch immediately after acquiring the
-            # publisher lock and resolving the branch, before Layer-1 overlay
-            # refresh can issue an UPDATE against the protected snapshot.  A
-            # later capture would misclassify this cycle's own first write as
-            # pre-existing corruption and would never advance the chain.
-            # ONE predicate, shared with the effective-attribute materializer,
-            # for "does the interval representation own this branch's publish".
-            # It now also honours the OKG_IVM_GENERATION_ORDINAL=0 kill switch,
-            # which previously gated only
-            # ChronosGraphStore._maybe_mint_generation_ordinal and so did
-            # nothing on this path (issue #1514).
-            from okg.substrate.graph_store_internal.generation_ordinal import (
-                interval_representation_enabled as _interval_arm_enabled,
-            )
-
-            _interval_branch_enabled_at_start = _interval_arm_enabled(
-                store.context.db, self.branch_name
-            )
-            if _interval_branch_enabled_at_start and previous is not None:
-                from okg.substrate.attributes import (
-                    require_effective_interval_backfill_precondition,
-                    resolve_interval_precondition_anchor,
-                )
-
-                # The precondition equates a generation's checkpoint counts with
-                # the intervals open at its ordinal. A generation that
-                # DELIBERATELY deferred its interval sync (an intermediate
-                # publish) folded nothing, so its counts legitimately run ahead
-                # of the interval rows; checking it refused a healthy deployment
-                # and told the operator to run a repair that has nothing to fix
-                # (issue #1927). Anchor on the last generation that actually
-                # synced instead. Only an EXPLICIT deferral marker moves the
-                # anchor, so every other state stays fail-closed.
-                _interval_anchor = resolve_interval_precondition_anchor(
-                    previous,
-                    load_checkpoint=store.get_generation,
-                )
-                _anchor_checkpoint = _interval_anchor["checkpoint"]
-                _published_counts = self._chronos_checkpoint_graph_counts(
-                    _anchor_checkpoint
-                )
-                require_effective_interval_backfill_precondition(
-                    conn,
-                    store.context.db,
-                    deployment_name=self.deployment_name,
-                    branch=self.branch_name,
-                    generation_id=str(_anchor_checkpoint.checkpoint_id),
-                    checkpoint_counts=(
-                        {
-                            "node": _published_counts[0],
-                            "edge": _published_counts[1],
-                        }
-                        if _published_counts is not None
-                        else None
-                    ),
-                    anchor_note=(
-                        {
-                            "predecessor_generation_id": str(
-                                previous.checkpoint_id
-                            ),
-                            "deferred_generations_skipped": (
-                                _interval_anchor["steps"]
-                            ),
-                            "stop_reason": _interval_anchor["reason"],
-                        }
-                        if _interval_anchor["steps"]
-                        else None
-                    ),
-                )
-
-            _attribute_integrity_transition: dict[str, Any] = {
-                "eligible": False,
-                "reason": "interval_read_model_not_materialized",
-            }
-            if (
-                _interval_branch_enabled_at_start
-                and (native_view_refresh_final or force_native_view_refresh)
-            ):
-                from okg.substrate.attribute_integrity import (
-                    clear_attribute_integrity_transition,
-                    prepare_attribute_integrity_transition,
-                )
-
-                _attribute_integrity_transition = (
-                    prepare_attribute_integrity_transition(
-                        conn,
-                        deployment_name=self.deployment_name,
-                        branch=self.branch_name,
-                        namespace="default",
-                    )
-                )
-                if _attribute_integrity_transition.get("eligible"):
-                    _attribute_transition_guard.update(
-                        _attribute_integrity_transition
-                    )
             _emit_phase_event_with_timing(timings_ms, "reserve_complete", {
                 "deployment_name": self.deployment_name,
                 "branch_name": self.branch_name,
@@ -12043,52 +11514,6 @@ class Publisher:
                 previous_metadata.get(published_completeness.METADATA_KEY),
                 generation_ingest_completeness,
             )
-            # Validate recovery authority before any no-op/early-return path.
-            # A capability is one-predecessor scoped and reuse must fail loudly
-            # even when the attempted successor would otherwise have no delta.
-            _recovery_authorization_raw = os.environ.get(
-                _COUNT_STAMP_RECOVERY_AUTHORIZATION_ENV
-            )
-            _authorized_count_stamp_recovery: dict[str, Any] | None = None
-            _authorized_previous_pinned_counts: tuple[int, int] | None = None
-            _authorized_previous_recorded_counts: tuple[int, int] | None = None
-            if _recovery_authorization_raw:
-                if previous is None:
-                    raise SubstrateError(
-                        "count-stamp recovery authorization requires a published predecessor"
-                    )
-                _authorized_previous_recorded_counts = (
-                    self._chronos_checkpoint_graph_counts(previous)
-                )
-                if _authorized_previous_recorded_counts is None:
-                    raise SubstrateError(
-                        "recovery predecessor has no trustworthy count stamp"
-                    )
-                _authorization_checkout = store.checkout_generation(
-                    previous.checkpoint_id,
-                    branch=self.branch_name,
-                )
-                _authorized_previous_pinned_counts = (
-                    self._chronos_current_graph_counts(_authorization_checkout)
-                )
-                _authorized_count_stamp_recovery = (
-                    _validate_count_stamp_recovery_authorization(
-                        _recovery_authorization_raw,
-                        conn=conn,
-                        deployment=self.deployment_name,
-                        branch=self.branch_name,
-                        predecessor_generation_id=str(previous.checkpoint_id),
-                        recorded_counts=_authorized_previous_recorded_counts,
-                        pinned_counts=_authorized_previous_pinned_counts,
-                    )
-                )
-                if (
-                    _authorized_previous_recorded_counts
-                    == _authorized_previous_pinned_counts
-                ):
-                    raise SubstrateError(
-                        "count-stamp recovery authorization is unnecessary for a truthful predecessor"
-                    )
             previous_catalog_version_id = self._chronos_checkpoint_catalog_version(
                 previous,
             )
@@ -12248,6 +11673,11 @@ class Publisher:
                     "edges_updated": int(
                         counts.get("edges_updated", 0) or 0,
                     ),
+                    **{
+                        key: int(counts.get(key, 0) or 0)
+                        for key in _DEFERRED_DELTA_COUNT_KEYS
+                        if key in counts
+                    },
                 }
 
             def chronos_dirty_scope() -> _ChronosDirtyScope | None:
@@ -12409,6 +11839,13 @@ class Publisher:
                     counts = keyed_counts()
                 if counts is None:
                     return None
+                counts = {
+                    **counts,
+                    **self._chronos_deferral_delta(
+                        conn, branch_name=self.branch_name,
+                        previous=previous,
+                    ),
+                }
                 set_chronos_delta_counts_cache(counts)
                 # Counted over the whole scope just read, so the counts
                 # describe the state fingerprinted before that read.
@@ -12843,7 +12280,6 @@ class Publisher:
                                 native_views_reusable
                                 and not self.checkpoint_attestors
                                 and not force_native_view_refresh
-                                and _authorized_count_stamp_recovery is None
                             ):
                                 reuse_result = self._chronos_noop_reuse_result(
                                     conn,
@@ -13168,7 +12604,6 @@ class Publisher:
             if (
                 noop
                 and previous is not None
-                and _authorized_count_stamp_recovery is None
                 and previous_checkpoint_matches_published
                 and previous_catalog_version_id == int(cv)
                 and not self.lenses
@@ -13200,7 +12635,6 @@ class Publisher:
             if (
                 noop
                 and previous is not None
-                and _authorized_count_stamp_recovery is None
                 and previous_checkpoint_matches_published
                 and previous_catalog_version_id == int(cv)
                 and reuse_policy_pin_matches()
@@ -13231,7 +12665,6 @@ class Publisher:
             if (
                 noop
                 and previous is not None
-                and _authorized_count_stamp_recovery is None
                 and previous_checkpoint_matches_published
                 and previous_catalog_version_id == int(cv)
                 # Native views are generation-scoped derived outputs. They
@@ -14137,10 +13570,8 @@ class Publisher:
                         self.deployment_name,
                     )
             nomos_bundle_ids, nomos_fingerprints = active_nomos_pin
-            # Mint the new generation's checkpoint id up-front so the effective-attrs
-            # materialization below can tag its snapshot with it AND so we can stamp
-            # the snapshot's true cardinality into the gate + checkpoint (both read
-            # n_nodes/n_edges below).
+            # Mint the new generation's checkpoint id up-front so the overlay
+            # materialization below can tag its rows and marker with it.
             generation_id = ChronosGraphStore.new_generation_id(
                 deployment_name=self.deployment_name,
                 branch=self.branch_name,
@@ -14153,154 +13584,74 @@ class Publisher:
                     materialize_effective_attributes_for_generation,
                 )
 
-                materialize_effective_attributes_for_generation(
-                    conn,
-                    generation_id=generation_id,
-                    previous_generation_id=(
-                        previous.checkpoint_id if previous is not None else None
+                attribute_overlay_refresh = {
+                    **materialize_effective_attributes_for_generation(
+                        conn,
+                        generation_id=generation_id,
+                        previous_generation_id=(
+                            previous.checkpoint_id if previous is not None else None
+                        ),
                     ),
-                )
-            # scale-operator-attr-reads / req.effective-attrs-view (Layer 2): build
-            # the INDEXED effective-attrs snapshot the MCP attr operators read. Built
-            # here — after every source + enricher-derived + view_cites edge has
-            # landed on the branch, and BEFORE the nomos gate + checkpoint — so its
-            # row count IS the true published node/edge cardinality. It commits
-            # atomically with the generation below (operators never see a published
-            # generation without its snapshot); the new generation's checkpoint does
-            # not exist yet, so the raw base is the live-branch checkout.
-            from okg.substrate.attributes import (
-                DirtyTargets,
-                materialize_effective_attribute_view_for_generation,
-            )
-
-            # ivm-effective-attribute-view / task.plumb-dirty-scope: hand the
-            # materializer this cycle's raw changeset so it stages/merges/writes
-            # only changed targets (O(changed)) instead of re-deriving the delta
-            # from a full chronos-visible scan. The materializer unions this with
-            # the per-generation overlay gen-diff (overlay-only changes are not in
-            # the chronos scope) and falls back to the full-scan path on a None
-            # scope (delta unavailable). OKG_IVM_DIRTY_MATERIALIZE=0 forces the
-            # legacy full-scan path (operator kill-switch for the hot path).
-            # Computed unconditionally — the interval-view sync below reuses this
-            # scope even when an intermediate publish defers its own snapshot.
-            _ivm_scope = chronos_dirty_scope() if previous is not None else None
+                }
             # If a BLOCKED generation intervened since the last published one, the
-            # carry-forward base (the last published snapshot) and the dirty scope
-            # (the segment delta since the last CHECKPOINT, i.e. the blocked gen) have
-            # mismatched baselines -- an incremental materialize would carry forward
-            # the last published snapshot and apply only the post-blocked-gen delta,
-            # DROPPING the blocked gen's changes (a wrong snapshot + wrong stamped
-            # node/edge count served as truth -> a P0). Force the documented full-scan
-            # fallback (dirty_targets=None) for this one cycle so the snapshot rebuilds
-            # from the live branch (correct; rare; resumes incremental next cycle).
+            # running count's baseline (the last CHECKPOINT's counts) and the last
+            # published generation differ; the derivations below recount in full
+            # for this one cycle (correct; rare; resumes incremental next cycle).
             _block_intervened = (
                 previous is not None
                 and previous_checkpoint is not None
                 and previous_checkpoint.checkpoint_id != previous.checkpoint_id
             )
-            # The bounded graph-count self-heal is also the bounded proof/re-anchor
-            # cadence for the effective-attribute read model. A dirty scope can miss
-            # a graph mutation path; if the count scan discovers that drift AFTER an
-            # incremental snapshot + interval sync, the checkpoint would stamp the
-            # corrected graph count beside a stale interval front. Decide the cadence
-            # before materialization and force the documented full path on the same
-            # generation. This keeps steady state O(changed) while ensuring any
-            # dirty-scope omission is repaired within the existing count-heal bound.
+            # The bounded graph-count self-heal: the stamped node_count /
+            # edge_count is a running counter between full counts, and a delta
+            # can miss a graph mutation path. Re-count the whole graph on a
+            # bounded cadence (and on the first publish, after a blocked
+            # generation, or when the predecessor carries no cadence stamp).
+            # Issue 3955: the decision IS the list of reasons, so the cycle
+            # report cannot disagree with it.
             _prev_cadence = int(
                 previous_metadata.get("count_stamp_cadence", 0) or 0
             )
             _has_cadence_stamp = "count_stamp_cadence" in previous_metadata
             _self_heal_every = _count_stamp_self_heal_every()
-            _integrity_forces_reanchor = (
-                not bool(_attribute_integrity_transition.get("eligible"))
-                and _attribute_integrity_transition.get("reason")
-                in {
-                    "prior_state_not_clean",
-                    "prior_epoch_mismatch",
-                    "transition_cas_failed",
-                }
+            _full_reasons = _full_cycle_reasons(
+                has_previous=previous is not None,
+                block_intervened=bool(_block_intervened),
+                has_cadence_stamp=_has_cadence_stamp,
+                cadence_position=_prev_cadence + 1,
+                self_heal_every=_self_heal_every,
             )
-            _count_self_heal = (
-                previous is None
-                or _block_intervened
-                or not _has_cadence_stamp
-                or _authorized_count_stamp_recovery is not None
-                # A refused incremental publish can commit protected derived
-                # writes before it fails its proof. Retrying as another
-                # changed-only cycle would inherit a dirty receipt and a stale
-                # running-count baseline. Make the immediate retry the recovery
-                # boundary: full count, full front, and a fresh anchor.
-                or _integrity_forces_reanchor
-                or (_prev_cadence + 1) % _self_heal_every == 0
-            )
-            _dirty_targets = None
-            if (
-                _ivm_scope is not None
-                and not _block_intervened
-                and not _count_self_heal
-                and os.environ.get("OKG_IVM_DIRTY_MATERIALIZE", "1") != "0"
-            ):
-                _nodes_by_subtype = _ivm_scope[0] or {}
-                _edges_by_type = _ivm_scope[1] or {}
-                _dirty_targets = DirtyTargets(
-                    node_ids=frozenset(
-                        str(nid)
-                        for ids in _nodes_by_subtype.values()
-                        for nid in ids
-                    ),
-                    edge_ids=frozenset(
-                        str(eid)
-                        for ids in _edges_by_type.values()
-                        for eid in ids
-                    ),
-                )
-
-            # Internal dependency-layer (intermediate) publishes are correctness
-            # checkpoints; defer their O(live) read-optimized snapshot and let the
-            # Layer-1 operator fallback serve reads until the final refresh. Under
-            # the per-commit collapse the ingest path only ever issues a final
-            # publish, but the direct Publisher.cycle API still drives intermediate
-            # publishes (native_view_refresh_final=False); their deferred status is
-            # part of that contract and the publish-time tests assert it.
-            _did_materialize_effective_view = bool(
-                native_view_refresh_final or force_native_view_refresh
-            )
-            # Computed BEFORE the materialize: the interval sync derives its
-            # open intervals FROM the snapshot table, so the empty-overlay
-            # fast path (which skips snapshot writes entirely) would starve
-            # it into "0 intervals vs full graph" and fail the first-publish
-            # reconcile on every fresh database (issue #647,
-            # fix-ivm-fresh-db-publish). Under the interval representation
-            # per-publish writes are already O(changed) — the property the
-            # fast path approximates — so the two are redundant and mutually
-            # exclusive by construction.
-            # The SAME predicate the materialize below resolves internally and
-            # the lock-time check above already used, so the ordinal kill switch
-            # (issue #1514) cannot leave the sync block and the snapshot
-            # carry-forward disagreeing about which arm owns this publish.
+            _count_self_heal = bool(_full_reasons)
+            full_cycle_report = {
+                "full_proof": _count_self_heal,
+                "reasons": _full_reasons,
+                "cadence_position": _prev_cadence + 1,
+                "self_heal_every": _self_heal_every,
+            }
+            # PACT lane-s-storage-drop-copies: only a ROOT branch mints a
+            # gap-free ordinal sequence, so only a root branch assigns its
+            # ordinal and syncs its overlay ranges in the publication
+            # transaction below. A structural fork keeps no ordinal.
             from okg.substrate.graph_store_internal.generation_ordinal import (
-                interval_representation_enabled as _interval_arm,
+                is_ordinal_tracked_branch,
             )
 
-            _interval_branch = _interval_arm(store.context.db, self.branch_name)
+            _ordinal_branch = is_ordinal_tracked_branch(
+                store.context.db, self.branch_name
+            )
             if _count_self_heal and previous is not None:
-                # A full-proof cycle (the count-stamp cadence, or the retry
-                # after a refused publish, whose integrity state is dirty)
-                # re-derives the whole read model from the branch below and
-                # recounts the whole graph after it. Both describe the state
-                # fingerprinted here; anything written later refuses the cut.
+                # A full-proof cycle recounts the whole graph below. The count
+                # describes the state fingerprinted here; anything written
+                # later refuses the cut.
                 segment_signature_counted = self._chronos_segment_signature_now(
                     conn,
                 )
-            # An incremental cycle takes the branch write lock here, before
-            # its first write to the protected attribute tables, and holds it
-            # through the commit. A write that raced the counts is refused
-            # now, while the integrity state is still clean, so the retry
-            # stays incremental; a refusal after the materialize would dirty
-            # it and turn the retry into a full rebuild. Session locks nest on
-            # this connection, so a caller already holding the lock (guarded
-            # redrive, inline publish) re-enters. Full cycles keep the check
-            # at the cut: their retry is a full rebuild either way.
+            # An incremental cycle takes the branch write lock here and holds
+            # it through the commit. A write that raced the counts is refused
+            # now, before the derivations below, so the retry stays
+            # incremental. Session locks nest on this connection, so a caller
+            # already holding the lock (guarded redrive, inline publish)
+            # re-enters. Full cycles keep the check at the cut.
             protected_write_fence = guarded_branch_writes.enter_context(
                 ExitStack()
             )
@@ -14314,107 +13665,19 @@ class Publisher:
                 protected_write_fence.callback(
                     store._unlock_branch_write_session, self.branch_name,
                 )
-            if _did_materialize_effective_view:
-                with _publisher_timed_stage(
-                    timings_ms,
-                    "attribute_effective_view_materialize",
-                ):
-                    effective_view_result = (
-                        materialize_effective_attribute_view_for_generation(
-                            conn,
-                            generation_id=generation_id,
-                            branch=self.branch_name,
-                            previous_generation_id=(
-                                previous.checkpoint_id
-                                if previous is not None else None
-                            ),
-                            empty_overlay_fast_path=(
-                                self.attribute_effective_view_empty_overlay_fast_path
-                                and not _interval_branch
-                            ),
-                            dirty_targets=_dirty_targets,
-                            graph_store=store,
-                            prelock_hash_cache=prelock_hash_cache,
-                        )
-                    )
-                attribute_effective_view_refresh = {
-                    "status": (
-                        "materialized"
-                        if bool(effective_view_result.get("materialized"))
-                        else "not_materialized"
-                    ),
-                    "final_view_refresh": native_view_refresh_final,
-                    "force_native_view_refresh": force_native_view_refresh,
-                    **effective_view_result,
-                }
-                if prelock_hash_report:
-                    attribute_effective_view_refresh["prelock_hash_pass"] = dict(
-                        prelock_hash_report
-                    )
-            else:
-                # Deferred: no snapshot for this generation. Cardinality below falls
-                # back to a direct count (effective_view_result is falsy), and the
-                # interval-view sync is skipped (nothing to fold).
-                effective_view_result = {}
-                attribute_effective_view_refresh = {
-                    "status": "deferred",
-                    "reason": "intermediate_publish",
-                    "generation_id": generation_id,
-                    "final_view_refresh": native_view_refresh_final,
-                    "force_native_view_refresh": force_native_view_refresh,
-                }
-            # node_count / edge_count are the TRUE published-graph totals — the
-            # materialized snapshot's own cardinality (carried-forward + merged),
-            # free from the scan the materialize already did. NOT prev+delta, which
-            # compounds drift across generations with no self-heal and silently
-            # undercounts the graph (~28% / ~17% low on okg-workspace), making every
-            # status/map read display a wrong total. By construction this equals the
-            # count(*) the read path runs over the same snapshot.
+            # node_count / edge_count are the TRUE published-graph totals,
+            # maintained as a RUNNING COUNTER: the last checkpoint's count plus
+            # this cycle's delta (O(1)), re-anchored by the full-count
+            # self-heal below. The first publish, or a cycle with no delta,
+            # counts the whole graph. Never a default: the read path serves
+            # this number verbatim.
             # (accelerate-operator-read-path: req.totals-from-precomputed-metadata)
-            # The interval path (running counter, sync, reconcile) OWNS this publish
-            # only when the flag is on AND this is an interval-tracked (ROOT) branch.
-            # A STRUCTURAL fork keeps the full-snapshot path (flag-off-like): correct,
-            # since it has no ordinal and reads fall back to its full snapshot.
-            # (_interval_branch is hoisted above the materialize so the
-            # empty-overlay fast path is disabled under the interval arm.)
-            if _interval_branch:
-                # ivm-effective-attribute-view / task.cardinality-counter: the full
-                # snapshot row count is retired as the cardinality source (its O(total)
-                # carry-forward write is dropped). Maintain the published count as a
-                # RUNNING COUNTER -- advance the prior published count by THIS cycle's
-                # delta (O(1)), not a full scan. This is NOT "blind prev+delta" (the
-                # drift F1 fixed): the periodic post-sync reconcile re-derives the full
-                # graph count and FAILS LOUD on any divergence, and the cardinality
-                # oracle asserts counter == full count across insert/update/retract.
-                # The first publish (no previous) seeds from the full count.
-                _delta = locals().get("delta_counts")
-                _prev = locals().get("previous_counts")
-                if previous is not None and _delta is not None:
-                    n_nodes, n_edges = _counts_after_delta(
-                        _prev, _delta, branch=branch
-                    )
-                else:
-                    n_nodes, n_edges = _counted_graph(branch)
-            elif effective_view_result.get("materialized"):
-                # The effective-attribute-view snapshot row count (node_rows) is
-                # NOT the live graph node count: it omits nodes with no effective
-                # attributes (on okg-workspace ~28% fewer rows -> the stamped count
-                # under-reported the graph). Maintain the count as a running counter
-                # (prior published count + this cycle's delta), re-anchored by the
-                # periodic full-scan self-heal below; first publish / missing delta
-                # falls back to a full scan. (Mirrors the interval-view branch.)
-                _eff_delta = locals().get("delta_counts")
-                if previous is not None and _eff_delta is not None:
-                    n_nodes, n_edges = _counts_after_delta(
-                        previous_counts, _eff_delta, branch=branch
-                    )
-                else:
-                    n_nodes, n_edges = _counted_graph(branch)
+            _delta = locals().get("delta_counts")
+            if previous is not None and _delta is not None:
+                n_nodes, n_edges = _counts_after_delta(
+                    previous_counts, _delta, branch=branch
+                )
             else:
-                # Snapshot already existed for this generation (idempotent re-run —
-                # not expected on a fresh publish). Fall back to a direct count so a
-                # stale/zero is NEVER stamped (the read path serves this verbatim, so
-                # a wrong number here is a P0), never a default.
                 n_nodes, n_edges = _counted_graph(branch)
             # Maintain the ontology-graph rollup (#304 running sum) BEFORE the
             # checkpoint is cut, after every cycle edge (source + enricher +
@@ -14651,36 +13914,6 @@ class Publisher:
             # cadence stamp (corrects existing drift on the first post-deploy publish)
             # / every Nth published generation -- so drift is bounded to N gens while
             # the cheap delta path is kept between self-heals.
-            _recovery_authorization: dict[str, Any] | None = None
-            _count_stamp_recovery: dict[str, Any] | None = None
-            if _authorized_count_stamp_recovery is not None:
-                _recovery_authorization = _authorized_count_stamp_recovery
-                assert _authorized_previous_recorded_counts is not None
-                assert _authorized_previous_pinned_counts is not None
-                _previous_published_counts = _authorized_previous_recorded_counts
-                _previous_pinned_counts = _authorized_previous_pinned_counts
-                _count_stamp_recovery = {
-                    "schema": "okg.count_stamp_recovery.v1",
-                    "reason": "predecessor_checkpoint_count_mismatch",
-                    "recovery_of": str(previous.checkpoint_id),
-                    "authorization_digest": _recovery_authorization[
-                        "authorization_digest"
-                    ],
-                    "prepared_binding_digest": _recovery_authorization[
-                        "prepared_binding_digest"
-                    ],
-                    "classification_binding_digest": _recovery_authorization[
-                        "classification_binding_digest"
-                    ],
-                    "recorded": {
-                        "node_count": int(_previous_published_counts[0]),
-                        "edge_count": int(_previous_published_counts[1]),
-                    },
-                    "pinned": {
-                        "node_count": int(_previous_pinned_counts[0]),
-                        "edge_count": int(_previous_pinned_counts[1]),
-                    },
-                }
             # `previous is None` already full-scanned n_nodes/n_edges above; only the
             # carried-delta paths need the corrective re-scan.
             if _count_self_heal and previous is not None:
@@ -14807,8 +14040,6 @@ class Publisher:
                 checkpoint_metadata[published_completeness.METADATA_KEY] = (
                     generation_ingest_completeness
                 )
-            if _count_stamp_recovery is not None:
-                checkpoint_metadata["count_stamp_recovery"] = _count_stamp_recovery
             checkpoint_metadata["dirty_scope_hint"] = dirty_scope_hint_decision
             if extractor_input_signature is not None:
                 checkpoint_metadata["extractor_input_signature"] = (
@@ -14822,6 +14053,11 @@ class Publisher:
                 checkpoint_metadata["console_count_rollup"] = {
                     "mode": console_count_rollup_summary.get("mode"),
                     "forcing_reason": console_count_rollup_summary.get("reason"),
+                    # Issue 3955: the cause of ANY full recount, including one the
+                    # callback chose under incremental dispatch (large_change_set,
+                    # dimension_shape_upgrade, scope_unavailable); None for a
+                    # bucket-scoped incremental cycle.
+                    "full_reason": console_count_rollup_summary.get("full_reason"),
                     "dirty_bucket_count": console_count_rollup_summary.get(
                         "dirty_bucket_count"
                     ),
@@ -14835,6 +14071,8 @@ class Publisher:
                 checkpoint_metadata["ontology_rollup"] = {
                     "mode": ontology_rollup_summary.get("mode"),
                     "forcing_reason": ontology_rollup_summary.get("reason"),
+                    # Issue 3955: see the console receipt above.
+                    "full_reason": ontology_rollup_summary.get("full_reason"),
                     "dirty_bucket_count": ontology_rollup_summary.get(
                         "dirty_bucket_count"
                     ),
@@ -14845,17 +14083,16 @@ class Publisher:
                 checkpoint_metadata["maintained_derivations"] = (
                     deployment_derivation_summaries
                 )
-            # (generation id minted + effective-attrs/-view materialized above,
-            # before the gate, so node_count/edge_count are the snapshot's true
-            # cardinality.)
+            # (generation id minted and overlays materialized above, before
+            # the gate.)
             checkpoint_status = "blocked" if blocked_reason else "published"
-            # Attestation must decide BEFORE the interval branch below assigns
-            # a generation ordinal (issue #1428). The ordinal sequence is
+            # Attestation must decide BEFORE the publication transaction below
+            # assigns a generation ordinal (issue #1428). The ordinal sequence is
             # reserved for PUBLISHED generations; assigning one first and then
             # refusing left the blocked checkpoint holding a published ordinal
             # that nothing removed, so the next successful publish skipped that
             # slot. Attestors read only the candidate session's graph rows and
-            # source watermarks -- never the interval tables the
+            # source watermarks -- never the ordinal and overlay ranges the
             # block below writes -- so deciding here sees the same evidence.
             # The guard stays keyed on checkpoint_status, NOT on
             # `blocked_reason is None`: a falsy-but-not-None blocker (an empty
@@ -14900,57 +14137,13 @@ class Publisher:
                             checkpoint_metadata["deployment_attestations"] = (
                                 deployment_attestations
                             )
-            _attribute_integrity_preflight: dict[str, Any] = {
-                "advanced": False,
-                "reason": "interval_sync_not_run",
-            }
-            # Ordinal this cycle protected from the retention prune, if any.
-            # None means the incremental receipt must prove the old side of its
-            # delta is intact before trusting it (okg#1603).
-            _ivm_protect_ord: int | None = None
-            # Durable, POSITIVE record of whether this generation folded itself
-            # into the interval table. The NEXT publish's backfill precondition
-            # reads it: an intermediate publish deliberately defers its
-            # effective-attribute snapshot and therefore folds nothing, so its
-            # checkpoint counts intentionally run ahead of the interval rows and
-            # comparing the two refuses a healthy deployment (issue #1927). The
-            # marker is written on EVERY cycle, so its ABSENCE means "published
-            # before this marker existed" and keeps the old fail-closed path.
-            from okg.substrate.attributes import (
-                DEFERRED_INTERVAL_SYNC_REASON,
-            )
-
-            _interval_sync_marker: dict[str, Any]
-            if blocked_reason is not None:
-                _interval_sync_marker = {"ran": False, "reason": "blocked"}
-            elif not _interval_branch:
-                _interval_sync_marker = {
-                    "ran": False,
-                    "reason": "interval_representation_not_enabled",
-                }
-            elif not _did_materialize_effective_view:
-                _interval_sync_marker = {
-                    "ran": False,
-                    "reason": DEFERRED_INTERVAL_SYNC_REASON,
-                }
-            else:
-                _interval_sync_marker = {"ran": True, "reason": None}
-            checkpoint_metadata["effective_interval_view_sync"] = (
-                _interval_sync_marker
-            )
-            # The interval table is part of the published read contract. Prepare it
-            # BEFORE exposing the Chronos checkpoint: the old ordering checkpointed
-            # first, so a timeout left a published generation with no interval rows.
-            #
-            # ONE publication transaction (issue #1587). The ordinal, the interval
-            # sync, the retention prune, the integrity preflight and the checkpoint
-            # itself all commit together or not at all. Each used to commit on its
-            # own, so a failure after the ordinal committed -- in the prune, the
-            # integrity write, or checkpoint_generation -- left an ordinal with no
-            # generation behind it, and the next publish skipped that position.
-            # The inner `conn.transaction()` blocks below are now savepoints.
-            # A cycle that neither enters the interval arm nor recovers a count
-            # stamp opens no transaction here and checkpoints exactly as before.
+            # ONE publication transaction (issue #1587) holds the generation
+            # ordinal, the overlay-range sync and the checkpoint: they commit
+            # together or not at all, so a failure after the ordinal leaves no
+            # ordinal without a generation behind it. The inner
+            # `conn.transaction()` block below is a savepoint. A cycle that
+            # assigns no ordinal (a blocked cycle, or a structural fork) opens
+            # the transaction only for the write-race check at the cut.
             #
             # Under a caller-verified publish (#2268) the caller already owns
             # the one transaction for the whole cycle, with Chronos autocommit
@@ -14959,7 +14152,7 @@ class Publisher:
             # transaction then JOINS that transaction: nothing is opened,
             # committed, rolled back or finalized here, and a failure
             # propagates to the caller's rollback, which discards the ordinal,
-            # interval rows, prune, preflight and checkpoint together.
+            # the ranges and the checkpoint together.
             def _finalize_publication_transaction(
                 exc_type: Any, _exc: Any, _tb: Any
             ) -> bool:
@@ -14990,20 +14183,18 @@ class Publisher:
                 scope.enter_context(conn.transaction())
 
             _publication_transaction_open = False
-            write_race_checked = False
+            attribute_overlay_ranges: dict[str, Any] | None = None
             with ExitStack() as _publication_scope:
-                if (
-                    blocked_reason is None
-                    and _interval_branch
-                    and _did_materialize_effective_view
-                ):
+                if blocked_reason is None and _ordinal_branch:
+                    # PACT lane-s-storage-redesign-s2 / lane-s-storage-drop-
+                    # copies: every published root-branch generation gets its
+                    # ordinal and folds its overlay rows into the branch's
+                    # validity ranges at that ordinal, in the same transaction
+                    # as the checkpoint. The graph read path stabs the ranges
+                    # and refuses a generation the marker does not record.
                     with _publisher_timed_stage(
-                        timings_ms, "effective_interval_view_sync"
+                        timings_ms, "generation_ordinal_assign"
                     ):
-                        from okg.substrate.attributes import (
-                            reanchor_effective_interval_view_for_generation,
-                            sync_effective_interval_view_for_generation,
-                        )
                         from okg.substrate.graph_store_internal.generation_ordinal import (
                             assign_generation_ordinal,
                         )
@@ -15015,18 +14206,6 @@ class Publisher:
                                 (self.branch_name,),
                             )
                             expected_ordinal = int(ordinal_cur.fetchone()[0])
-                        reconcile_every = int(
-                            os.environ.get("OKG_IVM_INTERVAL_RECONCILE_EVERY", "100")
-                            or "100"
-                        )
-                        # Read BEFORE the publication transaction opens: this
-                        # checks out a Chronos branch, which commits on its own.
-                        reconcile_full_counts = (
-                            self._chronos_current_graph_counts(branch)
-                            if reconcile_every > 0
-                            and expected_ordinal % reconcile_every == 0
-                            else None
-                        )
                         _open_publication_transaction(_publication_scope)
                         _publication_transaction_open = True
                         with conn.transaction():
@@ -15046,211 +14225,27 @@ class Publisher:
                                         "assigned": assigned_ordinal,
                                     },
                                 )
-                            if _count_self_heal:
-                                reanchor_effective_interval_view_for_generation(
-                                    conn,
-                                    store.context.db,
-                                    generation_id=generation_id,
-                                )
-                            else:
-                                sync_effective_interval_view_for_generation(
-                                    conn,
-                                    store.context.db,
-                                    generation_id=generation_id,
-                                    # Delta mode uses the same changeset as the
-                                    # materializer. None means a non-cadence full
-                                    # fallback with payload-preserving interval
-                                    # reconciliation.
-                                    dirty_targets=_dirty_targets,
-                                )
-                            self._reconcile_effective_interval_view(
-                                conn,
-                                generation_id=generation_id,
-                                node_count=n_nodes,
-                                edge_count=n_edges,
-                                full_counts=reconcile_full_counts,
-                            )
-                        # Bound the interval sidecar (PACT bound-okg-workspace-disk-growth,
-                        # req.bound-disk.intervals-sidecar): prune CLOSED intervals that
-                        # fell out of the retention window, CAPPED per cycle so the publish
-                        # path never issues an unbounded DELETE over the backlog. Runs in
-                        # its own savepoint inside the publication transaction; a prune
-                        # failure fails the publish and rolls back the ordinal and the
-                        # sync with it (issue #1587) rather than leaving a synced front
-                        # at an ordinal no generation will ever own. LOUD: the
-                        # per-cycle delete count is stamped into the checkpoint metadata.
-                        # Deliberately NOT gated on the host-headroom blocker: this is a
-                        # bounded reclaimer (<= EFFECTIVE_INTERVAL_PRUNE_BATCH rows, so its
-                        # WAL is bounded) whose net effect is to RELEASE space. Refusing to
-                        # prune under disk pressure would be backwards — it would let the
-                        # backlog the sentinel is warning about keep growing. The sentinel
-                        # gates unbounded WRITERS (backups, scratch), not bounded reclaimers.
-                        if self.history_retention_policy is None:
-                            from okg.substrate.attributes import (
-                                prune_effective_interval_view_closed,
-                            )
-                            from okg.substrate.attribute_integrity import (
-                                latest_receipt_ordinal,
-                            )
-
-                            # The next incremental receipt subtracts the interval
-                            # STAB at the latest receipt's ordinal. Retention 1
-                            # prunes exactly that stab on every publish, leaving the
-                            # delta reading an empty old side -- the count then
-                            # disagrees with the checkpoint and the publish fails
-                            # even though the generation is sound (okg#1603).
-                            _ivm_protect_request = latest_receipt_ordinal(
-                                conn,
-                                deployment_name=self.deployment_name,
-                                branch=self.branch_name,
-                            )
-                            # Bound the protection: a receipt chain that has stopped
-                            # advancing must not pin the closed-interval sidecar
-                            # open forever (PACT bound-okg-workspace-disk-growth).
-                            # Past the bound the receipt refuses and re-anchors.
-                            if (
-                                _ivm_protect_request is not None
-                                and assigned_ordinal - _ivm_protect_request
-                                > _MAX_PROTECTED_RECEIPT_LAG
-                            ):
-                                _ivm_protect_request = None
-                            with _publisher_timed_stage(
-                                timings_ms, "effective_interval_view_prune"
-                            ), conn.transaction():
-                                _ivm_prune = prune_effective_interval_view_closed(
-                                    conn,
-                                    branch=self.branch_name,
-                                    protect_from_ord=_ivm_protect_request,
-                                )
-                            # What the prune REPORTS it protected -- never what this
-                            # cycle asked for. The receipt skips its intactness
-                            # probe only on protection that actually ran.
-                            _ivm_protect_ord = _ivm_prune.get("protect_from_ord")
-                        else:
-                            # A declared classifier-specific policy makes the
-                            # operator's confirmed compaction plan the sole deletion
-                            # authority. The legacy two-generation publisher prune
-                            # cannot distinguish full/horizon/latest-only classifiers,
-                            # so running it here would silently defeat `full`.
-                            _ivm_prune = {
-                                "deleted": 0,
-                                "capped": False,
-                                "branch": self.branch_name,
-                                "skipped": "explicit_history_retention_policy",
-                            }
-                        checkpoint_metadata["effective_interval_view_prune"] = _ivm_prune
-                    # Check for writes since the counts BEFORE the attribute
-                    # integrity proof below, which would otherwise refuse a
-                    # racing write with a count or payload mismatch instead
-                    # of naming it. The branch write lock taken here is held
-                    # through the checkpoint cut and the commit.
-                    if checkpoint_status == "published" and previous is not None:
-                        self._chronos_refuse_writes_since_counted(
-                            conn, segment_signature_counted,
-                        )
-                        write_race_checked = True
-                    from okg.substrate.attribute_integrity import (
-                        finalize_full_attribute_integrity_anchor,
-                        finalize_incremental_attribute_integrity_receipt,
-                    )
-
-                    # Issue #2941: the receipt passes were the largest
-                    # unlabeled part of the lock hold.
                     with _publisher_timed_stage(
-                        timings_ms, "attribute_integrity_receipt_preflight",
-                    ):
-                        if _dirty_targets is None:
-                            with conn.transaction():
-                                _attribute_integrity_preflight = (
-                                    finalize_full_attribute_integrity_anchor(
-                                        conn,
-                                        deployment_name=self.deployment_name,
-                                        branch=self.branch_name,
-                                        namespace="default",
-                                        generation_id=str(generation_id),
-                                        ordinal=assigned_ordinal,
-                                        checkpoint_counts={
-                                            "node": int(n_nodes),
-                                            "edge": int(n_edges),
-                                        },
-                                        # Prove exact full parity before the generation
-                                        # becomes visible. The post-checkpoint pass below
-                                        # repeats the proof and is the only clean marker.
-                                        persist=False,
-                                    )
-                                )
-                        else:
-                            with conn.transaction():
-                                _attribute_integrity_preflight = (
-                                    finalize_incremental_attribute_integrity_receipt(
-                                        conn,
-                                        deployment_name=self.deployment_name,
-                                        branch=self.branch_name,
-                                        namespace="default",
-                                        generation_id=str(generation_id),
-                                        previous_generation_id=(
-                                            str(previous.checkpoint_id)
-                                            if previous is not None
-                                            else None
-                                        ),
-                                        ordinal=assigned_ordinal,
-                                        checkpoint_counts={
-                                            "node": int(n_nodes),
-                                            "edge": int(n_edges),
-                                        },
-                                        dirty_node_ids=set(_dirty_targets.node_ids),
-                                        dirty_edge_ids=set(_dirty_targets.edge_ids),
-                                        expected_prior_mutation_epoch=(
-                                            int(
-                                                _attribute_integrity_transition[
-                                                    "mutation_epoch"
-                                                ]
-                                            )
-                                            if _attribute_integrity_transition.get(
-                                                "eligible"
-                                            )
-                                            else None
-                                        ),
-                                        expected_transition_active=bool(
-                                            _attribute_integrity_transition.get(
-                                                "transition_backend_bound"
-                                            )
-                                        ),
-                                        protected_from_ord=_ivm_protect_ord,
-                                        # Validate before publication, but do not stamp
-                                        # clean yet: checkpoint retention may still
-                                        # delete an old protected snapshot and advance
-                                        # the mutation epoch.
-                                        persist=False,
-                                    )
-                                )
-                    checkpoint_metadata["attribute_integrity_receipt_preflight"] = (
-                        _attribute_integrity_preflight
-                    )
+                        timings_ms, "attribute_overlay_ranges_sync"
+                    ), conn.transaction():
+                        from okg.substrate.attributes import (
+                            sync_overlay_ranges_for_generation,
+                        )
+
+                        attribute_overlay_ranges = (
+                            sync_overlay_ranges_for_generation(
+                                conn, generation_id
+                            )
+                        )
                 with _publisher_timed_stage(timings_ms, "checkpoint_generation"):
-                    recovery_publication = (
-                        checkpoint_status == "published"
-                        and _authorized_count_stamp_recovery is not None
-                    )
-                    # A count-stamp recovery consumes its journal row in the
-                    # same transaction as the successor checkpoint. When the
-                    # interval arm already opened the publication transaction it
-                    # joins that one; otherwise it opens it here.
-                    if recovery_publication and not _publication_transaction_open:
-                        _open_publication_transaction(_publication_scope)
-                        _publication_transaction_open = True
-                    # The cycle counted and materialized the rows it read; a
-                    # graph write since then would enter this checkpoint
-                    # uncounted, and the next cycle's segment would not hold
-                    # it either. Hold the branch write lock from this check
-                    # through the commit, and refuse if the segment moved
-                    # (the rows stay for the next cycle). A first publish has
-                    # no counted fingerprint and is not checked.
-                    if (
-                        checkpoint_status == "published"
-                        and previous is not None
-                        and not write_race_checked
-                    ):
+                    # The cycle counted the rows it read; a graph write since
+                    # then would enter this checkpoint uncounted, and the next
+                    # cycle's segment would not hold it either. Hold the branch
+                    # write lock from this check through the commit, and refuse
+                    # if the segment moved (the rows stay for the next cycle).
+                    # A first publish has no counted fingerprint and is not
+                    # checked.
+                    if checkpoint_status == "published" and previous is not None:
                         if not _publication_transaction_open:
                             _open_publication_transaction(_publication_scope)
                             _publication_transaction_open = True
@@ -15305,17 +14300,6 @@ class Publisher:
                                 else None
                             ),
                         )
-                        if recovery_publication:
-                            if _COUNT_STAMP_RECOVERY_FAILPOINT is not None:
-                                _COUNT_STAMP_RECOVERY_FAILPOINT(
-                                    "after_successor_checkpoint_before_journal_consumption"
-                                )
-                            assert _authorized_count_stamp_recovery is not None
-                            _consume_count_stamp_recovery_authorization(
-                                conn,
-                                authorization=_authorized_count_stamp_recovery,
-                                successor_generation_id=str(generation_id),
-                            )
                     except Exception as checkpoint_exc:
                         if attestation_failure is not None:
                             raise attestation_failure from checkpoint_exc
@@ -15348,86 +14332,8 @@ class Publisher:
                     with _publisher_timed_stage(timings_ms, "publication_commit"):
                         _publication_scope.close()
             protected_write_fence.close()
-            _attribute_integrity_receipt = dict(_attribute_integrity_preflight)
-            _attribute_transition_active = bool(
-                _attribute_integrity_transition.get("transition_backend_bound")
-            )
-            try:
-                with _publisher_timed_stage(
-                    timings_ms, "attribute_integrity_receipt_final",
-                ):
-                    if _attribute_integrity_preflight.get("advanced") is True:
-                        with conn.transaction():
-                            if _dirty_targets is None:
-                                _attribute_integrity_receipt = (
-                                    finalize_full_attribute_integrity_anchor(
-                                        conn,
-                                        deployment_name=self.deployment_name,
-                                        branch=self.branch_name,
-                                        namespace="default",
-                                        generation_id=str(generation_id),
-                                        ordinal=assigned_ordinal,
-                                        checkpoint_counts={
-                                            "node": int(n_nodes),
-                                            "edge": int(n_edges),
-                                        },
-                                        persist=True,
-                                    )
-                                )
-                            else:
-                                _attribute_integrity_receipt = (
-                                    finalize_incremental_attribute_integrity_receipt(
-                                        conn,
-                                        deployment_name=self.deployment_name,
-                                        branch=self.branch_name,
-                                        namespace="default",
-                                        generation_id=str(generation_id),
-                                        previous_generation_id=(
-                                            str(previous.checkpoint_id)
-                                            if previous is not None
-                                            else None
-                                        ),
-                                        ordinal=assigned_ordinal,
-                                        checkpoint_counts={
-                                            "node": int(n_nodes),
-                                            "edge": int(n_edges),
-                                        },
-                                        dirty_node_ids=set(_dirty_targets.node_ids),
-                                        dirty_edge_ids=set(_dirty_targets.edge_ids),
-                                        expected_prior_mutation_epoch=int(
-                                            _attribute_integrity_transition[
-                                                "mutation_epoch"
-                                            ]
-                                        ),
-                                        expected_transition_active=(
-                                            _attribute_transition_active
-                                        ),
-                                        protected_from_ord=_ivm_protect_ord,
-                                        persist=True,
-                                    )
-                                )
-            except Exception as exc:  # noqa: BLE001 - proof cache stays dirty
-                logging.getLogger(__name__).exception(
-                    "attribute integrity receipt finalization failed after "
-                    "a validated checkpoint"
-                )
-                _attribute_integrity_receipt = {
-                    "advanced": False,
-                    "reason": "post_checkpoint_finalization_failed",
-                    "error_type": type(exc).__name__,
-                }
-            finally:
-                if _attribute_transition_active:
-                    clear_attribute_integrity_transition(
-                        conn,
-                        deployment_name=self.deployment_name,
-                        branch=self.branch_name,
-                        namespace="default",
-                        transition_active=True,
-                    )
-                    _attribute_transition_guard.clear()
-            attribute_effective_view_refresh["integrity_receipt"] = (
-                _attribute_integrity_receipt
+            attribute_overlay_refresh["overlay_ranges"] = (
+                attribute_overlay_ranges
             )
             if checkpoint_status == "published" and link_retry_receipt:
                 with _publisher_timed_stage(
@@ -15619,9 +14525,10 @@ class Publisher:
             native_view_refresh=self._last_native_view_refresh,
             lens_outcomes=self._last_lens_outcomes,
         )
-        timing_details["attribute_effective_view_refresh"] = (
-            attribute_effective_view_refresh
+        timing_details["attribute_overlay_refresh"] = (
+            attribute_overlay_refresh
         )
+        timing_details["full_cycle"] = full_cycle_report
         self._attach_prelock_enrich_report(timing_details, timings_ms)
         if noop_reuse_invalidation is not None:
             timing_details["noop_reuse"] = {
@@ -15683,7 +14590,7 @@ class Publisher:
             "edge_count": n_edges,
             "views": self._format_view_outcomes(self._last_view_outcomes),
             "native_view_refresh": self._native_view_refresh_report(),
-            "attribute_effective_view_refresh": attribute_effective_view_refresh,
+            "attribute_overlay_refresh": attribute_overlay_refresh,
             "dirty_scope_hint": dirty_scope_hint_decision,
             "lenses": self._last_lens_outcomes,
             "post_publish_consistency_checks": self._last_post_publish_consistency,
@@ -16150,64 +15057,6 @@ class Publisher:
         if not estimates:
             return None, "no backing table has been analyzed yet"
         return estimates, None
-
-    def _reconcile_effective_interval_view(
-        self,
-        conn: psycopg.Connection,
-        *,
-        generation_id: str,
-        node_count: int,
-        edge_count: int,
-        full_counts: tuple[int, int] | None,
-    ) -> None:
-        """Periodically prove the prepared interval front before publication."""
-        if full_counts is None:
-            return
-
-        from okg.substrate.attributes import (
-            ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,
-            EFFECTIVE_INTERVAL_OPEN_ORD,
-        )
-
-        full_nodes, full_edges = full_counts
-        with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT target_kind, count(*) "
-                f"FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} "
-                "WHERE branch_id = %s AND namespace = 'default' "
-                "AND to_ord = %s GROUP BY target_kind",
-                (self.branch_name, EFFECTIVE_INTERVAL_OPEN_ORD),
-            )
-            open_counts = {str(kind): int(count) for kind, count in cur.fetchall()}
-        if (node_count, edge_count) != (full_nodes, full_edges):
-            raise SubstrateError(
-                "published cardinality running counter drifted from the full graph "
-                "count -- the per-cycle delta is wrong",
-                data={
-                    "generation_id": generation_id,
-                    "branch": self.branch_name,
-                    "counter": [node_count, edge_count],
-                    "full_count": [full_nodes, full_edges],
-                },
-            )
-        if (open_counts.get("node", 0), open_counts.get("edge", 0)) != (
-            full_nodes,
-            full_edges,
-        ):
-            raise SubstrateError(
-                "interval effective-view open-count disagrees with the full graph "
-                "count -- a sync was missed/partial, a delta is wrong, or the flag "
-                "was enabled before the interval table was backfilled from the snapshot",
-                data={
-                    "generation_id": generation_id,
-                    "branch": self.branch_name,
-                    "interval_open": [
-                        open_counts.get("node", 0),
-                        open_counts.get("edge", 0),
-                    ],
-                    "full_count": [full_nodes, full_edges],
-                },
-            )
 
     @staticmethod
     def _consistency_gate_edge_mutation_counts(

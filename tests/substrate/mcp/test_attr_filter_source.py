@@ -141,7 +141,20 @@ def _reasons(result: dict[str, Any]) -> dict[str, str]:
 
 
 def _expression_narrowed(statement: str) -> bool:
-    return "AND target_id IN (" in statement and "g.live_lo <= %(dai_bp)s" in statement
+    """The page statement holds the declared expression probe: the graph-id
+    branch is narrowed by the candidate set (PACT lane-s-storage-cutover)."""
+    return "g.live_lo <= %(dai_bp)s" in statement
+
+
+@pytest.fixture(autouse=True)
+def ids_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every page here is read ids first. The graph page reads a small
+    scope merged instead, with no candidate set (``graph_read.small_scope``,
+    a cost choice with the same rows); these tests are about where the
+    declared indexes narrow, which only the ids-first form shows."""
+    from okg.substrate.mcp import graph_read
+
+    monkeypatch.setattr(graph_read, "small_scope", lambda *_a, **_k: None)
 
 
 def _filters(dsn: str) -> list[dict[str, Any]]:
@@ -229,7 +242,7 @@ def test_gate3_pages_orders_and_the_pinned_generation(
         for mode in NARROWING:
             result = _read(corpus, monkeypatch, mode, pred, generation=corpus["pinned"])
             assert c.answer(result) == off, (mode, pred)
-            assert "AND target_id IN (" not in capture.last()[0], (mode, pred)
+            assert not _expression_narrowed(capture.last()[0]), (mode, pred)
             reasons = _reasons(result)
             assert reasons and set(reasons.values()) == {"pinned_generation"}, result
     capture.assert_no_attr_index()
@@ -568,7 +581,7 @@ def _check_not_covered(corpus: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
     for mode in NARROWING:
         result = _read(corpus, monkeypatch, mode, pred)
         assert c.answer(result) == off, mode
-        assert "AND target_id IN (" not in capture.last()[0], mode
+        assert not _expression_narrowed(capture.last()[0]), mode
         assert _reasons(result) == {attr: reason}, (mode, result)
     capture.assert_no_attr_index()
 
@@ -602,9 +615,6 @@ _STATE_CASES: list[tuple[str, str, Callable[[str], tuple[str, tuple[Any, ...]]]]
     ("declaration_changed", "digest",
      lambda name: ("UPDATE okg.declared_attr_indexes SET definition_digest = 'sha256:other' "
                    "WHERE index_name = %s", (name,))),
-    ("view_graph_drift", "drift",
-     lambda name: ("UPDATE okg.declared_attr_indexes SET drift = true WHERE index_name = %s",
-                   (name,))),
     ("index_building", "invalid",
      lambda name: ("UPDATE pg_index SET indisvalid = false WHERE indexrelid = %s::regclass",
                    (f'public."{name}"',))),
@@ -669,7 +679,7 @@ def test_readiness_a_ts_bound_v4_refuses_is_never_pushed_in_any_mode(
                 result = _read(corpus, monkeypatch, mode, pred)
                 assert c.answer(result) == off, (mode, pred)
                 statement = capture.last()[0]
-                assert "AND target_id IN (" not in statement, (mode, pred)
+                assert not _expression_narrowed(statement), (mode, pred)
                 assert _reasons(result) == {"t_ts": "bound_not_strict_iso"}, (mode, pred, result)
     capture.assert_no_attr_index()
 
@@ -683,7 +693,7 @@ def test_readiness_pinned_generation_is_reported(
     for mode in NARROWING:
         result = _read(corpus, monkeypatch, mode, pred, generation=corpus["pinned"])
         assert c.answer(result) == off, mode
-        assert "AND target_id IN (" not in capture.last()[0], mode
+        assert not _expression_narrowed(capture.last()[0]), mode
         assert _reasons(result) == {"t_text": "pinned_generation", "t_num": "pinned_generation"}
     capture.assert_no_attr_index()
 

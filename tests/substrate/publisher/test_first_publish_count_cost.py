@@ -1534,9 +1534,10 @@ def test_the_first_publish_resolves_the_table_mapping_no_more_than_before(
 ) -> None:
     """Review F4: the size read reuses the mapping; no extra declined warning.
 
-    Before this change a first publish resolved the mapping four times (row
-    estimate, access path, and the two graph counts). The size read shares
-    the row estimate's resolution, so the total stays four.
+    A first publish resolves the mapping three times: the row estimate, the
+    access path and the graph count. The size read shares the row
+    estimate's resolution, so it adds none. (okg#3112 S3 removed the fourth,
+    the interval reconcile's full count at ordinal 0.)
     """
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
         _seed_cv(conn)
@@ -1553,4 +1554,4 @@ def test_the_first_publish_resolves_the_table_mapping_no_more_than_before(
     )
     out = _publish(clean_runtime)
     assert out["status"] == "published"
-    assert len(calls) == 4, len(calls)
+    assert len(calls) == 3, len(calls)

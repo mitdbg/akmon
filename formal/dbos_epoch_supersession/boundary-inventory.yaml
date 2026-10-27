@@ -590,17 +590,6 @@ entries:
   reason: must validate the full epoch envelope and hold the declared shared or exclusive
     fence before this mutation class can ship
 - path: src/okg/substrate/publisher/publisher.py
-  entrypoint: _consume_count_stamp_recovery_authorization
-  categories:
-  - progress_state
-  - sql_mutation
-  boundaries:
-  - mutation
-  disposition: implementation_required
-  owner_change: fence-local-okg-workflow-versions
-  reason: must validate the full epoch envelope and hold the declared shared or exclusive
-    fence before this mutation class can ship
-- path: src/okg/substrate/publisher/publisher.py
   entrypoint: _cycle_chronos_native
   categories:
   - authority_transition
@@ -1360,6 +1349,23 @@ entries:
   owner_change: fence-local-okg-workflow-versions
   reason: claims durable promotion ownership and locks the deployment; the receipt
     trigger is a dict-key literal, not an identifier
+  explicit: true
+- path: src/okg/substrate/runtime/publisher_health_workflow_liveness.py
+  entrypoint: _check_workflow_health
+  categories:
+  - authority_transition
+  - progress_state
+  boundaries:
+  - lease
+  - mutation
+  - publish
+  - receipt_transition
+  disposition: nonmutating/diagnostic
+  owner_change: fence-local-okg-workflow-versions
+  reason: read-only doctor probe (publisher-starvation-4039); the scan keys on the
+    publish and lease words in the freshness and skip-note reads, but the probe only
+    reads dbos.workflow_status, the typed-outcome tables and the generation ledger and
+    writes nothing
   explicit: true
 - path: src/okg/substrate/runtime/publisher_workflow.py
   entrypoint: _apply_admission_feedback

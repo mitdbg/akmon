@@ -9,7 +9,7 @@ owner: architecture
 ---
 # MCP graph reads
 
-AKMON exposes seven read tools through the Model Context Protocol (MCP). Every
+AKMON exposes eight tools through the Model Context Protocol (MCP). Every
 graph read is authorized, bounded, and tied to one published generation.
 Registered parameter schemas are summarized below.
 
@@ -25,7 +25,7 @@ authority for registered MCP names.
 | `search` | AKMON operator | `search(query, method, filter?)` finds candidates by text, alias, attributes, identifiers, or semantic similarity. |
 | `expand` | AKMON operator | `expand(input, edge_type?, direction?, path?)` follows one relationship or a bounded typed path. |
 | `filter` | AKMON operator | `filter(input, predicate)` applies a supported predicate to a set expression. |
-| `map` | AKMON operator | `map(input, projection)` selects or reshapes fields without changing graph data. |
+| `map` | AKMON operator | `map(input, compute={"<name>": "<expression>"})` adds computed columns `calc.<name>` to every row of a live set or handle ([computed columns](mcp-results.md#computed-columns)); without `compute`, `map(input, select)` selects or renames fields, as `filter(select=...)` does. |
 | `aggregate` | AKMON operator | `aggregate(input, by, metrics)` counts and summarizes a set expression. |
 | `query` | Escape hatch | `query(sql)` runs bounded read-only SQL over `okg.v_*`; not an algebra primitive. |
 | `run` | Composition | `run(steps)`: up to eight steps in one call; `"$n"` is step n's records or rows ([replies](mcp-results.md#run-replies)). |
@@ -139,7 +139,7 @@ in a strictly parsed `coverage.known_gaps` list of `{source, description}`.
 
 ## Served instructions: the dataset card
 
-The `initialize` instructions start with a dataset card (at most 2,048 B) compiled at start from the catalog and the pinned generation: sources and counts, `not_ingested`, id patterns, nesting, dates, a checked search fact and live relations. Reads share a 5 s limit; a failed part is named as missing. Under any Nomos mode but `off`, row-derived parts are withheld. A deployment's instructions file follows under `## Deployment guidance`. `session_start` names the card by hash and size and shows its inputs. `mcp: {dataset_card: false}` in `deployment.yaml` turns the card off.
+The `initialize` instructions start with a dataset card (at most 2,048 B) compiled at start from the catalog and the pinned generation: sources and counts, `not_ingested`, id patterns, nesting, dates, a checked search fact and live relations. Reads share a 5 s limit; a failed part is named as missing. Under any Nomos mode but `off`, row-derived parts are withheld. Too long, the card loses lines from the bottom; the four largest source lines, id patterns, nesting and dates keep a floor; lines above those floors go first, then the `run` example gives way, replaced by one line saying so, and only then do floors give way. A deployment's instructions file follows under `## Deployment guidance`. `session_start` names the card by hash and size and shows its inputs. `mcp: {dataset_card: false}` in `deployment.yaml` turns the card off. The instructions name an id family only when the source registry declares a source that produces it: `doc:<repo>:<path>` text nodes (a `doc_corpus` or `upload` source), `file:<repo>:<path>` nodes with the `source_file` lookup examples (a `git_graph_files`, `git_graph_history`, `agent_sessions` or external-repos source), and `commit:<repo>:<sha>` nodes (a `git_graph_history` or external-repos source); a `code_repos:` block counts for the sources it expands. `mcp: {doc_text_nodes: true|false, file_nodes: true|false, commit_nodes: true|false}` overrides the scan per family, for a deployment whose own source module wraps one of those sources. A registry that cannot be read keeps the full text and logs a warning. `inspect(kind="surface")` reports each decision as `tool_surface.doc_text_nodes`, `tool_surface.file_nodes` and `tool_surface.commit_nodes` (true, false or null).
 
 ## Search methods
 
@@ -166,9 +166,9 @@ Each control reports `*_applicable` and `*_application`: `ranked_sql` or `post_f
 
 ## Direct lookup by stable identifier
 
-Repository sources mint predictable node identifiers. Known identifier: call
-`inspect` directly. Otherwise use `search(method="attrs", attr_filters={...})`
-rather than guessing. A miss returns `node_not_found` with `exists: false`.
+Repository sources mint predictable node identifiers. Known identifier: call `inspect` directly. Otherwise use
+`search(method="attrs", attr_filters={...})` rather than guessing. A miss returns `node_not_found` with `exists: false` and may
+name near ids. Without access rules, a lexical search for one name no record bears says `no record has the name or id ...` (`exact_name_absent`).
 
 <!-- id-schemes:begin -->
 
@@ -249,7 +249,7 @@ entries in [error_codes.yaml](error_codes.yaml).
 
 | Kinds | Served when |
 | --- | --- |
-| `graph`, `coverage`, `ontology`, `session_start`, `subtype`, `view`, `node`, `nodes`, `text`, `texts`, `attr`, `session`, `generation`, `generation_delta` | wherever `inspect` is served |
+| `graph`, `coverage`, `ontology`, `session_start`, `subtype`, `view`, `node`, `nodes`, `text`, `texts`, `attr`, `session`, `generation`, `generation_delta`, `node_history`, `subtype_diff` ([history reads](mcp-results.md#history-reads)) | wherever `inspect` is served |
 | `admission`, `record`, `alias_suggestions` | a write/admin launch (`--allow-writes`) |
 | `record_prefixes`, `record_templates` | the surface serves the `record` tool |
 | `surface` | a write/admin launch, or `--tools-ceiling` |

@@ -61,6 +61,11 @@ PUBLISHER_WORKFLOW_NAME = "okg_publisher_cycle"
 # enqueue can find it. Populated by register_publisher_workflow().
 _DECORATED: dict[str, Any] = {}
 
+# The blocking sync a no_run_base_guard skip last warned about, per deployment
+# (this process only): the skip repeats every tick for as long as a first
+# bootstrap runs, so it warns once per sync and then logs at INFO.
+_GUARD_BLIND_WARNED: dict[str, str] = {}
+
 
 def register_publisher_workflow(*, deployment: str) -> None:
     """Decorate the publisher workflow.
@@ -75,8 +80,19 @@ def register_publisher_workflow(*, deployment: str) -> None:
     of the workflow's input row.
     """
     from dbos import DBOS
+    from okg.substrate.runtime.workflow_operational_outcomes import (
+        define_operational_transactions,
+        participant_for,
+    )
 
     _DECORATED.clear()
+    # PACT publisher-starvation-4039: every cycle records a typed outcome, so a
+    # skipped cycle (a DBOS SUCCESS) is told apart from a publish.
+    operational = define_operational_transactions(
+        participant=participant_for(
+            deployment=deployment, workflow_name=PUBLISHER_WORKFLOW_NAME,
+        ),
+    )
 
     @DBOS.workflow(
         name=PUBLISHER_WORKFLOW_NAME,
@@ -94,6 +110,7 @@ def register_publisher_workflow(*, deployment: str) -> None:
         `default` so the scheduled enqueue (arg-less) is unchanged; a
         per-worktree fork publish passes its experiment branch.
         """
+        operational.register_execution_tx()
         summary = _run_one_cycle(
             deployment=deployment,
             branch_name=branch_name,
@@ -111,6 +128,11 @@ def register_publisher_workflow(*, deployment: str) -> None:
         )
         if isinstance(summary, dict):
             summary["admission_feedback"] = feedback
+        # Recorded last, so the outcome's time (the publisher's freshness
+        # clock) is the end of the whole cycle, feedback included.
+        operational.record_outcome_tx(
+            _publisher_operational_outcome(summary, branch_name=branch_name)
+        )
         return summary
 
     _DECORATED[PUBLISHER_WORKFLOW_NAME] = publisher_cycle_workflow
@@ -144,6 +166,7 @@ def _run_one_cycle(
     deployment: str,
     branch_name: str = "default",
     force_enrichers: bool = False,
+    scheduled: bool | None = None,
 ) -> dict:
     """Build the deployment publisher stack and run one cycle on `branch_name`.
 
@@ -156,6 +179,18 @@ def _run_one_cycle(
       2. The DSN is resolved from the deployment manifest rather than
          taken as a positional arg (the workflow signature is
          arg-less so DBOS recovery doesn't need to re-serialize it).
+
+    ``scheduled`` marks a cycle the cron tick enqueued (None: read it from the
+    running workflow's deduplication id; False outside a workflow). Only a
+    scheduled cycle can be *overdue* (PACT publisher-starvation-4039): when the
+    newest of its last non-skipped cycle and the branch's newest published
+    generation is older than ``publisher.max_source_sync_yield_seconds``, it
+    ignores source-sync workflow rows at the start check and in the in-lock
+    probe, live or stranded. It keeps the admission intent, the publish lock,
+    the run-base guard and the write-race refusal, and never waits for a run
+    inside the control queue: a run still writing ends the cycle as a recorded
+    skip. Where the run-base guard is blind (no published generation yet) the
+    row yield stays on. Manual publishes keep today's behaviour.
     """
     from okg.substrate.deployments import resolve_deployment
     from okg.substrate.publisher.deployment_stack import (
@@ -194,22 +229,92 @@ def _run_one_cycle(
             verdict=staging_halt,
         )
 
-    blocking_source_sync = _active_source_sync_workflow_id_for_publisher(
+    if scheduled is None:
+        scheduled = _is_scheduled_cycle(deployment=deployment, dsn=dsn)
+    freshness = None
+    overdue = False
+    if scheduled:
+        from okg.substrate.runtime.publisher_schedule import (
+            read_publisher_freshness,
+        )
+
+        freshness = read_publisher_freshness(
+            deployment=deployment,
+            dsn=dsn,
+            branch_name=branch_name,
+            bound_seconds=manifest.publisher.max_source_sync_yield_seconds,
+        )
+        overdue = freshness.overdue
+    # Where the run-base guard is blind (the branch has no published
+    # generation, so a run cuts no run base) the row yield is the only thing
+    # that sees a writing sync: it stays on, without bound.
+    guard_blind = overdue and not freshness.has_generation
+    rows_yield = not overdue or guard_blind
+    skip_reason = "no_run_base_guard" if guard_blind else "source_sync_active"
+
+    def annotate(summary: dict) -> dict:
+        if freshness is not None and isinstance(summary, dict):
+            summary["scheduled"] = {
+                "overdue": overdue,
+                "freshness_age_seconds": freshness.age_seconds,
+                "bound_seconds": freshness.bound_seconds,
+            }
+        return summary
+
+    row_or_intent_blocker = _active_source_sync_workflow_id_for_publisher(
         deployment=deployment,
         dsn=dsn,
     )
-    if blocking_source_sync is not None:
-        log.info(
-            "publisher cycle skipped: deployment=%s branch_name=%s "
-            "blocking_source_sync_workflow_id=%s",
-            deployment, branch_name, blocking_source_sync,
+    if rows_yield:
+        blocking_source_sync = row_or_intent_blocker
+    else:
+        blocking_source_sync = _source_sync_admission_intent_id_for_publisher(
+            deployment=deployment,
+            dsn=dsn,
         )
-        return _source_sync_active_skip_summary(
+    if blocking_source_sync is not None:
+        if freshness is None:
+            log.info(
+                "publisher cycle skipped: deployment=%s branch_name=%s "
+                "blocking_source_sync_workflow_id=%s",
+                deployment, branch_name, blocking_source_sync,
+            )
+        else:
+            warn = overdue
+            if guard_blind:
+                # A first bootstrap can hold this skip for days: warn once per
+                # blocking sync, then INFO.
+                warn = _GUARD_BLIND_WARNED.get(deployment) != blocking_source_sync
+                _GUARD_BLIND_WARNED[deployment] = blocking_source_sync
+            (log.warning if warn else log.info)(
+                "publisher cycle skipped (%s): deployment=%s branch_name=%s "
+                "blocking_source_sync_workflow_id=%s %s %s",
+                skip_reason, deployment, branch_name, blocking_source_sync,
+                _describe_workflow_row(dsn, blocking_source_sync),
+                freshness.describe(),
+            )
+        return annotate(_source_sync_active_skip_summary(
             deployment=deployment,
             branch_name=branch_name,
             blocking_workflow_id=blocking_source_sync,
+            reason=skip_reason,
+        ))
+    if overdue and row_or_intent_blocker is not None:
+        log.warning(
+            "publisher cycle overdue: publishing past a source-sync "
+            "workflow row: deployment=%s branch_name=%s "
+            "source_sync_workflow_id=%s %s %s",
+            deployment, branch_name, row_or_intent_blocker,
+            _describe_workflow_row(dsn, row_or_intent_blocker),
+            freshness.describe(),
         )
+
     def source_sync_priority_probe() -> str | None:
+        if not rows_yield:
+            return _source_sync_admission_intent_id_for_publisher(
+                deployment=deployment,
+                dsn=dsn,
+            )
         return _active_source_sync_workflow_id_for_publisher(
             deployment=deployment,
             dsn=dsn,
@@ -265,26 +370,35 @@ def _run_one_cycle(
                 # source sync: not a failed publish. The next tick after the
                 # run ends publishes its work. `okg run --once` and
                 # merge-back, which an operator runs, still refuse loudly.
-                log.info(
-                    "publisher cycle skipped: deployment=%s branch_name=%s "
-                    "source run in progress: %s",
-                    deployment, branch_name, exc,
-                )
-                return _source_run_in_progress_skip_summary(
+                skipped = _source_run_in_progress_skip_summary(
                     deployment=deployment,
                     branch_name=branch_name,
                     error=exc,
                 )
+                run_ids = ",".join(
+                    str(item.get("run_id"))
+                    for item in skipped["in_progress"]
+                    if isinstance(item, dict)
+                ) or "unknown"
+                (log.warning if overdue else log.info)(
+                    "publisher cycle skipped: deployment=%s branch_name=%s "
+                    "source run in progress, run_ids=%s %s: %s",
+                    deployment, branch_name, run_ids,
+                    freshness.describe() if freshness is not None else "",
+                    exc,
+                )
+                return annotate(skipped)
             except PublisherLeaseHeld as exc:
                 if exc.data.get("reason") != "source_sync_active":
                     raise
-                return _source_sync_active_skip_summary(
+                return annotate(_source_sync_active_skip_summary(
                     deployment=deployment,
                     branch_name=branch_name,
                     blocking_workflow_id=str(
                         exc.data.get("blocking_workflow_id") or ""
                     ),
-                )
+                    reason=skip_reason,
+                ))
             if isinstance(summary, dict) and summary.get("generation_id"):
                 # prof.generation_id is an int telemetry token. Under chronos_native the
                 # canonical generation_id is a Chronos checkpoint STRING; the int token is
@@ -337,7 +451,7 @@ def _run_one_cycle(
         summary.get("nodes_added"),
         summary.get("edges_added"),
     )
-    return summary
+    return annotate(summary)
 
 
 def _enqueue_declared_attr_index_maintenance_after_cycle(
@@ -444,13 +558,14 @@ def _source_sync_active_skip_summary(
     deployment: str,
     branch_name: str,
     blocking_workflow_id: str,
+    reason: str = "source_sync_active",
 ) -> dict[str, Any]:
     return {
         "deployment": deployment,
         "branch_name": branch_name,
         "status": "skipped",
         "publish_skipped": True,
-        "skipped": "source_sync_active",
+        "skipped": reason,
         "blocking_workflow_id": blocking_workflow_id,
     }
 
@@ -533,6 +648,156 @@ def _active_source_sync_workflow_id_for_publisher(
             "publisher source-sync active-workflow probe failed; "
             "publish admission is unavailable"
         ) from exc
+
+
+def _source_sync_admission_intent_id_for_publisher(
+    *,
+    deployment: str,
+    dsn: str,
+) -> str | None:
+    """Return the source-sync admission intent that must still be honoured.
+
+    The intent is a live session lock (a runtime producer committing an
+    enqueue, or a command-line run for its whole run), never a stale workflow
+    row, so an overdue cycle keeps yielding to it. A failed probe stops the
+    cycle, as the full probe does.
+    """
+    try:
+        from okg.substrate.runtime.source_sync_priority import (
+            source_sync_admission_intent_workflow_id,
+        )
+
+        return source_sync_admission_intent_workflow_id(
+            dsn=dsn,
+            deployment=deployment,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "publisher source-sync admission-intent probe failed: "
+            "deployment=%s error=%s; publisher cycle blocked",
+            deployment, exc,
+        )
+        raise RuntimeError(
+            "publisher source-sync admission-intent probe failed; "
+            "publish admission is unavailable"
+        ) from exc
+
+
+def _describe_workflow_row(dsn: str, workflow_id: str) -> str:
+    """Status and age of a blocking workflow row, for a log line."""
+    from okg.substrate.runtime.publisher_schedule import source_sync_workflow_row
+
+    try:
+        status, age = source_sync_workflow_row(dsn=dsn, workflow_id=workflow_id)
+    except Exception as exc:  # noqa: BLE001 - decoration of a log line only
+        return f"source_sync_status=unreadable({type(exc).__name__})"
+    return (
+        f"source_sync_status={status} source_sync_age_seconds="
+        f"{'unknown' if age is None else f'{age:.0f}'}"
+    )
+
+
+def _is_scheduled_cycle(*, deployment: str, dsn: str) -> bool:
+    """Did the cron tick enqueue the running workflow?
+
+    The tick enqueues with the bucketed deduplication id of
+    ``publisher_deduplication_id``; a manual publish
+    (``okg publisher cycle``, republish requests, fork publishes) carries none.
+    False outside a DBOS workflow.
+    """
+    workflow_id = _current_dbos_workflow_id()
+    if workflow_id is None:
+        return False
+    from okg.substrate.db.connection import connect as db_connect
+    from okg.substrate.runtime.publisher_schedule import (
+        publisher_deduplication_id,
+    )
+
+    with db_connect(dsn, connect_timeout=5, autocommit=True) as conn:
+        row = conn.execute(
+            "SELECT deduplication_id FROM dbos.workflow_status"
+            " WHERE workflow_uuid = %s",
+            (workflow_id,),
+        ).fetchone()
+    prefix = f"{publisher_deduplication_id(deployment)}:"
+    return bool(
+        row is not None and isinstance(row[0], str) and row[0].startswith(prefix)
+    )
+
+
+def _publisher_operational_outcome(
+    summary: Any, *, branch_name: str,
+) -> dict[str, Any]:
+    """Map a finished cycle's summary to its typed operational outcome.
+
+    ``clean`` for a publish, a blocked checkpoint or a no-op; ``skipped`` for
+    every skip path, with the reason and its subject in ``details``
+    (``source_sync_active``, ``source_run_in_progress``,
+    ``no_run_base_guard``, ``staging_replay_unarmed``).
+    """
+    from okg.substrate.runtime.workflow_operational_outcomes import (
+        WorkflowOperationalEvidenceError,
+    )
+
+    if not isinstance(summary, dict):
+        raise WorkflowOperationalEvidenceError(
+            "publisher cycle summary must be a mapping"
+        )
+    status = summary.get("status")
+    details: dict[str, Any] = {"branch_name": branch_name}
+    scheduled = summary.get("scheduled")
+    if isinstance(scheduled, dict):
+        details["overdue"] = bool(scheduled.get("overdue"))
+    if status == "skipped":
+        reason = str(summary.get("skipped") or "").strip()
+        if not reason:
+            raise WorkflowOperationalEvidenceError(
+                "skipped publisher cycle names no reason"
+            )
+        details["reason"] = reason
+        details["subject"] = _skip_subject(summary)
+        return {
+            "outcome": "skipped",
+            "succeeded_count": 0,
+            "failed_count": 0,
+            "semantic_units": {},
+            "details": details,
+        }
+    if not isinstance(status, str) or not status:
+        raise WorkflowOperationalEvidenceError(
+            "publisher cycle summary lacks a status"
+        )
+    details["status"] = status
+    generation_id = summary.get("generation_id")
+    units: dict[str, list[str]] = {}
+    if generation_id is not None and str(generation_id):
+        details["generation_id"] = str(generation_id)
+        units["generation_ids"] = [str(generation_id)]
+    return {
+        "outcome": "clean",
+        "succeeded_count": 1,
+        "failed_count": 0,
+        "semantic_units": units,
+        "details": details,
+    }
+
+
+def _skip_subject(summary: dict[str, Any]) -> str:
+    """What a skip names: the sync, the run(s), or the staging verdict."""
+    blocking = summary.get("blocking_workflow_id")
+    if blocking:
+        return str(blocking)
+    run_ids = [
+        str(item.get("run_id"))
+        for item in summary.get("in_progress") or []
+        if isinstance(item, dict) and item.get("run_id")
+    ]
+    if run_ids:
+        return ",".join(run_ids[:3])
+    halt = summary.get("staging_replay_halt")
+    if isinstance(halt, dict) and halt.get("reason"):
+        return str(halt["reason"])
+    return "unspecified"
 
 
 def _apply_admission_feedback_safely(

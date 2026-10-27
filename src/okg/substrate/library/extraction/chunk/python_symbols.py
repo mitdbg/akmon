@@ -24,8 +24,20 @@ Chunks follow the code's structure:
 
 Every chunk carries `extras` = {`start_line`, `end_line` (1-based,
 inclusive), `symbol` (dotted qualified name, "" for module code)}. A
-chunk's line range covers its symbol plus the comments and blank lines
-above it, so it can start before the code-symbol node of the same name.
+chunk's first window starts at the first non-blank line of its extent, so
+`start_line` is the line its text begins on (a reader that counts lines
+from `start_line` gets the source's line numbers). That line is the `def`
+or `class` line, the first decorator when the symbol has any, or the first
+comment line between the previous statement and the symbol, however many
+blank lines separate the two. The code-symbol node of the same name records
+the `def` line (`ast` `lineno`, decorators excluded), so a chunk can start
+a few lines before it. Later windows of a long symbol start wherever the
+window falls, possibly on a blank line.
+
+The blank lines between two chunks belong to neither; the document stores
+them as separators, up to `_MAX_SEPARATOR_CHARS`. A longer blank run stays
+in the chunk that follows it, so the chunks still tile the file and a whole
+read stays complete; only then does a chunk start on a blank line.
 Source that does not parse (syntax error, or too deeply nested for the
 parser) falls back to plain windows with `symbol` "".
 """
@@ -39,6 +51,10 @@ from typing import Optional
 from okg.substrate.library.extraction._protocols import ParsedChunk
 
 _KIND = "code_block"
+# The longest whitespace gap between two chunks that the document stores as a
+# separator (`MAX_STORED_SEPARATOR_CHARS` in the document-corpus source; a test
+# keeps the two equal). A longer gap would make a whole read report `partial`.
+_MAX_SEPARATOR_CHARS = 256
 
 
 class PythonSymbolChunker:
@@ -66,7 +82,7 @@ class PythonSymbolChunker:
         except (SyntaxError, ValueError, RecursionError, MemoryError):
             # MemoryError / RecursionError: CPython's parser gives up on
             # deeply nested source ("Parser stack overflowed").
-            return self._windows(text, 0, len(text), [], "", starts)
+            return self._span(text, starts, 1, len(starts), [], "")
 
         out: list[ParsedChunk] = []
         n_lines = len(starts)
@@ -138,6 +154,15 @@ class PythonSymbolChunker:
 
     def _span(self, text: str, starts: list[int], first: int, last: int,
               heading: list[str], symbol: str) -> list[ParsedChunk]:
+        # Blank lines before the code are not part of the chunk: its
+        # `start_line` is where its text begins.
+        # A run longer than the stored-separator limit stays in the chunk, so
+        # the file stays fully covered.
+        lead = first
+        while lead < last and not _line_text(text, starts, lead).strip():
+            lead += 1
+        if starts[lead - 1] - starts[first - 1] <= _MAX_SEPARATOR_CHARS:
+            first = lead
         begin = starts[first - 1]
         end = starts[last] if last < len(starts) else len(text)
         return self._windows(text, begin, end, heading, symbol, starts)
@@ -191,6 +216,11 @@ def _header_end(text: str, starts: list[int], first: int, last: int) -> int:
         if stripped and not stripped.startswith("#"):
             end = line
     return end
+
+
+def _line_text(text: str, starts: list[int], line: int) -> str:
+    stop = starts[line] if line < len(starts) else len(text)
+    return text[starts[line - 1]:stop]
 
 
 def _chars(starts: list[int], text: str, first: int, last: int) -> int:

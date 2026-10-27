@@ -11,11 +11,15 @@ them, and the document whose text to read.
 """
 from __future__ import annotations
 
+import json
+
 import psycopg
 import pytest
 
+from okg.substrate.graph_store import ChronosGraphStore
+from okg.substrate.library.sources.base import EdgeFact, NodeFact
 from okg.substrate.mcp import open_session
-from okg.substrate.mcp.record_text import prepare_record_text
+from okg.substrate.mcp.record_text import prepare_record_text, read_record_text
 from okg.substrate.mcp.result_text import render
 from okg.substrate.mcp.tools import expand_neighbors, inspect_node
 from tests.pytest.catalog_fixture_builders import seed_catalog
@@ -80,7 +84,41 @@ def _seed(dsn: str) -> None:
             ("ticket:A-1", "ticket:A-1", "references"),
             ("commit:r:abc", "diff:r:abc:1", "contains"),
         ])
+        _insert_spanned_symbols(conn)
     _publish(dsn)
+
+
+#: Symbols of `file:r:reaper.yaml` by the span they store: (start_line, end_line).
+_SPANS = {
+    "symbol:r:reaper.yaml:spanned": {"start_line": 2, "end_line": 2},
+    "symbol:r:reaper.yaml:one_line": {"start_line": 1, "end_line": 1},
+    "symbol:r:reaper.yaml:no_span": {},
+    "symbol:r:reaper.yaml:backwards": {"start_line": 5, "end_line": 3},
+    "symbol:r:reaper.yaml:text_span": {"start_line": "2", "end_line": "2"},
+    "symbol:r:reaper.yaml:bool_span": {"start_line": True, "end_line": True},
+    "symbol:r:reaper.yaml:zero_span": {"start_line": 0, "end_line": 2},
+}
+
+
+def _insert_spanned_symbols(conn: psycopg.Connection) -> None:
+    store = ChronosGraphStore.from_connection(conn)
+    store.apply_facts([
+        NodeFact(
+            node_id=node_id, subtype="code_symbol", attrs={"text": "", **attrs},
+            source_record_id={"id": node_id, "source": "fixture"},
+            source_revision={"v": 1},
+        )
+        for node_id, attrs in _SPANS.items()
+    ])
+    store.apply_facts([
+        EdgeFact(
+            src="file:r:reaper.yaml", dst=node_id, edge_type="contains", attrs={},
+            source_record_id={"src": "file:r:reaper.yaml", "dst": node_id,
+                              "source": "fixture"},
+            source_revision={"v": 1},
+        )
+        for node_id in _SPANS
+    ])
 
 
 @pytest.fixture
@@ -171,6 +209,71 @@ def test_a_code_node_without_text_points_at_its_document(session_conn, node_id):
     assert outcome["next_move"] == (
         "its text is in the document derived from its file; read it with "
         'inspect(target={"kind":"text","node_id":"doc:r:reaper.yaml"})')
+
+
+_DOC_READ = 'inspect(target={"kind":"text","node_id":"doc:r:reaper.yaml"})'
+
+
+@pytest.mark.postgres
+def test_a_symbol_with_a_stored_span_points_at_just_its_lines(session_conn):
+    """Issue #3982: the suggested read names the symbol's own lines, so the
+    agent reads that definition and not the whole file."""
+    conn, s = session_conn
+    outcome = prepare_record_text(
+        conn, s, "symbol:r:reaper.yaml:spanned").payload["outcome"]
+    assert outcome["code"] == "no_text_chunks"
+    assert outcome["next_move"] == (
+        "its text is in the document derived from its file; read it with "
+        'inspect(target={"kind":"text","node_id":"doc:r:reaper.yaml",'
+        '"lines":[[2,2]]})')
+    # A one-line symbol keeps its one-line range.
+    one = prepare_record_text(
+        conn, s, "symbol:r:reaper.yaml:one_line").payload["outcome"]
+    assert one["next_move"].endswith('"lines":[[1,1]]})')
+
+
+@pytest.mark.postgres
+def test_the_suggested_read_is_servable_as_given(session_conn):
+    """The move is a call the read tool accepts: its target parses, and
+    served with that target it returns the symbol's lines and no others."""
+    conn, s = session_conn
+    move = prepare_record_text(
+        conn, s, "symbol:r:reaper.yaml:spanned").payload["outcome"]["next_move"]
+    prefix, suffix = "read it with inspect(target=", ")"
+    assert move.endswith(suffix)
+    target = json.loads(move[move.index(prefix) + len(prefix):-len(suffix)])
+    assert target == {"kind": "text", "node_id": "doc:r:reaper.yaml",
+                      "lines": [[2, 2]]}
+    page = read_record_text(conn, s, target["node_id"], lines=target["lines"])
+    assert page["status"] == "ok"
+    assert page["lines"]["requested"] == [[2, 2]]
+    served = "".join(item["text"] for item in page["items"])
+    assert "chunkSize: 4000" in served
+    assert "reaperCount: 8" not in served
+    # The whole-document read the old pointer named returns both lines.
+    whole = read_record_text(conn, s, "doc:r:reaper.yaml")
+    whole_text = "".join(item["text"] for item in whole["items"])
+    assert "reaperCount: 8" in whole_text and "chunkSize: 4000" in whole_text
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("node_id", [
+    "symbol:r:reaper.yaml:main",       # no span attrs at all
+    "symbol:r:reaper.yaml:no_span",    # attrs present, no span
+    "symbol:r:reaper.yaml:backwards",  # start after end
+    "symbol:r:reaper.yaml:text_span",  # not whole numbers
+    "symbol:r:reaper.yaml:bool_span",  # a bool is not a line number
+    "symbol:r:reaper.yaml:zero_span",  # lines count from 1
+    "file:r:reaper.yaml",              # a file has no span
+])
+def test_a_node_with_no_usable_span_keeps_the_whole_document_pointer(
+    session_conn, node_id,
+):
+    conn, s = session_conn
+    outcome = prepare_record_text(conn, s, node_id).payload["outcome"]
+    assert outcome["next_move"] == (
+        "its text is in the document derived from its file; read it with "
+        + _DOC_READ)
 
 
 @pytest.mark.postgres

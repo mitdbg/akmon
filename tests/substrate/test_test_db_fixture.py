@@ -205,8 +205,8 @@ def test_generation_reset_clears_published_chronos_checkpoints(
 
     Issue #2238: the reset truncated ``generation_ordinals`` but kept the Chronos
     checkpoint tables, so the publisher found a published predecessor with no
-    ordinal row and refused with ``EffectiveIntervalBackfillRequired``
-    (``predecessor_ordinal_unavailable``). Without the fix the second publish
+    ordinal row and refused (the retired interval precondition,
+    ``predecessor_ordinal_unavailable``). Without the fix the second publish
     below raises exactly that.
     """
     from okg.substrate.graph_store import ChronosGraphStore

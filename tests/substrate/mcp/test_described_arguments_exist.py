@@ -154,7 +154,9 @@ def _spans(description: str, tool_names: set[str]) -> list[tuple[str, str]]:
 #: Arguments whose value is a condition (`input.filter` is reached as the
 #: `"filter":` key inside `input`). Prose may also write the value after the
 #: name and a space (aggregate: `with where {"text":{"op":...}}`, Format v10).
-_CONDITION_ARGUMENTS = ("where", "filter", "predicate")
+#: `map`'s `compute` (PACT read-map-compute) is blanked the same way: its
+#: keys are the column names the caller picks (`compute={"fill": ...}`).
+_CONDITION_ARGUMENTS = ("where", "filter", "predicate", "compute")
 _CONDITION_START = re.compile(
     r"""(?<![\w.<])["']?(""" + "|".join(_CONDITION_ARGUMENTS)
     + r""")["']?\s*(?:=(?!=)|:|\s)\s*\{"""

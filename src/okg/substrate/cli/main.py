@@ -1162,6 +1162,11 @@ def _cmd_migrate(args: argparse.Namespace, *, as_json: bool) -> int:
             "incomplete_checkpoint_retirements": list(
                 getattr(r, "incomplete_checkpoint_retirements", ())
             ),
+            # PACT recovery-contract-removed-sources: contracts whose
+            # required sources are gone (retired, or why not).
+            "source_contract_retirements": list(
+                getattr(r, "source_contract_retirements", ())
+            ),
             # PACT openrouter-embeddings-hnsw: each vector set migrate
             # registered, its watermarks and its index state; None when the
             # deployment declares no set.
@@ -1534,23 +1539,6 @@ def _cmd_db(args: argparse.Namespace, *, as_json: bool) -> int:
             from okg.substrate.cli.role_passwords import role_passwords_payload
 
             payload = role_passwords_payload(args, dsn=_resolve_dsn(args))
-        elif subcmd == "inspect-effective-attribute-recovery":
-            if not getattr(args, "deployment", None):
-                raise SubstrateError(
-                    "effective-attribute recovery inspection requires --deployment",
-                )
-            dsn = _resolve_deployment_dsn(args)
-            from okg.substrate.db.connection import connect as db_connect
-
-            from okg.substrate.attributes import (
-                classify_effective_attribute_recovery,
-            )
-
-            with db_connect(dsn, autocommit=True) as conn:
-                payload = classify_effective_attribute_recovery(
-                    conn,
-                    deployment_name=str(args.deployment),
-                )
         elif subcmd == "current-runtime-dlq":
             dsn = _resolve_deployment_dsn(args)
             from okg.substrate.db.connection import connect as db_connect
@@ -1597,49 +1585,6 @@ def _cmd_db(args: argparse.Namespace, *, as_json: bool) -> int:
                         deployment=str(args.deployment),
                         request=request,
                     )
-        elif subcmd == "prepare-effective-attribute-recovery":
-            if not getattr(args, "deployment", None):
-                raise SubstrateError(
-                    "effective-attribute recovery preparation requires --deployment",
-                )
-            if not getattr(args, "apply", False):
-                raise SubstrateError(
-                    "effective-attribute recovery preparation requires --apply",
-                )
-            expected_digest = str(
-                getattr(args, "expected_binding_digest", None) or ""
-            ).strip()
-            if not expected_digest:
-                raise SubstrateError(
-                    "effective-attribute recovery preparation requires --expected-binding-digest",
-                )
-            expected_classification_raw = str(
-                getattr(args, "expected_classification", None) or ""
-            ).strip()
-            try:
-                expected_classification = json.loads(expected_classification_raw)
-            except (TypeError, ValueError) as exc:
-                raise SubstrateError(
-                    "effective-attribute recovery expected classification is not valid JSON"
-                ) from exc
-            if not isinstance(expected_classification, dict):
-                raise SubstrateError(
-                    "effective-attribute recovery expected classification must be an object"
-                )
-            dsn = _resolve_deployment_dsn(args)
-            from okg.substrate.db.connection import connect as db_connect
-
-            from okg.substrate.attributes import (
-                prepare_corrupt_effective_attribute_recovery,
-            )
-
-            with db_connect(dsn, autocommit=True) as conn:
-                payload = prepare_corrupt_effective_attribute_recovery(
-                    conn,
-                    deployment_name=str(args.deployment),
-                    expected_binding_digest=expected_digest,
-                    expected_classification=expected_classification,
-                )
         elif subcmd == "reclaim-index-space":
             # okg#3112: the supported REINDEX for index_larger_than_table.
             from okg.substrate.db.index_reclaim import reclaim_index_space
@@ -1665,163 +1610,6 @@ def _cmd_db(args: argparse.Namespace, *, as_json: bool) -> int:
             payload = _cmd_db_embed_index(args)
         elif subcmd == "semantic-index":
             payload = _cmd_db_semantic_index(args, as_json=as_json)
-        elif subcmd == "repair-effective-attribute-intervals":
-            if not getattr(args, "deployment", None):
-                raise SubstrateError(
-                    "effective-attribute interval repair requires --deployment",
-                    fix_hint=(
-                        "okg db repair-effective-attribute-intervals "
-                        "--deployment <name> --apply"
-                    ),
-                )
-            if not getattr(args, "apply", False):
-                raise SubstrateError(
-                    "effective-attribute interval repair requires --apply",
-                    fix_hint=(
-                        "okg db repair-effective-attribute-intervals "
-                        "--deployment <name> --apply"
-                    ),
-                )
-            dsn = _resolve_deployment_dsn(args)
-            from okg.substrate.db.connection import connect as db_connect
-
-            from okg.substrate.attributes import (
-                repair_effective_attribute_interval_view,
-            )
-
-            with db_connect(
-                dsn, autocommit=True
-            ) as conn:
-                payload = repair_effective_attribute_interval_view(
-                    conn,
-                    deployment_name=str(args.deployment),
-                )
-        elif subcmd == "prune-effective-intervals":
-            # One-time bounded-batch drain of the CLOSED-interval backlog outside
-            # the retention window (PACT bound-okg-workspace-disk-growth,
-            # req.bound-disk.intervals-sidecar). Dry-run counts; --confirm --apply
-            # drains in batches of --batch-size.
-            if getattr(args, "deployment", None):
-                dsn = _resolve_deployment_dsn(args)
-            elif getattr(args, "dsn", None):
-                dsn = args.dsn
-            else:
-                dsn = _resolve_dsn(args)
-            from okg.substrate.db.connection import connect as db_connect
-
-            from okg.substrate.attributes import (
-                EFFECTIVE_VIEW_RETENTION_GENERATIONS,
-                count_prunable_closed_intervals,
-                prune_effective_interval_view_backlog,
-            )
-
-            keep = (
-                int(args.keep_generations)
-                if getattr(args, "keep_generations", None) is not None
-                else EFFECTIVE_VIEW_RETENTION_GENERATIONS
-            )
-            do_apply = bool(getattr(args, "confirm", False) and getattr(args, "apply", False))
-            with db_connect(dsn, autocommit=True) as conn:
-                if do_apply:
-                    payload = prune_effective_interval_view_backlog(
-                        conn,
-                        keep_generations=keep,
-                        batch_size=int(args.batch_size),
-                        max_batches=(
-                            int(args.max_batches)
-                            if getattr(args, "max_batches", None) is not None
-                            else None
-                        ),
-                    )
-                    payload["applied"] = True
-                else:
-                    prunable = count_prunable_closed_intervals(
-                        conn, keep_generations=keep
-                    )
-                    payload = {
-                        "applied": False,
-                        "dry_run": True,
-                        "keep_generations": keep,
-                        "prunable_closed_intervals": prunable,
-                        "fix_hint": (
-                            "okg db prune-effective-intervals --deployment <name> "
-                            "--batch-size 50000 --confirm --apply"
-                        ),
-                    }
-        elif subcmd == "backfill-effective-interval-raw-attrs":
-            # One-time bounded-batch dedup: NULL raw_attrs where it byte-equals
-            # attrs (presence-means-overlay). Dry-run counts; --confirm --apply
-            # NULLs in batches of --batch-size.
-            if getattr(args, "deployment", None):
-                dsn = _resolve_deployment_dsn(args)
-            elif getattr(args, "dsn", None):
-                dsn = args.dsn
-            else:
-                dsn = _resolve_dsn(args)
-            from okg.substrate.db.connection import connect as db_connect
-
-            from okg.substrate.attributes import (
-                ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,
-                ATTRIBUTE_EFFECTIVE_VIEW_TABLE,
-                backfill_effective_interval_raw_attrs_dedup,
-            )
-
-            include_snapshot = not bool(getattr(args, "no_snapshot", False))
-            do_apply = bool(getattr(args, "confirm", False) and getattr(args, "apply", False))
-            with db_connect(dsn, autocommit=True) as conn:
-                if do_apply:
-                    payload = backfill_effective_interval_raw_attrs_dedup(
-                        conn,
-                        batch_size=int(args.batch_size),
-                        max_batches=(
-                            int(args.max_batches)
-                            if getattr(args, "max_batches", None) is not None
-                            else None
-                        ),
-                        include_snapshot=include_snapshot,
-                    )
-                    payload["applied"] = True
-                else:
-                    counts: dict[str, Any] = {"applied": False, "dry_run": True}
-                    with conn.cursor() as cur:
-                        for label, table in (
-                            ("interval_duplicates", ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE),
-                            ("snapshot_duplicates", ATTRIBUTE_EFFECTIVE_VIEW_TABLE),
-                        ):
-                            cur.execute(
-                                "SELECT to_regclass(%s)", (table,)
-                            )
-                            if cur.fetchone()[0] is None:
-                                counts[label] = None
-                                continue
-                            # schema-interval-narrow-split: post-split tables
-                            # carry no raw_attrs column (payloads live in
-                            # okg.attribute_versions); the dedup is then a
-                            # structural no-op, reported explicitly.
-                            schema_name, _, table_name = table.rpartition(".")
-                            cur.execute(
-                                """
-                                SELECT 1 FROM information_schema.columns
-                                 WHERE table_schema = %s AND table_name = %s
-                                   AND column_name = 'raw_attrs'
-                                """,
-                                (schema_name or "public", table_name),
-                            )
-                            if cur.fetchone() is None:
-                                counts[label] = 0
-                                counts["narrow_split_active"] = True
-                                continue
-                            cur.execute(
-                                f"SELECT count(*) FROM {table} "
-                                "WHERE raw_attrs IS NOT NULL AND raw_attrs = attrs"
-                            )
-                            counts[label] = int(cur.fetchone()[0])
-                    counts["include_snapshot"] = include_snapshot
-                    counts["fix_hint"] = (
-                        "okg db backfill-effective-interval-raw-attrs "
-                        "--deployment <name> --batch-size 50000 --confirm --apply"
-                    )
-                    payload = counts
         elif subcmd == "cold-history":
             if getattr(args, "deployment", None):
                 dsn = _resolve_deployment_dsn(args)
@@ -1889,15 +1677,10 @@ def _cmd_db(args: argparse.Namespace, *, as_json: bool) -> int:
                     "prune-source-blobs, prune-blobs, drop, "
                     "remove-job-runtime-subsystem, "
                     "migrations, migrate-down, doctor, role-passwords, "
-                    "inspect-effective-attribute-recovery, "
                     "current-runtime-dlq, "
                     "acknowledge-runtime-dlq, "
-                    "prepare-effective-attribute-recovery, "
-                    "repair-effective-attribute-intervals, "
                     "reclaim-index-space, embed-backfill, embed-show, "
-                    "embed-index, semantic-index, "
-                    "prune-effective-intervals, "
-                    "backfill-effective-interval-raw-attrs, cold-history"
+                    "embed-index, semantic-index, cold-history"
                 ),
             )
     except SubstrateError as err:
@@ -2059,16 +1842,13 @@ def _cmd_db_semantic_index(args: argparse.Namespace, *, as_json: bool) -> dict:
 
 
 def _cmd_db_attr_index(args: argparse.Namespace, *, as_json: bool) -> int:
-    """`okg db attr-index reconcile|verify` (okg#3112 step 2).
+    """`okg db attr-index reconcile` (okg#3112 step 2).
 
     ``reconcile`` is a dry run unless ``--apply``; ``--apply`` is also the
     operator's opt-in that lets the scheduled maintenance workflow keep the
-    indexes up to date. ``verify --against-graph`` compares the
-    effective-attribute view with the graph rows at every retained ordinal;
-    it exits 1 and names the attribute on a difference, and exits 3 (status
-    ``nothing_compared``) when it compared nothing. Plain ``verify`` compared
-    the expression indexes with ``okg.attr_index``, which okg#3112 step 4b
-    removed; it is refused by name (``removed_check``, decision 304 D7).
+    indexes up to date. (``verify`` is gone: okg#3112 step 4b removed the
+    okg.attr_index it compared with, and PACT lane-s-storage-drop-copies the
+    effective-attribute view ``--against-graph`` compared with.)
 
     ``reconcile --apply`` needs ``--deployment``: its build preconditions
     (the publisher lock, active source runs) are per deployment, and a
@@ -2079,21 +1859,6 @@ def _cmd_db_attr_index(args: argparse.Namespace, *, as_json: bool) -> int:
 
     action = getattr(args, "attr_index_subcmd", None)
     try:
-        # Refused before any connection: the check it ran is gone.
-        if action == "verify" and not getattr(args, "against_graph", False):
-            err = SubstrateError(
-                "okg db attr-index verify without --against-graph was "
-                "removed: it compared the expression "
-                "indexes with okg.attr_index, which no longer exists",
-                data={"reason": "removed_check", "check": "verify"},
-                fix_hint=(
-                    "run okg db attr-index verify --against-graph, which "
-                    "checks the effective-attribute view against the "
-                    "graph rows"
-                ),
-            )
-            err.code = "removed_check"
-            raise err
         if action == "reconcile" and getattr(args, "apply", False) \
                 and not getattr(args, "deployment", None):
             raise SubstrateError(
@@ -2129,18 +1894,11 @@ def _cmd_db_attr_index(args: argparse.Namespace, *, as_json: bool) -> int:
             )
             failed = bool(payload.get("failed")) or bool(payload.get("capped"))
             code = 1 if payload.get("status") in {"refused", "not_installed"} or failed else 0
-        elif action == "verify":
-            branch = str(getattr(args, "branch", None) or "default")
-            payload = dai.verify_against_graph(dsn, branch=branch)
-            if payload.get("status") == "nothing_compared":
-                code = 3
-            else:
-                code = 0 if payload.get("ok") else 1
         else:
             raise SubstrateError(
                 "unknown attr-index subcommand",
                 data={"subcmd": action},
-                fix_hint="use one of: reconcile, verify",
+                fix_hint="use: reconcile",
             )
     except SubstrateError as err:
         return _emit_error(err, as_json=as_json)
@@ -7537,6 +7295,28 @@ class _VersionAction(argparse.Action):
         parser.exit(0)
 
 
+class _CommaListAction(argparse.Action):
+    """Accumulate a repeated flag into one comma-separated string.
+
+    ``--include a,b --include c`` stores ``"a,b,c"`` (first-seen order, exact
+    duplicates dropped) so every consumer that splits on commas sees all the
+    values. The default ``store`` action kept only the last repeat (#4016).
+    Empty and whitespace-only items are skipped, so ``--include a,`` stores
+    ``"a"``. When nothing is left the value is ``""``, which consumers read
+    as no filter, exactly as a lone ``--include ""`` did before.
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        items: list[str] = []
+        for chunk in (getattr(namespace, self.dest, None), values):
+            if chunk is None:
+                continue
+            for item in chunk.split(","):
+                if item.strip() and item not in items:
+                    items.append(item)
+        setattr(namespace, self.dest, ",".join(items))
+
+
 def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     # --json is accepted on both the top-level parser AND every
     # subparser. On subparsers we use `default=argparse.SUPPRESS`
@@ -8108,21 +7888,6 @@ def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     )
     _add_json_flag(p_db_semantic_index)
 
-    p_db_attr_repair = p_db_sub.add_parser(
-        "repair-effective-attribute-intervals",
-        help="Repair the latest published generation's attribute interval view",
-    )
-    add_deployment_arg(p_db_attr_repair, required=True)
-    p_db_attr_repair.add_argument("--apply", action="store_true")
-    _add_json_flag(p_db_attr_repair)
-
-    p_db_attr_inspect = p_db_sub.add_parser(
-        "inspect-effective-attribute-recovery",
-        help="Classify latest published attribute state without mutation",
-    )
-    add_deployment_arg(p_db_attr_inspect, required=True)
-    _add_json_flag(p_db_attr_inspect)
-
     p_db_current_dlq = p_db_sub.add_parser(
         "current-runtime-dlq",
         help="Report current DBOS failures after explicit supersession",
@@ -8147,85 +7912,11 @@ def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     p_db_ack_dlq.add_argument("--apply", action="store_true")
     _add_json_flag(p_db_ack_dlq)
 
-    p_db_attr_prepare = p_db_sub.add_parser(
-        "prepare-effective-attribute-recovery",
-        help="Rebuild corrupt derived state under a preflight binding",
-    )
-    add_deployment_arg(p_db_attr_prepare, required=True)
-    p_db_attr_prepare.add_argument("--expected-binding-digest", required=True)
-    p_db_attr_prepare.add_argument("--expected-classification", required=True)
-    p_db_attr_prepare.add_argument("--apply", action="store_true")
-    _add_json_flag(p_db_attr_prepare)
-
-    p_db_prune_iv = p_db_sub.add_parser(
-        "prune-effective-intervals",
-        help=(
-            "Drain the CLOSED attribute-interval backlog outside the retention "
-            "window in bounded batches (dry-run counts; --confirm --apply drains)"
-        ),
-    )
-    add_deployment_arg(p_db_prune_iv)
-    add_dsn_arg(p_db_prune_iv)
-    p_db_prune_iv.add_argument(
-        "--batch-size",
-        type=int,
-        default=5000,
-        help="Rows deleted per batch/statement (default 5000)",
-    )
-    p_db_prune_iv.add_argument(
-        "--max-batches",
-        type=int,
-        default=None,
-        help="Cap total batches (default: drain fully)",
-    )
-    p_db_prune_iv.add_argument(
-        "--keep-generations",
-        type=int,
-        default=None,
-        help=(
-            "Retention window in generations, mirroring the snapshot view "
-            "(default OKG_EFFECTIVE_VIEW_RETENTION_GENERATIONS)"
-        ),
-    )
-    p_db_prune_iv.add_argument("--confirm", action="store_true")
-    p_db_prune_iv.add_argument("--apply", action="store_true")
-    _add_json_flag(p_db_prune_iv)
-
-    p_db_backfill_ra = p_db_sub.add_parser(
-        "backfill-effective-interval-raw-attrs",
-        help=(
-            "NULL out duplicate raw_attrs (byte-equal to attrs) in bounded "
-            "batches (dry-run counts; --confirm --apply applies)"
-        ),
-    )
-    add_deployment_arg(p_db_backfill_ra)
-    add_dsn_arg(p_db_backfill_ra)
-    p_db_backfill_ra.add_argument(
-        "--batch-size",
-        type=int,
-        default=5000,
-        help="Rows NULLed per batch/statement (default 5000)",
-    )
-    p_db_backfill_ra.add_argument(
-        "--max-batches",
-        type=int,
-        default=None,
-        help="Cap total batches (default: drain fully)",
-    )
-    p_db_backfill_ra.add_argument(
-        "--no-snapshot",
-        action="store_true",
-        help="Dedup only the interval sidecar, not the snapshot view",
-    )
-    p_db_backfill_ra.add_argument("--confirm", action="store_true")
-    p_db_backfill_ra.add_argument("--apply", action="store_true")
-    _add_json_flag(p_db_backfill_ra)
-
     # okg#3112 step 2: the declared-attribute expression indexes.
     p_db_attr_index = p_db_sub.add_parser(
         "attr-index",
         help=(
-            "Build, maintain and verify the per-attribute expression indexes "
+            "Build and maintain the per-attribute expression indexes "
             "on the graph tables"
         ),
     )
@@ -8264,28 +7955,6 @@ def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
         ),
     )
     _add_json_flag(p_db_attr_reconcile)
-    p_db_attr_verify = p_db_attr_index_sub.add_parser(
-        "verify",
-        help=(
-            "With --against-graph, compare the attribute view with the graph "
-            "rows at every retained ordinal (plain verify was removed "
-            "and is refused)"
-        ),
-    )
-    add_deployment_arg(p_db_attr_verify)
-    add_dsn_arg(p_db_attr_verify)
-    p_db_attr_verify.add_argument(
-        "--against-graph",
-        action="store_true",
-        help=(
-            "Check the effective-attribute view against the graph rows for "
-            "every declared key; a clean run clears the drift flags"
-        ),
-    )
-    p_db_attr_verify.add_argument(
-        "--branch", default="default", help="Branch to check (default: default)"
-    )
-    _add_json_flag(p_db_attr_verify)
 
     p_db_cold = p_db_sub.add_parser(
         "cold-history",
@@ -8478,12 +8147,16 @@ def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     add_dsn_arg(p_ing)
     p_ing.add_argument(
         "--include",
+        action=_CommaListAction,
         help="comma-separated source names or ownership IDs to include "
-             "(default: all; predecessors are included)",
+             "(default: all; predecessors are included); "
+             "repeat the flag to add more",
     )
     p_ing.add_argument(
         "--exclude",
-        help="comma-separated source names to exclude",
+        action=_CommaListAction,
+        help="comma-separated source names to exclude; "
+             "repeat the flag to add more",
     )
     p_ing.add_argument(
         "--no-predecessors",
@@ -9099,7 +8772,7 @@ def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     )
     _add_json_flag(p_prov)
     p_prov.add_argument(
-        "--include", nargs="*", metavar="SOURCE",
+        "--include", nargs="*", metavar="SOURCE", action="extend",
         help="limit the ingest to these source ids (default: all repo sources)",
     )
     p_prov.add_argument(
@@ -10050,7 +9723,7 @@ def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
         help="dev = worktree-isolated database; prod = declared database",
     )
     p_dep_up.add_argument(
-        "--include", nargs="*", default=None,
+        "--include", nargs="*", default=None, action="extend",
         help="Limit ingest to these source ids",
     )
     p_dep_up.add_argument(
@@ -10173,7 +9846,7 @@ def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     add_renamed_argument(
         p_dep_up, "--checks", "--readiness-profile",
         dest="readiness_profile",
-        choices=("general", "dogfood", "ci"),
+        choices=("general", "dogfood", "ci", "standard"),
         default="general",
         help="Readiness checks to run after the smoke publish",
     )
@@ -10227,7 +9900,7 @@ def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
         help="dev = worktree-isolated database; prod = declared database",
     )
     p_up.add_argument(
-        "--include", nargs="*", default=None,
+        "--include", nargs="*", default=None, action="extend",
         help="Limit smoke ingest to these source ids",
     )
     p_up.add_argument(
@@ -10329,7 +10002,7 @@ def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     add_renamed_argument(
         p_up, "--checks", "--readiness-profile",
         dest="readiness_profile",
-        choices=("general", "dogfood", "ci"),
+        choices=("general", "dogfood", "ci", "standard"),
         default="general",
         help="Readiness checks to run after the smoke publish",
     )
@@ -10353,11 +10026,12 @@ def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     add_renamed_argument(
         p_dep_ready, "--checks", "--profile",
         dest="profile",
-        choices=("general", "dogfood", "ci"),
+        choices=("general", "dogfood", "ci", "standard"),
         default="general",
         help=(
             "Readiness checks; dogfood and ci add strict source freshness "
-            "and sync liveness"
+            "and sync liveness; standard adds 14-day baseline-source "
+            "freshness and the runtime checks"
         ),
     )
     p_dep_prove_live = p_dep_sub.add_parser(
@@ -11852,6 +11526,16 @@ def _build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
         help="Perform the write. Without it, print the plan and change "
              "nothing.",
     )
+
+    p_rt_deferred = p_rt_sub.add_parser(
+        "deferred-edges",
+        help=(
+            "List cross-source edges waiting for another source's record, "
+            "by producer, edge type, endpoint subtype and state, with the "
+            "oldest age and a bounded operator-only id sample"
+        ),
+    )
+    _add_rt_common(p_rt_deferred)
 
     p_rt_finish_undo = p_rt_sub.add_parser(
         "finish-undo",

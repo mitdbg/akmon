@@ -32,9 +32,20 @@ from okg.substrate.runtime.source_sync_constants import SOURCE_SYNC_WORKFLOW_NAM
 
 CONTRACT_VERSION = 1
 MIGRATION_ID = "0029_workflow_operational_outcomes"
+# PACT publisher-starvation-4039: the publisher is a third participant with
+# its own cutover. Its SUCCESS rows from before this migration are legacy; the
+# shared 0029 time would turn them into workflow_outcome_unknown.
+PUBLISHER_MIGRATION_ID = "0045_publisher_operational_outcomes"
 DEFAULT_LOOKBACK_SECONDS = 24 * 60 * 60
 OUTCOMES = frozenset({"clean", "partial_failure", "retained_failure", "skipped"})
 EMBED_WORKFLOW_NAME = "okg_embed_batch"
+PUBLISHER_WORKFLOW_NAME = "okg_publisher_cycle"
+#: The migration whose ``applied_at`` is each participant's cutover epoch.
+PARTICIPANT_MIGRATION_IDS = {
+    EMBED_WORKFLOW_NAME: MIGRATION_ID,
+    SOURCE_SYNC_WORKFLOW_NAME: MIGRATION_ID,
+    PUBLISHER_WORKFLOW_NAME: PUBLISHER_MIGRATION_ID,
+}
 
 
 class WorkflowOperationalEvidenceError(RuntimeError):
@@ -95,6 +106,8 @@ def participant_for(*, deployment: str, workflow_name: str) -> OperationalPartic
         queue_name = partition_queue_name(deployment)
     elif workflow_name == SOURCE_SYNC_WORKFLOW_NAME:
         queue_name = source_sync_queue_name(deployment)
+    elif workflow_name == PUBLISHER_WORKFLOW_NAME:
+        queue_name = partition_queue_name(deployment)
     else:
         raise WorkflowOperationalEvidenceError(
             f"workflow {workflow_name!r} is not an operational participant"
@@ -105,7 +118,10 @@ def participant_for(*, deployment: str, workflow_name: str) -> OperationalPartic
 def operational_participants(deployment: str) -> tuple[OperationalParticipant, ...]:
     return tuple(
         participant_for(deployment=deployment, workflow_name=name)
-        for name in (EMBED_WORKFLOW_NAME, SOURCE_SYNC_WORKFLOW_NAME)
+        for name in (
+            EMBED_WORKFLOW_NAME, SOURCE_SYNC_WORKFLOW_NAME,
+            PUBLISHER_WORKFLOW_NAME,
+        )
     )
 
 
@@ -300,6 +316,39 @@ def normalize_outcome(raw: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+#: A cutover later than any real time: nothing has registered yet.
+_NO_REGISTRATION_YET_MS = 1 << 62
+
+
+def publisher_effective_cutover_ms(
+    conn: Any, *, deployment: str, migration_applied_ms: int,
+) -> int:
+    """The publisher's cutover: where its cycles start owing an outcome.
+
+    Not the migration's ``applied_at`` alone. During a rolling upgrade a
+    worker still on the old code finishes cycles after the migration, and
+    those never register. The cutover is the later of the migration and the
+    deployment's first registered publisher outcome; every publisher SUCCESS
+    that completed before it is legacy, never unknown. Before any cycle has
+    registered, nothing is owed yet.
+    """
+    row = conn.execute(
+        "SELECT min(registered_at) AS first_registered_at"
+        " FROM okg.workflow_operational_registrations"
+        " WHERE deployment_name = %s AND workflow_name = %s",
+        (deployment, PUBLISHER_WORKFLOW_NAME),
+    ).fetchone()
+    if row is None:
+        first = None
+    elif isinstance(row, Mapping):  # the reader's dict_row connection
+        first = row["first_registered_at"]
+    else:
+        first = row[0]
+    if first is None:
+        return _NO_REGISTRATION_YET_MS
+    return max(migration_applied_ms, _epoch_ms(first) or 0)
+
+
 def check_workflow_operational_outcomes(
     *, deployment: str, dsn: str, lookback_seconds: int = DEFAULT_LOOKBACK_SECONDS,
     sample_limit: int = 10,
@@ -314,17 +363,26 @@ def check_workflow_operational_outcomes(
     targets = {(p.workflow_name, p.queue_name) for p in operational_participants(deployment)}
     names = sorted({name for name, _queue in targets})
     window_start = math.floor((time.time() - lookback_seconds) * 1000)
+    cutovers: dict[str, int | None] = {}
     try:
         with db_connect(dsn, row_factory=dict_row) as conn:
-            migrations = conn.execute(
-                "SELECT applied_at, status FROM okg.schema_migrations WHERE migration_id = %s",
-                (MIGRATION_ID,),
-            ).fetchall()
-            if len(migrations) != 1 or migrations[0]["status"] != "applied" or not isinstance(migrations[0]["applied_at"], datetime):
-                return _unknown(deployment, "migration_not_applied", None)
-            cutover = _epoch_ms(migrations[0]["applied_at"])
+            for migration_id in dict.fromkeys(PARTICIPANT_MIGRATION_IDS.values()):
+                migrations = conn.execute(
+                    "SELECT applied_at, status FROM okg.schema_migrations WHERE migration_id = %s",
+                    (migration_id,),
+                ).fetchall()
+                if len(migrations) != 1 or migrations[0]["status"] != "applied" or not isinstance(migrations[0]["applied_at"], datetime):
+                    return _unknown(deployment, "migration_not_applied", None)
+                cutovers[migration_id] = _epoch_ms(migrations[0]["applied_at"])
+            cutovers[PUBLISHER_MIGRATION_ID] = publisher_effective_cutover_ms(
+                conn, deployment=deployment,
+                migration_applied_ms=cutovers[PUBLISHER_MIGRATION_ID] or 0,
+            )
     except Exception as exc:  # noqa: BLE001
         return _unknown(deployment, f"migration_unreadable:{type(exc).__name__}", None)
+    # The embed and source-sync participants share the 0029 cutover (the one
+    # the verdict reports); the publisher has its own.
+    cutover = cutovers[MIGRATION_ID]
     try:
         with db_connect(dsn, row_factory=dict_row) as conn:
             rows = conn.execute(
@@ -367,7 +425,10 @@ def check_workflow_operational_outcomes(
     for row in rows:
         pair = (row.get("status_workflow_name"), row.get("status_queue_name"))
         completed = _epoch_ms(row.get("completed_at"))
-        if completed is not None and completed < cutover:
+        row_cutover = cutovers[
+            PARTICIPANT_MIGRATION_IDS.get(pair[0], MIGRATION_ID)
+        ]
+        if completed is not None and row_cutover is not None and completed < row_cutover:
             if pair in targets:
                 counts["legacy"] += 1
             continue
@@ -522,6 +583,8 @@ def _epoch_ms(value: Any) -> int | None:
 __all__ = [
     "CONTRACT_VERSION", "DEFAULT_LOOKBACK_SECONDS", "EMBED_WORKFLOW_NAME",
     "MIGRATION_ID", "OUTCOMES", "OperationalParticipant", "OperationalTransactions",
+    "PARTICIPANT_MIGRATION_IDS", "PUBLISHER_MIGRATION_ID", "PUBLISHER_WORKFLOW_NAME",
+    "publisher_effective_cutover_ms",
     "WorkflowOperationalEvidenceConflict", "WorkflowOperationalEvidenceError",
     "WorkflowOperationalOutcomeVerdict", "check_workflow_operational_outcomes",
     "define_operational_transactions", "normalize_outcome", "operational_participants",

@@ -29,9 +29,6 @@ What lives here:
   consecutive failures, and refuses text indexes unless the database orders
   strings by code point. Migrate and catalog apply preempt it
   (:func:`index_ddl_preemption`, :func:`preempt_in_transaction`).
-* **Drift checks** (:func:`run_drift_checks`, :func:`verify_against_graph`):
-  the effective-attribute view against the graph rows for every declared key
-  (design section 3).
 * **The declaration registry** (:func:`declared_filterable_attrs`,
   :func:`declared_filterable_by_type`, :func:`flatten_declarations`): what the
   latest applied catalog declares filterable, one value type per attribute
@@ -95,13 +92,11 @@ __all__ = [
     "record_maintenance_request",
     "render_candidate_select",
     "render_probe",
-    "run_drift_checks",
     "statistics_ddl",
     "statistics_expression",
     "statistics_expression_matches",
     "statistics_name",
     "ts_bounds_accepted",
-    "verify_against_graph",
 ]
 
 #: Reserved index-name prefix. Step 1's post-publish rebuild never judges an
@@ -125,7 +120,6 @@ STATISTICS_KINDS = ("node",)
 
 MANIFEST_TABLE = "okg.declared_attr_indexes"
 STATE_TABLE = "okg.declared_attr_index_state"
-DRIFT_TABLE = "okg.declared_attr_index_drift_checks"
 
 #: The advisory lock every graph-table index change takes (cold-history
 #: rotation, step 1's convergence and rebuilds, this reconciler).
@@ -148,6 +142,13 @@ DEFAULT_BUILD_LOCK_TIMEOUT_SECONDS = 600.0
 #: How long migrate and catalog apply wait for the DDL lock after cancelling
 #: the reconciler.
 PREEMPT_WAIT_SECONDS = 60.0
+#: How long they wait when no holder of the DDL lock is the reconciler (a
+#: cold-history rotation, step 1's convergence, another migrate). Nothing
+#: they do frees such a holder, so they go on without the lock after this
+#: short grace instead of the full wait. The grace covers a reconciler that
+#: has taken the lock but not yet recorded its pid; it then sees the
+#: preemption intent lock and stops on its own.
+PREEMPT_OTHER_HOLDER_GRACE_SECONDS = 1.0
 DRIFT_SLICES_ENV = "OKG_DECLARED_ATTR_DRIFT_SLICES"
 DEFAULT_DRIFT_SLICES = 32
 #: ``off`` turns the scheduled maintenance workflow into a no-op.
@@ -554,7 +555,6 @@ READINESS_REASONS = (
     "index_building",
     "index_failed",
     "declaration_changed",
-    "view_graph_drift",
 )
 
 
@@ -566,7 +566,7 @@ def reader_readiness(
 
     Ready means: the manifest row is ``ready`` for the declared value type
     and key version, its definition digest equals the one the declaration
-    and the current database collation give, no drift flag is set, and the
+    and the current database collation give, and the
     index exists on the registered graph table, valid, ready and live, with
     the definition the reconciler recorded. ``cur`` must return dict rows.
 
@@ -589,7 +589,7 @@ def reader_readiness(
     cur.execute(
         """
         SELECT m.attr_id, m.value_type, m.key_version, m.state, m.definition_digest,
-               m.drift, m.indexdef AS recorded_def, m.physical_table,
+               m.indexdef AS recorded_def, m.physical_table,
                i.indexrelid IS NOT NULL AS present,
                coalesce(i.indisvalid AND i.indisready AND i.indislive, false) AS usable,
                i.indrelid = to_regclass(%s) AS on_table,
@@ -616,8 +616,6 @@ def reader_readiness(
             out[attr] = "index_missing"
         elif row["state"] == "building":
             out[attr] = "index_building"
-        elif row["drift"]:
-            out[attr] = "view_graph_drift"
         elif not row["present"] or not row["on_table"] or row["physical_table"] != physical_table:
             out[attr] = "index_missing"
         elif not row["usable"]:
@@ -1170,11 +1168,17 @@ def _preempt_loop(
     waited for). Only a running ``CREATE INDEX`` or ``DROP INDEX`` is
     cancelled, once per statement (``cancelled_statements`` carries that
     across calls); the reconciler sees the preemption lock before its next
-    index statement. Any other holder (a cold-history rotation, step 1's
-    convergence) is waited for.
+    index statement. When no holder is the recorded reconciler (a
+    cold-history rotation, step 1's convergence, another migrate), it waits
+    only :data:`PREEMPT_OTHER_HOLDER_GRACE_SECONDS` and returns
+    ``not_acquired`` with reason ``held_by_another_index_change``: nothing it
+    does frees that holder, and the caller goes on without the lock either
+    way, so the full wait would only stall it. A wait that runs out has
+    reason ``wait_expired``.
     """
     started = time.monotonic()
     deadline = started + max(0.0, wait_seconds)
+    other_deadline = started + min(max(0.0, wait_seconds), PREEMPT_OTHER_HOLDER_GRACE_SECONDS)
     done = cancelled_statements if cancelled_statements is not None else set()
     cancelled: list[int] = sorted({pid for pid, _ in done})
     refused: list[int] = []
@@ -1238,13 +1242,23 @@ def _preempt_loop(
                         "%s preempted the declared-attribute index reconciler (pid %s)",
                         actor, pid,
                     )
+        reconciler_holds = identity is not None and identity[0] in holders
+        if holders and not reconciler_holds and time.monotonic() >= other_deadline:
+            _log.warning(
+                "%s found the graph-index DDL lock held by another index change "
+                "(holders=%s, none of them the reconciler); continuing without it",
+                actor, holders,
+            )
+            return result(
+                "not_acquired", holders=holders, reason="held_by_another_index_change",
+            )
         if time.monotonic() >= deadline:
             _log.warning(
                 "%s could not take the graph-index DDL lock within %.0f s; "
                 "holders=%s; continuing without it",
                 actor, wait_seconds, holders,
             )
-            return result("not_acquired", holders=holders)
+            return result("not_acquired", holders=holders, reason="wait_expired")
         time.sleep(0.2)
 
 
@@ -2171,545 +2185,7 @@ def maintenance_wanted(conn: psycopg.Connection) -> tuple[bool, str]:
 
 
 # --------------------------------------------------------------------------- #
-# Generations                                                                  #
-# --------------------------------------------------------------------------- #
-
-
-def _ordinals(cur: Any, branch: str) -> list[dict[str, Any]]:
-    """Every published ordinal of ``branch`` with its branch point and whether
-    its publish synced the effective-attribute interval front."""
-    if not _regclass(cur, "okg.generation_ordinals") or not _regclass(
-        cur, "public._chronos_branch_interval_checkpoints"
-    ):
-        return []
-    cur.execute(
-        """
-        SELECT o.ordinal, o.checkpoint_id, s.branch_point::bigint AS bp,
-               coalesce((c.metadata::jsonb -> 'effective_interval_view_sync' ->> 'ran') = 'true',
-                        false) AS synced
-          FROM okg.generation_ordinals o
-          JOIN public._chronos_branch_interval_checkpoints c ON c.checkpoint_id = o.checkpoint_id
-          JOIN public._chronos_branch_interval_segments s ON s.segment_id = c.segment_id
-         WHERE o.branch_id = %s
-         ORDER BY o.ordinal
-        """,
-        (branch,),
-    )
-    return [dict(row) for row in cur.fetchall()]
-
-
-def _generation_ids(checkpoint_id: Any) -> list[str]:
-    """The forms an ordinal's generation takes in the overlay table: the
-    checkpoint id (``generation:<n>``) and the bare generation id."""
-    text = str(checkpoint_id or "")
-    if not text:
-        return []
-    out = [text]
-    if text.startswith("generation:"):
-        out.append(text[len("generation:"):])
-    return out
-
-
-def _retained_ordinals(cur: Any, branch: str) -> tuple[list[dict[str, Any]], list[int]]:
-    """The ordinals the effective-attribute view retains (the last
-    ``OKG_EFFECTIVE_VIEW_RETENTION_GENERATIONS``) whose publish synced the
-    view, and the retained ones that did not (not checkable)."""
-    from okg.substrate.attributes import EFFECTIVE_VIEW_RETENTION_GENERATIONS
-
-    ordinals = _ordinals(cur, branch)[-EFFECTIVE_VIEW_RETENTION_GENERATIONS:]
-    return ([o for o in ordinals if o["synced"]],
-            [int(o["ordinal"]) for o in ordinals if not o["synced"]])
-
-
-# --------------------------------------------------------------------------- #
-# Drift: the view against the graph                                            #
-# --------------------------------------------------------------------------- #
-
-
-def _scope_sql(kind: str, scope: Mapping[str, Any], params: dict[str, Any]) -> tuple[str, str]:
-    """(graph-side clause, view-side clause) restricting both to the targets
-    of ``scope``: ``all``, ``ids`` or an id ``range`` [lo, hi)."""
-    idcol = f"g.{_ID_COLUMN[kind]}"
-    if scope["kind"] == "all":
-        return "", ""
-    if scope["kind"] == "ids":
-        ids = [str(i) for i in scope["ids"]]
-        params["ids_text"] = ids
-        if kind == "edge":
-            params["ids_num"] = [int(i) for i in ids]
-            return f" AND {idcol} = ANY(%(ids_num)s::bigint[])", \
-                " AND iv.target_id = ANY(%(ids_text)s::text[])"
-        return f" AND {idcol} = ANY(%(ids_text)s::text[])", \
-            " AND iv.target_id = ANY(%(ids_text)s::text[])"
-    lo, hi = scope.get("lo"), scope.get("hi")
-    graph, view = [], []
-    if kind == "edge":
-        # The graph side compares the bigint column, so its index serves the
-        # range. The view keeps the id as text; it is read as a number of any
-        # length (edge ids use all 63 bits, so most have 19 digits). A view id
-        # that is not a number joins the first slice, where it can only show
-        # up as a difference, never vanish from every slice.
-        view_id = "(CASE WHEN iv.target_id ~ '^-?[0-9]+$' THEN iv.target_id::numeric END)"
-        graph_cast, view_cast = "::bigint", "::numeric"
-    else:
-        # Both columns are text in the database's default collation, which
-        # also orders the slice boundaries (_slice_boundaries).
-        view_id = "iv.target_id"
-        graph_cast = view_cast = "::text"
-    if lo is not None:
-        params["lo"] = lo
-        graph.append(f" AND {idcol} >= %(lo)s{graph_cast}")
-        view.append(f" AND {view_id} >= %(lo)s{view_cast}")
-    if hi is not None:
-        params["hi"] = hi
-        graph.append(f" AND {idcol} < %(hi)s{graph_cast}")
-        if kind == "edge" and lo is None:
-            view.append(f" AND ({view_id} IS NULL OR {view_id} < %(hi)s{view_cast})")
-        else:
-            view.append(f" AND {view_id} < %(hi)s{view_cast}")
-    return "".join(graph), "".join(view)
-
-
-def _graph_view_differences(
-    cur: Any,
-    *,
-    kind: str,
-    physical_table: str,
-    attrs: Sequence[str],
-    text_attrs: Sequence[str],
-    branch: str,
-    ordinal: int,
-    bp: int,
-    generation_ids: Sequence[str],
-    scope: Mapping[str, Any],
-    sample_limit: int = 20,
-) -> dict[str, Any]:
-    """Per declared key, the (target, value) multiset of the view at
-    ``ordinal`` against the graph rows visible at ``bp``. Targets with an
-    overlay on that key in that ordinal's generation and the checked
-    namespace are left out (the view legitimately differs); an overlay of
-    another generation or namespace hides nothing."""
-    from okg.substrate.attributes import (
-        ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE,
-        ATTRIBUTE_EFFECTIVE_TABLE,
-        ATTRIBUTE_VERSIONS_TABLE,
-        DEFAULT_NAMESPACE,
-    )
-
-    if not attrs:
-        return {"values_checked": 0, "differences": 0, "by_attr": {}, "sample": [],
-                "max_value_chars": {}}
-    params: dict[str, Any] = {
-        "attrs": list(attrs), "bp": int(bp), "ord": int(ordinal), "branch": branch,
-        "ns": DEFAULT_NAMESPACE, "kind": kind, "gens": list(generation_ids),
-    }
-    graph_scope, view_scope = _scope_sql(kind, scope, params)
-    idcol = _ID_COLUMN[kind]
-    table = f"public.{_quote_ident(physical_table)}"
-    target = f"g.{idcol}::text" if kind == "edge" else f"g.{idcol}"
-    overlay = _regclass(cur, ATTRIBUTE_EFFECTIVE_TABLE)
-    overlay_filter = (
-        f" AND NOT EXISTS (SELECT 1 FROM {ATTRIBUTE_EFFECTIVE_TABLE} o "
-        "WHERE o.target_kind = %(kind)s AND o.target_id = z.target_id AND o.attr_key = z.attr "
-        "AND o.generation_id = ANY(%(gens)s::text[]) AND o.namespace = %(ns)s)"
-        if overlay else ""
-    )
-    cur.execute(
-        f"""
-        WITH d(attr) AS (SELECT unnest(%(attrs)s::text[])),
-        g AS MATERIALIZED (
-          SELECT d.attr, {target} AS target_id, g.attrs -> d.attr AS v
-            FROM {table} g CROSS JOIN d
-           WHERE g.deleted = false AND g.live_lo <= %(bp)s AND %(bp)s < g.live_hi
-             AND g.attrs ? d.attr{graph_scope}
-        ),
-        v AS MATERIALIZED (
-          SELECT d.attr, iv.target_id, av.attrs -> d.attr AS v
-            FROM {ATTRIBUTE_EFFECTIVE_INTERVALS_TABLE} iv
-            JOIN {ATTRIBUTE_VERSIONS_TABLE} av
-              ON av.target_kind = iv.target_kind AND av.target_id = iv.target_id
-             AND av.attrs_hash = iv.attrs_hash
-            CROSS JOIN d
-           WHERE iv.branch_id = %(branch)s AND iv.namespace = %(ns)s
-             AND iv.target_kind = %(kind)s
-             AND iv.from_ord <= %(ord)s AND %(ord)s < iv.to_ord
-             AND av.attrs ? d.attr{view_scope}
-        ),
-        diff AS (
-          SELECT 'graph_only' AS side, x.* FROM (SELECT * FROM g EXCEPT ALL SELECT * FROM v) x
-          UNION ALL
-          SELECT 'view_only' AS side, y.* FROM (SELECT * FROM v EXCEPT ALL SELECT * FROM g) y
-        )
-        SELECT (SELECT count(*) FROM g) AS checked,
-               (SELECT coalesce(jsonb_agg(z ORDER BY z.attr, z.target_id, z.side), '[]'::jsonb)
-                  FROM (SELECT side, attr, target_id, v::text AS value
-                          FROM diff z WHERE true{overlay_filter}) z) AS diffs,
-               (SELECT coalesce(jsonb_object_agg(attr, m), '{{}}'::jsonb)
-                  FROM (SELECT attr, max(length(v #>> '{{}}')) AS m FROM g
-                         WHERE jsonb_typeof(v) = 'string' AND attr = ANY(%(text_attrs)s::text[])
-                         GROUP BY attr) t) AS max_chars
-        """,
-        {**params, "text_attrs": list(text_attrs)},
-    )
-    row = cur.fetchone()
-    diffs = list(row["diffs"] or [])
-    by_attr: dict[str, int] = {}
-    for item in diffs:
-        by_attr[item["attr"]] = by_attr.get(item["attr"], 0) + 1
-    return {
-        "values_checked": int(row["checked"]),
-        "differences": len(diffs),
-        "by_attr": by_attr,
-        "sample": diffs[:sample_limit],
-        "max_value_chars": {k: int(v) for k, v in (row["max_chars"] or {}).items() if v is not None},
-    }
-
-
-def _record_check(
-    cur: Any,
-    *,
-    check_kind: str,
-    branch: str,
-    ordinal: int,
-    result: Mapping[str, Any],
-    slice_index: int | None = None,
-    slice_count: int | None = None,
-) -> None:
-    cur.execute(
-        """
-        INSERT INTO okg.declared_attr_index_drift_checks
-          (check_kind, branch_name, ordinal, slice_index, slice_count,
-           targets_checked, differences, by_attr, sample)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
-        """,
-        (check_kind, branch, int(ordinal), slice_index, slice_count,
-         int(result["values_checked"]), int(result["differences"]),
-         json.dumps(result["by_attr"]), json.dumps(result["sample"], default=str)),
-    )
-
-
-def _flag_drift(cur: Any, kind: str, by_attr: Mapping[str, int], detail: Mapping[str, Any]) -> None:
-    for attr, count in by_attr.items():
-        cur.execute(
-            """
-            UPDATE okg.declared_attr_indexes
-               SET drift = true, drift_detected_at = coalesce(drift_detected_at, now()),
-                   drift_detail = %s::jsonb, updated_at = now()
-             WHERE target_kind = %s AND attr_id = %s
-            """,
-            (json.dumps({**detail, "differences": count}, default=str), kind, attr),
-        )
-
-
-def _note_max_chars(cur: Any, kind: str, max_chars: Mapping[str, int]) -> None:
-    for attr, chars in max_chars.items():
-        cur.execute(
-            "UPDATE okg.declared_attr_indexes SET max_value_chars = greatest(coalesce(max_value_chars, 0), %s) "
-            "WHERE target_kind = %s AND attr_id = %s",
-            (int(chars), kind, attr),
-        )
-
-
-def _check_scope_both_kinds(
-    cur: Any,
-    *,
-    tables: Mapping[str, str],
-    declared: Mapping[str, str],
-    branch: str,
-    ordinal: int,
-    bp: int,
-    generation_ids: Sequence[str],
-    scopes: Mapping[str, Mapping[str, Any]],
-) -> dict[str, Any]:
-    attrs = sorted(declared)
-    text_attrs = sorted(a for a, t in declared.items() if t == "text")
-    out: dict[str, Any] = {"values_checked": 0, "differences": 0, "by_attr": {}, "sample": [],
-                           "by_kind": {}}
-    for kind in TARGET_KINDS:
-        result = _graph_view_differences(
-            cur, kind=kind, physical_table=tables[kind], attrs=attrs, text_attrs=text_attrs,
-            branch=branch, ordinal=ordinal, bp=bp, generation_ids=generation_ids,
-            scope=scopes[kind],
-        )
-        out["by_kind"][kind] = result
-        out["values_checked"] += result["values_checked"]
-        out["differences"] += result["differences"]
-        for attr, n in result["by_attr"].items():
-            out["by_attr"][f"{kind}:{attr}"] = n
-        out["sample"].extend({**item, "target_kind": kind} for item in result["sample"])
-    out["sample"] = out["sample"][:20]
-    return out
-
-
-def _dirty_ids(cur: Any, *, kind: str, physical_table: str, bp_from: int, bp_to: int) -> list[str]:
-    """Targets with a row version opened or closed in (bp_from, bp_to]: the
-    publishes' change set, read from the graph itself."""
-    idcol = _ID_COLUMN[kind]
-    cur.execute(
-        f"""
-        SELECT DISTINCT {idcol}::text AS id
-          FROM public.{_quote_ident(physical_table)}
-         WHERE (live_lo > %(a)s AND live_lo <= %(b)s)
-            OR (live_hi > %(a)s AND live_hi <= %(b)s)
-        """,
-        {"a": int(bp_from), "b": int(bp_to)},
-    )
-    return [str(row["id"]) for row in cur.fetchall()]
-
-
-def _slice_boundaries(cur: Any, *, kind: str, physical_table: str, bp: int, slices: int) -> list[Any]:
-    """N-1 id boundaries splitting the visible targets into ``slices`` ranges."""
-    if slices <= 1:
-        return []
-    idcol = _ID_COLUMN[kind]
-    fractions = [k / slices for k in range(1, slices)]
-    cur.execute(
-        f"""
-        SELECT percentile_disc(%(f)s::float8[]) WITHIN GROUP (ORDER BY {idcol}) AS b
-          FROM public.{_quote_ident(physical_table)}
-         WHERE deleted = false AND live_lo <= %(bp)s AND %(bp)s < live_hi
-        """,
-        {"f": fractions, "bp": int(bp)},
-    )
-    row = cur.fetchone()
-    values = list(row["b"] or [])
-    return [int(v) if kind == "edge" else str(v) for v in values if v is not None]
-
-
-def _slice_scope(boundaries: Sequence[Any], k: int) -> dict[str, Any]:
-    lo = boundaries[k - 1] if k > 0 and k - 1 < len(boundaries) else None
-    hi = boundaries[k] if k < len(boundaries) else None
-    return {"kind": "range", "lo": lo, "hi": hi}
-
-
-def _drift_slices() -> int:
-    raw = os.environ.get(DRIFT_SLICES_ENV)
-    if raw is None or not raw.strip():
-        return DEFAULT_DRIFT_SLICES
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise SubstrateError(f"{DRIFT_SLICES_ENV} must be a positive integer",
-                             data={"value": raw}) from exc
-    if value < 1:
-        raise SubstrateError(f"{DRIFT_SLICES_ENV} must be a positive integer",
-                             data={"value": raw})
-    return value
-
-
-def run_drift_checks(
-    dsn: str,
-    *,
-    branch: str = "default",
-    slices: int | None = None,
-) -> dict[str, Any]:
-    """The maintenance workflow's checks after publishes (design section 3).
-
-    For the publishes since the last run it checks, at the head ordinal, the
-    targets those publishes changed (read from the graph: a row version
-    opened or closed between the two branch points) and one rotating slice
-    of all targets per publish (slice ``k mod N``, an id range between
-    stored boundaries; N = ``OKG_DECLARED_ATTR_DRIFT_SLICES``, default 32).
-    A drifted target the change set misses is therefore found within N
-    publishes. Each check is recorded in ``okg.declared_attr_index_drift_checks``;
-    a difference sets the attribute's drift flag, which only a clean full
-    check (``verify --against-graph``) clears.
-    """
-    n_slices = int(slices) if slices is not None else _drift_slices()
-    with db_connect(dsn, autocommit=True) as conn:
-        cur = conn.cursor(row_factory=dict_row)
-        if not installed(cur):
-            return {"status": "not_installed"}
-        if preempt_requested(cur):
-            # A migrate or catalog apply is changing the schema: scanning the
-            # graph tables now would queue its DDL behind this check.
-            return {"status": "skipped", "reason": "preempt_requested"}
-        tables = _graph_tables(cur)
-        if tables is None:
-            return {"status": "not_registered"}
-        state = _load_state(cur)
-        if state.get("enabled_at") is None:
-            return {"status": "not_enabled"}
-        declared = _declarations(conn)
-        ordinals = _ordinals(cur, branch)
-        if not ordinals:
-            return {"status": "no_publish"}
-        head = ordinals[-1]
-        if not head["synced"]:
-            return {"status": "skipped", "reason": "view_not_synced_at_head",
-                    "ordinal": int(head["ordinal"])}
-        previous = state.get("drift_checked_through_ordinal")
-        if previous is not None and int(previous) >= int(head["ordinal"]):
-            return {"status": "up_to_date", "ordinal": int(head["ordinal"])}
-        by_ordinal = {int(o["ordinal"]): o for o in ordinals}
-        report: dict[str, Any] = {"status": "checked", "ordinal": int(head["ordinal"]),
-                                  "slice_count": n_slices, "checks": []}
-        if previous is None or int(previous) not in by_ordinal:
-            publishes = 1
-            report["dirty"] = {"status": "no_baseline"}
-        else:
-            publishes = sum(1 for o in by_ordinal if int(previous) < o <= int(head["ordinal"]))
-            bp_prev = int(by_ordinal[int(previous)]["bp"])
-            scopes = {
-                kind: {"kind": "ids", "ids": _dirty_ids(
-                    cur, kind=kind, physical_table=tables[kind],
-                    bp_from=bp_prev, bp_to=int(head["bp"]))}
-                for kind in TARGET_KINDS
-            }
-            result = _check_scope_both_kinds(
-                cur, tables=tables, declared=declared, branch=branch,
-                ordinal=int(head["ordinal"]), bp=int(head["bp"]),
-                generation_ids=_generation_ids(head.get("checkpoint_id")), scopes=scopes,
-            )
-            result["targets"] = {k: len(scopes[k]["ids"]) for k in TARGET_KINDS}
-            _record_check(cur, check_kind="dirty", branch=branch,
-                          ordinal=int(head["ordinal"]), result=result)
-            report["dirty"] = _check_summary(result)
-            _apply_findings(cur, result, check="dirty", ordinal=int(head["ordinal"]))
-        boundaries = state.get("slice_boundaries") or {}
-        cursor = int(state.get("slice_cursor") or 0)
-        if state.get("slice_count") != n_slices or cursor >= n_slices:
-            cursor, boundaries = 0, {}
-        stopped = None
-        for _ in range(min(publishes, n_slices)):
-            if preempt_requested(cur):
-                # Checked before every slice, not only at the start: a run
-                # owing many slices must not hold a migrate's DDL behind it.
-                stopped = "preempt_requested"
-                break
-            if cursor == 0 or not boundaries:
-                boundaries = {
-                    kind: _slice_boundaries(cur, kind=kind, physical_table=tables[kind],
-                                            bp=int(head["bp"]), slices=n_slices)
-                    for kind in TARGET_KINDS
-                }
-            scopes = {kind: _slice_scope(boundaries.get(kind) or [], cursor)
-                      for kind in TARGET_KINDS}
-            result = _check_scope_both_kinds(
-                cur, tables=tables, declared=declared, branch=branch,
-                ordinal=int(head["ordinal"]), bp=int(head["bp"]),
-                generation_ids=_generation_ids(head.get("checkpoint_id")), scopes=scopes,
-            )
-            _record_check(cur, check_kind="slice", branch=branch, ordinal=int(head["ordinal"]),
-                          result=result, slice_index=cursor, slice_count=n_slices)
-            report["checks"].append({"slice": cursor, **_check_summary(result)})
-            _apply_findings(cur, result, check="slice", ordinal=int(head["ordinal"]))
-            cursor = (cursor + 1) % n_slices
-        if stopped is not None:
-            # Keep the slices already checked (the cursor moves on) but not
-            # the ordinal, so the next run checks the slices still owed.
-            report["status"] = "stopped"
-            report["reason"] = stopped
-            cur.execute(
-                "UPDATE okg.declared_attr_index_state SET slice_count = %s, slice_cursor = %s, "
-                "slice_boundaries = %s::jsonb, updated_at = now() WHERE singleton",
-                (n_slices, cursor, json.dumps(boundaries)),
-            )
-        else:
-            cur.execute(
-                "UPDATE okg.declared_attr_index_state SET drift_checked_through_ordinal = %s, "
-                "slice_count = %s, slice_cursor = %s, slice_boundaries = %s::jsonb, "
-                "updated_at = now() WHERE singleton",
-                (int(head["ordinal"]), n_slices, cursor, json.dumps(boundaries)),
-            )
-        report["differences"] = sum(
-            int(c.get("differences") or 0) for c in [report.get("dirty") or {}, *report["checks"]]
-        )
-        if report["differences"]:
-            _log.error(
-                "declared-attribute drift: the effective-attribute view and the graph "
-                "differ at ordinal %s: %s",
-                head["ordinal"],
-                {k: v for c in [report.get("dirty") or {}, *report["checks"]]
-                 for k, v in (c.get("by_attr") or {}).items()},
-            )
-        return report
-
-
-def _check_summary(result: Mapping[str, Any]) -> dict[str, Any]:
-    return {
-        "values_checked": result["values_checked"],
-        "differences": result["differences"],
-        "by_attr": result["by_attr"],
-        "sample": result["sample"][:5],
-        **({"targets": result["targets"]} if "targets" in result else {}),
-    }
-
-
-def _apply_findings(cur: Any, result: Mapping[str, Any], *, check: str, ordinal: int) -> None:
-    for kind in TARGET_KINDS:
-        part = result["by_kind"][kind]
-        _note_max_chars(cur, kind, part["max_value_chars"])
-        if part["by_attr"]:
-            _flag_drift(cur, kind, part["by_attr"], {"check": check, "ordinal": ordinal})
-
-
-def verify_against_graph(
-    dsn: str,
-    *,
-    branch: str = "default",
-    record: bool = True,
-) -> dict[str, Any]:
-    """The full drift check: at every ordinal the view retains, the view's
-    declared keys equal the graph rows' declared keys (G = V).
-
-    With ``record`` (and migration 0037) each ordinal's result is stored as a
-    ``full`` check; a clean run clears every drift flag and a difference sets
-    the attribute's flag. ``ok`` is false on any difference.
-
-    ``status`` is ``clean``, ``drift`` or ``nothing_compared`` (no graph
-    tables, no retained ordinal whose publish synced the view, or no
-    declared attribute): a run that compared nothing is never clean, and
-    ``ok`` is false.
-    """
-    with db_connect(dsn, autocommit=True) as conn:
-        cur = conn.cursor(row_factory=dict_row)
-        tables = _graph_tables(cur)
-        if tables is None:
-            return {"ok": False, "status": "nothing_compared", "reason": "not_registered",
-                    "branch": branch, "ordinals": [], "differences": 0,
-                    "attrs_with_differences": []}
-        declared = _declarations(conn)
-        retained, unsynced = _retained_ordinals(cur, branch)
-        can_record = record and installed(cur)
-        out: dict[str, Any] = {"branch": branch, "declared_attributes": len(declared),
-                               "ordinals": [], "unsynced_ordinals": unsynced,
-                               "differences": 0, "by_attr": {}}
-        if not retained or not declared:
-            out["ok"] = False
-            out["status"] = "nothing_compared"
-            out["reason"] = "no_declared_attribute" if not declared else (
-                "no_synced_retained_ordinal")
-            out["attrs_with_differences"] = []
-            return out
-        for o in retained:
-            result = _check_scope_both_kinds(
-                cur, tables=tables, declared=declared, branch=branch,
-                ordinal=int(o["ordinal"]), bp=int(o["bp"]),
-                generation_ids=_generation_ids(o.get("checkpoint_id")),
-                scopes={kind: {"kind": "all"} for kind in TARGET_KINDS},
-            )
-            out["ordinals"].append({"ordinal": int(o["ordinal"]), **_check_summary(result)})
-            out["differences"] += result["differences"]
-            for key, n in result["by_attr"].items():
-                out["by_attr"][key] = out["by_attr"].get(key, 0) + n
-            if can_record:
-                _record_check(cur, check_kind="full", branch=branch,
-                              ordinal=int(o["ordinal"]), result=result)
-                _apply_findings(cur, result, check="full", ordinal=int(o["ordinal"]))
-        if can_record and not out["differences"]:
-            cur.execute(
-                "UPDATE okg.declared_attr_indexes SET drift = false, drift_detected_at = NULL, "
-                "drift_detail = NULL, updated_at = now() WHERE drift"
-            )
-        out["ok"] = out["differences"] == 0
-        out["status"] = "clean" if out["ok"] else "drift"
-        out["attrs_with_differences"] = sorted(out["by_attr"])
-        return out
-
-
-# --------------------------------------------------------------------------- #
-# Typed text rendering (drift checks and their tests)                         #
+# Typed text rendering (tests)                                                 #
 # --------------------------------------------------------------------------- #
 
 
@@ -2751,7 +2227,6 @@ _UNINDEXED_SEVERITY = {
     "collation_refuses_text": "ERROR",
     "maintenance_disabled": "ERROR",
     "failure_cap": "ERROR",
-    "view_graph_drift": "ERROR",
     "index_missing": "ERROR",
     "failed": "WARN",
     "declaration_changed": "WARN",
@@ -2799,7 +2274,7 @@ def _unindexed_attr_findings(
         elif readiness == "index_failed":
             capped = int(row.get("attempts") or 0) >= MAX_CONSECUTIVE_FAILURES
             reason = "failure_cap" if capped else "failed"
-        elif readiness in ("declaration_changed", "view_graph_drift"):
+        elif readiness == "declaration_changed":
             reason = readiness
         elif readiness == "index_missing" and row.get("state") == "ready":
             # The manifest says ready but the index is gone (dropped by hand,
@@ -2838,7 +2313,7 @@ def _unindexed_attr_findings(
 
 
 def doctor_report(dsn: str) -> dict[str, Any]:
-    """Lifecycle, invalid indexes (every actor), the failure cap, drift, the
+    """Lifecycle, invalid indexes (every actor), the failure cap, the
     collation and value lengths. ``status`` is OK, WARN or ERROR; each
     finding names its code, severity and the fix."""
     with db_connect(dsn, autocommit=True) as conn:
@@ -2866,7 +2341,6 @@ def doctor_report(dsn: str) -> dict[str, Any]:
             "run_count": state.get("run_count"),
             "last_run_finished_at": state.get("last_run_finished_at"),
             "last_run": state.get("last_run_report"),
-            "drift_checked_through_ordinal": state.get("drift_checked_through_ordinal"),
         }
         declared: dict[str, str] = {}
         try:
@@ -3009,13 +2483,6 @@ def doctor_report(dsn: str) -> dict[str, Any]:
             if row["state"] == "pending" and row.get("last_reason"):
                 findings.append({"code": "build_waiting", "severity": "INFO", "index": name,
                                  "reason": row["last_reason"]})
-            if row.get("drift"):
-                findings.append({"code": "view_graph_drift", "severity": "ERROR",
-                                 "index": name, "attr_id": row["attr_id"],
-                                 "target_kind": row["target_kind"],
-                                 "detail": row.get("drift_detail"),
-                                 "fix": "investigate, repair the view, then "
-                                        "okg db attr-index verify --against-graph"})
             if row.get("max_value_chars") and int(row["max_value_chars"]) > TEXT_KEY_CHARS:
                 findings.append({"code": "long_values", "severity": "INFO", "index": name,
                                  "attr_id": row["attr_id"],
@@ -3031,11 +2498,6 @@ def doctor_report(dsn: str) -> dict[str, Any]:
                                      "table": physical_table, "index": bad["name"],
                                      "message": "an invalid index of another actor blocks "
                                                 "declared-index builds on this table"})
-        cur.execute(
-            "SELECT check_kind, ordinal, differences, by_attr, checked_at FROM okg.declared_attr_index_drift_checks "
-            "ORDER BY check_id DESC LIMIT 5"
-        )
-        report["recent_drift_checks"] = [dict(r) for r in cur.fetchall()]
         severities = {f["severity"] for f in findings}
         report["status"] = "ERROR" if "ERROR" in severities else (
             "WARN" if "WARN" in severities else "OK")

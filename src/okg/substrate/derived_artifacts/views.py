@@ -367,6 +367,200 @@ def _payload_bytes(inline_payload: Mapping[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
+#: Slot metadata key holding a slot's canonical content hash.
+CONTENT_HASH_METADATA_KEY = "content_hash"
+
+#: Top-level keys of a native view's JSON payload that change on every build
+#: even when the content does not: the refresh statistics and the input
+#: signature (a watermark). ``view_manifest.generation_id`` is removed as well.
+_GENERATION_DEPENDENT_JSON_KEYS = (
+    "refresh_stats",
+    "materializer_input_signature",
+    # fragment_json_tables and view_graph_json slots carry it at the top level
+    "generation_id",
+)
+
+
+def _content_value(inline_payload: Mapping[str, Any]) -> Any:
+    """The inline payload with generation-dependent fields removed."""
+
+    if inline_payload.get("kind") != "json":
+        return inline_payload
+    value = inline_payload.get("value")
+    if not isinstance(value, Mapping):
+        return inline_payload
+    trimmed = {
+        key: item
+        for key, item in value.items()
+        if key not in _GENERATION_DEPENDENT_JSON_KEYS
+    }
+    manifest = trimmed.get("view_manifest")
+    if isinstance(manifest, Mapping):
+        trimmed["view_manifest"] = {
+            key: item for key, item in manifest.items() if key != "generation_id"
+        }
+    return {"kind": "json", "value": trimmed}
+
+
+def inline_slot_content_hash(
+    *,
+    media_type: str,
+    artifact_type: str,
+    renderer_ref: str,
+    inline_payload: Mapping[str, Any],
+) -> str:
+    """Hash of what a slot says, not of the generation that built it.
+
+    Two builds with the same content hash equal even though the JSON slot
+    embeds ``view_manifest.generation_id``, ``refresh_stats`` and the
+    materializer input signature (which never agree between builds).
+    """
+
+    return stable_hash(
+        {
+            "media_type": media_type,
+            "artifact_type": artifact_type,
+            "renderer_ref": renderer_ref,
+            "content": _content_value(inline_payload),
+        }
+    )
+
+
+def output_content_hashes(
+    outputs: Sequence["InlineViewOutput"],
+) -> dict[str, str | None]:
+    """Content hash per slot name; ``None`` for a slot with no inline body."""
+
+    hashes: dict[str, str | None] = {}
+    for output in outputs:
+        if output.storage_kind != "inline":
+            hashes[output.slot_name] = None
+            continue
+        hashes[output.slot_name] = inline_slot_content_hash(
+            media_type=output.media_type,
+            artifact_type=output.artifact_type,
+            renderer_ref=output.renderer_ref,
+            inline_payload=_inline_payload(output.payload),
+        )
+    return hashes
+
+
+_SLOT_SOURCE_SQL = """
+    WITH RECURSIVE manifest_chain AS (
+      SELECT m.manifest_id, m.reused_from_manifest_id,
+             m.target_generation_id, 0 AS depth
+        FROM okg.derived_output_manifests m
+       WHERE m.manifest_id = %(manifest_id)s
+         AND m.status = 'completed'
+      UNION ALL
+      SELECT parent.manifest_id, parent.reused_from_manifest_id,
+             parent.target_generation_id, manifest_chain.depth + 1
+        FROM okg.derived_output_manifests parent
+        JOIN manifest_chain
+          ON parent.manifest_id = manifest_chain.reused_from_manifest_id
+       WHERE parent.status = 'completed'
+         AND manifest_chain.depth < 64
+    )
+    SELECT chain.manifest_id, chain.target_generation_id
+      FROM manifest_chain chain
+     WHERE EXISTS (
+             SELECT 1
+               FROM okg.derived_output_slots probe
+              WHERE probe.manifest_id = chain.manifest_id
+           )
+     ORDER BY chain.depth
+     LIMIT 1
+"""
+
+
+def stored_slot_content_hashes(
+    conn: psycopg.Connection[Any],
+    manifest_id: UUID,
+) -> dict[str, str | None]:
+    """Content hash per slot of a completed manifest's effective output.
+
+    A carried manifest holds no slot rows; its content lives in the first
+    manifest up its ``reused_from`` chain that does. A slot written before
+    content hashes existed is hashed here from its stored inline payload.
+    """
+
+    with conn.cursor() as cur:
+        cur.execute(_SLOT_SOURCE_SQL, {"manifest_id": manifest_id})
+        source = cur.fetchone()
+        if source is None:
+            return {}
+        cur.execute(
+            """
+            SELECT slot_name, storage_kind, media_type, artifact_type,
+                   renderer_ref, inline_payload,
+                   metadata->>'content_hash'
+              FROM okg.derived_output_slots
+             WHERE manifest_id = %(manifest_id)s
+            """,
+            {"manifest_id": source[0]},
+        )
+        rows = cur.fetchall()
+    hashes: dict[str, str | None] = {}
+    for slot_name, kind, media_type, artifact_type, renderer_ref, body, stored in rows:
+        if stored:
+            hashes[str(slot_name)] = str(stored)
+        elif kind == "inline" and isinstance(body, Mapping):
+            hashes[str(slot_name)] = inline_slot_content_hash(
+                media_type=media_type,
+                artifact_type=artifact_type,
+                renderer_ref=renderer_ref,
+                inline_payload=body,
+            )
+        else:
+            hashes[str(slot_name)] = None
+    return hashes
+
+
+def outputs_match_manifest_content(
+    conn: psycopg.Connection[Any],
+    *,
+    previous_manifest_id: UUID,
+    outputs: Sequence["InlineViewOutput"],
+) -> bool:
+    """True iff every output slot's content equals the manifest's slot.
+
+    A slot with no inline body (a relation reference) cannot be compared and
+    answers False, so the caller publishes rather than carrying.
+    """
+
+    if not outputs:
+        return False
+    new_hashes = output_content_hashes(outputs)
+    previous = stored_slot_content_hashes(conn, previous_manifest_id)
+    if set(new_hashes) != set(previous):
+        return False
+    return all(
+        new_hashes[name] is not None and new_hashes[name] == previous[name]
+        for name in new_hashes
+    )
+
+
+def _content_origin(
+    cur: psycopg.Cursor[Any],
+    source_manifest_id: UUID,
+) -> dict[str, Any] | None:
+    """The manifest and generation whose slots a carry of ``source`` reads."""
+
+    cur.execute(
+        "SELECT metadata->'origin' FROM okg.derived_output_manifests "
+        "WHERE manifest_id = %(manifest_id)s",
+        {"manifest_id": source_manifest_id},
+    )
+    row = cur.fetchone()
+    if row is not None and isinstance(row[0], Mapping) and row[0].get("manifest_id"):
+        return dict(row[0])
+    cur.execute(_SLOT_SOURCE_SQL, {"manifest_id": source_manifest_id})
+    found = cur.fetchone()
+    if found is None:
+        return None
+    return {"manifest_id": str(found[0]), "generation_id": int(found[1])}
+
+
 def _slot_records(
     *,
     definition: ViewArtifactDefinition,
@@ -397,7 +591,14 @@ def _slot_records(
                 }
             )
             byte_count = len(_payload_bytes(inline_payload))
+            content_hash = inline_slot_content_hash(
+                media_type=output.media_type,
+                artifact_type=output.artifact_type,
+                renderer_ref=output.renderer_ref,
+                inline_payload=inline_payload,
+            )
         else:
+            content_hash = None
             if output.storage_ref is None:
                 raise ValueError(
                     f"non-inline view output slot {output.slot_name!r} "
@@ -431,7 +632,13 @@ def _slot_records(
                 "inline_payload": inline_payload,
                 "row_count": output.row_count,
                 "byte_count": byte_count,
-                "metadata": dict(output.metadata),
+                "metadata": {
+                    **dict(output.metadata),
+                    **(
+                        {CONTENT_HASH_METADATA_KEY: content_hash}
+                        if content_hash is not None else {}
+                    ),
+                },
             }
         )
     if not records:
@@ -544,8 +751,13 @@ def publish_view_artifact(
     ) = None,
     use_transaction: bool = True,
     definition_registered: bool = False,
+    manifest_metadata: Mapping[str, Any] | None = None,
 ) -> PublishedViewArtifact:
-    """Publish inline view outputs as one completed V1 manifest."""
+    """Publish inline view outputs as one completed V1 manifest.
+
+    ``manifest_metadata`` is stored on the manifest beside ``origin``, which
+    this function sets: a published manifest is the origin of its own content.
+    """
 
     timings_ms: dict[str, float] = {}
     total_started = time.perf_counter()
@@ -594,6 +806,13 @@ def publish_view_artifact(
 
             run_id = uuid4()
             manifest_id = uuid4()
+            stored_manifest_metadata = {
+                **dict(manifest_metadata or {}),
+                "origin": {
+                    "manifest_id": str(manifest_id),
+                    "generation_id": int(target_generation_id),
+                },
+            }
             step_started = time.perf_counter()
             cur.execute(
                 """
@@ -619,11 +838,13 @@ def publish_view_artifact(
                 ins_manifest AS (
                   INSERT INTO okg.derived_output_manifests (
                     manifest_id, run_id, definition_id, target_generation_id,
-                    status, required_slots, manifest_hash, promoted_at
+                    status, required_slots, manifest_hash, metadata,
+                    promoted_at
                   )
                   SELECT %(manifest_id)s, ins_run.run_id, %(definition_id)s,
                          %(target_generation_id)s, 'completed',
-                         %(required_slots)s, %(manifest_hash)s, now()
+                         %(required_slots)s, %(manifest_hash)s,
+                         %(manifest_metadata)s, now()
                     FROM ins_run
                   RETURNING manifest_id
                 ),
@@ -669,6 +890,7 @@ def publish_view_artifact(
                     "metrics": Jsonb(run_metrics),
                     "required_slots": required_slots,
                     "manifest_hash": manifest_hash,
+                    "manifest_metadata": Jsonb(stored_manifest_metadata),
                     "slot_records": Jsonb([
                         {
                             "slot_name": record["slot_name"],
@@ -739,8 +961,13 @@ def carry_forward_view_artifact(
     lineage_envelopes: (
         Sequence[MaterializedLineageEnvelope] | None
     ) = None,
+    manifest_metadata: Mapping[str, Any] | None = None,
 ) -> PublishedViewArtifact:
-    """Reuse a completed view manifest for a later generation."""
+    """Reuse a completed view manifest for a later generation.
+
+    ``manifest_metadata`` is stored on the new manifest beside ``origin``, the
+    manifest and generation whose content it holds.
+    """
 
     timings_ms: dict[str, float] = {}
     total_started = time.perf_counter()
@@ -765,6 +992,7 @@ def carry_forward_view_artifact(
                 metrics=metrics,
                 lineage_envelopes=lineage_envelopes,
                 timings_ms=timings_ms,
+                manifest_metadata=manifest_metadata,
             )
             add_timing("carry_forward.transaction.body", transaction_body_started)
     add_timing("carry_forward.transaction", transaction_started)
@@ -785,6 +1013,7 @@ def _carry_forward_view_artifact_in_cursor(
         Sequence["MaterializedLineageEnvelope"] | None
     ) = None,
     timings_ms: dict[str, float] | None = None,
+    manifest_metadata: Mapping[str, Any] | None = None,
 ) -> PublishedViewArtifact:
     timings = timings_ms if timings_ms is not None else {}
 
@@ -815,6 +1044,11 @@ def _carry_forward_view_artifact_in_cursor(
     )
     _ensure_definition_hashes_match(definition, source)
     add_timing("carry_forward.load_source_manifest", step_started)
+
+    stored_manifest_metadata = dict(manifest_metadata or {})
+    origin = _content_origin(cur, source_manifest_id)
+    if origin is not None:
+        stored_manifest_metadata["origin"] = origin
 
     step_started = time.perf_counter()
     required_slots = list(source["required_slots"] or ())
@@ -854,12 +1088,12 @@ def _carry_forward_view_artifact_in_cursor(
         INSERT INTO okg.derived_output_manifests (
           manifest_id, run_id, definition_id, target_generation_id,
           status, required_slots, manifest_hash,
-          reused_from_manifest_id, promoted_at
+          reused_from_manifest_id, metadata, promoted_at
         )
         SELECT %(manifest_id)s, ins_run.run_id, %(definition_id)s,
                %(target_generation_id)s, 'completed',
                %(required_slots)s, %(manifest_hash)s,
-               %(source_manifest_id)s, now()
+               %(source_manifest_id)s, %(manifest_metadata)s, now()
           FROM ins_run
         """,
         {
@@ -874,6 +1108,7 @@ def _carry_forward_view_artifact_in_cursor(
             "required_slots": required_slots,
             "manifest_hash": manifest_hash,
             "source_manifest_id": source_manifest_id,
+            "manifest_metadata": Jsonb(stored_manifest_metadata),
         },
     )
     add_timing("carry_forward.insert_metadata", step_started)

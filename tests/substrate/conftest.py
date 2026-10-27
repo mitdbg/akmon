@@ -1588,22 +1588,15 @@ _RUNTIME_TABLES = (
     # Per-generation runtime bookkeeping; reset per test so each test's
     # branch/ordinal assignments start clean in the shared test DB.
     "generation_ordinals",
+    # Overlay range markers and ranges (migration 0044, storage redesign S2) are
+    # keyed by the same per-branch ordinal. Reset with generation_ordinals: if the
+    # ordinals restart at 1 while old markers stay ranges_synced, the next publish
+    # is refused as out of order (issue #4063). The two tables have no foreign keys.
+    "attribute_overlay_generations",
+    "attribute_overlay_ranges",
     "history_generation_pins",
     "compacted_generations",
     "history_compaction_plans",
-    # Shared interval rows are keyed by per-branch ordinal, which resets to 0 with
-    # generation_ordinals above; unlike the generation_id-keyed snapshot tables it
-    # is NOT leakage-safe by unique id, so it MUST be truncated per test or stale
-    # OPEN intervals from a prior test pollute the next test's stab.
-    "attribute_effective_view_intervals",
-    # Attribute-integrity proof-cache runtime state: scoped invalidation
-    # (harden-attribute-integrity-authority) means a leaked scope row from a
-    # prior test would stay clean while the current test dirties only its own
-    # scope, making branch-only state reads order-dependent. Receipts are NOT
-    # here: they are append-only (immutable trigger blocks TRUNCATE) and
-    # digest-keyed, so leakage-safe.
-    "attribute_effective_integrity_state",
-    "attribute_effective_integrity_transitions",
     "source_watermarks",
     "source_progress",
     "enricher_progress",
@@ -1845,8 +1838,8 @@ def _clean_runtime_subset(
     tables (``public._chronos_*``) that ``latest_generation`` reads. Resetting
     only the first leaves a published Chronos checkpoint whose ordinal row is
     gone, so the next publish on that deployment finds a predecessor it cannot
-    place and refuses with ``EffectiveIntervalBackfillRequired``
-    (``predecessor_ordinal_unavailable``). That is what made
+    place and refused (the retired interval precondition,
+    ``predecessor_ordinal_unavailable``). That is what made
     ``test_console_view_performance.py`` error whenever an earlier module had
     published under the same deployment in the same database (issue #2238).
     So a generation reset always resets Chronos too. (``clean_runtime`` and

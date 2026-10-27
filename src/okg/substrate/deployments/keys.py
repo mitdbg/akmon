@@ -119,6 +119,20 @@ _PUBLISHER_SCHEMA: Mapping[str, Any] = {
                 "deployment timeout above the 900-second compatibility bound."
             ),
         },
+        "max_source_sync_yield_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "default": 600,
+            "description": (
+                "How long, in seconds, the scheduled publisher yields to "
+                "queued or running source syncs after its last fresh "
+                "publish. Once the newest of its last non-skipped cycle and "
+                "the branch's newest published generation is older, the "
+                "cycle publishes past sync workflow rows (a run still "
+                "writing, a held admission intent and the publish lock "
+                "still hold it back). Default 600."
+            ),
+        },
         "first_publish_warning_budget": {
             "type": "object",
             _CLOSED_BY: (
@@ -344,7 +358,10 @@ DEPLOYMENT_KEYS: tuple[DeploymentKey, ...] = (
     ),
     _key(
         "consistency",
-        "Publish consistency policy (dangling_edges, resolution_aware_reuse).",
+        "Publish consistency policy (dangling_edges, resolution_aware_reuse, "
+        "defer_dangling_edges, max_deferred_edges_per_run, "
+        "max_deferred_edge_fraction, deferred_cap_mode, "
+        "max_deferred_edges_unpublished_owner, deferred_edge_warn_after).",
         _O_NULL,
         reader="okg.substrate.publisher.deployment_stack",
     ),
@@ -526,6 +543,36 @@ DEPLOYMENT_KEYS: tuple[DeploymentKey, ...] = (
                         "dataset card. Absent means true."
                     ),
                 },
+                "doc_text_nodes": {
+                    "type": "boolean",
+                    "description": (
+                        "true: the deployment holds file-text doc: nodes "
+                        "(for example from its own source module that wraps "
+                        "DocCorpusSource), so the instructions point at "
+                        "them. false: they are left out. Absent: inferred "
+                        "from the source registry."
+                    ),
+                },
+                "file_nodes": {
+                    "type": "boolean",
+                    "description": (
+                        "true: the deployment holds file: nodes (for example "
+                        "from its own source module that wraps a git "
+                        "source), so the instructions name them and show "
+                        "source_file lookups. false: they are left out. "
+                        "Absent: inferred from the source registry."
+                    ),
+                },
+                "commit_nodes": {
+                    "type": "boolean",
+                    "description": (
+                        "true: the deployment holds commit: nodes (for "
+                        "example from its own source module that wraps "
+                        "GitHistorySource), so the instructions name them. "
+                        "false: they are left out. Absent: inferred from "
+                        "the source registry."
+                    ),
+                },
             },
         },
     ),
@@ -657,7 +704,8 @@ DEPLOYMENT_KEYS: tuple[DeploymentKey, ...] = (
     ),
     _key(
         "readiness",
-        "Readiness source-group overrides and source-optimization policy.",
+        "Readiness profile (`profile`: dogfood, ci or standard), "
+        "source-group overrides and source-optimization policy.",
         _O_NULL,
         reader="okg.substrate.source_sync_convergence",
     ),

@@ -42,13 +42,25 @@ _KNOWN_OKG_TABLES = frozenset(
         # clone purges rather than copies them.
         "alias_collisions",
         "attribute_effective_attrs",
+        "attribute_observations",
+        # Storage redesign S2: the overlay materialization marker and overlay
+        # ranges are derived from okg.attribute_effective_attrs and this
+        # database's generation ordinals; purged with them, rebuilt by the
+        # clone's own publishes.
+        "attribute_overlay_generations",
+        "attribute_overlay_ranges",
+        # PACT lane-s-storage-drop-copies: the three attribute copies and the
+        # integrity receipts that guarded them. Migration 0046 drops them; the
+        # names stay here as purge-if-present so this code still clones a
+        # source database without 0046 that has them (the allowlist fails
+        # closed on an unlisted table; same ruling as the attr_index names
+        # below).
         "attribute_effective_view",
         "attribute_effective_view_intervals",
-        "attribute_observations",
-        # schema-interval-narrow-split: the content-addressed payload store is
-        # a derived, rebuildable cache like the interval/snapshot tables that
-        # reference it — purged together with them.
         "attribute_versions",
+        "attribute_effective_integrity_receipts",
+        "attribute_effective_integrity_state",
+        "attribute_effective_integrity_transitions",
         # schema-attr-filter-index (#3029 for the three that follow it):
         # okg.attr_index and its coverage markers, rebuild queue and derive
         # front. okg#3112 step 4b removed them and migration 0043 drops them;
@@ -62,19 +74,13 @@ _KNOWN_OKG_TABLES = frozenset(
         # okg#3112 step 2: the declared-attribute expression indexes live on
         # this database's physical `_chronos_*` graph tables, which a clone
         # does not carry. Their manifest, the reconciler state (including
-        # whether an operator enabled it) and the drift-check records purge;
-        # the clone builds its own after an operator's `okg db attr-index
-        # reconcile --apply`.
+        # whether an operator enabled it) purge; the clone builds its own
+        # after an operator's `okg db attr-index reconcile --apply`. Migration
+        # 0046 drops the drift-check records; the name stays as
+        # purge-if-present for a source database without 0046.
         "declared_attr_index_drift_checks",
         "declared_attr_index_state",
         "declared_attr_indexes",
-        # Constant-work integrity receipt chain over the derived interval-
-        # backed attribute read model (bound-deployment-backup-latency); the
-        # receipts attest THIS database's derived state, which is purged, so
-        # the chain purges with it.
-        "attribute_effective_integrity_receipts",
-        "attribute_effective_integrity_state",
-        "attribute_effective_integrity_transitions",
         # General blob store (issue #3046). Image values in the preserved
         # node_facts name these rows by id, and re-rendering needs the source
         # files, which may not reach the clone -- preserved like
@@ -157,8 +163,9 @@ _KNOWN_OKG_TABLES = frozenset(
         # preserved fact log -- same disposition as graph_nodes/graph_edges.
         "edges_live",
         "nodes_live",
-        # Crash-recovery journal bound to predecessor generation ids, which a
-        # clone purges with the rest of generation history.
+        # Crash-recovery journal of the retired attribute-copy recovery.
+        # Migration 0046 drops it; the name stays as purge-if-present for a
+        # source database without 0046.
         "effective_attribute_recovery_attempts",
         # Vector sets (PACT openrouter-embeddings-hnsw). The registered sets
         # and their content-addressed vectors are paid to rebuild, so a clone
@@ -259,6 +266,9 @@ _KNOWN_OKG_TABLES = frozenset(
         # graph_node_declarers below, purged with the history they describe;
         # the rebuilt graph's writers record them again.
         "graph_edge_declarers",
+        # Waiting cross-source edges (cross-source-endpoint-wedge): a
+        # Chronos-registered table purged with the history it describes.
+        "graph_edge_deferrals",
         "graph_edges",
         "graph_generations",
         # Shared-node declarers (issue #1901): a Chronos-registered table whose

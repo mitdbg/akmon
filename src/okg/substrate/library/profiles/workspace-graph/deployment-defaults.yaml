@@ -101,6 +101,14 @@ host_storage:
   warn_available_pct: 15
   blocker_available_pct: 6
 
+# How strictly `okg dogfood status` judges this deployment (dogfood, ci or
+# standard). `standard` keeps every real outage red and reports a source marked
+# `required_for_baseline` as stale after 14 days. Declare `dogfood` only for a
+# team workspace that runs the supervised worker and the exact-release
+# contract.
+readiness:
+  profile: standard
+
 runtime:
   # To refresh the graph on each source's sync.poll schedule: set this to
   # true, add `database: <name>` to the postgres block (lint requires it for a

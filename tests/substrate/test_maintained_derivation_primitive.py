@@ -110,6 +110,45 @@ def test_maintained_derivation_primitive_cadence_due():
 
 
 # --------------------------------------------------------------------------- #
+# Large change set bound (issue 3955)                                         #
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    ("changed", "prior_total", "percent", "expected"),
+    [
+        (9_999, 0, 10, False),        # one below the floor, even on an empty prior
+        (10_000, 0, 10, True),        # at the floor, prior total 0
+        (10_000, -5, 10, True),       # a negative total counts as 0
+        (10_000, 100_000, 10, False), # exactly 10 % is not large
+        (10_001, 100_000, 10, True),  # just over 10 %
+        (10_000, 99_999, 10, True),   # just over 10 % from the other side
+        (10_000, 100_001, 10, False), # just under 10 %
+        (15_000, 100_000, 15, False), # the ontology bound, exactly
+        (15_001, 100_000, 15, True),
+        (10_000, 200_000, 5, False),  # the console bound, exactly
+        (10_001, 200_000, 5, True),
+        (9_999, 10, 5, False),        # below the floor however small the graph
+    ],
+)
+def test_is_large_change_set_edges(changed, prior_total, percent, expected):
+    from okg.substrate.derived_artifacts.maintained_derivation import (
+        LARGE_CHANGE_SET_MIN_IDS,
+        is_large_change_set,
+    )
+
+    assert LARGE_CHANGE_SET_MIN_IDS == 10_000
+    assert is_large_change_set(changed, prior_total, percent=percent) is expected
+
+
+def test_rollup_large_change_bounds_are_the_measured_ones():
+    """The per-rollup bounds the code comments justify (issue 3955): ontology
+    15 % (crossover 10-20 % measured), console 5 % (crossover just under 5 %)."""
+    from okg.substrate.publisher import console_count_rollup, ontology_rollup
+
+    assert ontology_rollup.LARGE_CHANGE_SET_PERCENT == 15
+    assert console_count_rollup.LARGE_CHANGE_SET_PERCENT == 5
+
+
+# --------------------------------------------------------------------------- #
 # Self-heal cadence resolution (warn-and-default, never silently disabled)    #
 # --------------------------------------------------------------------------- #
 def test_maintained_derivation_primitive_self_heal_cadence(monkeypatch):

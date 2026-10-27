@@ -63,7 +63,9 @@ _AF_PUBS_DEPENDENT_TESTS = {
 }
 
 
-def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
+def pytest_ignore_collect(
+    collection_path: Path, config: pytest.Config
+) -> bool | None:
     """Skip deployment-view tests when the af_pubs deployment is absent."""
     return should_ignore_optional_deployment_test(
         collection_path,

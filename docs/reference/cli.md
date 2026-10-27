@@ -46,7 +46,7 @@ so `--json` output stays valid). `okg install --profile` and
 | Old spelling | New spelling | Commands |
 | --- | --- | --- |
 | `--profile dev\|prod` | `--target` | `okg up`, `okg deployment up`, `okg deployment backup verify`, `okg deployment read-status` |
-| `--profile general\|dogfood\|ci` | `--checks` | `okg deployment ready`, `okg deployment prove-live` |
+| `--profile general\|dogfood\|ci\|standard` | `--checks` | `okg deployment ready`, `okg deployment prove-live` |
 | `--readiness-profile` | `--checks` | `okg up`, `okg deployment up`, `okg deployment nomos-source-lineage-rollout-audit` |
 | `--profile deep\|off` | `--capture` | `okg run`, `okg ingest` |
 | `--profile-collector` | `--capture-collector` | `okg run`, `okg ingest` |
@@ -234,7 +234,7 @@ Built-in checks include: `extraction`, `extraction-wrap-invariant`,
 `derived-admission`, `agent-skills`, `agent-runtimes`, `mcp-surface-freshness`,
 `external-live-authority`, `nomos`, `source-auth`, `database`,
 `grant-registry-drift`, `pending-grants`,
-`declared-attr-indexes`, `vector-sets`, `sources`. Run `okg doctor --check <unknown>` for the authoritative set.
+`declared-attr-indexes`, `vector-sets`, `deferred-edges`, `sources`. Run `okg doctor --check <unknown>` for the authoritative set.
 Deployment checks come from `deployment.yaml`.
 With `--deployment`, `vector_sets` reports per set: coverage at the pin
 (sampled above 50,000 nodes with non-blank text: `method: sample`, `missing_upper_95`),
@@ -277,6 +277,9 @@ that record existed.
 — drive the selected sources in a deployment's `source_registry` in
 topological order; publish. `--no-predecessors` keeps an explicit
 `--include` exact instead of expanding through predecessor closure.
+Repeat `--include` or `--exclude` to add sources: `--include a,b --include c`
+selects a, b and c. On `okg provision`, `okg deployment up` and `okg up`, repeating
+`--include` likewise adds to the list.
 
 `--no-publish` leaves accepted changes in working state for inspection; it
 does not make them searchable. The [maintained-knowledge
@@ -807,8 +810,14 @@ Successful sync/readback confirms measured settings; inspect `undetermined`,
 `dropped`, and `no_consumer` entries for gaps. Sync alone does not prove a
 model can answer or used graph tools; `chat setup` does. The pinned vendor's
 `POST /api/chat/completions` attaches the preset's tools only when the caller
-lists `tool_ids: ["server:mcp:okg-<d>"]`. The nightly real-container arm
+lists `tool_ids: ["server:mcp:okg_<d>"]`. The nightly real-container arm
 is still missing.
+
+Open WebUI names each tool `<server id>_<tool>`, so server ids use only
+underscores: `okg_<d>` with each `-` as `_`, plus `_write`, `_live`,
+`_admin`. Sync replaces connections an earlier release registered as
+`okg-<d>`, re-points its presets, and names other models still using the old
+id. Preset ids keep hyphens.
 
 `okg chat-instance lifecycle-receipt --kind {upgrade,rollback,retire} --out
 <new dir>` writes a files-only record and performs no upgrade, rollback, or
@@ -1176,19 +1185,6 @@ alone. `--builtin-dev-passwords` sets the public built-in passwords instead and
 is refused unless `OKG_ALLOW_BUILTIN_ROLE_PASSWORDS=1`. Local databases only. See
 [Security: database role passwords](security.md#database-role-passwords).
 
-#### `okg db repair-effective-attribute-intervals`
-
-`okg db repair-effective-attribute-intervals --deployment <d> --apply` — while
-holding the deployment publisher lock, reconstruct and verify the latest
-published generation's full effective-attribute snapshot and interval-backed
-Nomos operator read model. The command fails on checkpoint, payload, count, or
-generation drift; it is a zero-write no-op when parity already holds. A publish
-that enables `OKG_IVM_INTERVAL_VIEW` on an existing deployment without this proof
-refuses with `effective_interval_backfill_required` before changed-only view work.
-`OKG_IVM_GENERATION_ORDINAL=0` disables the same read model, because it stops the
-generation ordinals it is keyed by; publishes then write full snapshots, and
-re-enabling either variable needs this repair first.
-
 #### `okg db embed-backfill` / `embed-show` / `embed-index` / `semantic-index`
 
 `embed-backfill --set <name> [--max-usd <usd>] [--dry-run]` links one
@@ -1229,7 +1225,7 @@ drop command) or the fingerprint differ (`fingerprint_changed`). It rebuilds one
 with a bounded lock wait, and compares an authority fingerprint before and
 after: index and constraint definitions, owners, grants, reloptions, comments
 and row digests of the rebuilt tables, plus row digests of
-`okg.attribute_versions`, the generation ordinals, the Chronos checkpoints, the
+the generation ordinals, the Chronos checkpoints, the
 record-set and record-authority tables and the graph rows. Any difference fails
 the command with both values and names the tables it already rebuilt (a rebuilt
 table stays rebuilt). The fingerprint reads every row of those tables twice;
@@ -1242,9 +1238,7 @@ also rebuild bloated indexes on their own after a
 successful publish; the MCP connector ingest and the exchange
 receiver leave it to the next worker or run cycle. After the publish has
 committed and released its locks, the rebuild compares each btree index of
-`okg.attribute_effective_view_intervals`,
-`okg.attribute_effective_view`, `okg.attribute_versions` and the two graph
-tables with its estimated packed size (from `pg_class.reltuples` and
+the two graph tables with its estimated packed size (from `pg_class.reltuples` and
 `pg_stats`, after an `ANALYZE` of the suspect tables). It rebuilds with
 `REINDEX INDEX CONCURRENTLY` each index that is at least
 `OKG_POST_PUBLISH_INDEX_REBUILD_RATIO` (default 1.5) times its estimate and at
@@ -1258,6 +1252,12 @@ step starts after `OKG_POST_PUBLISH_INDEX_REBUILD_BUDGET_SECONDS`
 (default 30). Before each step, the rebuild stops and leaves the rest to the
 next successful publish when a publish is waiting for the lock or holds it, a
 source run is writing, or another session's transaction with a snapshot is older than the lock timeout.
+The old-snapshot stop is retried first: the run waits `OKG_POST_PUBLISH_INDEX_REBUILD_OLD_SNAPSHOT_RETRY_WAIT_SECONDS`
+(default 1, doubling) and checks again, at most
+`OKG_POST_PUBLISH_INDEX_REBUILD_OLD_SNAPSHOT_RETRIES` times in all (default 3),
+inside the budget and before the lock is taken; the checks are listed under
+`old_snapshot_waits` in the report. A transaction that stays open costs each
+cycle with rebuild work that wait (7 s by default); 0 retries stops at once.
 A publish that starts during the rebuild therefore waits for one step at
 most. The rebuild first finishes any graph-index change a deferred `okg
 migrate` left pending, and drops an invalid `_ccnew`/`_ccold` copy an earlier
@@ -1312,28 +1312,12 @@ not counted as a failure.
 
 It also keeps one `okg_dstat_` statistics object per declared attribute.
 
-`okg db attr-index verify --against-graph [--deployment <d> | --dsn <dsn>]
-[--branch default] [--json]` compares, at every ordinal the
-effective-attribute view retains, the view's declared keys with the graph
-rows' declared keys; it records each check, sets an attribute's drift flag
-on a difference and clears every flag after a clean run. It exits 1 and lists
-`attrs_with_differences` (`<kind>:<attr>`) on a difference. It does not
-report `clean` when it compared nothing: with no retained ordinal whose
-publish synced the view (or no declared attribute), the status is
-`nothing_compared`, with a `reason`, and the exit code is 3. Plain `verify`
-(without `--against-graph`) compared the indexes with `okg.attr_index`,
-which no longer exists; it is refused with exit 1, error code
-`removed_check` and a fix hint naming `--against-graph`. After each run
-the maintenance workflow checks the publishes since its last run: the
-targets they changed, and one rotating slice of all targets per publish
-(`OKG_DECLARED_ATTR_DRIFT_SLICES`, default 32), so a drifted target that no
-publish changed is found within 32 publishes. `okg doctor --check
-declared-attr-indexes` reports the lifecycle states, invalid indexes on the
-graph tables, the failure cap, drift, the collation and long values, and
-one `attr_not_indexed` finding per declared node attribute without a ready
-index; it exits 1 on any ERROR finding: drift, a capped failure, a ready
-index that is gone, or a declared attribute never enabled, refused by the
-collation, or with maintenance off (`OKG_DECLARED_ATTR_INDEXES=off`, read
+`okg doctor --check declared-attr-indexes` reports the lifecycle states,
+invalid indexes on the graph tables, the failure cap, the collation and long
+values, and one `attr_not_indexed` finding per declared node attribute
+without a ready index; it exits 1 on any ERROR finding: a capped failure, a
+ready index that is gone, or a declared attribute never enabled, refused by
+the collation, or with maintenance off (`OKG_DECLARED_ATTR_INDEXES=off`, read
 from doctor's own environment).
 
 **Upgrading to the version that drops `attr_index`.** Migration `0043_attr_index_teardown`
@@ -1426,7 +1410,7 @@ row; both values return the same rows in the same order:
   `{"pushdown": "not_covered", "attrs": [{"attr", "reason"}]}`, with reason
   `kind_not_indexed` (an edge attribute: no edge index is built),
   `index_missing`, `index_building`, `index_failed`,
-  `declaration_changed`, `view_graph_drift` or `pinned_generation` (a read
+  `declaration_changed` or `pinned_generation` (a read
   pinned to an older generation). The ready attributes still narrow.
   Prefix filters are not narrowed by any index, except a `search`
   `where` prefix on `path` (below).
@@ -1581,6 +1565,15 @@ run deployment post-publish consistency checks for an existing
 published generation.
 **Implementation:** `src/okg/substrate/cli/main.py` (`_cmd_consistency_rerun`)
 
+### `okg runtime deferred-edges`
+
+`okg runtime deferred-edges --deployment <d> [--json]` — list cross-source
+edges waiting for another source's record: counts by producer, edge type,
+endpoint subtype and state, the oldest age, and a bounded sample of ids. The
+ids are operator-only. `okg doctor --check deferred-edges` reports the same
+counts and warns past `consistency.deferred_edge_warn_after`.
+**Implementation:** `src/okg/substrate/cli/runtime.py`
+
 ### `okg migrate`
 
 `okg migrate [--apply] [--dsn ...]` — apply the v1 schema
@@ -1602,6 +1595,20 @@ migrate` covers every deployment in the database; `okg deployment up` passes
 publish moved the checkpoint meanwhile, so the next migrate retries it. `okg
 deployment up --skip-migrate` skips this step too. To see what would be retired first, run `okg runtime
 supersede-checkpoint` without `--apply`.
+
+With `--deployment`, migrate also retires a `repair_required` checkpoint whose
+held-back sources have all been removed from the source registry or renamed
+(`okg runtime worker` start does the same, as actor `okg runtime worker`). It
+retires only when the deployment and code repositories are committed, the
+checkpoint was recorded for that deployment name, and no unfinished undo or
+kept rerun blocks publishing; otherwise it changes nothing and says why in
+`source_contract_retirements`. Without `--deployment` it lists such
+checkpoints as candidates and retires nothing. Every command that migrates a
+named deployment does this step too: `okg provision`, `okg init`, deployment
+promotion and the exchange harness, as well as `okg migrate --deployment`. A
+running worker that started before the source was removed must be restarted to
+retire it.
+
 **Implementation:** `src/okg/substrate/cli/main.py` (`_cmd_migrate`)
 
 ### `okg snapshot-load`
@@ -1999,6 +2006,22 @@ carry `status: capacity_warning`, the violations and
 `next_action: reduce_publish_lock_hold`, and readiness can still be clean. An
 unmeasured hold, or a disabled statement timeout, is reported as `unknown`.
 
+`--checks standard` is `general` plus 14-day freshness for sources marked
+`required_for_baseline`, a named `sources.registry.unavailable` blocker when the
+source registry does not load, the runtime checks when `runtime.enabled` is
+true, and the doctor. With no baseline source, freshness is `not_checked`
+(`no_baseline_sources_declared`) and a `sources.freshness_advisory` warning
+lists declared sources older than 14 days; the chat banner and the console
+show no staleness then. `general` stays the default.
+
+`okg dogfood status` and `okg dogfood doctor` run the profile the deployment
+declares: `readiness.profile`, else an environment `readiness.policy` of
+`dogfood`, `ci` or `standard` (sealed path only), else `standard`. The payload's
+`readiness_profile` block names the profile and where it came from. An invalid
+value, a value that disagrees with the environment policy, or an authored
+`readiness.environment_policy` runs no checks: trust is `unavailable` with one
+`readiness.profile.unavailable` blocker naming the field.
+
 #### `okg deployment bootstrap`
 
 `okg deployment bootstrap {plan|inspect-source|draft|verify|apply} ...`
@@ -2039,6 +2062,14 @@ installed values differ from the defaults.
 ```bash
 uv run okg environment ready staging --adapter systemd --json
 ```
+
+After an upgrade that changes the rendered Postgres compose file, `ready`
+reports `services.installation` as stale until you apply the plan. This
+release adds `shm_size: 2gb` to that file when the environment declares no
+`database.shm_size`. Run `okg environment service install --apply`, then
+`okg environment service restart --apply`. Docker Compose recreates the
+Postgres container once, so the database restarts briefly. The data volume is
+kept. `ready` itself changes nothing.
 
 #### `okg environment service`
 

@@ -865,3 +865,72 @@ def test_an_absent_params_block_still_names_missing_keys(
     (source,) = payload["sources"]
     assert (rc, source["status"]) == (1, "FAIL"), source
     assert payload["errors"][0]["code"] == "source_param_missing"
+
+
+def test_doctor_hold_reports_classes_and_whether_retirement_applies(monkeypatch):
+    """`okg doctor --check sources` passes the registry to the hold read and
+    reports the per-source classification for a retirable and a
+    non-retirable contract, without running an ingest."""
+    from types import SimpleNamespace
+
+    from okg.substrate.cli import doctor
+    from okg.substrate.ingest import incomplete_recovery as ir
+
+    base_hold = {
+        "checkpoint_id": "ckpt-1",
+        "blocked_at": None,
+        "legacy_receipt": False,
+        "deployment": "d",
+        "required_selection": ["widget-snapshot", "widget-keeper"],
+        "failed_sources": ["widget-snapshot"],
+        "sources": [],
+        "not_admitted_since_block": [],
+        "escape_hatch_command": "okg runtime supersede-checkpoint --deployment d",
+    }
+    gone = [
+        {"source": "widget-snapshot", "class": "renamed",
+         "renamed_to": "widget-inventory"},
+        {"source": "widget-keeper", "class": "present"},
+    ]
+    rebound = [
+        {"source": "widget-snapshot", "class": "rebound",
+         "changed_fields": ["catalog_fingerprint"]},
+        {"source": "widget-keeper", "class": "present"},
+    ]
+    seen = {}
+
+    def run(classes, applies):
+        def hold(**kwargs):
+            seen.update(kwargs)
+            return {
+                **base_hold,
+                "source_classes": classes,
+                "automatic_retirement_applies": applies,
+            }
+
+        monkeypatch.setattr(ir, "source_sync_hold", hold)
+        entry = SimpleNamespace(ownership_id="d.keeper", legacy=False)
+        report = {"ok": True, "errors": [], "runtime_available": True}
+        doctor._add_source_sync_hold(
+            report,
+            dsn="postgresql://x/y",
+            deployment="d",
+            registry={"widget-keeper": entry},
+        )
+        [error] = report["errors"]
+        return error
+
+    retirable = run(gone, True)
+    assert seen["registry"] == {"widget-keeper": seen["registry"]["widget-keeper"]}
+    assert retirable["code"] == "source_sync_held"
+    assert retirable["automatic_retirement_applies"] is True
+    assert [row["class"] for row in retirable["source_classes"]] == [
+        "renamed", "present",
+    ]
+    assert "widget-snapshot was renamed to widget-inventory" in retirable["error"]
+    assert "migrate --deployment d --apply" in retirable["error"]
+
+    kept = run(rebound, False)
+    assert kept["automatic_retirement_applies"] is False
+    assert "catalog_fingerprint changed" in kept["error"]
+    assert "migrate --deployment" not in kept["error"]

@@ -400,20 +400,6 @@ def generate_protection_census(conn) -> dict[str, Any]:
                     entry["rule"] = "chronos_interval_shape_mismatch"
             elif schema == "public" and name.startswith("_chronos_"):
                 entry["rule"] = "chronos_metadata"
-            elif schema == "okg" and name in (
-                "attribute_effective_view",
-                "attribute_effective_view_intervals",
-                # schema-interval-narrow-split: the content-addressed payload
-                # store the interval/snapshot rows reference — same derived,
-                # rebuildable read-model class.
-                "attribute_versions",
-            ):
-                entry["rule"] = "derived_attribute_read_model"
-                entry["rebuildable_candidate"] = True
-                # Transitive inputs: the chronos interval tables (the
-                # authoritative base). They are core/sealed, so the
-                # closure constraint of the design holds.
-                entry["input_closure_rule"] = "chronos_interval_history"
             elif schema == "okg":
                 entry["rule"] = "okg_operational"
             elif schema == "okg_derived":

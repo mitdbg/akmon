@@ -57,10 +57,14 @@ from okg.substrate.mcp.result_text import (
     current_result_context,
     default_result_format,
     is_block,
+    live_read_failure,
     render,
     result_context,
 )
-from okg.substrate.mcp.session_tool_surface import SessionScopedToolsMixin
+from okg.substrate.mcp.session_tool_surface import (
+    SessionScopedToolsMixin,
+    ToolNotServed,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -157,8 +161,11 @@ class DateCallClock:
         #: max_bytes differs in its limit alone, so it is cut from these
         #: and issues no statement. `dated` is what a read with a date
         #: condition settled on (the predicate it read with, its notes);
-        #: `pages` the rows of each page statement and each group count;
-        #: `totals` each bounded total. Dropped with the call.
+        #: `pages` the rows of each page statement and each group count,
+        #: and under a ``("count_form", ...)`` key the count form (GIN or
+        #: walk) the call's first run chose for a split count, so every
+        #: rerun counts the same way; `totals` each bounded total. Dropped
+        #: with the call.
         self.dated: dict[Any, Any] = {}
         self.pages: dict[Any, Any] = {}
         self.totals: dict[Any, Any] = {}
@@ -615,7 +622,9 @@ def served_call_tool_result(
                 ),
             )
         ],
-        isError=bool(is_error or refused),
+        # A failed live read beside served graph rows is an error too
+        # (lane re, issue 4): a harness that counts tool errors sees it.
+        isError=bool(is_error or refused or live_read_failure(payload, tool)),
     )
 
 
@@ -1199,6 +1208,10 @@ _ARGUMENT_INSTEAD: dict[tuple[str, str], str] = {
     ),
     ("inspect", "node_id"): 'pass target={"kind":"node","node_id":...}',
     ("expand", "node_id"): 'pass input={"node_id":...}',
+    # PACT read-aggregate-order-by: the one ranking argument.
+    ("aggregate", "sort_by"): 'use order_by, e.g. order_by="count desc"',
+    ("aggregate", "sort"): 'use order_by, e.g. order_by="count desc"',
+    ("aggregate", "order"): 'use order_by, e.g. order_by="count desc"',
 }
 
 
@@ -1623,6 +1636,11 @@ def _expected_error_refusal(
     retry_call = getattr(error, "retry_call", None)
     if isinstance(retry_call, dict):
         payload["error"]["retry_call"] = retry_call
+    kept_handle = getattr(error, "kept_handle", None)
+    if isinstance(kept_handle, dict):
+        # #4181: the grown set a refusal after growth kept, and the call
+        # over it (`live_resolver.kept_growth_block`).
+        payload["error"]["kept_handle"] = kept_handle
     return _fit_error_payload(payload, budget=budget)
 
 
@@ -1652,13 +1670,21 @@ def _fit_error_payload(
     # THE ORDER OF SACRIFICE, in one place. A refusal that does not fit
     # gives up, in this order: (1) `data`; (2) the tail of `fix_hint` and of
     # `message`, cut to a marked prefix; (3) `fix_hint` whole, and `message`
-    # for a fixed sentence; (4) only then `retry_call`. The corrected call
-    # is the part a caller can act on without reading anything else, so it
-    # goes last; with its `mode` and `repeat` it is at most
+    # for a fixed sentence; (4) only then `retry_call`; (5) last, a kept grown
+    # set's block (#4181), whose `template` already went with `data` in (1).
+    # The corrected call is the part a caller can act on without reading
+    # anything else; with its `mode` and `repeat` it is at most
     # `_RETRY_CALL_BYTES`, which the minimum budget holds beside the code.
+    # The kept block without its template is its id, counts and a note.
     payload["error"]["data"] = {
         "details_omitted": "response_byte_budget",
     }
+    kept = payload["error"].get("kept_handle")
+    if isinstance(kept, dict) and "template" in kept:
+        payload["error"]["kept_handle"] = {
+            **{k: v for k, v in kept.items() if k != "template"},
+            "template_omitted": "response_byte_budget",
+        }
     if fits():
         return payload
     # Two 1 KiB `message`/`fix_hint` values plus the envelope can still
@@ -1677,6 +1703,9 @@ def _fit_error_payload(
     if fits():
         return payload
     if payload["error"].pop("retry_call", None) is not None and fits():
+        return payload
+    # (5) The kept grown set's block (#4181).
+    if payload["error"].pop("kept_handle", None) is not None and fits():
         return payload
 
     # Preserve the stable typed code and logical-session contract even in the
@@ -2157,6 +2186,16 @@ def _rewrite_operator_call(
     if name not in OPERATOR_TOOLS:
         return arguments, None
     try:
+        # A JSON-object string `input` is decoded once, here, so the rewrite
+        # and everything after it see the object form (#3989).
+        arguments = _live_resolver.decode_json_arguments(name, arguments)
+    except _live_resolver.JsonStringRefused as bad:
+        return arguments, _CallRewrite(refusal=InvalidOperatorArguments(
+            str(bad),
+            data={"tool": name, "invalid_fields": ["input"], "validation_kinds": ["json_string"]},
+            fix_hint=bad.fix_hint,
+        ))
+    try:
         rewritten = rewrite_call(name, arguments, search_methods=search_methods)
     except GrammarRefusal as exc:
         fix_hint = exc.fix_hint
@@ -2211,6 +2250,9 @@ def _rewrite_operator_call(
                         _validation_field_path((field,)) for field in exc.fields[:32]
                     ],
                     "validation_kinds": ["argument_check"],
+                    # A named reason (`handle_as_condition`, PACT
+                    # read-live-handles), under the argument check's code.
+                    **({"reason": exc.reason} if exc.reason else {}),
                 },
                 fix_hint=fix_hint,
             )
@@ -2639,7 +2681,15 @@ class _RawResultFastMCP(FastMCP):
                 # context variable (B4'): `run_sync_in_request_context` copies
                 # the context into the worker.
                 with _live_resolver.handoff_scope(resolved):
-                    return await tool.run(arguments, context=context, convert_result=False)
+                    try:
+                        result = await tool.run(arguments, context=context, convert_result=False)
+                    except Exception as exc:
+                        # #4181: a refusal after growth committed the grown
+                        # set names it, so a narrower retry calls nothing.
+                        _live_resolver.name_kept_growth(resolved.state, name, arguments, exc)
+                        raise
+                    _live_resolver.name_kept_growth(resolved.state, name, arguments, result)
+                    return result
             return await tool.run(arguments, context=context, convert_result=False)
         return await self._tool_manager.call_tool(
             name, arguments, context=context, convert_result=False,
@@ -3483,10 +3533,9 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
             served = self._okg_serve_result(name, arguments, result)
             # Inside the try: a capacity refusal at commit is served as a
             # typed refusal like any other raised error.
-            committed = result_references.commit_served(served)
-            # A grown live set replaces the one it grew from only now that
-            # it is stored (#3666, N6).
-            _live_resolver.after_commit(committed)
+            # A grown live set no longer replaces its parent: a handle is an
+            # immutable name (PACT read-live-handles, N4).
+            result_references.commit_served(served)
             pending = _PENDING_IMAGES.get()
             # A returned refusal is served with isError set
             # (`_okg_serve_result`), so this is exactly a successful call.
@@ -3506,6 +3555,19 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
                 payload = _fit_error_payload(payload, budget=MIN_RESPONSE_BYTES)
                 return self._okg_serve_payload(
                     name, payload, is_error=True, raised=True,
+                )
+            if isinstance(exc, ToolNotServed):
+                # A name this server does not register (issue #3993): the
+                # refusal names the cause and the served tools, for an
+                # operator tool and for a name no deployment has alike. It
+                # carries no caller text beyond the cut name.
+                shown = str(exc.data["tool"])
+                payload = _expected_error_refusal(
+                    shown, exc, budget=MIN_RESPONSE_BYTES,
+                )
+                payload = _fit_error_payload(payload, budget=MIN_RESPONSE_BYTES)
+                return self._okg_serve_payload(
+                    shown, payload, is_error=True, raised=True,
                 )
             if name not in OPERATOR_TOOLS:
                 # A write or admin tool's raised exception stays the SDK's
@@ -3574,6 +3636,10 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
             if adjusted:
                 # A refusal of a rewritten call says what it was read as.
                 payload["adjusted"] = adjusted
+            # #4181 (review L1): a refusal after growth kept a set names it,
+            # however the refusal arose (the tool body's, a commit-time
+            # capacity refusal, a server fault).
+            _live_resolver.name_kept_growth_served(name, arguments, payload)
             payload = _fit_error_payload(payload, budget=budget)
             return self._okg_serve_payload(
                 name, payload, is_error=True, raised=True,

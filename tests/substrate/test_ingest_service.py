@@ -37,6 +37,7 @@ from okg.substrate.ingest import (
     topo_layers,
     topo_sort,
 )
+from okg.substrate.publisher import repository_provenance
 from okg.substrate.publisher.repository_provenance import RepositoryProvenance
 from okg.substrate.source_sync import SourceSyncEvent
 from okg.substrate.sources.registry import (
@@ -46,6 +47,96 @@ from okg.substrate.sources.registry import (
 from tests.pytest.catalog_fixture_builders import seed_catalog
 from tests.pytest.pre_3342_freeze import freeze_partial_failures
 from tests.pytest.source_jobs_inline import use_inline_source_jobs
+
+
+_UNCOMMITTED_REFUSAL = "repository provenance inputs are not committed"
+
+
+def _recording_provenance(real, refusals: list[SubstrateError]):
+    """Wrap the publisher's provenance check; remember an uncommitted-paths refusal."""
+
+    def tracking(deployment_dir):
+        try:
+            return real(deployment_dir)
+        except SubstrateError as exc:
+            if exc.message == _UNCOMMITTED_REFUSAL:
+                refusals.append(exc)
+            raise
+
+    return tracking
+
+
+def _uncommitted_refusal_report(refusals: list[SubstrateError]) -> str:
+    lines = [
+        "the publisher refused to publish because a repository has uncommitted "
+        "paths; a test that expected 'published' fails for this reason, not "
+        "because of what it asserts (issue #3957). Commit, stash, or gitignore "
+        "these paths, then run the tests again:"
+    ]
+    for exc in refusals:
+        paths = exc.data.get("paths", [])
+        lines.append(f"  {exc.data.get('repository')}: {len(paths)} path(s)")
+        lines.extend(f"    {path}" for path in paths[:20])
+        if len(paths) > 20:
+            lines.append(f"    ... and {len(paths) - 20} more")
+    return "\n".join(lines)
+
+
+@pytest.fixture(autouse=True)
+def _name_a_publish_refused_for_uncommitted_paths(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Report the uncommitted paths when a publish in the test was refused for them.
+
+    The publisher refuses a code checkout or deployment repository with any
+    modified or untracked path. In a dirty checkout the tests that publish for
+    real then fail on 'fail' == 'published' with no hint of the cause. Hosted
+    CI runs a clean checkout, so only a local run meets this.
+    """
+    refusals: list[SubstrateError] = []
+    monkeypatch.setattr(
+        repository_provenance,
+        "tracking_repository_provenance",
+        _recording_provenance(
+            repository_provenance.tracking_repository_provenance, refusals
+        ),
+    )
+    yield
+    if refusals:
+        pytest.fail(_uncommitted_refusal_report(refusals), pytrace=False)
+
+
+def test_uncommitted_refusal_is_recorded_and_named() -> None:
+    refusals: list[SubstrateError] = []
+    refused = SubstrateError(
+        _UNCOMMITTED_REFUSAL,
+        data={"repository": "/checkout", "paths": ["?? stray.txt", " M a.py"]},
+    )
+    other = SubstrateError("repository provenance is unavailable")
+
+    def real(path):
+        if path == "dirty":
+            raise refused
+        if path == "other":
+            raise other
+        return "provenance"
+
+    tracking = _recording_provenance(real, refusals)
+    assert tracking("clean") == "provenance"
+    assert refusals == []
+    with pytest.raises(SubstrateError) as other_info:
+        tracking("other")
+    assert other_info.value is other
+    assert refusals == []
+    with pytest.raises(SubstrateError) as dirty_info:
+        tracking("dirty")
+    assert dirty_info.value is refused
+    assert refusals == [refused]
+    report = _uncommitted_refusal_report(refusals)
+    assert "/checkout: 2 path(s)" in report
+    assert "?? stray.txt" in report
+    assert " M a.py" in report
+    assert "issue #3957" in report
 
 
 @pytest.fixture(autouse=True)
@@ -6856,7 +6947,9 @@ def _add_source_node(dep: Path) -> None:
 def _assert_published_count_matches_visible(
     dsn: str, publish: dict, *expected: str,
 ) -> None:
-    """Stamped node count == visible nodes, and the attribute view has them."""
+    """Stamped node count == visible nodes, and the published graph has them.
+    (The attribute copies this also checked are gone, PACT
+    lane-s-storage-drop-copies; the graph rows are the read model.)"""
     from okg.substrate.graph_store import ChronosGraphStore
 
     published_ids = _published_node_ids(dsn, publish["generation_id"])
@@ -6865,19 +6958,8 @@ def _assert_published_count_matches_visible(
         latest = ChronosGraphStore.from_connection(
             conn, ensure_schema=False,
         ).latest_generation(deployment_name="svc", status="published")
-        with conn.cursor() as cur:
-            # The attribute read model is what the integrity receipt counts
-            # against the checkpoint.
-            cur.execute(
-                "SELECT count(*) FROM okg.attribute_effective_view_intervals "
-                "WHERE target_kind = 'node' AND target_id = ANY(%s) "
-                "AND to_ord = 9223372036854775807",
-                (list(expected),),
-            )
-            (attribute_rows,) = cur.fetchone()
     assert latest.checkpoint_id == publish["generation_id"]
     assert int(latest.metadata["node_count"]) == len(published_ids)
-    assert attribute_rows == len(expected)
     # The hint decision is kept with the generation, not only in the report.
     assert latest.metadata["dirty_scope_hint"] == publish["dirty_scope_hint"]
 
@@ -6967,9 +7049,11 @@ def _run_with_write_after_materialize(
 ) -> tuple[IngestOptions, dict, dict, list[bool]]:
     """Second ingest run whose publish sees ``write`` land after its reads.
 
-    The effective-view materialize runs after the cycle's counts and last
-    read of the branch head and before the checkpoint cut. ``write`` runs
-    right after it: on the first publish attempt only, or on every attempt.
+    The overlay-range sync runs after the cycle's counts and last read of
+    the branch head and before the checkpoint cut (it replaced the
+    effective-view materialize as the hook point when PACT
+    lane-s-storage-drop-copies dropped the view). ``write`` runs right after
+    it: on the first publish attempt only, or on every attempt.
     The second run's cycles are full-proof cycles, which check for writes
     at the cut; an incremental cycle holds the branch write lock there, so
     the write would wait for its commit instead (see
@@ -6988,7 +7072,7 @@ def _run_with_write_after_materialize(
     _add_source_node(dep)
     monkeypatch.setenv("OKG_COUNT_STAMP_SELF_HEAL_EVERY", "1")
 
-    real_materialize = attributes.materialize_effective_attribute_view_for_generation
+    real_materialize = attributes.sync_overlay_ranges_for_generation
     fired: list[bool] = []
 
     def materialize_then_write(*args, **kwargs):
@@ -7000,7 +7084,7 @@ def _run_with_write_after_materialize(
 
     monkeypatch.setattr(
         attributes,
-        "materialize_effective_attribute_view_for_generation",
+        "sync_overlay_ranges_for_generation",
         materialize_then_write,
     )
     publishes = run_ingest(replace(options, reset_cursor=True)).report[
@@ -7008,7 +7092,7 @@ def _run_with_write_after_materialize(
     ]
     monkeypatch.setattr(
         attributes,
-        "materialize_effective_attribute_view_for_generation",
+        "sync_overlay_ranges_for_generation",
         real_materialize,
     )
     return options, baseline, publishes[-1], fired
@@ -7060,7 +7144,7 @@ def test_late_rewrite_of_a_counted_key_is_never_cut_stale(
     Chronos rewrites a key already in the current segment in place, so the
     segment's row count does not move. Only the row-version part of the
     fingerprint sees it; without it the checkpoint would carry the new
-    attrs while the attribute view kept the old ones.
+    attrs while the count described the old ones.
     """
     from okg.substrate.graph_store import ChronosGraphStore
     from okg.substrate.library.sources.base import NodeFact
@@ -7094,20 +7178,7 @@ def test_late_rewrite_of_a_counted_key_is_never_cut_stale(
             "SELECT attrs->>'text' AS text FROM okg.graph_nodes "
             "WHERE node_id = 'svc:added'",
         )
-        with conn.cursor() as cur:
-            # The attribute read model agrees with the graph row.
-            cur.execute(
-                "SELECT v.attrs->>'text' "
-                "  FROM okg.attribute_effective_view AS s "
-                "  JOIN okg.attribute_versions AS v "
-                "    USING (target_kind, target_id, attrs_hash) "
-                " WHERE s.generation_id = %s AND s.target_kind = 'node' "
-                "   AND s.target_id = 'svc:added'",
-                (publish["generation_id"],),
-            )
-            view_rows = cur.fetchall()
     assert [row["text"] for row in published] == ["rewritten late"]
-    assert view_rows == [("rewritten late",)]
 
 
 @pytest.mark.postgres

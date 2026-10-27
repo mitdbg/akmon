@@ -130,6 +130,13 @@ def _sample(session, sql: str, columns: tuple[str, ...],
 
 
 def _compare(session, source: str) -> None:
+    from okg.substrate.graph_store_internal.edge_deferrals import (
+        edges_relation_sql,
+    )
+
+    # The producer's waiting edges are its records, so an edge that waits is
+    # neither missing nor stale.
+    graph_edges = edges_relation_sql(session)
     params = {"source": source}
     conflicts = (f"SELECT node_id FROM {_NODES} GROUP BY node_id "
                  "HAVING count(DISTINCT ownership_mode) > 1")
@@ -152,7 +159,7 @@ def _compare(session, source: str) -> None:
         ),
         "missing_edge": (
             f"SELECT e.src, e.edge_type, e.dst FROM {_EDGES} e WHERE NOT EXISTS ("
-            "SELECT 1 FROM okg.graph_edges g WHERE g.edge_id=e.edge_id "
+            f"SELECT 1 FROM {graph_edges} g WHERE g.edge_id=e.edge_id "
             "AND g.src=e.src AND g.edge_type=e.edge_type AND g.dst=e.dst)",
             ("src", "edge_type", "dst"),
         ),
@@ -163,7 +170,7 @@ def _compare(session, source: str) -> None:
             ("node_id",),
         ),
         "stale_edge": (
-            "SELECT DISTINCT g.src, g.edge_type, g.dst FROM okg.graph_edges g "
+            f"SELECT DISTINCT g.src, g.edge_type, g.dst FROM {graph_edges} g "
             "WHERE g.source=:source AND NOT EXISTS ("
             f"SELECT 1 FROM {_EDGES} e WHERE e.edge_id=g.edge_id "
             "AND e.src=g.src AND e.edge_type=g.edge_type AND e.dst=g.dst)",

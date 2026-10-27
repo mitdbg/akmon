@@ -148,12 +148,8 @@ class ChronosGraphStore(
     def ensure_schema(self) -> None:
         return super().ensure_schema()
 
-    def ensure_interval_storage_upgrade(
-        self, *, tolerate_pre_narrow_split: bool = False
-    ) -> None:
-        return super().ensure_interval_storage_upgrade(
-            tolerate_pre_narrow_split=tolerate_pre_narrow_split
-        )
+    def ensure_interval_storage_upgrade(self) -> None:
+        return super().ensure_interval_storage_upgrade()
 
     def checkout_generation(
         self,

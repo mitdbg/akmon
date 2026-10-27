@@ -20,7 +20,10 @@ Two steps, so the database part stays small and testable:
 - `render_dataset_card` turns the facts into text of at most
   `CARD_BUDGET_BYTES`, sections ordered by value. When the text is too long
   the lowest sections lose lines first, and each cut says how many lines it
-  dropped; nothing is dropped silently.
+  dropped; nothing is dropped silently. Floors keep the largest sources, the
+  id patterns, nesting and dates; the `run` example yields before any floor
+  is cut, so serving run keeps the largest sources named (its one cut line
+  can still cost rows of a lower section).
 
 Two rules keep row content out of the server instructions:
 
@@ -37,6 +40,7 @@ Two rules keep row content out of the server instructions:
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -1095,6 +1099,17 @@ _SOURCES_MAX_BYTES = 700
 _IDS_MIN_BYTES = 600
 _NESTING_MIN_BYTES = 200
 _DATES_MIN_BYTES = 200
+#: The source list's floor, in lines (PACT read-card-source-floor): the
+#: largest sources stay named while anything else can be cut or yield, and
+#: the ceiling above stops here too. Four, because on the comp-ops graph the
+#: four largest lines hold 614,634 of 635,029 records (97%) and are what the
+#: six-tool card already shows under the ceiling, so serving one more tool
+#: moves no source line; a line costs about 70-135 B.
+_SOURCES_MIN_ITEMS = 4
+#: What the `run` example becomes when keeping it would cut a floor. The run
+#: tool's own description states the step format, so the card loses only
+#: the example built from this graph.
+RUN_EXAMPLE_CUT_LINE = "- Run example cut for size (see run's description)."
 
 
 @dataclass
@@ -1112,6 +1127,14 @@ class _Section:
     min_bytes: int = 0
     records: Optional[list[int]] = None
     dropped_records: int = 0
+    #: The fewest items a cut leaves while anything else can be cut.
+    min_items: int = 1
+    #: A section that gives way whole, before any floor is cut, becomes this
+    #: one line (the card says it was cut). None: the section never yields.
+    yields_to: Optional[str] = None
+
+    def above_floor(self) -> bool:
+        return len(self.items) > max(1, self.min_items) and self.size() > self.min_bytes
 
     def cut_one(self) -> None:
         self.items.pop()
@@ -1272,6 +1295,7 @@ def render_dataset_card(
         sections.append(_Section(
             "Sources (rows by type):", items, graph_hint,
             max_bytes=_SOURCES_MAX_BYTES, records=records,
+            min_items=_SOURCES_MIN_ITEMS,
         ))
     elif PART_COUNTS in missing:
         sections.append(_Section(
@@ -1293,6 +1317,9 @@ def render_dataset_card(
                 + '); "$1" is step 1\'s records, and only the last step prints rows.'
             ],
             None,
+            # Adding a tool must not hide what data exists: the example gives
+            # way before the source list (or any section) goes below its floor.
+            yields_to=RUN_EXAMPLE_CUT_LINE,
         ))
 
     # 2. declared absences
@@ -1424,6 +1451,8 @@ def _live_section(
                 + ' id>}) lists all with their arguments'
             )
         items.append(line + ".")
+    # PACT read-live-handles (4.2): the one card sentence on handles.
+    items.append(HANDLE_SENTENCE)
     if run_ok:
         # #3666, lane ri: agents asked one relation once per value, call
         # after call; one run step makes those calls.
@@ -1434,6 +1463,10 @@ def _live_section(
         items,
         graph_hint,
     )
+
+
+#: The card's one sentence on live handles (PACT read-live-handles, 4.2).
+HANDLE_SENTENCE = "- A live read's reply names a handle; input=\"<handle>\" reads it again."
 
 
 #: The card's one sentence on `run` live steps, served with `run` and
@@ -1447,7 +1480,26 @@ RUN_LIVE_SENTENCE = (
 def _fit(
     head: list[str], sections: list[_Section], budget: int, graph_hint: Optional[str],
 ) -> str:
-    """Join the card, cutting from the lowest section until it fits."""
+    """Join the card, cutting until it fits, in this order: lines above a
+    floor, lowest section first; then a section that yields whole (the `run`
+    example) becomes its one cut line and the cutting starts again from the
+    uncut sections, so the room it frees goes back to the sections above
+    their floors; then floors give way, lowest section first; then whole
+    sections, from the bottom."""
+    while True:
+        text = _cut_to_fit(head, copy.deepcopy(sections), budget, graph_hint)
+        if text is not None:
+            return text
+        lowest = max(i for i, s in enumerate(sections) if s.yields_to is not None)
+        sections[lowest] = _Section(None, [sections[lowest].yields_to or ""], None)
+
+
+def _cut_to_fit(
+    head: list[str], sections: list[_Section], budget: int, graph_hint: Optional[str],
+) -> Optional[str]:
+    """One pass of `_fit` over `sections` (cut in place). None when the card
+    fits only by cutting a floor while a section can still yield."""
+    can_yield = any(s.yields_to is not None for s in sections)
 
     def text_of(cut_sections: int) -> str:
         lines = list(head)
@@ -1458,10 +1510,14 @@ def _fit(
             lines.append(f"- ... ({cut_sections} lower section(s) cut for size{where})")
         return "\n".join(line for line in lines if line)
 
-    # A section with its own ceiling stops there first (keeping one line).
+    # A section with its own ceiling stops there first (keeping its floor
+    # of lines, at least one).
     for section in sections:
         if section.max_bytes is not None:
-            while len(section.items) > 1 and section.size() > section.max_bytes:
+            while (
+                len(section.items) > max(1, section.min_items)
+                and section.size() > section.max_bytes
+            ):
                 section.cut_one()
 
     cut = 0
@@ -1469,8 +1525,10 @@ def _fit(
     while len(text.encode("utf-8")) > budget:
         trimmable = [s for s in sections if len(s.items) > 1]
         # Cut from the lowest section above its floor; floors give way only
-        # when nothing else is left to cut.
-        above_floor = [s for s in trimmable if s.size() > s.min_bytes]
+        # when nothing else is left to cut or to yield.
+        above_floor = [s for s in trimmable if s.above_floor()]
+        if not above_floor and can_yield:
+            return None
         if above_floor or trimmable:
             # Keep one line of every section while any section has more.
             (above_floor or trimmable)[-1].cut_one()

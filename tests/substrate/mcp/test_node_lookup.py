@@ -9,11 +9,10 @@ Two pinned proofs (one per graph-backed requirement):
   ``search(method="attrs", attr_filters=...)`` (the issue's reported
   parameter shape, query-less, routes there automatically), and a path
   SUFFIX through ``filter``'s ``suffix`` predicate — while the raw-SQL
-  ``query`` path stays denied. The lookup is served by the indexed
-  effective-attrs read path (PR #383): the generated WHERE carries the
-  GIN-indexable ``attrs @> ...`` containment, and EXPLAIN over that exact
-  shape uses an index on ``okg.attribute_effective_view``, not a Seq Scan
-  (req.lookup.typed-attrs-path).
+  ``query`` path stays denied. The lookup is served by the graph read path
+  (the Chronos node rows plus the generation's overlays; the attribute copy
+  PR #383 once indexed is dropped): the generated WHERE carries the
+  ``attrs @> ...`` containment (req.lookup.typed-attrs-path).
 - ``test_inspect_missing_id_not_found`` — ``inspect`` on a node id absent
   at the pin raises the structured ``node_not_found`` error naming the id
   and the pinned generation with ``exists: false``; a found node with
@@ -263,53 +262,6 @@ def test_path_lookup_least_privilege(
         assert all(
             subject == "subject:mcp_client" for _a, _e, subject in boundary
         ), boundary
-
-        # 5. Indexed path (PR #383), not a seq scan over attrs:
-        #    (a) the operator's generated WHERE carries the GIN-indexable
-        #        containment over the effective-attrs snapshot;
-        where, params = mcp._okg_effective_view_where(
-            "nodes",
-            {
-                "op": "and",
-                "clauses": [
-                    {"op": "eq", "field": "subtype", "value": "source_file"},
-                    {
-                        "op": "contains",
-                        "field": "attrs",
-                        "value": {"path": "CMakeLists.txt"},
-                    },
-                ],
-            },
-        )
-        assert "attrs @>" in where, where
-        assert "subtype =" in where, where
-
-        #    (b) EXPLAIN over that exact WHERE shape uses an index on
-        #        okg.attribute_effective_view — enable_seqscan=off makes any
-        #        seq-scan-only plan loudly visible on this small fixture.
-        #        schema-interval-narrow-split: the payload (and so the attrs
-        #        containment) resolves through the version-store join, exactly
-        #        as the production reader's from-clause does.
-        sql_params: dict[str, object] = {"tk": "node", "gen": gen, "lim": 10}
-        sql_params.update(params)
-        with psycopg.connect(clean_runtime) as conn, conn.cursor() as cur:
-            cur.execute("SET enable_seqscan = off")
-            cur.execute(
-                "EXPLAIN SELECT target_id, subtype, attrs "
-                "FROM okg.attribute_effective_view "
-                "JOIN okg.attribute_versions "
-                "USING (target_kind, target_id, attrs_hash) "
-                "WHERE target_kind = %(tk)s AND generation_id = %(gen)s "
-                "AND namespace = 'default'" + where + " LIMIT %(lim)s",
-                sql_params,
-            )
-            plan = "\n".join(row[0] for row in cur.fetchall())
-        assert (
-            "Index Scan" in plan
-            or "Index Only Scan" in plan
-            or "Bitmap Index Scan" in plan
-        ), plan
-        assert "Seq Scan on attribute_effective_view" not in plan, plan
     finally:
         mcp._okg_pool.close()
         if mcp._okg_write_pool:

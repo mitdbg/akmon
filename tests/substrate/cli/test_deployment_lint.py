@@ -62,7 +62,10 @@ def _write_valid_deployment(root: Path, name: str = "demo") -> Path:
         "schema_dir: schemas\n"
         "source_registry: source_registry.yaml\n"
         "modules: []\n"
-        "enrichers: []\n",
+        "enrichers: []\n"
+        # A valid deployment declares its readiness profile (#3958).
+        "readiness:\n"
+        "  profile: standard\n",
         encoding="utf-8",
     )
     return deployment_dir

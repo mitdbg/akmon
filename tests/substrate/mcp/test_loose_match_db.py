@@ -293,11 +293,16 @@ def test_every_code_point_folds_alike_in_sql_and_python(clean_runtime):
 
 
 #: The relations a graph read names: the stored records and links, and the
-#: views and fact tables over them. Bookkeeping around a call (the trace
-#: insert, lock release, catalog lookups) names none of them.
+#: views and fact tables over them; and, on the graph read path (lane SG, S2),
+#: the physical Chronos tables under them, the generation's overlay values
+#: (`attribute_effective_attrs`) and the page statement's `effective_page`
+#: relation, which both paths use to read a page of records. Bookkeeping
+#: around a call (the trace insert, lock release, catalog lookups, the overlay
+#: marker check) names none of them.
 _GRAPH_READ = re.compile(
     r"\bokg\.(graph_nodes|graph_edges|v_nodes|v_edges|node_facts|edge_facts"
-    r"|attr_ts_v|attribute_versions|nodes_live|edges_live)\b"
+    r"|attr_ts_v|attribute_effective_attrs|nodes_live|edges_live)\b"
+    r"|\beffective_page\b|\b_chronos_b_interval_okg_graph_"
 )
 
 

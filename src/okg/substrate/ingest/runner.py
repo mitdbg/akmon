@@ -2063,6 +2063,17 @@ def refuse_runner_reserved_replacement_keys(
     )
 
 
+def _coverage_edges(session: Any, columns: str | None = None) -> str:
+    """Relation record-set coverage reads edges from: graph plus waiting rows."""
+    from okg.substrate.graph_store_internal.edge_deferrals import (
+        edges_relation_sql,
+    )
+
+    if columns is None:
+        return edges_relation_sql(session)
+    return edges_relation_sql(session, columns)
+
+
 class SourceRunner:
     """Drives a SourceAdapter and persists its facts.
 
@@ -6675,9 +6686,9 @@ class SourceRunner:
         # index orders a source's edges by (src, edge_type, dst) any more,
         # and the records are keyed by identity and sorted when serialized.
         for row in session.query(
-            """
+            f"""
             SELECT src, edge_type, dst
-              FROM okg.graph_edges
+              FROM {_coverage_edges(session)} AS owned
              WHERE source = :source
              ORDER BY edge_id
             """,
@@ -8012,9 +8023,9 @@ class SourceRunner:
         for idx in range(0, len(added_edge_ids), chunk_size):
             edge_id_chunk = added_edge_ids[idx : idx + chunk_size]
             rows = session.query(
-                """
+                f"""
                 SELECT src, edge_type, dst
-                  FROM okg.graph_edges
+                  FROM {_coverage_edges(session)} AS present
                  WHERE edge_id = ANY(:edge_ids)
                 """,
                 {"edge_ids": edge_id_chunk},
@@ -8287,6 +8298,11 @@ class SourceRunner:
                 """,
                 {"source": self.source_name},
             )["n"]
+            from okg.substrate.graph_store_internal.edge_deferrals import (
+                edges_relation_sql,
+            )
+
+            edges_relation = edges_relation_sql(session)
             edge_membership = _counts(
                 f"""
                 SELECT
@@ -8294,7 +8310,7 @@ class SourceRunner:
                   count(*) FILTER (
                     WHERE graph.source = :source
                   ) AS source_owned_declared
-                  FROM okg.graph_edges AS graph
+                  FROM {edges_relation} AS graph
                   JOIN {edges_table} AS expected
                     ON expected.edge_id = graph.edge_id
                    AND expected.src = graph.src
@@ -8304,9 +8320,9 @@ class SourceRunner:
                 {"source": self.source_name},
             )
             source_owned_edges = _counts(
-                """
+                f"""
                 SELECT count(*) AS n
-                  FROM okg.graph_edges
+                  FROM {edges_relation} AS owned
                  WHERE source = :source
                 """,
                 {"source": self.source_name},
@@ -8391,9 +8407,9 @@ class SourceRunner:
         for idx in range(0, len(expected_edge_ids), chunk_size):
             edge_id_chunk = expected_edge_ids[idx : idx + chunk_size]
             rows = session.query(
-                """
+                f"""
                 SELECT src, edge_type, dst
-                  FROM okg.graph_edges
+                  FROM {_coverage_edges(session)} AS present
                  WHERE edge_id = ANY(:edge_ids)
                 """,
                 {"edge_ids": edge_id_chunk},
@@ -8595,9 +8611,9 @@ class SourceRunner:
         # (src, edge_type, dst) any more.
         if expected_edge_ids:
             rows = session.query(
-                """
+                f"""
                 SELECT src, edge_type, dst
-                  FROM okg.graph_edges
+                  FROM {_coverage_edges(session)} AS owned
                  WHERE source = :source
                    AND NOT (edge_id = ANY(:edge_ids))
                  ORDER BY edge_id
@@ -8607,9 +8623,9 @@ class SourceRunner:
             )
         else:
             rows = session.query(
-                """
+                f"""
                 SELECT src, edge_type, dst
-                  FROM okg.graph_edges
+                  FROM {_coverage_edges(session)} AS owned
                  WHERE source = :source
                  ORDER BY edge_id
                  LIMIT 10
@@ -8771,11 +8787,15 @@ class SourceRunner:
         # okg#3112. The strays (usually none) are sorted by identity below,
         # so the retraction order stays deterministic and identity-ordered.
         stray_edges: list[tuple[tuple[str, str, str], EdgeFact]] = []
+        stray_columns = (
+            "edge_id, src, dst, edge_type, attrs, provenance, confidence, "
+            "source, source_record_id, source_revision"
+        )
         for row in session.query(
-            """
+            f"""
             SELECT src, dst, edge_type, attrs, provenance, confidence,
                    source_record_id, source_revision
-              FROM okg.graph_edges
+              FROM {_coverage_edges(session, stray_columns)} AS owned
              WHERE source = :source
              ORDER BY edge_id
             """,

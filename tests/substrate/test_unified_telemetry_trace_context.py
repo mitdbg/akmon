@@ -388,6 +388,7 @@ def test_publisher_workflow_records_dbos_workflow_root_and_child_trace(
     from tests.pytest.catalog_fixture_builders import (
         bind_factory_test_deployment,
     )
+    from tests.pytest.dbos_system_schema import create_dbos_system_schema
 
     workflow_id = "wf-publisher-telemetry"
     # The workflow builds its publisher through build_deployment_publisher,
@@ -468,6 +469,12 @@ def test_publisher_workflow_records_dbos_workflow_root_and_child_trace(
         "persist_publish_stage_timings",
         lambda **_kwargs: None,
     )
+
+    # The cycle reads dbos.workflow_status to tell a cron-enqueued cycle from
+    # a manual one (_is_scheduled_cycle). A real worker always has that schema;
+    # build it here so the test does not depend on an earlier test on the same
+    # worker having created it.
+    create_dbos_system_schema(clean_runtime)
 
     with mock_dbos_context() as mock:
         mock.workflow_id = workflow_id

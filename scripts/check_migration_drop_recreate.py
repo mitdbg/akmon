@@ -175,9 +175,10 @@ ACKNOWLEDGED_DYNAMIC_CREATE_SITES: dict[tuple[str, str], tuple[int, str]] = {
         "src/okg/substrate/graph_store_internal/schema.py",
         "{quote_ident(index_name)}",
     ): (
-        3,
-        "Chronos per-branch index names derived from the branch table; no "
-        "migration drops them by static name",
+        4,
+        "Chronos per-branch index names derived from the branch table, and "
+        "the waiting-edge table's endpoint and source indexes (name = physical "
+        "table + suffix); no migration drops them by static name",
     ),
 }
 

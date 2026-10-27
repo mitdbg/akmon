@@ -367,3 +367,302 @@ def test_okg_workspace_dogfood_still_uses_agent_context_sources(
     )
 
     assert groups == deployment_cli._READY_AGENT_CONTEXT_SOURCE_GROUPS
+
+
+def _write_workspace_graph_deployment(
+    tmp_path: Path,
+    *,
+    name: str,
+    declared_sources: tuple[str, ...],
+    runtime_disabled: bool = False,
+    key_style: str = "dash",
+    readiness_profile: str | None = None,
+) -> Path:
+    """A deployment built from the workspace-graph profile that declares only
+    ``declared_sources``, the shape of a plain install of that profile.
+
+    ``readiness_profile`` adds a `readiness.profile` declaration (#3958).
+    """
+    deployment_dir = tmp_path / name
+    deployment_dir.mkdir()
+    (deployment_dir / "deployment.yaml").write_text(
+        yaml.safe_dump({
+            "name": name,
+            "profile": {"name": "workspace-graph"},
+            "postgres": {"dsn": "${OKG_DSN}"},
+            "source_registry": "source_registry.yaml",
+            **({"runtime": {"enabled": False}} if runtime_disabled else {}),
+            **(
+                {"readiness": {"profile": readiness_profile}}
+                if readiness_profile
+                else {}
+            ),
+        }),
+        encoding="utf-8",
+    )
+    (deployment_dir / "source_registry.yaml").write_text(
+        yaml.safe_dump({
+            "sources": {
+                (
+                    source.replace("-", "_")
+                    if key_style == "underscore"
+                    else source
+                ): {
+                    "module": "static_demo.source",
+                    "class": "StaticDemoSource",
+                    "ownership_id": f"{name}.{source}",
+                    "source_class": "discovery_crawl",
+                    "record_identity_kind": "scoped_locator",
+                    "record_identity_fields": ["path"],
+                    "source_revision_kind": "content_hash",
+                    "deletion_semantics": "missing_from_completed_scope",
+                    "publication_mode": "published_generation",
+                    "enabled_by_default": True,
+                    "sync": {
+                        "triggers": ["manual", "reconcile"],
+                        "default_event_mode": "scope_complete",
+                        "reconcile_mode": "scope_complete",
+                    },
+                }
+                for source in declared_sources
+            },
+        }),
+        encoding="utf-8",
+    )
+    return deployment_dir
+
+
+class _WatermarkConnection:
+    """Answers the watermark lookup with one source age, in seconds."""
+
+    def __init__(self, age_seconds: float) -> None:
+        self._age_seconds = age_seconds
+        self._row: tuple[object, ...] | None = None
+
+    def cursor(self) -> "_WatermarkConnection":
+        return self
+
+    def __enter__(self) -> "_WatermarkConnection":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        del args
+
+    def execute(self, sql: str, params: tuple[list[str], list[str]]) -> None:
+        del sql
+        self._row = (
+            params[0][0],
+            datetime.now(timezone.utc),
+            self._age_seconds,
+        )
+
+    def fetchone(self) -> tuple[object, ...] | None:
+        return self._row
+
+
+def test_workspace_graph_dogfood_judges_only_declared_sources(
+    tmp_path: Path,
+) -> None:
+    """Issue 3958: a deployment that declares only some of the team's own
+    sources must not be judged against the ones it never declared."""
+    deployment_dir = _write_workspace_graph_deployment(
+        tmp_path,
+        name="plain-install",
+        declared_sources=("code-structure",),
+    )
+
+    groups = deployment_cli._ready_source_groups_for_profile(
+        "dogfood",
+        deployment="plain-install",
+        deployment_dir=deployment_dir,
+    )
+
+    assert groups == {"code": ("code-structure",)}
+
+
+def test_workspace_graph_dogfood_keeps_every_declared_agent_context_source(
+    tmp_path: Path,
+) -> None:
+    every_source = tuple(
+        source
+        for sources in deployment_cli._READY_AGENT_CONTEXT_SOURCE_GROUPS.values()
+        for source in sources
+    )
+    deployment_dir = _write_workspace_graph_deployment(
+        tmp_path,
+        name="team-workspace",
+        declared_sources=every_source,
+    )
+
+    groups = deployment_cli._ready_source_groups_for_profile(
+        "dogfood",
+        deployment="team-workspace",
+        deployment_dir=deployment_dir,
+    )
+
+    assert groups == deployment_cli._READY_AGENT_CONTEXT_SOURCE_GROUPS
+
+
+def test_workspace_graph_dogfood_reports_a_stale_declared_source(
+    tmp_path: Path,
+) -> None:
+    deployment_dir = _write_workspace_graph_deployment(
+        tmp_path,
+        name="plain-install",
+        declared_sources=("code-structure",),
+    )
+    groups = deployment_cli._ready_source_groups_for_profile(
+        "dogfood",
+        deployment="plain-install",
+        deployment_dir=deployment_dir,
+    )
+
+    fresh = deployment_cli._ready_source_freshness_status(
+        _WatermarkConnection(age_seconds=60),
+        deployment="plain-install",
+        max_source_age_seconds=3600,
+        source_groups=groups,
+    )
+    stale = deployment_cli._ready_source_freshness_status(
+        _WatermarkConnection(age_seconds=7200),
+        deployment="plain-install",
+        max_source_age_seconds=3600,
+        source_groups=groups,
+    )
+
+    assert fresh["ok"] is True
+    assert fresh["missing"] == []
+    assert fresh["groups"].keys() == {"code"}
+    assert stale["ok"] is False
+    assert stale["stale"] == ["plain-install.code-structure"]
+    assert stale["missing"] == []
+
+
+def test_workspace_graph_dogfood_matches_underscore_registry_keys(
+    tmp_path: Path,
+) -> None:
+    """cern-team spells the registry key `code_structure`; the readiness list
+    says `code-structure`. The source is declared either way."""
+    deployment_dir = _write_workspace_graph_deployment(
+        tmp_path,
+        name="plain-install",
+        declared_sources=("code-structure",),
+        key_style="underscore",
+    )
+
+    groups = deployment_cli._ready_source_groups_for_profile(
+        "dogfood",
+        deployment="plain-install",
+        deployment_dir=deployment_dir,
+    )
+
+    assert groups == {"code": ("code-structure",)}
+
+
+def test_workspace_graph_dogfood_keeps_full_list_for_an_unloadable_registry(
+    tmp_path: Path,
+) -> None:
+    """A registry that exists but does not load must reach the sync-liveness
+    probe (which reports the load error), not abort the status as a database
+    failure."""
+    deployment_dir = _write_workspace_graph_deployment(
+        tmp_path,
+        name="plain-install",
+        declared_sources=("code-structure",),
+    )
+    (deployment_dir / "source_registry.yaml").write_text(
+        yaml.safe_dump({"sources": {"code-structure": {"module": "x"}}}),
+        encoding="utf-8",
+    )
+
+    groups = deployment_cli._ready_source_groups_for_profile(
+        "dogfood",
+        deployment="plain-install",
+        deployment_dir=deployment_dir,
+    )
+
+    assert groups == deployment_cli._READY_AGENT_CONTEXT_SOURCE_GROUPS
+
+
+def test_real_okg_workspace_keeps_the_full_agent_context_list() -> None:
+    """The team's own workspace declares every agent-context source, so the
+    narrowing must leave its list untouched."""
+    deployment_dir = Path(__file__).resolve().parents[3] / "deployments" / (
+        "okg-workspace"
+    )
+
+    groups = deployment_cli._ready_source_groups_for_profile(
+        "dogfood",
+        deployment="okg-workspace",
+        deployment_dir=deployment_dir,
+    )
+
+    assert groups == deployment_cli._READY_AGENT_CONTEXT_SOURCE_GROUPS
+
+
+def test_a_source_dropped_from_the_workspace_registry_is_reported(
+    tmp_path: Path,
+) -> None:
+    every_source = tuple(
+        source
+        for sources in deployment_cli._READY_AGENT_CONTEXT_SOURCE_GROUPS.values()
+        for source in sources
+    )
+    # The warning is for a deployment that declares dogfood (#3958).
+    deployment_dir = _write_workspace_graph_deployment(
+        tmp_path,
+        name="team-workspace",
+        declared_sources=tuple(s for s in every_source if s != "openspec"),
+        readiness_profile="dogfood",
+    )
+    from okg.substrate.cli.deployment_readiness import (
+        _ready_undeclared_agent_context_sources,
+    )
+
+    groups = deployment_cli._ready_source_groups_for_profile(
+        "dogfood",
+        deployment="team-workspace",
+        deployment_dir=deployment_dir,
+    )
+    undeclared = _ready_undeclared_agent_context_sources(
+        "dogfood",
+        deployment="team-workspace",
+        deployment_dir=deployment_dir,
+        source_groups=groups,
+    )
+
+    assert undeclared == ["openspec"]
+
+
+def test_sync_liveness_counts_an_underscore_registry_key_as_the_readiness_source(
+    tmp_path: Path,
+) -> None:
+    from okg.substrate.source_sync_convergence import (
+        _readiness_summary,
+        source_inventory_for_registry,
+    )
+    from okg.substrate.sources.registry import load_source_registry
+
+    deployment_dir = _write_workspace_graph_deployment(
+        tmp_path,
+        name="plain-install",
+        declared_sources=("code-structure",),
+        key_style="underscore",
+    )
+    groups = {"code": ("code-structure",)}
+
+    inventory = source_inventory_for_registry(
+        deployment="plain-install",
+        registry=load_source_registry(deployment_dir / "source_registry.yaml"),
+        readiness_source_groups=groups,
+    )
+    summary = _readiness_summary(
+        "plain-install",
+        inventory,
+        readiness_source_groups=groups,
+    )
+
+    assert [row["source_name"] for row in inventory] == ["code_structure"]
+    assert inventory[0]["freshness_policy"]["readiness_required"] is True
+    assert summary["missing_required_sources"] == []
+    assert summary["present_required_sources"] == ["plain-install.code-structure"]

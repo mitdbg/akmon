@@ -474,19 +474,19 @@ def test_handles_use_effective_date_overlay(clean_runtime, tmp_path):
         materialize_effective_attributes_for_generation,
         record_attribute_observation,
     )
+    from okg.substrate.graph_store import ChronosGraphStore
 
     deployment = _deployment(tmp_path, clean_runtime)
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
         session = open_session(conn, deployment_name=deployment)
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT v.target_id FROM okg.attribute_effective_view AS view
-                JOIN okg.attribute_versions AS v USING (target_kind, target_id, attrs_hash)
-                WHERE view.generation_id = %s AND view.target_kind = 'node'
-                AND v.attrs @> '{"path":"tickets/1.md"}'::jsonb LIMIT 1""",
-                (session.generation_id,),
-            )
-            target = cur.fetchone()[0]
+        # The node is found in the graph rows at the pin.
+        [found] = ChronosGraphStore.from_connection(
+            conn, ensure_schema=False,
+        ).checkout_generation(session.generation_id).query(
+            "SELECT node_id FROM okg.graph_nodes "
+            "WHERE attrs @> '{\"path\":\"tickets/1.md\"}'::jsonb ORDER BY node_id LIMIT 1", {},
+        )
+        target = str(found["node_id"] if isinstance(found, dict) else found[0])
         record_attribute_observation(
             conn, target_kind="node", target_id=target, generation_id=session.generation_id,
             attr_key="opened_at", value="2026-04-03T11:00:00-04:00", producer="test:handle-overlay",

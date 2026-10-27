@@ -612,3 +612,27 @@ def test_no_hint_when_calls_differ_in_two_arguments_or_relations() -> None:
     assert note(session, "n:hub", "r", {"a": 3, "b": 3}, {}) is None
     note(session, "n:hub", "s", {"a": 4, "b": 3}, {})
     assert note(session, "n:other", "r", {"a": 5, "b": 3}, {}) is None
+
+
+def test_an_aggregate_over_a_partial_step_says_its_totals_are_short() -> None:
+    """PACT live-kept-answer-cut (review M3): a run step whose values were
+    cut or not read says on the cover line how short each metric may be; a
+    whole step's cover line is unchanged."""
+    step = run_steps.parse_steps([
+        {"values": {"x": [1]}},
+        {"aggregate": {"input": "$1", "by": ["keep"], "metrics": ["count", "sum(size)"]}},
+    ])[1]
+    rows = [{"keep": True, "size": 2}, {"keep": True, "size": 3}]
+    whole = run_live.rows_step(step, 1, _held(rows), lambda row, predicate: True)
+    (cover,) = [line for line in whole.notes if line.startswith("! totals cover:")]
+    assert cover == "! totals cover: 2 rows of step 1 (fx); nothing outside these calls is counted"
+    partial = _held(rows)
+    partial.partial = True
+    out = run_live.rows_step(step, 1, partial, lambda row, predicate: True)
+    (cover,) = [line for line in out.notes if line.startswith("! totals cover:")]
+    assert cover == (
+        "! totals cover: 2 rows of step 1 (fx); nothing outside these calls is "
+        "counted; step 1 did not read every value, so totals count only the rows "
+        "read; count is at least the value shown in each group; sum(attrs.size) is "
+        "over the rows received only; a group held only by rows not received is missing"
+    )

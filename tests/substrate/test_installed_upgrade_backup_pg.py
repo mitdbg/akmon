@@ -487,20 +487,82 @@ def test_chunks_compressed_by_a_job_do_not_change_the_access_fingerprint(
     assert any(row[2] == "ht" for row in before["entries"])
 
 
+def _retention_runs_before_the_replay(
+    monkeypatch: pytest.MonkeyPatch, table: str,
+) -> list[tuple[int, int, bool]]:
+    """Run ``table``'s retention job in every restored copy before its replay.
+
+    In a restored copy TimescaleDB's scheduler runs the retention job when it
+    gets a background worker: maybe before the owner and grant replays, maybe
+    after the restore returns, maybe never. A server with about 15 or more
+    TimescaleDB databases has no free worker for jobs (ops/pg/README.md), and
+    on 2026-10-22 a CI run read all 21 chunks back after the restore (#4096).
+    Running the job here, in the test's own session, makes the replays meet
+    the dropped chunks every time, with or without a free worker. Returns
+    (chunks before, chunks after, job scheduled) for each copy, so the test
+    still sees a restore that leaves the job unscheduled.
+    """
+    import psycopg
+
+    real_replay = diu.replay_archive_access
+    schema, name = table.split(".", 1)
+    runs: list[tuple[int, int, bool]] = []
+
+    def replay_after_retention(target_dsn: str, archive: str | Path) -> dict[str, Any]:
+        with psycopg.connect(target_dsn, autocommit=True) as conn:
+            before = int(conn.execute(
+                "SELECT count(*) FROM show_chunks(%s)", (table,),
+            ).fetchone()[0])
+            job = conn.execute(
+                "SELECT job_id, scheduled FROM timescaledb_information.jobs "
+                "WHERE proc_name = 'policy_retention' "
+                "AND hypertable_schema = %s AND hypertable_name = %s",
+                (schema, name),
+            ).fetchone()
+            assert job is not None, f"the restored copy has no retention job for {table}"
+            conn.execute("CALL run_job(%s)", (job[0],))
+            after = int(conn.execute(
+                "SELECT count(*) FROM show_chunks(%s)", (table,),
+            ).fetchone()[0])
+        runs.append((before, after, bool(job[1])))
+        return real_replay(target_dsn, archive)
+
+    monkeypatch.setattr(diu, "replay_archive_access", replay_after_retention)
+    return runs
+
+
+def _assert_retention_ran_in_both_copies(
+    runs: list[tuple[int, int, bool]], chunks_before: int,
+) -> None:
+    """Both copies kept the job scheduled and lost chunks before the replay.
+
+    The copies are the backup's check copy and the restore's copy.
+    """
+    assert len(runs) == 2, runs
+    assert all(scheduled for _, _, scheduled in runs), (
+        f"a restored copy left the retention job unscheduled: {runs}"
+    )
+    assert all(after < chunks_before for _, after, _ in runs), (runs, chunks_before)
+
+
 def test_retention_in_the_restored_copy_does_not_break_the_replay(
-    installed: dict[str, Any],
+    installed: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """HIGH (round 4): retention drops chunks in the copy before the replay.
 
     In a restored copy TimescaleDB's jobs have no run history, so the
     retention job runs as soon as the scheduler starts and drops every chunk
     past its limit. The owner and grant replays must not need those chunks.
+    The test runs the job itself before each replay
+    (``_retention_runs_before_the_replay``), so it does not depend on when,
+    or whether, the scheduler gets a background worker.
     """
     import psycopg
 
     from okg.substrate.db.pool import close_all
 
     dsn = installed["dsn"]
+    runs = _retention_runs_before_the_replay(monkeypatch, "public.rt")
     with psycopg.connect(dsn, autocommit=True) as conn:
         if conn.execute(
             "SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'"
@@ -543,11 +605,13 @@ def test_retention_in_the_restored_copy_does_not_break_the_replay(
         assert conn.execute(
             "SELECT has_table_privilege('okg_mcp', 'public.rt', 'SELECT')"
         ).fetchone()[0] is True
-        # The live database is now the restored copy: retention really ran
-        # there and dropped chunks, so the replays met missing chunks.
+        # The live database is now the restored copy: retention ran there
+        # before the replay and dropped chunks, so the replays met missing
+        # chunks.
         chunks_after = conn.execute(
             "SELECT count(*) FROM show_chunks('public.rt')"
         ).fetchone()[0]
+    _assert_retention_ran_in_both_copies(runs, chunks_before)
     assert chunks_after < chunks_before
 
 
@@ -617,12 +681,13 @@ def _backup_and_restore(installed: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_compressed_chunks_in_an_own_chunk_schema_survive_retention_in_the_copy(
-    installed: dict[str, Any],
+    installed: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Round 5: TimescaleDB 2.29 names compressed chunks _hyper_N_M_chunk_compressed."""
     import psycopg
 
     dsn = installed["dsn"]
+    runs = _retention_runs_before_the_replay(monkeypatch, "public.rc")
     with psycopg.connect(dsn, autocommit=True) as conn:
         _skip_without_timescaledb(conn)
         chunks_before = _retention_hypertable(
@@ -670,16 +735,18 @@ def test_compressed_chunks_in_an_own_chunk_schema_survive_retention_in_the_copy(
         chunks_after = conn.execute(
             "SELECT count(*) FROM show_chunks('public.rc')"
         ).fetchone()[0]
+    _assert_retention_ran_in_both_copies(runs, chunks_before)
     assert chunks_after < chunks_before
 
 
 def test_column_grant_on_chunks_survives_retention_in_the_copy(
-    installed: dict[str, Any],
+    installed: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Round 5: GRANT SELECT (column) is copied onto chunks; dropped chunks keep none."""
     import psycopg
 
     dsn = installed["dsn"]
+    runs = _retention_runs_before_the_replay(monkeypatch, "public.rcol")
     with psycopg.connect(dsn, autocommit=True) as conn:
         _skip_without_timescaledb(conn)
         chunks_before = _retention_hypertable(conn, "public.rcol")
@@ -699,4 +766,5 @@ def test_column_grant_on_chunks_survives_retention_in_the_copy(
         chunks_after = conn.execute(
             "SELECT count(*) FROM show_chunks('public.rcol')"
         ).fetchone()[0]
+    _assert_retention_ran_in_both_copies(runs, chunks_before)
     assert chunks_after < chunks_before

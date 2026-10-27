@@ -252,7 +252,7 @@ migrations:
     reason: Least-privilege leases must match checkpoint deployment and branch metadata and clean expired reader rows in bounded batches.
 - migration_id: 0013_attribute_integrity_receipts
   file: 0013_attribute_integrity_receipts.sql
-  checksum_sha256: bce81a578940dafa440c305dd7393f6531d4e0afcb6b0673e16b9a9172fc4f80
+  checksum_sha256: 4cd196cf63b2eb9d0eb9909916635b3bcccac4c57099528bba1fe89e1eac6b07
   title: Add mutation-invalidated effective-attribute integrity receipts
   applicability: always
   prerequisites:
@@ -280,7 +280,7 @@ migrations:
     reason: Publisher receipt finalization needs a compare-and-set token that untrusted protected-table writes invalidate in the same transaction.
 - migration_id: 0015_attribute_integrity_authority_hardening
   file: 0015_attribute_integrity_authority_hardening.sql
-  checksum_sha256: 8c473680bd28f1bfb00fd51b11b9eaa0046b2383e598463ad7d2e3fa9b8acfb1
+  checksum_sha256: 578e8274b27b360d737f68ba0e6d8871695d5a841d7e25bb0ffc24dd2cdde5d7
   title: Scope integrity invalidation and close finalizer authority edges
   applicability: always
   prerequisites:
@@ -923,3 +923,88 @@ migrations:
       The runtime schema ensure no longer creates these objects, and 0021 and
       0036 still create them on a fresh install, so fresh and upgraded
       databases must both run this drop to converge on their absence.
+- migration_id: 0044_attribute_overlay_generations
+  file: 0044_attribute_overlay_generations.sql
+  checksum_sha256: 31ac37584a70d20ba18d101f695b799f2ab9f2fbef308efb2fc58e260d463a68
+  title: Add the overlay materialization marker and the overlay validity ranges
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  - migration 0043_attr_index_teardown is applied (ordering only; no data dependency)
+  # PACT lane-s-storage-redesign-s2. 0038 and 0042 stay reserved by other
+  # lanes; this migration takes the next free ordinal, 0044.
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: require-concurrent-index-creation
+      reason: The three indexes are on the two tables this migration creates, which are empty until its own backfill runs.
+  schema_diff:
+    mode: required
+    reason: >-
+      Publish writes the marker for every materialized generation and the
+      ranges after each ordinal, and the graph read path refuses a generation
+      without a marker, so fresh and upgraded databases must both carry the
+      two tables and their indexes.
+- migration_id: 0045_publisher_operational_outcomes
+  file: 0045_publisher_operational_outcomes.sql
+  checksum_sha256: e4db68acc24db2c456be88c78bc6ee0938748e6a13612851a3b9305bec4a515e
+  title: Make the publisher a participant of the operational-outcome contract, with its own cutover
+  applicability: always
+  prerequisites:
+  - migration 0029_workflow_operational_outcomes is applied
+  - the okg schema exists
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings: []
+  schema_diff:
+    mode: required
+    reason: >-
+      Fresh installs and upgraded databases must carry the same table comment
+      naming the publisher as a participant.
+- migration_id: 0046_attribute_copies_teardown
+  file: 0046_attribute_copies_teardown.sql
+  checksum_sha256: d9c2b3e42f297b8b50423861c91d6dde6abdb8e4b1ad4388236f8deffee2c02a
+  title: Drop the three attribute copies, their integrity receipts and the storage of the checks that read them
+  applicability: always
+  prerequisites:
+  - the okg schema exists
+  - migration 0044_attribute_overlay_generations is applied (its marker backfill reads the copies)
+  # PACT lane-s-storage-drop-copies (okg#3112 S3+S4). 0038 and 0042 stay
+  # reserved by other lanes and 0045 by lane 10 (#4056); this migration takes 0046.
+  # NOT flagged destructive, by decision 304 (D4), on the argument of 0043:
+  # a destructive migration is auto-skipped behind an operator-confirmed
+  # adapter, so upgraded databases would keep tables a fresh install drops and
+  # the migration-convergence lane would stay red. The rows are derived from
+  # the graph rows and okg.attribute_effective_attrs, which stay; nothing
+  # reads or writes the copies after this change, and the drops are RESTRICT,
+  # so an unaudited dependency blocks the migration. It frees about 17.9 GB on
+  # the okg-workspace laptop copy; the operator approves it knowing that.
+  destructive: false
+  destructive_approval: not_required
+  squawk:
+    expected_findings:
+    - rule: ban-drop-table
+      reason: >-
+        okg.attribute_effective_view, okg.attribute_effective_view_intervals,
+        okg.attribute_versions and the three integrity receipt tables are the
+        derived attribute copies okg#3112 S4 retires; the drop is the whole
+        point of the migration, nothing reads or writes them after S3, and
+        RESTRICT blocks on any dependency the audit missed. The same holds for
+        okg.effective_attribute_recovery_attempts (the journal of the retired
+        copy recovery) and okg.declared_attr_index_drift_checks (the record of
+        the retired drift check against the copies).
+    - rule: ban-drop-column
+      reason: >-
+        okg.declared_attr_indexes.drift, drift_detected_at and drift_detail and
+        okg.declared_attr_index_state.drift_checked_through_ordinal held the
+        retired drift check's flag, detail and cursor; no code reads or writes
+        them after S3, and reader readiness no longer names a drift reason.
+  schema_diff:
+    mode: required
+    reason: >-
+      The runtime schema ensure and schema.sql no longer create these
+      objects, and 0013-0015 and 0020 still create some of them on a fresh
+      install, so fresh and upgraded databases must both run this drop to
+      converge on their absence.

@@ -894,7 +894,9 @@ def build_plan(
     ):
         for src_path in sorted(profile.source_defaults_dir.glob("*.yaml")):
             raw_text = src_path.read_text(encoding="utf-8")
-            interpolated = interpolate(raw_text, validated)
+            interpolated = interpolate(
+                raw_text, validated, keep_runtime=True,
+            )
             source_defaults[src_path.stem] = interpolated
 
     invariants_text: Optional[str] = None

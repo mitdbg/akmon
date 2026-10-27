@@ -1092,7 +1092,7 @@ def test_the_repo_binding_reads_the_injected_git_state() -> None:
     )
     assert binding.okg_commit == "abc1234"
     assert binding.okg_tree_status == TREE_DIRTY
-    assert calls == [("rev-parse", "HEAD"), ("status", "--porcelain")]
+    assert calls == [("rev-parse", "HEAD"), ("--no-optional-locks", "status", "--porcelain")]
 
 
 def test_a_clean_tree_binds_clean() -> None:

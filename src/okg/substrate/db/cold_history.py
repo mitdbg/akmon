@@ -143,8 +143,14 @@ class VisibilityIndexSpec:
 #: The generic GIN index on node ``attrs`` (PACT lane-s-redesign-s1, decision
 #: ``gin`` A of lane-s-storage-redesign). Live rows only (``deleted = false``,
 #: not "open interval": a pinned read must find closed versions too), so it
-#: is not rotatable. ``okg migrate`` builds it online like every spec here;
-#: no read path uses it before stage S2. Rollback: move this suffix to
+#: is not rotatable. ``okg migrate`` builds it online like every spec here.
+#: Readers: graph reads and grep filter with ``attrs @> ...`` (only slower
+#: without it), and the exact-name step of lexical search finds records by
+#: ``attrs.name`` / ``attrs.qualified_name`` through it (PACT
+#: search-exact-name-cost-4035, ``okg.substrate.mcp.search._exact_name_rows``).
+#: Without it that step falls back to its trigram text match, logs a warning,
+#: and no longer finds a record whose text does not spell its name.
+#: Rollback: move this suffix to
 #: :data:`RETIRED_INTERVAL_SOURCE_READ_INDEX_SUFFIXES` and the next migrate
 #: drops it with ``DROP INDEX CONCURRENTLY``.
 NODE_ATTRS_GIN_SPEC = VisibilityIndexSpec(
@@ -153,6 +159,26 @@ NODE_ATTRS_GIN_SPEC = VisibilityIndexSpec(
     rotate=False,
     method="gin",
     opclass="jsonb_path_ops",
+    predicate="deleted = FALSE",
+)
+
+
+#: The trigram GIN index on node ids (issue 4053, PACT read-absent-names-4053;
+#: approved by the orchestrator 2026-10-22). Search's name check asks whether
+#: any visible id holds a name as a whole word in any case or separators, a
+#: case-blind regular expression a B-tree on ``node_id`` cannot answer. Live
+#: rows only, like :data:`NODE_ATTRS_GIN_SPEC`, so not rotatable. ``okg
+#: migrate`` builds it online (``CREATE INDEX CONCURRENTLY``); pg_trgm is a
+#: required extension (``db/migrate.py`` REQUIRED_EXTENSIONS), as for the
+#: text and path trigram indexes. Without it the check makes no claim on a
+#: large graph (``search._NODE_ID_SCAN_MAX_ROWS``). Rollback: move this
+#: suffix to :data:`RETIRED_INTERVAL_SOURCE_READ_INDEX_SUFFIXES`.
+NODE_ID_TRGM_SPEC = VisibilityIndexSpec(
+    "node_id_trgm",
+    ("node_id",),
+    rotate=False,
+    method="gin",
+    opclass="gin_trgm_ops",
     predicate="deleted = FALSE",
 )
 
@@ -213,6 +239,7 @@ INTERVAL_SOURCE_READ_INDEX_SPECS: dict[str, tuple[VisibilityIndexSpec, ...]] = {
             ("source", "run_id", "live_lo", "live_hi", "node_id"),
         ),
         NODE_ATTRS_GIN_SPEC,
+        NODE_ID_TRGM_SPEC,
         NODE_SUBTYPE_NODE_ID_SPEC,
     ),
     "okg.graph_edges": (
@@ -1511,17 +1538,30 @@ def spec_index_statement(
     )
 
 
+#: Extended read-index specs doctor reports as a warning when missing,
+#: invalid or of another definition (see :func:`graph_read_index_findings`).
+_DOCTOR_WARNING_SUFFIXES = ("_" + NODE_ID_TRGM_SPEC.suffix,)
+
+
 def graph_read_index_findings(dsn: str) -> list[dict[str, Any]]:
     """Doctor findings for the extended graph read-index specs (PACT
     lane-s-redesign-s1: the GIN index on node attrs, and any later spec that
-    is not a plain B-tree): an error for each one that is missing, invalid or
-    of another definition (``okg migrate`` builds it online). Nothing before
+    is not a plain B-tree): one finding for each one that is missing, invalid
+    or of another definition (``okg migrate`` builds it online), an error
+    except for the specs in :data:`_DOCTOR_WARNING_SUFFIXES`. Nothing before
     the graph tables exist.
 
     Plain specs are left out on purpose: S1 does not change what doctor says
     about them. Reporting every missing or invalid spec index, and a retired
     one still present, is a possible follow-up
-    (``pending_interval_index_changes`` already lists them all)."""
+    (``pending_interval_index_changes`` already lists them all).
+
+    A spec in :data:`_DOCTOR_WARNING_SUFFIXES` is reported as a warning, not
+    an error: the node-id trigram index (issue 4053) was added after
+    deployments were running, and a deployment the operator has not yet
+    migrated must not fail doctor while that rollout waits (search makes no
+    absence claim without it on a large graph). Every other extended spec
+    keeps the error."""
     findings: list[dict[str, Any]] = []
     with db_connect(dsn, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
@@ -1540,8 +1580,9 @@ def graph_read_index_findings(dsn: str) -> list[dict[str, Any]]:
                     state = "invalid"
                 else:
                     state = "wrong_definition"
+                warn = name.endswith(_DOCTOR_WARNING_SUFFIXES)
                 findings.append({
-                    "severity": "error",
+                    "severity": "warning" if warn else "error",
                     "subsystem": "graph_read_indexes",
                     "code": f"graph_read_index_{state}",
                     "index_name": name,

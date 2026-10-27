@@ -1356,6 +1356,10 @@ def write_environment_service_supervision_evidence(
     return {**payload, "path": str(path)}
 
 
+# Shared memory for a rendered Postgres container that declares none.
+DEFAULT_POSTGRES_SHM_SIZE = "2gb"
+
+
 def _render_postgres_compose(
     environment: DeploymentEnvironment,
     *,
@@ -1418,8 +1422,13 @@ def _render_postgres_compose(
         "restart": "no" if environment.tier == "staging" else "unless-stopped",
         "secrets": ["postgres_password"],
     }
-    if environment.database.shm_size is not None:
-        postgres_service["shm_size"] = environment.database.shm_size
+    # Docker's default /dev/shm is 64 MB, which a parallel hash during a
+    # forced-full publish overruns (DiskFull, issue #3991). A deployment that
+    # declares database.shm_size keeps its value; one that does not gets the
+    # same 2gb as ops/pg/docker-compose.yaml.
+    postgres_service["shm_size"] = (
+        environment.database.shm_size or DEFAULT_POSTGRES_SHM_SIZE
+    )
     if environment.database.memory_limit is not None:
         postgres_service["mem_limit"] = environment.database.memory_limit
     document = {
@@ -6241,7 +6250,6 @@ def _environment_file_content(
             *path_environment,
             *credential_environment,
             "PYTHONUNBUFFERED=1",
-            "OKG_IVM_INTERVAL_VIEW=1",
             "",
         )
     )

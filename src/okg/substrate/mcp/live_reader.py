@@ -67,18 +67,46 @@ def is_typed(row: Any) -> bool:
 def attrs_of(row: Mapping[str, Any]) -> Mapping[str, Any]:
     """The upstream fields of a row of either shape."""
 
-    return (row.get("attrs") or {}) if is_typed(row) else row
+    if is_typed(row):
+        return row.get("attrs") or {}
+    # A raw row's computed columns (PACT read-map-compute) are not its
+    # upstream fields.
+    return _strip_calc(row)
+
+
+def _strip_calc(row: Mapping[str, Any]) -> Mapping[str, Any]:
+    if _CALC_MARK not in row:
+        return row
+    return {k: v for k, v in row.items() if not (isinstance(k, str) and k.startswith(_CALC_MARK))}
+
+
+#: The start of every key a computed row adds (`map_compute.MARK`).
+_CALC_MARK = "\x00calc"
+
+
+def _calc_values(row: Mapping[str, Any]) -> dict[str, Any]:
+    """A computed row's values under their condition keys (`\\x00calc.<n>`)."""
+
+    if _CALC_MARK not in row:
+        return {}
+    return {
+        k: v for k, v in row.items()
+        if isinstance(k, str) and k.startswith(_CALC_MARK + ".")
+    }
 
 
 def evaluation_row(row: Mapping[str, Any]) -> dict[str, Any]:
     """The row as the graph condition evaluator reads it."""
 
-    return dict(row) if is_typed(row) else {"attrs": row}
+    if is_typed(row):
+        return dict(row)
+    # A raw row's computed columns as `calc.<name>`, beside its fields.
+    return {"attrs": _strip_calc(row), **{k[1:]: v for k, v in _calc_values(row).items()}}
 
 
 def flat_row(row: Mapping[str, Any]) -> Mapping[str, Any]:
     """A row as :func:`live_result_sets.group_report` reads it: upstream
-    fields by name, record columns behind NUL."""
+    fields by name, record columns (and computed columns) behind NUL."""
 
     if not is_typed(row):
         return row
@@ -86,6 +114,7 @@ def flat_row(row: Mapping[str, Any]) -> Mapping[str, Any]:
         **(row.get("attrs") or {}),
         "\x00node_id": row["node_id"],
         "\x00subtype": row["subtype"],
+        **_calc_values(row),
     }
 
 
@@ -184,7 +213,9 @@ def names_of(
         elif name in _lrs.RECORD_COLUMNS:
             names.record.append("by")
     for _function, key in metrics:
-        if key is None:
+        if key is None or _lrs.is_calc_key(key):
+            # A computed column (PACT read-map-compute) is read on rows of
+            # either shape; the reader sets its rows without a value aside.
             continue
         if _lrs.is_record_key(key):
             names.record.append("metrics")
@@ -495,6 +526,85 @@ def _order(value: Any, bound: Any) -> Optional[int]:
     return -1 if left < right else (1 if left > right else 0)
 
 
+class HashedValues(list):
+    """An `in` list whose membership test is a hash lookup (review F2): a
+    value list from a handle holds up to 50,000 values, and `value in
+    list` on every row of a 50,000-row set is quadratic. Same answer as
+    `list.__contains__` (equality); unhashable members are compared one by
+    one."""
+
+    def __init__(self, values: Iterable[Any]) -> None:
+        super().__init__(values)
+        hashable: set[Any] = set()
+        self._other: list[Any] = []
+        for value in self:
+            try:
+                hashable.add(value)
+            except TypeError:
+                self._other.append(value)
+        self._hashable = frozenset(hashable)
+
+    def __contains__(self, value: object) -> bool:
+        try:
+            if value in self._hashable:
+                return True
+        except TypeError:
+            pass
+        return any(value == other for other in self._other)
+
+
+class _InIndex:
+    """One `in` list, indexed once per call by the coercion rule
+    (:func:`coerce`): booleans, numbers and text in hash sets, anything else
+    compared one by one. `comparable` and `equal` answer what
+    `any(coerce(value, v) is not None for v in values)` and
+    `any(pair_equal(value, v) for v in values)` answer, without the scan."""
+
+    def __init__(self, values: Sequence[Any]) -> None:
+        self.bools: set[bool] = set()
+        self.numbers: set[Any] = set()
+        self.texts: set[str] = set()
+        self.other: list[Any] = []
+        self.has_none = False
+        for value in values:
+            if value is None:
+                self.has_none = True
+            elif isinstance(value, bool):
+                self.bools.add(value)
+            elif isinstance(value, (int, float)):
+                self.numbers.add(value)
+            elif isinstance(value, str):
+                self.texts.add(value)
+            else:
+                self.other.append(value)
+
+    def comparable(self, value: Any) -> bool:
+        if self.other or self.has_none:
+            return True
+        if self.bools and (
+            isinstance(value, bool) or (isinstance(value, str) and value in _BOOL_TEXT)
+        ):
+            return True
+        if self.numbers and _lrs._number(value) is not None:
+            return True
+        return bool(self.texts) and isinstance(value, str)
+
+    def equal(self, value: Any) -> bool:
+        if self.bools:
+            flag = (
+                value if isinstance(value, bool)
+                else _BOOL_TEXT.get(value) if isinstance(value, str) else None
+            )
+            if flag is not None and flag in self.bools:
+                return True
+        if self.numbers:
+            number = _lrs._number(value)
+            if number is not None and number in self.numbers:
+                return True
+        if self.texts and isinstance(value, str) and value in self.texts:
+            return True
+        return any(value == other for other in self.other)
+
 class Matcher:
     """The condition evaluator for live typed rows.
 
@@ -506,6 +616,8 @@ class Matcher:
     def __init__(self, predicate: Any) -> None:
         self.predicate = predicate
         self.not_comparable: Counter[str] = Counter()
+        #: id of an `in` list -> (the list, its index): built once per call.
+        self._indexes: dict[int, tuple[Any, _InIndex]] = {}
 
     def matches(self, row: Mapping[str, Any]) -> bool:
         bad: set[str] = set()
@@ -518,6 +630,9 @@ class Matcher:
     def _value(self, row: Mapping[str, Any], name: str) -> Any:
         if name in _lrs.RECORD_COLUMNS:
             return row.get(name)
+        if name.startswith("calc."):
+            # A computed column (PACT read-map-compute), kept behind NUL.
+            return row.get("\x00" + name)
         return (row.get("attrs") or {}).get(name.split(".", 1)[1])
 
     def _node(self, row: Mapping[str, Any], node: Any, bad: set[str]) -> bool:
@@ -535,7 +650,7 @@ class Matcher:
         name = str(node.get("field") or "")
         value = self._value(row, name)
         if op == "exists":
-            if name in _lrs.RECORD_COLUMNS:
+            if name in _lrs.RECORD_COLUMNS or name.startswith("calc."):
                 return value is not None
             return name.split(".", 1)[1] in (row.get("attrs") or {})
         if op == "eq":
@@ -544,10 +659,15 @@ class Matcher:
             values = node.get("values")
             if not isinstance(values, list) or not values:
                 raise _refuse("predicate", "in needs a non-empty values list", "pass values=[...]")
+            held = self._indexes.get(id(values))
+            if held is None or held[0] is not values:
+                held = (values, _InIndex(values))
+                self._indexes[id(values)] = held
+            index = held[1]
             if value is None:
-                return any(v is None for v in values)
-            if any(coerce(value, v) is not None for v in values):
-                return any(self._pair_equal(value, v) for v in values)
+                return index.has_none
+            if index.comparable(value):
+                return index.equal(value)
             bad.add(name)
             return False
         if op in ("lt", "gt"):
@@ -682,19 +802,30 @@ def not_comparable_report(counter: Mapping[str, int]) -> Optional[dict[str, Any]
 _ORDER_SUFFIX = re.compile(r"^(?P<field>.*\S)\s+(?P<way>asc|desc)$", re.IGNORECASE)
 
 
+def split_order_direction(text: str) -> tuple[str, bool, bool]:
+    """`(name, descending, doubled)` of `name`, `-name`, `name desc` or
+    `name asc` (any case). `doubled` is a leading `-` with a trailing
+    direction as well (`-count desc`). The one splitter of the live
+    `filter` order and of `aggregate`'s order_by (PACT
+    read-aggregate-order-by); each resolves the name its own way."""
+
+    text = text.strip()
+    if text.startswith("-"):
+        rest = text[1:].strip()
+        return rest, True, _ORDER_SUFFIX.match(rest) is not None
+    suffix = _ORDER_SUFFIX.match(text)
+    if suffix:
+        return suffix.group("field"), suffix.group("way").lower() == "desc", False
+    return text, False, False
+
+
 def parse_order_by(order_by: Any) -> tuple[str, bool]:
     """`(key, descending)` of `field`, `-field`, `field desc` or `field asc`
     where field is `attrs.<key>`, `node_id` or `subtype`."""
 
     if not isinstance(order_by, str) or not order_by.strip():
         raise _refuse("order_by", "order_by is a field name", "e.g. order_by='-attrs.<field>'")
-    text, desc = order_by.strip(), False
-    if text.startswith("-"):
-        text, desc = text[1:].strip(), True
-    else:
-        suffix = _ORDER_SUFFIX.match(text)
-        if suffix:
-            text, desc = suffix.group("field"), suffix.group("way").lower() == "desc"
+    text, desc, _doubled = split_order_direction(order_by)
     return _lrs._condition_key(text, argument="order_by"), desc
 
 
@@ -716,6 +847,20 @@ def order_rows(
 
     record = _lrs.is_record_key(key)
     name = key[1:] if record else key
+    if _lrs.is_calc_key(key):
+        # A computed column (PACT read-map-compute): its value is kept under
+        # the key itself, on rows of either shape; a row whose value is not
+        # read or an error holds null there and sorts last.
+        present_calc: list[tuple[tuple[int, Any], Mapping[str, Any]]] = []
+        missing_calc: list[Mapping[str, Any]] = []
+        for row in rows:
+            value = row.get(key)
+            if value is None:
+                missing_calc.append(row)
+            else:
+                present_calc.append((_rank(value), row))
+        present_calc.sort(key=lambda item: item[0], reverse=desc)
+        return [row for _rank_, row in present_calc] + missing_calc
     if record and any(not is_typed(row) for row in rows):
         raise _refuse(
             "order_by",

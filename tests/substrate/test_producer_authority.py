@@ -2705,6 +2705,7 @@ _GROUPED_RULE_KEYS = {
     "src_subtype_optional": "rule flag; reads only the grouped src subtype",
     "dst_subtype_optional": "rule flag; reads only the grouped dst subtype",
     "clause_id": "names the rule; reads no record property",
+    "endpoint_absent": "rule flag; reads no record property (deferral opt-out)",
     "id": "names the rule; reads no record property",
 }
 _GROUPED_RECORD_FIELDS = {

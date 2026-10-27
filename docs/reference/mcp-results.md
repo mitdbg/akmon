@@ -385,7 +385,7 @@ Only the last step prints by default, at most 200 rows (else
 `run_step_too_many_rows`). A cut step ends with `next:`, the `run(...)`
 that reads on; JSON adds `count`, `groups`, `rows_shown`, `rows_left`,
 `next_call`. `{"expand":{"from":"$n",...}}` joins from every record,
-counting those with no link. `$r<n>` is refused `set_names_removed`.
+counting those with no link.
 
 Live, `values`, `minus` and `intersect` steps hold rows;
 `"each": {"<arg>": "$n.<column>"}` calls per value; unanswered ones make
@@ -679,7 +679,14 @@ scan decides (`where_evaluation_scope: "grep_scanned_candidates"`).
 `where_qualification` says `exact` when the SQL decides the whole predicate,
 `superset` when a residual remains. `type = X`, like `type in [X]`, judges
 the record unless X is a passage type, which lists those passages (noted
-under `adjusted`). For the search profile, a top-level
+under `adjusted`). A passage type beside other conditions (a `type in`
+list, `or`, or under two `not`s) would never hold on the record, so it is
+refused `unsupported_operator_form`, reason `passage_type` (`data`:
+`passage_types`, `record_types`, `profile_all_needed`); the hint names the
+record type, with `profile="all"` when the scope leaves it out, or the
+passage type alone. With `within="record"`, a profile listing a passage
+type reads the record types that declare it, whole, noted under `adjusted`
+(rule `grep_record_passage_profile`). For the search profile, a top-level
 `type = X` or `type in [...]` names those types as `subtype_filter` does: the
 deployment default profile does not apply, and an explicit profile that
 leaves one out refuses `subtype_outside_profile`. A query or `path_prefix` with no JSON form (an
@@ -1269,8 +1276,8 @@ rows on your page, so it says nothing about rows you cannot read.
   alias, identifier mentions, attrs, grep), `rank_by` (`self`) or `argument`
   named in `argument` (`offset` above 0, a passage-unit `subtype_filter`, or
   `select` or `max_chars` with `view="metadata"`). A `limit` over 200
-  refuses `result_reference_capacity`. A pin without an effective-attribute
-  view refuses `effective_view_not_ready`.
+  refuses `result_reference_capacity`. A pin whose overlays were never
+  materialized (no overlay marker) refuses `overlay_generation_unmaterialized`.
 - **Metadata.** `view="metadata"` stores the same members `retain=true`
   stores for the same arguments, and returns no row: no node id, title,
   handle or excerpt, in text or JSON. It returns `result_reference`,
@@ -1310,9 +1317,10 @@ rows on your page, so it says nothing about rows you cannot read.
 - **Consumers.** `filter`, `map` and `aggregate` take `input={"ref": id}`. They
   read only the stored members at the reference's pin through the
   effective-attribute path, in rank order, with an exact `total_count`;
-  `order_by` is refused. `filter(input={"ref": id}, retain=true)` returns a
-  child reference holding the matching members in the parent's order; the
-  parent never changes. `not` here is two-valued (a member without the
+  `order_by` is refused, except `aggregate`'s, which ranks its groups.
+  `filter(input={"ref": id}, retain=true)` returns a child reference holding
+  the matching members in the parent's order; the parent never changes.
+  `not` here is two-valued (a member without the
   attribute matches `not eq`), unlike search's three-valued `where`.
 - **Refusals.** Before any member is read, `result_reference_invalid` names a
   `reason`: `malformed`, `store_lost`, `signature_invalid`, `expired`,
@@ -1324,14 +1332,275 @@ rows on your page, so it says nothing about rows you cannot read.
   dropped silently. A deployment with several server processes needs sticky
   sessions; an id used on another process refuses `store_lost`.
 
-### Retained live answers
+### Live handles
 
-A cut live answer carries `next` and `next_from_row`;
-`expand(next=...)` pages the kept rows; an expired token names the retry call.
-`expand(live={..., "retain": true})` returns an `l1.` `result_reference`.
-`filter`, `map` and `aggregate` read it with `input={"ref": id}`, each row
-as `{"attrs": row}`, using the filter grammar on `attrs.<field>`; `offset`
-stops at 10,000 (`paging_limit`). Reads carry `served_from:
-"retained_answer"` and `original_call`. Other arguments refuse
+Every live set read returns a handle: `filter`, `map`, `aggregate` and
+`expand(live=...)` (`retain` asks for nothing more). The next call passes it
+as `input="l1.…"` (or `{"ref": "l1.…"}`; a JSON string of either is read
+the same) and makes no upstream call. JSON carries `handle` `{id, rows,
+columns, columns_more, order, pins, expires_at}`, and `from` on an
+aggregate, whose handle holds its groups (`by` fields, metric labels and
+`rank`, which a later `filter` takes in `where`, `select` and `order_by`).
+The text prints `handle l1.… · 24 rows · 10 min` (or `handle l1.G (groups)
+· from l1.S · 11 groups · 10 min`) and suggests no call; a cut page's one
+`next:` (JSON `next_call`) is the whole call on that handle. A set over 50,000 rows or 8 MiB
+has `handle: null` and `handle_reason`, and a cut reply over it refuses.
+
+- **Life and scope.** 10 minutes from mint; a read does not extend it. A
+  filter that narrows or orders a handle, or a read that fetches a missing
+  field, makes a new handle with its own 10 minutes; its parent stays. A
+  handle is readable only by the reader and logical session that made it
+  (the reader alone on stateless HTTP); another's answers `unknown`.
+- **Caps.** 64 handles and 32 MiB per reader and session, 128 per principal,
+  1,024 and 128 MiB per server. A full server evicts the oldest handle of the
+  session holding the most; the evicted id answers `evicted` to its owner.
+  On stateless HTTP a reader's concurrent sessions share one 64.
+- **Decoding.** Rows read from handles (growth included) count at most
+  16 MiB of compact JSON per call and 32 MiB in flight per process (about
+  4 to 6.6 times that as decoded objects); past either,
+  `live_decode_capacity` (`scope` `call` or `server`), after the caller
+  checks, before any row.
+- **Conditions.** A `where` that is only a handle is read as `input`; a
+  handle inside `and`/`or`/`not` refuses `invalid_operator_arguments`
+  (`reason` `handle_as_condition`). `{"op": "in", "values": {"ref": "l1.…",
+  "field": "<column>"}}` compares with that handle's values when `input` is
+  a live handle; elsewhere it refuses by name.
+- **Dead handles.** `result_reference_invalid` with its `reason`, no rows
+  and no upstream call. `expired` and `evicted` name the call that rebuilds
+  the set (`retry:`, `authority` removed), or for a chain the call it began
+  with; another reader's id gets none. One server process: a deployment
+  with several needs sticky sessions (`store_lost`).
+
+Rows read from a handle are `{"attrs": row}` under the filter grammar;
+`offset` stops at 10,000 (`paging_limit`); reads carry `served_from:
+"retained_answer"` and `original_call`. A cut `expand(live=...)` also
+carries `next`, which `expand(next=...)` pages. Other arguments refuse
 `live_result_predicate_unsupported`, a denied gate `live_result_denied`, and
 another `generation_id` `generation_conflict`.
+
+### Chain handles
+
+From the third kept answer of direct `expand(live=...)` calls to one relation
+on one record that differ in one argument, the reply's
+`external_live.chain_hint` `{chain, answers, argument, failed, missing,
+dropped, calls}` names one handle over the newest 60 kept answers and two
+`aggregate` calls on it, a total and a ranking (text: `! these 30 answers are
+kept as one handle; ...`). Only a declared string argument with no enum forms
+a chain, and no value with `*`, `?` or `%`; a string used as a filter still
+forms one (relations declare no id flag). Reading it combines the answers into
+the set one `live.each` call would keep, re-checks every answer as a single
+handle read does, and makes no upstream call; nothing combined is stored. The
+reply adds `combined` `{chain, answers, of, rows, rows_in_several_answers,
+varying, failed, read, upstream_calls_cut, not_kept}` (text `input: 30 kept
+answers of <relation>, one per <arg>`); `upstream_calls_cut` sums the outside
+system's cut over the answers, in calls. Identical rows found in more than
+one answer are counted (`! 3 identical rows appear in more than one answer`),
+never dropped. Every answer the read does not cover is named in `not_kept`
+with its retry call and counted in `of` (text `! over 29 of 30 answers; 1 no
+longer kept: q=...`): `reason` `expired`, `evicted` or `unknown`, or
+`gone_before_chain`, or `not_in_chain` for an answer older than the newest
+60. While the chain lives its answers are kept ahead of the session's other
+handles, but never at the cost of a refusal. A newer chain replaces the
+older, whose id answers `replaced` with `replaced_by` to its owner. Other
+refusals: `live_handles_not_combinable` (`reason`, `index`, `handles`); a
+refusal of one answer keeps its own code and adds `index` (its 1-based
+position) and `chain` to its `data`. The chain line prints only where it
+still fits after the `run` line, so a full or cut reply carries neither.
+
+### Ranked groups
+
+`aggregate(..., order_by="<name> desc")` ranks every group, then `limit` and
+`offset` cut the page. `<name>` is one of the call's metric labels as the
+reply prints them (`count`, `max(attrs.size)`), `occurrences` on `match`
+groups, or one of its `by` fields as written. It is written `<name>`,
+`<name> asc`, `<name> desc` or `-<name>`; no direction is smallest first.
+A name the call does not compute, a metric missing from `metrics`, two
+directions, or the record-anchor and edge-summary forms refuse
+`invalid_operator_arguments` (`data.reason` `order_by_unknown`,
+`order_by_not_in_metrics`, `order_by_spelling`, `order_by_needs_set`) before
+anything is read; on a live set that means no upstream call.
+
+The rule is the same on stored and live sets. Numbers compare as numbers; then
+text, booleans, and other values by their JSON text, in that order both ways.
+A group with no value (a null metric, a JSON null key, or a missing key,
+printed `(absent)`) ranks last in both directions, null first. Ties go by the
+group key. A ranked reply adds `order_by` (`name`, `direction`, `kind`),
+`rank` on each group (its position across pages), `ranking_complete`,
+`ranked_last_no_value` and `tie_at_page_end`; a live read with nodes not
+read, rows not comparable or a cut listing says `ranking_complete: false`
+(and `ranking_cut` for the cut), on every page of its kept set
+(`ranking_left_out` there).
+The text adds `ordered by <name>, largest first`. A cut stored page ends
+`next: offset=<n> generation_id=<g>`; a cut live page ends with the whole
+`aggregate` call on its kept `l1.` set, with its condition and page size.
+Without `order_by`, a live page or `run` step cut by `limit` while it
+computes another metric carries `order_note`.
+
+### Computed columns
+
+`map(input=<live set, live handle, groups handle or chain handle>,
+compute={"fill": "attrs.used / attrs.total"})` adds `calc.fill` to every row:
+the same rows in the same order, kept as a new handle (`from` its input).
+`where` narrows the input first (text `input: 24 of 263 rows of l1.…`);
+`select` picks the printed columns (by default `node_id`, the fields the
+expressions read and the new columns). Later reads of the handle name the
+column `calc.fill` in `where`, `select`, `order_by`, `by` and
+`sum`/`min`/`max(calc.fill)`; a bare `fill` that equals a computed column
+reads it, with an `adjusted` note, and is never fetched upstream.
+
+- **The language.** Arithmetic, comparisons, `and`/`or`/`not`, and
+  `abs round floor ceil min max coalesce is_null if lower upper len concat
+  substr split_part starts_with ends_with contains regex number string
+  to_unit days_between`. A field is `attrs.<key>` (or `attrs['odd-key']`),
+  `node_id`, `subtype`, `calc.<name>` or `date.attrs.<key>`; over a groups
+  handle a metric is its label (`round(to_unit(sum(attrs.file_size), 'B',
+  'PB'), 3)`) and any column `col['…']`. A bare name is `attrs.<name>`, with
+  a note. Nothing runs code.
+- **Numbers.** Integers are exact; a whole value prints as an exact JSON
+  integer at any size. Other values are kept as 15-digit floats, so a value
+  copied from a reply matches in a later `filter`. A sum of a computed
+  column is today's live sum: whole values exactly, others in
+  `sum(calc.x) floats`, named in `sum_not_exact`.
+- **States.** Each column counts its rows in `computed` (text `calc.fill: 22
+  ok · 2 not read (site:A, site:B: attrs.static_used unavailable)`): `ok`,
+  `not read` (an input's live call failed or was denied; never turned into a
+  value, not by `coalesce` either) or `error:<kind>` (`division_by_zero`,
+  `not_a_number`, ...). Such a row stays in the map's handle with a null. A
+  later `filter`, `by` or metric on that column sets it aside and counts it
+  (`not_computed`; it matches no condition, not even under `not`); a total
+  then says `over 22 of 24 rows; 2 not computed`, a count is at least the
+  value shown and a sum, min or max is over the rows received only.
+- **Live fields.** A field the expressions read that the set lacks is
+  fetched for its rows only (one call per row and relation, part 1's
+  1,500-call cap planned before any call) into the new handle; a second map
+  over it makes no call. Text built from an upstream value is served as
+  untrusted text; text built from numbers is plain.
+- **Refused by name, before any upstream call or graph read**
+  (`invalid_operator_arguments`, `data.reason`): every expression refusal;
+  `calc.` in `where` and `order_by` on `map` (send `filter(input="<the map's
+  handle>", ...)`); `projection` beside `compute`; a stored set or `r1.`
+  handle (`compute_on_stored_set`, until stored handles), an edge set;
+  `node_id` on raw rows; `date.<meaning>` on live rows; a column named like
+  an upstream field the set holds or declares (`column_shadows_field`) or like
+  a record or groups column (`reserved_column_name`); an `attrs.` field no
+  row holds and growth cannot fetch (`key_absent_on_every_row`, with the
+  closest keys); and every `map(compute)` while access rules are on
+  (`compute_under_access_rules`). A bare name equal to the column being
+  defined reads the input's column of that name (`{"fill": "fill * 100"}`).
+- **Bounds.** At most 50,000 input rows (refused with the exact count), 8
+  columns a call, 32 a handle, 5 s and 8 MiB of computed values
+  (`map_output_too_large`); an uncut reply too large to keep has `handle:
+  null, handle_reason: too_large`, a cut one refuses `kept_set_too_large`.
+- **A refusal after growth.** When growth fetched fields and the call is
+  then refused for any reason (a bound, a field absent from every row, a
+  full store at commit, a server fault), the grown set is kept and named:
+  `error.kept_handle` gives its `id`, `rows`, `fields` (read on some row;
+  `fields_on_no_row` apart), `upstream_calls`, `expires_at` and a
+  `template`: the refused call on the kept handle, refused again if sent
+  unchanged. The retry line starts `map over the kept handle l1.… (no
+  upstream call)`; changed as it says, the call makes no upstream call.
+  The kept set is one of the caller's handles: at the caller's cap it
+  evicts the caller's oldest unpinned handle, never another session's or
+  reader's. A store that cannot keep it says so (`id: null`, `reason`).
+
+`map` without `compute` serves what it always served, with no note.
+
+## History reads
+
+Two `inspect` kinds read across generations instead of at one pin. Both are
+decided by the session pin's Nomos read filter, the one `inspect(kind node)`
+uses, applied to each version's own row.
+
+`inspect(target={"kind": "node_history", "node_id": <id>, "attr_keys"?:
+[...], "from"?: <generation>, "to"?: <generation>, "limit"?: n, "cursor"?:
+<token>})` lists one record's versions, newest first. `to` defaults to the
+session pin and `from` to the oldest generation in the branch's history;
+both take any form `generation_id` takes. A fork's history is its parent's
+versions up to the fork, then its own. Each version names its `first` and
+`last` generation (`generation_id`, `branch`, `created_at`); the newest
+version's `last` is `to` while the record is visible there. `change` is
+`oldest_shown`, `changed` (with `added_keys`, `removed_keys` and
+`changed_keys` against the next older version shown) or `subtype_changed`
+(the old subtype retracted and the new one added). `values` holds the
+`attr_keys` values as they stood at `last`, fenced by producer trust like a
+node read, with `values_provenance`.
+
+Every version, with or without `attr_keys`, carries `provenance`: the
+producer (`source`) and `trust` of the version as it stood at `last`, as a
+node read labels a node. An attribute name is the producer's text, so when
+the version, or the older version a change was computed against, comes from
+an untrusted producer, every name in `added_keys`, `removed_keys` and
+`changed_keys` is fenced like an untrusted value.
+
+- `attrs_layer` is always `graph`: the attributes as the source projected
+  them, before the reviewer and proposal overlay `inspect(kind node)`
+  merges in. Overlay history is `inspect(kind attr)`. This is also a
+  privacy difference: a reviewer overlay that replaces or masks a value in
+  `inspect(kind node)` does not apply to the values served here. Which
+  versions you may see is still decided after the pin's reviewer overlays
+  are applied, so an overlay that reclassifies a record hides every version
+  of it.
+- Adjacent versions equal under the stored-fact rule merge into one: the
+  subtype's volatile fields (from the pin's catalog) and a lineage revision
+  that moved with no content change do not count as changes.
+- Under Nomos `audit` or `enforce`, a hidden version is left out and a
+  masked attribute is compared masked, so a change to a value you cannot
+  see is neither a changed key nor a version boundary. A generation where
+  the record is hidden reads like one where it is absent. Each version is
+  decided on its own row by the policy active now. So a record hidden now
+  still shows its older versions when the change that hid it came from the
+  source (for example the source reclassified it in a later generation):
+  those versions, and their `attr_keys` values, are served as
+  `inspect(kind node, generation_id=<that generation>)` serves them. A
+  policy rule that hides the record's source hides every version. A record
+  hidden in every generation of the range, or absent from all of them, is
+  refused `node_not_found`, as `inspect(kind node)` refuses it.
+
+`inspect(target={"kind": "subtype_diff", "subtype": <type>,
+"from_generation": <generation>, "to_generation"?: <generation>,
+"attr_keys"?: [...], "limit"?: n, "cursor"?: <token>})` lists the records of
+one type `added`, `retracted` or `changed` between two generations, by
+`node_id`, with `added_count`, `retracted_count` and `changed_count`.
+`to_generation` defaults to the pin. A record that moved into the type is
+added, one that moved out retracted, and a visibility flip is added (hidden
+to visible) or retracted (visible to hidden). A changed entry names its
+keys as `node_history` does; `from_values` and `to_values` hold the
+`attr_keys` values. Every entry carries `provenance` for its newer row (its
+older row when retracted), and its key names are fenced when either row is
+from an untrusted producer. Under `audit` or `enforce` the counts and entries are
+exact while the type's delta is at most 5,000 rows; above that they are
+null, with `truncated: true` and a `note`, so the number of rows you cannot
+see does not leak.
+
+Both kinds page at `limit` (default 50, at most 500) and at the call's
+`max_bytes`. A cut page carries `cursor` and `next_target`, the same target
+with the cursor added. The cursor is bound to the resolved generation range
+and to the other arguments: a page read after a new publish reads the same
+range, and a cursor sent with other arguments is refused
+`continuation_token_invalid`. Refusals:
+
+| Code | When |
+| --- | --- |
+| `generation_not_found`, `generation_compacted` | an end is not a published generation, or history compaction retired it; nothing falls back to the latest |
+| `generation_out_of_scope` | an end is not in the session branch's history |
+| `history_range_invalid` | `from` is newer than `to` |
+| `history_generation_unordered` | a published generation in the range has no ordinal in the generation-ordinal registry; its order is never guessed from timestamps |
+| `history_row_budget_exceeded` | the record has more than 5,000 stored versions in the range read (a narrower `from` and `to` reads fewer), or a type more than 200,000 records at one end (20,000 changed records with Nomos off); the reply names the budget and is never a shortened list |
+| `nomos_principal_unidentified` | a multi-user server's request carries no subject; refused before any read, under every enforcement mode |
+
+What these reads can still reveal, by design:
+
+- **Budget refusals count hidden rows.** The `subtype_diff` 200,000-row
+  refusal is checked before any row is filtered, so it tells a reader the
+  type holds more than 200,000 records at one end, hidden ones included: one
+  threshold bit, as `generation_delta`'s withheld counts give. The
+  `node_history` refusal on a record you can see at the pin tells you it
+  has more than 5,000 stored versions in the range, hidden versions
+  included. A record hidden at the pin is refused `node_not_found` instead.
+- **Audit rows.** Each version is decided by the read filter, so under
+  `audit` or `enforce` the Nomos decision rows look like current reads of
+  the record and carry the pin's generation, not the version's. The call
+  log records the arguments (`node_id`, `from`, `to`).
+- **No switch.** Both kinds are `inspect` kinds (`READ_INSPECT_KINDS`): they
+  are served wherever `inspect` is served, and no deployment setting turns
+  them off on their own.

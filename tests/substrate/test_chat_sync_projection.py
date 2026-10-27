@@ -1619,6 +1619,9 @@ class Test_query_exclusion:  # noqa: N801 - the underscore makes `-k query_exclu
         inputs = load_inputs("okg-workspace")
         assert inputs.chat.enabled
         assert inputs.preset_id == "okg-okg-workspace"
+        # #3960: the server id is the visible prefix of every tool name Open
+        # WebUI offers (`f"{server_id}_{tool}"`), so it holds no hyphen.
+        assert inputs.mcp_server_id == "okg_okg_workspace"
         assert inputs.mcp_probe_url == "http://127.0.0.1:8100/mcp"
 
         surface = parse_agent_surface(inputs.raw_manifest)
@@ -1825,3 +1828,216 @@ def test_building_inputs_and_a_plan_never_resolves_the_data_directory(
     assert inputs.chat_data_dir is None
     plan = resolve_chat_plan(inputs, require_credential=False)
     assert plan["plan_digest"]
+
+
+# ---------------------------------------------------------------------------
+# #3960: one separator in every chat tool name, and the migration to it
+# ---------------------------------------------------------------------------
+
+#: Open WebUI 0.11.4 names an MCP tool `f"{server_id}_{tool}"`
+#: (utils/middleware.py 2995-2998). Mirrored here so the test states the
+#: name a chat model is actually offered.
+def _offered_tool_name(server_id: str, tool: str) -> str:
+    return f"{server_id}_{tool}"
+
+
+def test_server_ids_for_a_hyphenated_deployment_use_one_separator() -> None:
+    """Before: `okg-cms-kb-public_search`. After: underscores only.
+
+    Fails on dev, where the id is `okg-<deployment>` and the write, live and
+    admin suffixes are `-write`, `-live` and `-admin`.
+    """
+    from okg.substrate.chat.live_tool_slot import LIVE_CONNECTION_SUFFIX
+    from okg.substrate.chat.sync import (
+        ADMIN_CONNECTION_SUFFIX,
+        ADMIN_PRESET_SUFFIX,
+        WRITE_CONNECTION_SUFFIX,
+        WRITE_PRESET_SUFFIX,
+        legacy_mcp_server_ids,
+        mcp_server_id_for,
+    )
+
+    base = mcp_server_id_for("cms-kb-public")
+    assert base == "okg_cms_kb_public"
+    for suffix in ("", WRITE_CONNECTION_SUFFIX, LIVE_CONNECTION_SUFFIX, ADMIN_CONNECTION_SUFFIX):
+        name = _offered_tool_name(f"{base}{suffix}", "search")
+        assert "-" not in name, name
+    assert _offered_tool_name(base, "search") == "okg_cms_kb_public_search"
+    # Preset (model) ids keep their hyphens: existing chats reference them.
+    assert (WRITE_PRESET_SUFFIX, ADMIN_PRESET_SUFFIX) == ("-write", "-admin")
+    assert legacy_mcp_server_ids("cms-kb-public") == {
+        "connection": "okg-cms-kb-public",
+        "write_connection": "okg-cms-kb-public-write",
+        "live_connection": "okg-cms-kb-public-live",
+        "admin_connection": "okg-cms-kb-public-admin",
+    }
+
+
+def _ids(instance: FakeInstance) -> list[str]:
+    return sorted(str((e.get("info") or {}).get("id")) for e in instance.tool_servers)
+
+
+def test_sync_migrates_an_instance_an_earlier_release_configured(
+    tmp_path: Path,
+) -> None:
+    """Old connection dropped, preset re-pointed, foreign entries kept, idempotent.
+
+    The earlier release is simulated by a run whose server id is the old one
+    (`okg-fixture` for deployment `fixture`): for the read connection and its
+    preset, that is what that release wrote (the write, admin and live
+    connections are covered in their own suites). Fails on dev, which keeps
+    `okg-fixture` registered next to the new id and never names the model
+    left pointing at it.
+    """
+    import dataclasses
+
+    instance = _instance(webui_name="Fixture Site")
+    old_inputs = _make_inputs(tmp_path)
+    assert old_inputs.mcp_server_id == "okg-fixture"
+    assert _run(old_inputs, instance).ok
+    foreign = {
+        "url": "http://elsewhere.test/mcp", "path": "", "type": "mcp",
+        "auth_type": "none", "headers": None, "key": "",
+        "config": {"enable": True, "access_grants": []},
+        "info": {"id": "someone-else", "name": "x", "description": "x"},
+    }
+    instance.tool_servers.append(foreign)
+    instance.models["hand-made"] = {
+        "id": "hand-made", "name": "Hand made", "base_model_id": "base/model-a",
+        "meta": {"toolIds": ["server:mcp:okg-fixture"]}, "params": {},
+    }
+    assert _ids(instance) == ["okg-fixture", "someone-else"]
+
+    new_inputs = dataclasses.replace(old_inputs, mcp_server_id="okg_fixture")
+    migrated = _run(new_inputs, instance)
+    assert migrated.ok
+    assert migrated.surfaces[SURFACE_PRESET].changes > 0
+    assert _ids(instance) == ["okg_fixture", "someone-else"]
+    assert _preset_row(instance)["meta"]["toolIds"] == ["server:mcp:okg_fixture"]
+    notes = " ".join(migrated.surfaces[SURFACE_PRESET].notes)
+    assert "replaced connection(s) ['okg-fixture']" in notes
+    assert (
+        "model(s) ['hand-made'] still name ['server:mcp:okg-fixture']" in notes
+    ), "a model left on the old id must be named"
+    # Sync never writes a row it does not own.
+    assert instance.models["hand-made"]["meta"]["toolIds"] == ["server:mcp:okg-fixture"]
+
+    again = _run(new_inputs, instance)
+    assert again.ok and again.changes == 0
+    assert _ids(instance) == ["okg_fixture", "someone-else"]
+
+    # Converges from a mixed state too (a rolled-back release re-added the
+    # old entry while the new one stayed): the leftover alone is drift.
+    instance.tool_servers.append(
+        {**foreign, "info": {"id": "okg-fixture", "name": "x", "description": "x"}}
+    )
+    healed = _run(new_inputs, instance)
+    assert healed.ok and healed.surfaces[SURFACE_PRESET].changes > 0
+    assert _ids(instance) == ["okg_fixture", "someone-else"]
+    assert _run(new_inputs, instance).changes == 0
+
+
+def test_a_deployment_name_outside_the_slug_alphabet_is_refused() -> None:
+    """Review F6: `a-b` and `a_b` would otherwise share `okg_a_b`."""
+    from okg.substrate.chat.sync import mcp_server_id_for
+
+    assert mcp_server_id_for("a-b") == "okg_a_b"
+    for bad in ("a_b", "A-b", "a.b", "-a", ""):
+        with pytest.raises(ChatSyncError) as caught:
+            mcp_server_id_for(bad)
+        assert caught.value.data["reason"] == "deployment_name_not_slug"
+
+
+def test_every_repository_deployment_name_builds_a_server_id() -> None:
+    """Review F6: the refusal breaks no deployment that ships in the repo."""
+    from okg.substrate.chat.sync import mcp_server_id_for
+
+    names = sorted(
+        path.parent.name for path in (REPO_ROOT / "deployments").glob("*/deployment.yaml")
+    )
+    assert names, "no deployments found"
+    for name in names:
+        assert "-" not in mcp_server_id_for(name)
+
+
+def test_sync_warns_when_the_prompt_names_old_tool_names(tmp_path: Path) -> None:
+    """Review F1: a prompt that spells out `okg-<d>_<tool>` is named, not fatal."""
+    import dataclasses
+
+    instance = _instance(webui_name="Fixture Site")
+    inputs = dataclasses.replace(
+        _make_inputs(
+            tmp_path,
+            system_prompt="Call tools by these exact names: okg-fixture_search.",
+        ),
+        mcp_server_id="okg_fixture",
+    )
+    report = _run(inputs, instance)
+    assert report.ok
+    notes = " ".join(report.surfaces[SURFACE_PRESET].notes)
+    assert "warning: the chat system prompt names tools under the old" in notes
+    assert "['okg-fixture']" in notes and "'okg_fixture_<tool>'" in notes
+
+    clean = dataclasses.replace(
+        _make_inputs(tmp_path, system_prompt="Use the graph tools."),
+        mcp_server_id="okg_fixture",
+    )
+    assert not [
+        n for n in _run(clean, instance).surfaces[SURFACE_PRESET].notes
+        if n.startswith("warning: the chat system prompt")
+    ]
+
+
+def test_a_failed_preset_update_after_the_rewrite_is_loud_and_heals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review F7: the connection moves before the preset; a failure in between
+    leaves the preset on the old id until the next run, never silently."""
+    import dataclasses
+
+    instance = _instance(webui_name="Fixture Site")
+    old = _make_inputs(tmp_path)
+    assert _run(old, instance).ok
+    new = dataclasses.replace(old, mcp_server_id="okg_fixture")
+    real = InstanceClient.update_model
+
+    def _fail(self: Any, form: Any) -> None:
+        raise ChatSyncError("simulated model update failure", data={"reason": "test"})
+
+    monkeypatch.setattr(InstanceClient, "update_model", _fail)
+    with pytest.raises(ChatSyncError):
+        _run(new, instance)
+    assert _ids(instance) == ["okg_fixture"]
+    assert _preset_row(instance)["meta"]["toolIds"] == ["server:mcp:okg-fixture"]
+    monkeypatch.setattr(InstanceClient, "update_model", real)
+    healed = _run(new, instance)
+    assert healed.ok
+    assert _preset_row(instance)["meta"]["toolIds"] == ["server:mcp:okg_fixture"]
+    assert _run(new, instance).changes == 0
+
+
+def test_old_ids_this_run_does_not_own_are_kept_and_the_admin_one_is_named(
+    tmp_path: Path,
+) -> None:
+    """Without a live slot or the admin switch, `okg-<d>-live` and
+    `okg-<d>-admin` may be foreign: kept. Other deployments' old ids are
+    kept. The old admin id is reported stale through sync itself."""
+    import dataclasses
+
+    instance = _instance(webui_name="Fixture Site")
+    other = {
+        "url": "http://elsewhere.test/mcp", "path": "", "type": "mcp",
+        "auth_type": "none", "headers": None, "key": "",
+        "config": {"enable": True, "access_grants": []},
+    }
+    kept = ("okg-fixture-two", "okg-fixturex", "okg-fixture-live", "okg-fixture-admin")
+    for server_id in kept:
+        instance.tool_servers.append(
+            {**other, "info": {"id": server_id, "name": "x", "description": "x"}}
+        )
+    new = dataclasses.replace(_make_inputs(tmp_path), mcp_server_id="okg_fixture")
+    report = _run(new, instance)
+    assert report.ok
+    assert _ids(instance) == sorted([*kept, "okg_fixture"])
+    assert report.admin_preset_stale["stale_connection"] == "okg-fixture-admin"
+    assert _run(new, instance).changes == 0

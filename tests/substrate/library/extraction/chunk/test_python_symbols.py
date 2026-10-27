@@ -93,6 +93,7 @@ def test_line_numbers_match_the_source():
     lines = SOURCE.splitlines()
     for c in chunks:
         first = lines[c.extras["start_line"] - 1]
+        assert first.strip(), "a chunk never starts on a blank line"
         assert c.text.startswith(first)
 
 
@@ -146,7 +147,7 @@ def test_async_and_decorated_functions_are_symbols():
         ''')
     chunks = {c.extras["symbol"]: c for c in PythonSymbolChunker().chunk(text)}
     assert chunks["cached"].text.lstrip().startswith("@functools.lru_cache")
-    assert chunks["cached"].extras["start_line"] == 2  # blank lines above go with it
+    assert chunks["cached"].extras["start_line"] == 4  # the decorator, not the blank lines above
     assert chunks["cached"].extras["end_line"] == 6  # the blank lines after go with fetch
     assert "await get(url)" in chunks["fetch"].text
 
@@ -195,3 +196,101 @@ def test_source_too_deep_to_parse_falls_back_to_windows(text):
     chunks = PythonSymbolChunker(max_chars=4000, overlap=400).chunk(text)
     assert chunks and _covered(text, chunks)
     assert {c.extras["symbol"] for c in chunks} == {""}
+
+
+def _start_lines(text, **kw):
+    return {c.extras["symbol"]: c.extras["start_line"] for c in PythonSymbolChunker(**kw).chunk(text)}
+
+
+def test_start_line_is_the_def_line_not_the_blank_lines_before_it():
+    text = "import os\n\n\ndef a():\n    return 1\n\n\n\ndef b():\n    return 2\n"
+    chunks = {c.extras["symbol"]: c for c in PythonSymbolChunker().chunk(text)}
+    lines = text.splitlines()
+    assert lines[3].startswith("def a") and lines[8].startswith("def b")
+    assert chunks["a"].extras["start_line"] == 4
+    assert chunks["b"].extras["start_line"] == 9
+    assert chunks["b"].text.startswith("def b")
+    assert chunks["a"].extras["end_line"] == 5  # unchanged by the fix
+    assert chunks[""].extras["start_line"] == 1
+
+
+def test_start_line_is_the_first_decorator_line():
+    text = "import os\n\n\n@one\n@two(\n    1)\ndef f():\n    pass\n"
+    chunk = [c for c in PythonSymbolChunker().chunk(text) if c.extras["symbol"] == "f"][0]
+    assert chunk.extras["start_line"] == 4
+    assert chunk.text.startswith("@one")
+
+
+def test_first_definition_at_the_top_of_the_file():
+    text = "\n\n\ndef top():\n    return 1\n"
+    (chunk,) = PythonSymbolChunker().chunk(text)
+    assert chunk.extras["start_line"] == 4
+    assert chunk.text == "def top():\n    return 1\n"
+    assert chunk.span == (3, len(text))
+
+
+def test_start_line_skips_blank_lines_before_methods_of_a_split_class():
+    text = (
+        "class K:\n    x = 1\n\n\n    def a(self):\n        return 'a' * 90\n\n\n"
+        "    def b(self):\n        return 'b' * 90\n"
+    )
+    got = _start_lines(text, max_chars=80, overlap=10)
+    assert got["K.a"] == 5 and got["K.b"] == 9
+
+
+def test_every_start_line_is_the_line_its_text_begins_on():
+    for max_chars in (4000, 200, 60):
+        chunks = PythonSymbolChunker(max_chars=max_chars, overlap=max_chars // 10).chunk(SOURCE)
+        for c in chunks:
+            line = SOURCE[:c.span[0]].count("\n") + 1
+            assert c.extras["start_line"] == line
+            assert c.text.strip() and not c.text.startswith(("\n", " \n"))
+
+
+def test_unparseable_source_starts_at_its_first_non_blank_line():
+    (chunk,) = PythonSymbolChunker().chunk("\n\n  def broken(:\n")
+    assert chunk.extras["start_line"] == 3
+
+
+def test_crlf_blank_lines_before_a_def_are_skipped():
+    text = "import os\r\n\r\n\r\ndef a():\r\n    return 1\r\n"
+    chunk = [c for c in PythonSymbolChunker().chunk(text) if c.extras["symbol"] == "a"][0]
+    assert chunk.extras["start_line"] == 4
+    assert chunk.text == "def a():\r\n    return 1\r\n"
+
+
+def test_a_comment_separated_from_its_def_by_blank_lines_stays_with_it():
+    text = "import os\n\n\n# section\n\n\ndef a():\n    return 1\n"
+    chunk = [c for c in PythonSymbolChunker().chunk(text) if c.extras["symbol"] == "a"][0]
+    assert chunk.text.startswith("# section")
+    assert chunk.extras["start_line"] == 4  # the comment, three lines above the def
+
+
+def test_separator_limit_matches_the_document_corpus_limit():
+    from okg.substrate.library.extraction.chunk import python_symbols
+    from okg.substrate.library.sources.doc_corpus import MAX_STORED_SEPARATOR_CHARS
+
+    assert python_symbols._MAX_SEPARATOR_CHARS == MAX_STORED_SEPARATOR_CHARS
+
+
+def test_a_blank_run_at_the_separator_limit_is_skipped():
+    limit = 256
+    text = "x = 1\n" + "\n" * limit + "def a():\n    return 1\n"
+    chunk = [c for c in PythonSymbolChunker().chunk(text) if c.extras["symbol"] == "a"][0]
+    assert chunk.text.startswith("def a")
+    assert chunk.extras["start_line"] == 2 + limit  # the gap is exactly 256 newlines
+
+
+def test_a_blank_run_over_the_separator_limit_stays_so_the_file_stays_complete():
+    for lead in ("", "x = 1\n"):
+        text = lead + "\n" * 300 + "def a():\n    return 1\n"
+        chunks = PythonSymbolChunker().chunk(text)
+        covered = sum(c.span[1] - c.span[0] for c in chunks)
+        assert covered == len(text)  # no gap: the chunks tile the file
+        a = [c for c in chunks if c.extras["symbol"] == "a"][0]
+        assert a.text.startswith("\n")  # the long run is kept
+        assert a.extras["start_line"] == SOURCE_LINE_OF(text, a)
+
+
+def SOURCE_LINE_OF(text, chunk):
+    return text[:chunk.span[0]].count("\n") + 1

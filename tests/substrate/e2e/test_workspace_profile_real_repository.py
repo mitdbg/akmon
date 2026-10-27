@@ -62,6 +62,9 @@ SOURCE_NAMES = {
     "codeql_data_flow",
     "profile_measurements",
 }
+# The registry also holds `code_text`, which is installed switched off: a bare
+# ingest does not run it, so every run set above leaves it out.
+DORMANT_SOURCE_NAMES = {"code_text"}
 
 pytestmark = [
     pytest.mark.postgres,
@@ -592,7 +595,11 @@ def _scaffold(
     registry_path = deployment_dir / "source_registry.yaml"
     registry = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
     sources = registry["sources"]
-    assert set(sources) == SOURCE_NAMES
+    assert set(sources) == SOURCE_NAMES | DORMANT_SOURCE_NAMES
+    assert all(
+        sources[name]["enabled_by_default"] is False
+        for name in DORMANT_SOURCE_NAMES
+    )
 
     sources["git_files"]["params"]["include_untracked"] = True
     sources["openspec"]["params"]["openspec_root"] = str(

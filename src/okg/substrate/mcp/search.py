@@ -54,8 +54,6 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from okg.substrate.attributes import (
-    ATTRIBUTE_EFFECTIVE_VIEW_TABLE,
-    DEFAULT_NAMESPACE,
     apply_effective_attrs_to_rows,
 )
 from okg.substrate.bm25_node_search import (
@@ -123,7 +121,9 @@ from okg.substrate.mcp.concept_expansion import (
     expansion_rank,
     tokenize,
 )
+from okg.substrate.mcp.near_names import name_runs, name_stem, rank_near
 from okg.substrate.mcp.passage_rollup import (
+    PARENT_TITLE_ATTRS,
     PASSAGE_ROLLUP_AGGREGATION,
     PASSAGE_ROLLUP_CHUNK_CAP,
     RANK_BY_PASSAGES,
@@ -515,6 +515,92 @@ def _grep_passage_type(
         return None
     rest = search_where.and_clauses(*(c for c in conjuncts if c is not clause))
     return name, rest, sent.format(name)
+
+
+def _positive_types(
+    predicate: Optional[Mapping[str, Any]], *, negated: bool = False,
+) -> list[str]:
+    """The types a `where` names under an even number of `not`s: in `type =
+    X` and `type in [...]`, through `and` and `or`. There a type that never
+    holds on a record is false and can drop rows (`not not type = X` is
+    `type = X`). Under an odd number it makes its clause true, which drops
+    nothing."""
+    if predicate is None:
+        return []
+    op = predicate.get("op")
+    if op in ("and", "or"):
+        return [
+            name for clause in predicate.get("clauses") or ()
+            for name in _positive_types(clause, negated=negated)
+        ]
+    if op == "not":
+        clause = predicate.get("clause")
+        return _positive_types(clause, negated=not negated) if isinstance(clause, Mapping) else []
+    if negated or predicate.get("field") != "type" or op not in ("eq", "in"):
+        return []
+    values = [predicate.get("value")] if op == "eq" else list(predicate.get("values") or ())
+    return [value for value in values if isinstance(value, str)]
+
+
+def _refuse_grep_where_passage_type(
+    conn: psycopg.Connection,
+    session: Session,
+    residual: Optional[dict[str, Any]],
+    *,
+    scope: ResolvedScope,
+    within: Optional[str],
+) -> None:
+    """Refuse a grep `where` that names a passage type the call cannot serve
+    (PACT false-complete-record-grep-4220).
+
+    Both grep forms judge a `where` type on the record (D6), whose type is
+    never a passage type. A lone `type = <passage>` is served as its
+    passages (`_grep_passage_type`, rewritten before this); one in a list
+    with other types or under `or` matched nothing of the passage's own and
+    the page said "all shown" or "complete" without them. The fix names
+    forms that run under the caller's scope: the record type instead (with
+    `profile="all"` when the scope leaves the record type out), or the
+    passage type as the only type condition. A record-form call under
+    access rules is left to its own `access_rules` refusal, which comes
+    first: the record type it would name is refused there too."""
+    if within == "record":
+        from okg.substrate.mcp.grep_search import _nomos_runtime
+
+        if _nomos_runtime(session):
+            return
+    named = sorted(set(_positive_types(residual)))
+    if not named:
+        return
+    declared = passage_child_declarations(
+        conn, catalog_version_id=session.catalog_version_id, child_subtypes=named,
+    )
+    if not declared:
+        return
+    passages = sorted(declared)
+    parents = sorted({d.parent_subtype for rows in declared.values() for d in rows})
+    shown_p = ", ".join(f"`{p}`" for p in passages)
+    shown_r = ", ".join(f"`{r}`" for r in parents)
+    outside = scope.subtypes is not None and any(r not in scope.subtypes for r in parents)
+    profile_note = (
+        f' and pass profile="all" (profile `{scope.profile}` leaves {shown_r} out)'
+        if outside else ""
+    )
+    err = SubstrateError(
+        f"search: where names the passage type {shown_p} (of {shown_r}) beside other "
+        f"conditions (a list, `or`, or under two `not`s); grep judges a type in where on the record, where {shown_p} never "
+        "holds, so its passages would be left out",
+        data={
+            "reason": "passage_type", "passage_types": passages, "record_types": parents,
+            "profile_all_needed": outside,
+        },
+        fix_hint=(
+            f"name the record type {shown_r} instead of {shown_p}{profile_note} to match "
+            f"the records whose passages hold the words, or send where type = {shown_p} "
+            "as the only type condition, without within='record', to list the passages"
+        ),
+    )
+    err.code = "unsupported_operator_form"
+    raise err
 
 
 def validate_attr_filters(af: Any) -> None:
@@ -1316,7 +1402,6 @@ def _search_pinned(
     embedder_spec: Optional[str] = None,
     embedder_source: Optional[str] = None,
     allow_unverified_provenance: bool = False,
-    effective_view_source: Any = None,
     max_chars: Any = None,
     expand_concepts: Optional[bool] = None,
     path_prefix: Optional[str] = None,
@@ -1683,6 +1768,10 @@ def _search_pinned(
                 "sent": sent,
                 "served": f"its passages, each judged itself (subtype `{name}`)",
             }])
+    if method == "grep":
+        _refuse_grep_where_passage_type(
+            conn, session, where_plan.residual, scope=scope, within=within,
+        )
 
     # A `subtype` filter outside the profile raises here rather than producing
     # the empty intersection, which no caller could tell apart from "your query
@@ -1781,7 +1870,6 @@ def _search_pinned(
             conn, session, query,
             filter=filter, limit=limit, offset=offset, select=select,
             scope=scope, rank_by=rank_by,
-            effective_view_source=effective_view_source,
             max_chars=max_chars,
             expand_concepts=(
                 True if expand_concepts is None else bool(expand_concepts)
@@ -2840,9 +2928,15 @@ _EXACT_NAME_WINDOW = 50
 #: Segment rows one exact-name query reads in all (a name shared by more
 #: rows than this, most of them unreadable, is served as a lower bound).
 _EXACT_NAME_SCAN_ROWS = 1_000
-#: The trigram index needs a run of this many letters or digits in the
-#: pattern; a shorter pattern reads the whole segment, so it is not read.
+#: A code name with no run of this many letters or digits is not read (the
+#: step's trigger since PACT exact-symbol-name-search-3847: such names,
+#: `ab_c`, `e.g`, `__eq__`, keep the page of the BM25 ranker).
 _EXACT_NAME_MIN_RUN = 3
+#: Suffix of the generic GIN index on node `attrs` (`jsonb_path_ops`,
+#: `okg.substrate.db.cold_history.NODE_ATTRS_GIN_SPEC`). It serves
+#: `attrs @> {"name": ...}`, so the exact-name read finds the rows that bear
+#: the name without reading every text that repeats the name's runs.
+_ATTRS_GIN_SUFFIX = "node_attrs_gin"
 _ALNUM_RUN = re.compile(r"[A-Za-z0-9]{%d}" % _EXACT_NAME_MIN_RUN)
 #: A single code identifier: letters, digits and underscores, optionally
 #: dotted (`Class.method`).
@@ -2870,6 +2964,272 @@ def exact_name_query(query: str) -> Optional[str]:
     return None
 
 
+#: One id-shaped token: letters and digits in runs, single `-`, `_` or `.`
+#: between runs (`ABC-12-345`, `ABC12345`, `pkg_1_2_3`).
+_EXACT_ID_QUERY = re.compile(r"[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)*")
+_ID_NON_ALNUM = re.compile(r"[^A-Za-z0-9]")
+_ID_SEPARATOR = re.compile(r"[-_.]")
+#: A query with no separator takes the id path only with a run of this many
+#: digits; `amd64`, `sha256`, `python3`, `gcc12` do not.
+_ID_BARE_DIGITS = 4
+_ID_DIGIT_RUN = re.compile(r"[0-9]{%d}" % _ID_BARE_DIGITS)
+_ID_RUN = re.compile(r"[A-Za-z0-9]+")
+_ID_LETTER_RUN = re.compile(r"[A-Za-z]{2}")
+_ASCII_WHITESPACE = " \t\n\r\f\v"
+#: An id key shorter than this is too ambiguous (`A-1`, `v1.2`); a longer one
+#: is a pasted blob, never an identifier. Nothing is read for either.
+_ID_KEY_MIN = 5
+_ID_KEY_MAX = 64
+#: Values read from one declared identifier field of one record.
+_ID_FIELD_VALUES = 16
+_ID_SQL_UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_ID_SQL_LOWER = "abcdefghijklmnopqrstuvwxyz"
+_ID_SQL_WHITESPACE = "E' \\t\\n\\r\\f\\v'"
+#: Match groups of the exact-name read, best first. 0-2 are the name groups
+#: of a code symbol; 3 is a declared identifier field equal to the query;
+#: 4 and 5 are key-only matches (`exact_name_variant`), 4 first when the
+#: value spells the query's letter and digit runs with other separators or
+#: other case.
+_ID_GROUP_FIELD = 3
+_ID_GROUP_VARIANT = 4
+
+
+def identifier_key(value: str) -> str:
+    """The separator-blind key of an identifier: every character that is not
+    an ASCII letter or digit is dropped first, then the rest is lower-cased.
+    The result is ASCII, so the SQL form of this function (see
+    `_id_key_sql`) agrees with it byte for byte."""
+    return _ID_NON_ALNUM.sub("", value).lower()
+
+
+def _identifier_runs(value: str) -> str:
+    """The value's runs of letters and digits, lower-cased and joined by one
+    space (ASCII only, so the SQL form agrees)."""
+    return " ".join(_ID_RUN.findall(value)).lower()
+
+
+@dataclass(frozen=True)
+class ExactIdQuery:
+    """An id-shaped query: the token as typed, its key and its runs."""
+
+    name: str
+    key: str
+    runs: str
+    #: The query itself spells a separator `-`. A key-only match on a record's
+    #: `name` or `qualified_name` counts only then, or when the stored value
+    #: has a hyphen: `pkg_1_2_3` and `pkg_12_3`, `utf8_decode2` and
+    #: `Utf8Decode2` share keys but are different symbols or versions.
+    hyphen: bool
+
+
+def exact_id_query(query: str) -> Optional[ExactIdQuery]:
+    """The id `query` is, when it is one id-shaped token: ASCII letters and
+    digits with single `-`, `_` or `.` between runs, a letter run of two or
+    more, at least one digit and a key of `_ID_KEY_MIN` to `_ID_KEY_MAX`
+    characters. A token with no separator at all (no `-`, `_` or `.`) also
+    needs a run of `_ID_BARE_DIGITS` or more digits (`ABC12345`): ordinary
+    technical words with a digit or two (`amd64`, `sha256`, `python3`, `x86`,
+    `gcc12`) are not ids and keep the page and cost they had without this
+    step. Anything else (spaces, `14_0_0`, `A-1`, `e-mail`, words) is not an
+    id."""
+    token = query.strip(_ASCII_WHITESPACE)
+    if not _EXACT_ID_QUERY.fullmatch(token):
+        return None
+    if not _ID_SEPARATOR.search(token) and not _ID_DIGIT_RUN.search(token):
+        return None
+    key = identifier_key(token)
+    if not _ID_KEY_MIN <= len(key) <= _ID_KEY_MAX:
+        return None
+    if not any(ch.isdigit() for ch in key) or not _ID_LETTER_RUN.search(token):
+        return None
+    return ExactIdQuery(
+        name=token,
+        key=key,
+        runs=_identifier_runs(token),
+        hyphen="-" in token,
+    )
+
+
+def _identifier_values(attrs: dict[str, Any], field: str) -> list[str]:
+    """The values of one declared identifier field: a string is split on `,`
+    (parts trimmed of ASCII whitespace, empty parts dropped), a JSON array of
+    strings is read element by element, anything else gives nothing; at most
+    `_ID_FIELD_VALUES` values. The SQL form is in `_exact_id_group_sql`."""
+    value = attrs.get(field)
+    if isinstance(value, str):
+        parts = value.split(",")
+    elif isinstance(value, list):
+        parts = [part for part in value if isinstance(part, str)]
+    else:
+        return []
+    values = [part.strip(_ASCII_WHITESPACE) for part in parts]
+    return [part for part in values if part][:_ID_FIELD_VALUES]
+
+
+def _id_variant_group(value: str, idq: ExactIdQuery) -> Optional[int]:
+    if identifier_key(value) != idq.key:
+        return None
+    if _identifier_runs(value) == idq.runs:
+        return _ID_GROUP_VARIANT
+    return _ID_GROUP_VARIANT + 1
+
+
+def _exact_name_group(
+    attrs: dict[str, Any],
+    subtype: Optional[str],
+    name: str,
+    idq: Optional[ExactIdQuery],
+    id_fields: dict[str, list[str]],
+) -> Optional[int]:
+    """The best match group of a record for the query, or None when it does
+    not match. The Python mirror of the SQL `grp` of `_exact_name_rows`."""
+    best: Optional[int] = None
+    qualified = attrs.get("qualified_name")
+    if qualified == name:
+        best = 0
+    elif attrs.get("name") == name:
+        best = _exact_name_rank(attrs, name)
+    if idq is None:
+        return best
+    candidates: list[int] = []
+    for key in ("qualified_name", "name"):
+        value = attrs.get(key)
+        if isinstance(value, str) and (idq.hyphen or "-" in value):
+            group = _id_variant_group(value, idq)
+            if group is not None:
+                candidates.append(group)
+    for field in id_fields.get(str(subtype), []):
+        for value in _identifier_values(attrs, field):
+            if value == name:
+                candidates.append(_ID_GROUP_FIELD)
+            else:
+                group = _id_variant_group(value, idq)
+                if group is not None:
+                    candidates.append(group)
+    if best is not None:
+        candidates.append(best)
+    return min(candidates) if candidates else None
+
+
+def _id_key_sql(expr: str) -> str:
+    """SQL form of `identifier_key`. `translate` lower-cases ASCII only, so
+    the result does not depend on the database's collation."""
+    return (
+        f"translate(regexp_replace({expr}, '[^A-Za-z0-9]', '', 'g'), "
+        f"'{_ID_SQL_UPPER}', '{_ID_SQL_LOWER}')"
+    )
+
+
+def _id_variant_sql(expr: str) -> str:
+    """SQL form of `_id_variant_group` for the text expression `expr`."""
+    return (
+        f"(CASE WHEN {_id_key_sql(expr)} = %(id_key)s THEN "
+        f"(CASE WHEN translate(btrim(regexp_replace({expr}, '[^A-Za-z0-9]+', ' ', 'g')), "
+        f"'{_ID_SQL_UPPER}', '{_ID_SQL_LOWER}') "
+        f"= %(id_runs)s THEN {_ID_GROUP_VARIANT} ELSE {_ID_GROUP_VARIANT + 1} "
+        "END) END)"
+    )
+
+
+def _exact_id_group_sql() -> str:
+    """The lateral `m` of the id statement: its `grp` is the record's best
+    match group (the SQL mirror of `_exact_name_group`), NULL for none.
+
+    The declared identifier fields come as the parameter `id_fields` (a JSON
+    object, subtype to field names, read once from the session's pinned
+    catalog), so the statement reads no catalog table per row. Their values
+    are split as `_identifier_values` splits them, and only for a subtype
+    that declares fields. `OFFSET 0` keeps the planner from copying the
+    expression into the filter and the sort."""
+    ws = _ID_SQL_WHITESPACE
+    qualified_expr = "s.attrs->>'qualified_name'"
+    name_expr = "s.attrs->>'name'"
+    string_parts = (
+        f"SELECT btrim(t.x, {ws}) AS v, t.n FROM unnest(regexp_split_to_array("
+        "CASE WHEN jsonb_typeof(s.attrs->f.field) = 'string' "
+        "THEN s.attrs->>f.field END, ',')) WITH ORDINALITY AS t(x, n)"
+    )
+    array_parts = (
+        f"SELECT btrim(t.e #>> '{{}}', {ws}) AS v, t.n FROM jsonb_array_elements("
+        "CASE WHEN jsonb_typeof(s.attrs->f.field) = 'array' "
+        "THEN s.attrs->f.field ELSE '[]'::jsonb END) WITH ORDINALITY AS t(e, n) "
+        "WHERE jsonb_typeof(t.e) = 'string'"
+    )
+    declared = (
+        "(SELECT min(CASE WHEN d.v = %(name)s THEN "
+        f"{_ID_GROUP_FIELD} ELSE {_id_variant_sql('d.v')} END) "
+        "FROM jsonb_array_elements_text(%(id_fields)s::jsonb -> s.subtype) AS f(field) "
+        f"CROSS JOIN LATERAL (SELECT u.v FROM ({string_parts} UNION ALL {array_parts}) u "
+        f"WHERE u.v <> '' ORDER BY u.n LIMIT {_ID_FIELD_VALUES}) d)"
+    )
+    return (
+        "CROSS JOIN LATERAL (SELECT LEAST("
+        "(CASE WHEN s.attrs->>'qualified_name' = %(name)s THEN 0 END), "
+        "(CASE WHEN s.attrs->>'name' = %(name)s THEN "
+        "(CASE WHEN s.attrs->>'qualified_name' IS NOT NULL THEN 1 ELSE 2 END) END), "
+        "(CASE WHEN %(id_hyphen)s OR "
+        "position('-' in s.attrs->>'qualified_name') > 0 THEN "
+        f"{_id_variant_sql(qualified_expr)} END), "
+        "(CASE WHEN %(id_hyphen)s OR "
+        "position('-' in s.attrs->>'name') > 0 THEN "
+        f"{_id_variant_sql(name_expr)} END), "
+        f"(CASE WHEN %(id_fields)s::jsonb ? s.subtype THEN {declared} END)"
+        ") AS grp OFFSET 0) m"
+    )
+
+
+def _attrs_gin_present(conn: psycopg.Connection, segment: str) -> bool:
+    """Whether the node segment has a valid generic GIN index on `attrs`
+    (without it `attrs @> ...` scans the whole segment)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+            "WHERE i.indrelid = %s::regclass AND i.indisvalid "
+            "AND c.relname ~ %s LIMIT 1",
+            (segment, f"{_ATTRS_GIN_SUFFIX}$"),
+        )
+        return cur.fetchone() is not None
+
+
+def _trgm_present(conn: psycopg.Connection) -> bool:
+    """Whether the live node segment carries the node-text trigram index."""
+    from okg.substrate.mcp.grep_search import resolve_trgm_segment
+
+    try:
+        resolve_trgm_segment(conn)
+    except SearchIndexUnavailable:
+        return False
+    return True
+
+
+def _warn_exact_name_index(segment: str, missing: str, effect: str) -> None:
+    """Log that an index the exact-name step reads is missing and what the
+    step does instead (`okg migrate` builds both indexes)."""
+    _log.warning(
+        "exact-name search step: index %s absent or invalid on %s; %s. "
+        "Run `okg migrate` to build it.",
+        missing, segment, effect,
+    )
+
+
+def _identifier_fields_by_subtype(
+    conn: psycopg.Connection, session: Session,
+) -> dict[str, list[str]]:
+    """The declared identifier fields of every subtype of the session's
+    pinned catalog (`okg_identifier_fields`)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT name, metadata->'identifier_fields' FROM okg.subtypes "
+            "WHERE catalog_version_id = %s "
+            "AND jsonb_typeof(metadata->'identifier_fields') = 'array'",
+            (session.catalog_version_id,),
+        )
+        return {
+            str(name): [str(field) for field in fields if isinstance(field, str)]
+            for name, fields in cur.fetchall()
+        }
+
+
 def _exact_name_rows(
     conn: psycopg.Connection,
     session: Session,
@@ -2882,6 +3242,7 @@ def _exact_name_rows(
     scope: Optional[ResolvedScope] = None,
     withhold_counts: bool = False,
     keep: Optional[Callable[[str], bool]] = None,
+    id_query: Optional[ExactIdQuery] = None,
 ) -> tuple[list[dict[str, Any]], Optional[str]]:
     """The readable records whose own name is exactly `name` (any subtype but
     `EXACT_NAME_EXCLUDED_SUBTYPES`), hydrated like an alias target, and why
@@ -2899,10 +3260,16 @@ def _exact_name_rows(
     name here and ranked ahead of the BM25 rows. Imports and references are
     left out: they repeat the name of the symbol they mention.
 
-    The read is bounded by the trigram index on `text`, which covers every
-    subtype (the stored text holds the name, as a part or inside the body; a
-    record whose text lacks its name is not found here and keeps its BM25
-    rank); the equality on the attributes then decides. Selections, Nomos and
+    The read is bounded by the generic GIN index on `attrs`
+    (`attrs @> {"name": <name>}` or `{"qualified_name": <name>}`, PACT
+    search-exact-name-cost-4035), which covers every subtype; the equality on
+    the attributes then decides. It used to be bounded by the trigram index
+    on `text`, but a release-like name (`PROJ_14_0_0`) has only short runs,
+    and every text that repeats the version runs of its siblings passed that
+    index: about 21,000 texts were read for 2 matches on an 80,000-record
+    copy (93 ms; the id statement's regex took 560 ms). A record is now found
+    whether or not its text holds its name (where the index exists; see
+    below). Selections, Nomos and
     the effective attributes apply as for an alias target, to each window of
     the read BEFORE any cut: one statement reads the rows in order (qualified
     name equal to the query first, then records with another qualified name,
@@ -2930,29 +3297,63 @@ def _exact_name_rows(
     scan bound with nothing left is still reported as cut outside
     enforcement.
 
-    A name with no run of three letters or digits, or a graph without the
-    trigram index, is not read (no statement runs, nothing is reported):
-    either would scan the whole segment."""
+    A code name with no run of three letters or digits is not read (no
+    statement runs, nothing is reported). On a graph without a valid attrs
+    GIN index the step runs the statement it ran before PACT
+    search-exact-name-cost-4035 (names found through the trigram text match;
+    a record whose text does not spell its name is then not found) and logs
+    a warning. When the statement needs the trigram index (an id query, or
+    no attrs index) and it is absent, the step is skipped with a warning: the
+    statement would scan the whole segment.
+
+    An id-shaped query (`id_query`, PACT search-exact-id-variants-3959) runs
+    this same one statement with a wider decision. Candidates are the rows
+    the attrs GIN index finds by name (when it exists), OR'd with the rows whose text holds
+    the query's runs with any one separator or its key (the two trigram
+    patterns; the variants and the declared identifier values are found
+    only through them, so where the runs are common the id statement still
+    reads every text that repeats them). A row matches, best group first, by: its
+    qualified name equal to the query (0), its name (1, 2), a declared
+    identifier value equal to the query (3), then key-only matches (4, 5; a
+    value that spells the query's letter and digit runs first): the key of
+    the record's `name`, `qualified_name`, or of a value of a field its type
+    declares in `okg_identifier_fields`. A key-only match on a name needs a
+    hyphen in the query or in the stored value. Groups 0-3 carry the marker
+    `exact_name`, 4-5 `exact_name_variant`. The declared values are compared
+    only where the reader can see them: the group is recomputed on the
+    effective attributes after the access rules, so a masked field never
+    matches."""
     from okg.substrate.mcp.grep_search import (
         _DEADLINE,
         _bounded,
         _Cancelled,
         deadline,
-        resolve_trgm_segment,
     )
 
     # Not read: no statement runs, so nothing is cut and nothing is reported.
-    if not _ALNUM_RUN.search(name):
+    if id_query is None and not _ALNUM_RUN.search(name):
         return [], None
-    try:
-        resolve_trgm_segment(conn)
-    except SearchIndexUnavailable:
+    # Which index finds the names: the attrs GIN index when it is valid, else
+    # the trigram text match this step used before (logged, never silent).
+    by_index = _attrs_gin_present(conn, segment)
+    if not by_index:
+        _warn_exact_name_index(
+            segment, _ATTRS_GIN_SUFFIX,
+            "names are matched through the stored text instead (slower; a record "
+            "whose text does not spell its name is not found)",
+        )
+    # The text arm (an id query's variants, or the names without the attrs
+    # index) needs the trigram index; without it the step would scan the
+    # whole segment, so it is skipped.
+    if (id_query is not None or not by_index) and not _trgm_present(conn):
+        _warn_exact_name_index(
+            segment, "node_text_trgm_visible", "the exact-name step is skipped",
+        )
         return [], None
     at = time.monotonic() + EXACT_PASS_BUDGET_MS / 1000.0
     outer = _DEADLINE.get()
     if outer is not None:
         at = min(at, outer)
-    like = name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     # Rank 0: the qualified name is the query. Rank 1: the record has some
     # other qualified name (a code symbol whose short name is the query).
     # Rank 2: it has only a name. A record type without qualified names
@@ -2962,21 +3363,99 @@ def _exact_name_rows(
         "(CASE WHEN attrs->>'qualified_name' = %(name)s THEN 0 "
         "WHEN attrs->>'qualified_name' IS NOT NULL THEN 1 ELSE 2 END)"
     )
+    # The candidates: rows whose stored `name` or `qualified_name` is the
+    # query, found by the attrs GIN index. `@>` also holds for an array that
+    # contains the name, so the decision below still compares the text value.
+    # Without that index: rows whose text holds the name (the trigram LIKE
+    # this step used before PACT search-exact-name-cost-4035).
+    like = name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    by_name = (
+        "(attrs @> %(name_doc)s::jsonb OR attrs @> %(qualified_doc)s::jsonb)"
+        if by_index else "(attrs->>'text') LIKE %(like)s"
+    )
+    candidate_clause = by_name
+    decision = "(attrs->>'qualified_name' = %(name)s OR attrs->>'name' = %(name)s)"
+    params: dict[str, Any] = {
+        "bp": branch_point_value,
+        "name": name,
+        "name_doc": json.dumps({"name": name}),
+        "qualified_doc": json.dumps({"qualified_name": name}),
+        "like": f"%{like}%",
+        "excluded_subtypes": list(EXACT_NAME_EXCLUDED_SUBTYPES),
+    }
+    from_sql = segment
+    id_fields: dict[str, list[str]] = {}
+    if id_query is not None:
+        # The id statement: candidates are the rows found by name (above), or
+        # whose text holds the query's runs joined by any one separator (one
+        # case-insensitive regex) or its key (one ILIKE): two trigram
+        # patterns, OR'd. The decision is the lateral `m.grp`, the same groups
+        # `_exact_name_group` computes. The split run-pattern `%ABC%12%345%`
+        # is not used: its only trigrams are the common ones. A query of
+        # letters and digits only is one pattern, its key.
+        id_fields = _identifier_fields_by_subtype(conn, session)
+        if (
+            not id_query.hyphen
+            and not id_fields
+            and exact_name_query(name) is None
+        ):
+            # A token such as `python3` or `sha256` with no hyphen, no code
+            # shape and no type that declares identifier fields: the only
+            # record this could find is one named exactly so, which the step
+            # never looked for before. No statement runs and nothing is
+            # reported, so the page is the page without the step.
+            return [], None
+        if name.lower() == id_query.key:
+            # Letters and digits only, so nothing in the pattern needs escaping.
+            params["id_like_key"] = f"%{name}%"
+            text_clause = "(attrs->>'text') ILIKE %(id_like_key)s"
+        else:
+            # The query's letter and digit runs joined by any one separator,
+            # case-insensitive: `ABC-12-345` also finds `abc_12_345` and
+            # `ABC.12.345`. Runs are ASCII letters and digits (the query was
+            # matched by `_EXACT_ID_QUERY`), so nothing needs escaping.
+            runs = _ID_RUN.findall(name)
+            if not all(run.isascii() and run.isalnum() for run in runs):
+                raise AssertionError(f"id query runs must be alphanumeric: {runs!r}")
+            params["id_regex"] = "[-_.]".join(runs)
+            params["id_like_key"] = f"%{id_query.key}%"
+            text_clause = (
+                "((attrs->>'text') ~* %(id_regex)s "
+                "OR (attrs->>'text') ILIKE %(id_like_key)s)"
+            )
+        # Without the attrs index the id statement is the one this step ran
+        # before (its text patterns find every exact name the LIKE would).
+        candidate_clause = f"({by_name} OR {text_clause})" if by_index else text_clause
+        decision = "m.grp IS NOT NULL"
+        if not id_query.hyphen:
+            # A necessary condition the cheap way: without a hyphen in the
+            # query, a row can match only by an equal name, a hyphen in its
+            # stored name, or a declared identifier field. Rows that pass
+            # none skip the lateral decision (a code name such as
+            # `pkg_1_2_3` reads as many candidate rows as before).
+            decision = (
+                "(attrs->>'qualified_name' = %(name)s OR attrs->>'name' = %(name)s "
+                "OR position('-' in attrs->>'qualified_name') > 0 "
+                "OR position('-' in attrs->>'name') > 0 "
+                "OR %(id_fields)s::jsonb ? subtype) AND m.grp IS NOT NULL"
+            )
+        params.update({
+            "id_key": id_query.key,
+            "id_runs": id_query.runs,
+            "id_hyphen": id_query.hyphen,
+            "id_fields": json.dumps(id_fields),
+        })
+        from_sql = f"{segment} s {_exact_id_group_sql()}"
+        rank_sql = "m.grp"
     where = [
         "deleted = FALSE",
         "live_lo <= %(bp)s",
         "%(bp)s < live_hi",
         "attrs ? 'text'",
-        "(attrs->>'text') LIKE %(like)s",
+        candidate_clause,
         "subtype <> ALL(%(excluded_subtypes)s)",
-        "(attrs->>'qualified_name' = %(name)s OR attrs->>'name' = %(name)s)",
+        decision,
     ]
-    params: dict[str, Any] = {
-        "bp": branch_point_value,
-        "like": f"%{like}%",
-        "name": name,
-        "excluded_subtypes": list(EXACT_NAME_EXCLUDED_SUBTYPES),
-    }
     where.extend(_promotion_clauses(filter, scope, params))
     # Node ids compare byte-wise in SQL, as the Python sort below compares
     # them, so the set kept above the bound does not depend on the database's
@@ -2993,7 +3472,7 @@ def _exact_name_rows(
     sql = (
         f"SELECT node_id, subtype, attrs, text_hash, source, "
         f"source_record_id, source_revision "
-        f"FROM {segment} WHERE {' AND '.join(where)} "
+        f"FROM {from_sql} WHERE {' AND '.join(where)} "
         f"ORDER BY {rank_sql}, {node_order} LIMIT {_EXACT_NAME_SCAN_ROWS}"
     )
     out: list[dict[str, Any]] = []
@@ -3016,6 +3495,7 @@ def _exact_name_rows(
             conn, session,
             [r for r in window if keep is None or keep(str(r["node_id"]))],
             name=name, query=query, filter=filter, scope=scope,
+            id_query=id_query, id_fields=id_fields,
         ))
         if len(out) > EXACT_NAME_ROWS:
             # More readable matches than the page source holds: the extra
@@ -3027,7 +3507,9 @@ def _exact_name_rows(
             cause = "scan_rows"
     # Stored order was by the stored name; the effective name may differ.
     out.sort(key=lambda row: (
-        _exact_name_rank(row.get("attrs") or {}, name),
+        _exact_name_group(
+            row.get("attrs") or {}, row.get("subtype"), name, id_query, id_fields,
+        ),
         str(row["node_id"]).encode("utf-8"),
     ))
     out = out[:EXACT_NAME_ROWS]
@@ -3073,10 +3555,15 @@ def _readable_exact_name_rows(
     query: str,
     filter: dict[str, Any],
     scope: Optional[ResolvedScope] = None,
+    id_query: Optional[ExactIdQuery] = None,
+    id_fields: Optional[dict[str, list[str]]] = None,
 ) -> list[dict[str, Any]]:
     """The rows of one window the session may read that still bear `name`
-    once overlays apply and that pass the caller's filters and the profile's
-    path exclusions (checked on the effective path, as the ranked rows are)."""
+    (or, for an id query, its key or a declared identifier value) once
+    overlays apply and that pass the caller's filters and the profile's
+    path exclusions (checked on the effective path, as the ranked rows are).
+    The group is decided on the reader-visible effective attributes, so a
+    field the access rules mask never matches."""
     visible = filter_node_rows_for_session(conn, session, rows)
     if not visible:
         return []
@@ -3090,7 +3577,10 @@ def _readable_exact_name_rows(
     ):
         attrs = effective.get("attrs") or {}
         # An overlay may have renamed the symbol: the effective name decides.
-        if name not in (attrs.get("qualified_name"), attrs.get("name")):
+        group = _exact_name_group(
+            attrs, effective.get("subtype"), name, id_query, id_fields or {},
+        )
+        if group is None:
             continue
         if not _matches_filter(effective, _row_filter(filter)):
             continue
@@ -3104,9 +3594,685 @@ def _readable_exact_name_rows(
             **effective,
             "score": -1.0,
             "excerpt": _bounded_excerpt(str(attrs.get("text", "")), query),
-            "match_kind": "exact_name",
+            "match_kind": (
+                "exact_name" if group < _ID_GROUP_VARIANT else "exact_name_variant"
+            ),
         })
     return out
+
+
+#: Attributes that name a record, for the name check of issue 4053: the two
+#: the exact-name step reads, then the fixed title list a record's handle is
+#: read from (`PARENT_TITLE_ATTRS`). Each subtype's declared title attribute
+#: (`okg_title_from`) and identifier fields (`okg_identifier_fields`) are
+#: added from the session's catalog.
+NAME_CHECK_FIELDS: tuple[str, ...] = tuple(dict.fromkeys(
+    ("name", "qualified_name", *PARENT_TITLE_ATTRS),
+))
+#: The name check's time budget: the indexed equality read and, when it finds
+#: no record, the near-name read share it.
+_NAME_CHECK_BUDGET_MS = 1_000
+#: Planner settings for the name check's two GIN reads (the attrs read and the
+#: node-id trigram read). Each statement holds a LIMIT and `deleted = FALSE`,
+#: the predicate every partial B-tree on the segment shares, so with only the
+#: sequential scan off the planner may still walk such a B-tree in order and
+#: stop at the LIMIT. It does so when the GIN index's pending list (rows
+#: written since the last vacuum) inflates the GIN estimate: on a
+#: 250,000-record graph the attrs read then walked the subtype index for
+#: 575 ms (lab costs) to 725 ms (PostgreSQL's default costs) against 36-38 ms
+#: from the GIN bitmap. With plain and index-only scans off as well, a B-tree
+#: can serve only as a whole bitmap, which is priced by the rows it holds: it
+#: loses to the GIN index on a large graph and costs a few milliseconds on a
+#: small one (PR 4101, CI run 40237209183).
+_GIN_READ_SETTINGS: tuple[tuple[str, str], ...] = (
+    ("enable_seqscan", "off"),
+    ("enable_indexscan", "off"),
+    ("enable_indexonlyscan", "off"),
+)
+#: Candidate rows the near-name read takes (unordered) before ranking.
+_NEAR_NAME_READ_ROWS = 50
+
+
+@dataclass(frozen=True)
+class _NameCheck:
+    """What the name check found: `rows` are readable records named exactly
+    the query (marked `exact_name`), `cut` says more stored records matched
+    than were read, and `absent` is the `exact_name_absent` payload when the
+    check finished and found none."""
+
+    rows: list[dict[str, Any]]
+    cut: bool = False
+    absent: Optional[dict[str, Any]] = None
+
+
+def _declared_name_fields(
+    conn: psycopg.Connection, session: Session,
+) -> tuple[list[str], list[str], bool]:
+    """The attributes the session's catalog declares as a record's title
+    (`title_from`) and as its identifiers (`identifier_fields`), each list
+    without repeats, and whether any subtype declares a live type or a live
+    relation (`live_type`, `live_relations`)."""
+    titles: dict[str, None] = {}
+    identifiers: dict[str, None] = {}
+    live = False
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT metadata->>'title_from', metadata->'identifier_fields', "
+            "(metadata ? 'live_type' OR jsonb_typeof(metadata->'live_relations') = 'object' "
+            "AND metadata->'live_relations' <> '{}'::jsonb) "
+            "FROM okg.subtypes WHERE catalog_version_id = %s "
+            "AND (metadata ? 'title_from' OR metadata ? 'identifier_fields' "
+            "OR metadata ? 'live_type' OR metadata ? 'live_relations')",
+            (session.catalog_version_id,),
+        )
+        for title_from, id_fields, declares_live in cur.fetchall():
+            live = live or bool(declares_live)
+            if isinstance(title_from, str) and title_from:
+                titles[title_from] = None
+            if isinstance(id_fields, list):
+                for field in id_fields:
+                    if isinstance(field, str) and field:
+                        identifiers[field] = None
+    return list(titles), list(identifiers), live
+
+
+def _attrs_index_on(conn: psycopg.Connection, segment: str) -> bool:
+    """Whether `segment` carries the node attrs GIN index (`jsonb_path_ops`,
+    `node_attrs_gin`), which answers `attrs @> {"<field>": <value>}` without
+    a scan. Without it the name check does not run."""
+    # One probe for both readers of the index (the exact-name step and this
+    # check), valid indexes only: an invalid one answers nothing.
+    return _attrs_gin_present(conn, segment)
+
+
+def _named_by(attrs: dict[str, Any], name: str, fields: Sequence[str]) -> Optional[str]:
+    """The first of `fields` whose value is exactly `name`, or a JSON array
+    holding it, or None. The Python mirror of the containment documents
+    `_named_record_check` reads by."""
+    for field in fields:
+        value = attrs.get(field)
+        if value == name or (isinstance(value, list) and name in value):
+            return field
+    return None
+
+
+def _like_literal(text: str) -> str:
+    """`text` as a literal inside a LIKE pattern (backslash escapes)."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _named_record_check(
+    conn: psycopg.Connection,
+    session: Session,
+    *,
+    name: str,
+    query: str,
+    segment: str,
+    branch_point_value: int,
+    filter: dict[str, Any],
+    scope: Optional[ResolvedScope],
+    keep: Callable[[str], bool],
+    within_filter: bool,
+    page_rows: Sequence[Mapping[str, Any]],
+    step_cut: bool,
+) -> _NameCheck:
+    """Whether any record is named exactly `name` (issue 4053), run when the
+    exact-name step listed none.
+
+    The exact-name step reads only records whose stored `text` holds the
+    name and decides on `name`, `qualified_name` and declared identifier
+    fields, and it does not run at all for some id-shaped names. So "the
+    step found nothing" is no finding that nothing bears the name, and the
+    page used to say nothing. This check asks the node attrs GIN index
+    instead: one statement, `attrs @> ANY(<documents>)` (one index condition)
+    with a document `{"<field>": "<name>"}` for each of `NAME_CHECK_FIELDS` plus each
+    subtype's declared title attribute and identifier fields (an identifier
+    field also as a JSON array holding the name). Equality is exact (case,
+    spaces): `Foo` names no record called `foo`. It reads at most
+    `EXACT_NAME_ROWS` + 1 stored rows, unordered, under the same selections
+    as an exact-name row (filters, record scope, the profile, path
+    exclusions, `keep`) and its own time budget (`_NAME_CHECK_BUDGET_MS`,
+    inside the call's deadline). The reader's SQL access clause of the
+    ranked read is not added: it drops rows whose text is masked, and a
+    record whose text is masked may still be readable by its name.
+
+    Readable matches (access rules, then the effective attributes decide)
+    come back as `rows`, marked `exact_name`, so a record named by its title
+    is listed first like one named by its `name`. When there is none, the
+    read was neither cut nor out of time, and `_absence_claimable` allows it,
+    `absent` says so: the name, the attributes checked and whether a filter
+    narrowed the check, with up to `NEAR_NAMES_SHOWN` ids of records whose
+    names start like this one (`_near_named_ids`). Otherwise nothing is said:
+    without the attrs index (no statement runs, so nothing scans the
+    segment), out of time, a cut read, or whenever `_absence_claimable`
+    finds a doubt. `page_rows` are the page's candidate rows and `step_cut`
+    says whether the exact-name step stopped at a bound. Under access rules
+    (audit or enforce) nothing runs at all: the page and its timing are the
+    page and timing without this check."""
+    from okg.substrate.mcp.grep_search import (
+        _DEADLINE, _bounded, _bounded_with, _Cancelled, deadline,
+    )
+
+    from okg.substrate.mcp.tools import reader_sees_every_row
+
+    if not reader_sees_every_row(session):
+        # Under access rules (audit or enforce) search behaves exactly as
+        # before this check: no statement runs, so neither the page nor the
+        # time it takes says anything about records the reader may not read.
+        return _NameCheck([])
+    if not _attrs_index_on(conn, segment):
+        return _NameCheck([])
+    titles, identifiers, live_declared = _declared_name_fields(conn, session)
+    fields = list(dict.fromkeys([*NAME_CHECK_FIELDS, *titles, *identifiers]))
+    at = time.monotonic() + _NAME_CHECK_BUDGET_MS / 1000.0
+    outer = _DEADLINE.get()
+    if outer is not None:
+        at = min(at, outer)
+    # Every naming field is also read as a JSON array holding the name.
+    docs = [json.dumps({field: name}) for field in fields]
+    docs += [json.dumps({field: [name]}) for field in fields]
+    params: dict[str, Any] = {
+        "bp": branch_point_value,
+        "mention_subtypes": list(EXACT_NAME_EXCLUDED_SUBTYPES),
+        "name_docs": docs,
+    }
+    # One index condition, `attrs @> ANY(<documents>)`, with `deleted = FALSE`
+    # (the GIN index's own predicate); the pin and the selections are written
+    # so no index serves them (`_planned_as_keeping_all`). Measured on a test
+    # graph of 4,000 pages: the same documents OR-ed term by term were read by
+    # a sequential scan (or, with it off, a whole partial B-tree index), while
+    # the ANY form and a jsonpath `@?` form were read from the GIN index at
+    # both 4,000 and 15,000 pages.
+    selections = [
+        "live_lo <= %(bp)s",
+        "%(bp)s < live_hi",
+        "subtype <> ALL(%(mention_subtypes)s)",
+        *_promotion_clauses(filter, scope, params),
+    ]
+    where = [
+        "deleted = FALSE",
+        "attrs @> ANY(%(name_docs)s::jsonb[])",
+        _planned_as_keeping_all(" AND ".join(selections)),
+    ]
+    # The stored text is not read here; the rows found are read whole below.
+    read_limit = EXACT_NAME_ROWS
+    sql = (
+        "SELECT node_id, subtype, attrs - 'text' AS attrs, text_hash, source, "
+        f"source_record_id, source_revision FROM {segment} WHERE {' AND '.join(where)} "
+        f"LIMIT {read_limit + 1}"
+    )
+    try:
+        with deadline(at):
+            # No ORDER BY: the matches come from a bitmap of the GIN index;
+            # with sequential, plain and index-only scans off the planner
+            # cannot trade it for a scan that stops at the LIMIT
+            # (`_GIN_READ_SETTINGS`).
+            stored = _bounded_with(conn, sql, params, settings=_GIN_READ_SETTINGS)
+    except _Cancelled:
+        return _NameCheck([])
+    cut = len(stored) > read_limit
+    named = _named_rows(
+        conn, session, [row for row in stored if keep(str(row["node_id"]))],
+        name=name, fields=fields, filter=filter, scope=scope, query=query,
+    )
+    rows: list[dict[str, Any]] = []
+    if named:
+        ids = sorted(
+            (str(row["node_id"]) for row in named), key=lambda i: i.encode("utf-8"),
+        )[:EXACT_NAME_ROWS + 1]
+        cut = cut or len(named) > EXACT_NAME_ROWS
+        try:
+            with deadline(at):
+                whole = _bounded(
+                    conn,
+                    "SELECT node_id, subtype, attrs, text_hash, source, source_record_id, "
+                    f"source_revision FROM {segment} WHERE node_id = ANY(%(ids)s) "
+                    "AND deleted = FALSE AND live_lo <= %(bp)s AND %(bp)s < live_hi",
+                    {"ids": ids, "bp": branch_point_value},
+                )
+        except _Cancelled:
+            return _NameCheck([])
+        rows = _named_rows(
+            conn, session, whole,
+            name=name, fields=fields, filter=filter, scope=scope, query=query,
+        )
+    if rows:
+        return _NameCheck(rows[:EXACT_NAME_ROWS], cut=cut)
+    if cut or not _absence_claimable(
+        conn, session, name=name, page_rows=page_rows, step_cut=step_cut, at=at,
+        live_declared=live_declared, segment=segment,
+        branch_point_value=branch_point_value, filter=filter, scope=scope,
+    ):
+        # When in doubt, claim nothing: the page is the page without a claim.
+        return _NameCheck([])
+    absent: dict[str, Any] = {
+        "name": name,
+        "checked": [*fields, "node_id"],
+        "within_filter": within_filter,
+    }
+    near = _near_named_ids(
+        conn, session, name=name, segment=segment,
+        branch_point_value=branch_point_value, filter=filter, scope=scope,
+        keep=keep, fields=fields, at=at,
+    )
+    if near:
+        absent["near_ids"] = near
+    return _NameCheck([], absent=absent)
+
+
+def _named_rows(
+    conn: psycopg.Connection,
+    session: Session,
+    rows: list[dict[str, Any]],
+    *,
+    name: str,
+    fields: Sequence[str],
+    filter: dict[str, Any],
+    scope: Optional[ResolvedScope],
+    query: str,
+) -> list[dict[str, Any]]:
+    """The rows the reader may read that bear `name` in one of `fields` once
+    the effective attributes apply and that pass the filters and the path
+    exclusions, marked `exact_name` and in exact-name order (group, then
+    byte-wise node id)."""
+    if not rows:
+        return []
+    visible = filter_node_rows_for_session(conn, session, rows)
+    out: list[dict[str, Any]] = []
+    for effective in apply_effective_attrs_to_rows(
+        conn, visible, target_kind="node", target_id_field="node_id",
+        generation_id=session.generation_id,
+    ) if visible else []:
+        attrs = effective.get("attrs") or {}
+        # An overlay or a mask may change the value: the effective one decides.
+        if _named_by(attrs, name, fields) is None:
+            continue
+        if not _matches_filter(effective, _row_filter(filter)):
+            continue
+        if scope is not None and scope.excluded_path_globs and (
+            excluded_by_path_globs(attrs, scope.excluded_path_globs)
+        ):
+            continue
+        group = _exact_name_group(attrs, effective.get("subtype"), name, None, {})
+        out.append({
+            **effective,
+            "score": -1.0,
+            "excerpt": _bounded_excerpt(str(attrs.get("text", "")), query),
+            "match_kind": "exact_name",
+            "_name_group": _ID_GROUP_FIELD if group is None else group,
+        })
+    out.sort(key=lambda row: (row["_name_group"], str(row["node_id"]).encode("utf-8")))
+    for row in out:
+        row.pop("_name_group", None)
+    return out
+
+
+#: A token that names a file (`search.py`, `src/pkg/x`) or a dotted symbol: a
+#: record may carry it only as a path's last part or inside a qualified name,
+#: which the name check does not read, so no absence is claimed for it.
+_PATH_OR_DOTTED = re.compile(r"[./]")
+#: A token that reads as a hash or its start (a commit SHA, a content hash).
+_HASH_TOKEN = re.compile(r"(?=[0-9a-fA-F]*[0-9])[0-9a-fA-F]{7,64}")
+#: Hex groups joined by `-` (a UUID such as 8-4-4-4-12, a dashed hash).
+_DASHED_HEX = re.compile(r"[0-9a-fA-F]+(?:-[0-9a-fA-F]+)+")
+#: Separators allowed between two runs of a name when the stored text is
+#: searched for it in any spelling (`Workshop-At-Lisbon`, `Release Notes`).
+_SPELLING_GAP = "[^A-Za-z0-9]{0,3}"
+
+
+def _hash_shaped(name: str) -> bool:
+    """A hash, its start, or dashed hex groups with a digit and twelve or more
+    hex characters (a UUID): such values live in fields this check does not
+    read."""
+    if _HASH_TOKEN.fullmatch(name):
+        return True
+    hex_chars = name.replace("-", "")
+    return bool(
+        _DASHED_HEX.fullmatch(name) and len(hex_chars) >= 12
+        and any(char.isdigit() for char in hex_chars)
+    )
+
+
+def _holds_token(row: Mapping[str, Any], name: str) -> bool:
+    """Whether a row's id or any of its string attribute values (or strings
+    in a list value) holds `name` in any spelling: the name's separator- and
+    case-blind key (`identifier_key`) inside the value's key. A file's path
+    holds its stem (`near_names` in `src/pkg/near_names.py`) by this rule."""
+    key = identifier_key(name)
+    if not key:
+        return True
+    values: list[Any] = [row.get("node_id")]
+    attrs = row.get("attrs")
+    if isinstance(attrs, Mapping):
+        for value in attrs.values():
+            values.extend(value if isinstance(value, list) else [value])
+    return any(isinstance(value, str) and key in identifier_key(value) for value in values)
+
+
+#: A run of this many letters of one case (`teamcharter`, `TEAMCHARTER`) may
+#: hide word boundaries a stored id or text spells with separators
+#: (`Team-Charter`), which a pattern of the name's own runs cannot match; such
+#: a name gives no pattern, so no absence is claimed for it.
+_SINGLE_CASE_RUN_MIN = 9
+_SINGLE_CASE_RUN = re.compile(
+    r"[a-z]{%d,}|[A-Z]{%d,}" % (_SINGLE_CASE_RUN_MIN, _SINGLE_CASE_RUN_MIN),
+)
+
+
+def _spelling_pattern(name: str) -> Optional[str]:
+    """A case-blind regular expression for `name`: its letter and digit runs
+    (`name_runs`, split at case changes and between letters and digits) in
+    order with up to three other characters between them, so the case of the
+    whole and the separators between the name's own words are free. None,
+    and so no absence claim, when no run has three characters (the trigram
+    index could not serve it), when the name holds a run of
+    `_SINGLE_CASE_RUN_MIN` letters of one case, or when it has fewer than two
+    letter runs (word boundaries could hide there, where a stored spelling
+    puts separators). Not matched either: a stored spelling that splits a
+    case-marked word (`work-shop` for `Workshop`), or more than three
+    separator characters between two words."""
+    runs = name_runs(name)
+    if not runs or max(len(run) for run in runs) < 3:
+        return None
+    if _SINGLE_CASE_RUN.search(name):
+        return None
+    if sum(run.isalpha() for run in runs) < 2:
+        # One word of letters (`teamplan2060`, `OPSPLAN2062`, `roadmap2025`):
+        # no case change marks where a stored spelling may put separators
+        # (`Team-Plan-2060`), so no absence is claimed.
+        return None
+    if not all(run.isascii() and run.isalnum() for run in runs):
+        return None
+    return _SPELLING_GAP.join(runs)
+
+
+def _overlays_possible(conn: psycopg.Connection, session: Session) -> bool:
+    """Whether an attribute overlay may rename a record at the session's
+    generation: the overlay table holds rows and the per-generation marker
+    does not say zero overlays for every namespace. The overlay table has no
+    index on the value, so it is never searched for the name: where overlays
+    may exist, nothing is claimed. True also when a read fails."""
+    from okg.substrate.attributes import ATTRIBUTE_EFFECTIVE_TABLE, _table_exists
+
+    marker_table = "okg.attribute_overlay_generations"
+    try:
+        if not _table_exists(conn, ATTRIBUTE_EFFECTIVE_TABLE):
+            return False
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT EXISTS (SELECT 1 FROM {ATTRIBUTE_EFFECTIVE_TABLE})")
+            if not cur.fetchone()[0]:
+                return False
+            if not _table_exists(conn, marker_table):
+                return True
+            cur.execute(
+                f"SELECT count(*), bool_and(overlay_rows = 0) FROM {marker_table} "
+                "WHERE generation_id = %s",
+                (str(session.generation_id),),
+            )
+            markers, all_zero = cur.fetchone()
+    except psycopg.Error:
+        _log.debug("overlay marker read failed", exc_info=True)
+        return True
+    return not (markers and all_zero)
+
+
+#: Above this many visible records (the planner's estimate) a graph without
+#: the node-id trigram index (`cold_history.NODE_ID_TRGM_SPEC`) skips the id
+#: read and claims nothing: scanning every id costs about 4.5 microseconds a
+#: record, so past this the read would spend the check's budget and time out.
+_NODE_ID_SCAN_MAX_ROWS = 150_000
+
+
+def _id_index_on(conn: psycopg.Connection, segment: str) -> bool:
+    """Whether `segment` carries a valid, ready node-id trigram index
+    (`node_id_trgm`, `cold_history.NODE_ID_TRGM_SPEC`)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+            "WHERE i.indrelid = to_regclass(%s) AND c.relname ~ 'node_id_trgm$' "
+            "AND i.indisvalid AND i.indisready LIMIT 1",
+            (segment,),
+        )
+        return cur.fetchone() is not None
+
+
+def _visible_row_estimate(
+    conn: psycopg.Connection, segment: str, branch_point_value: int,
+) -> float:
+    """The planner's estimate of the records visible at the pin (no rows are
+    read: one EXPLAIN)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"EXPLAIN (FORMAT JSON) SELECT 1 FROM {segment} WHERE deleted = FALSE "
+            "AND live_lo <= %(bp)s AND %(bp)s < live_hi",
+            {"bp": branch_point_value},
+        )
+        plan = cur.fetchone()[0]
+    if isinstance(plan, str):
+        plan = json.loads(plan)
+    return float(plan[0]["Plan"]["Plan Rows"])
+
+
+def _stored_spells_it(
+    conn: psycopg.Connection,
+    *,
+    name: str,
+    segment: str,
+    branch_point_value: int,
+    filter: dict[str, Any],
+    scope: Optional[ResolvedScope],
+    at: float,
+) -> bool:
+    """Whether any stored record at the pin (under the page's selections)
+    holds `name`'s runs (any case, any separators between them) in its text,
+    or as a whole word anywhere in its id. One case-blind regular expression of the name's runs
+    (`_spelling_pattern`) serves both reads:
+
+    * text: through the text trigram index;
+    * ids: the same runs between word boundaries, over the WHOLE id (so
+      `run:nightly_build_15.0.1`, `guide.md#BetaSection2022`,
+      `wiki/TeamCharter2023/` and `view?page=TeamCharter2024` all hold their
+      names), through the node-id trigram index when it exists and is valid
+      (`_id_index_on`). Without it, a graph the planner estimates above
+      `_NODE_ID_SCAN_MAX_ROWS` visible records skips the read and claims
+      nothing at once; a smaller one reads every visible id.
+
+    True when a read finds a row, when the name gives no pattern, when the
+    text trigram index is absent, or when a read fails or runs out of time:
+    then nothing may be claimed."""
+    from okg.substrate.mcp.grep_search import (
+        _bounded, _bounded_with, _Cancelled, deadline, resolve_trgm_segment,
+    )
+
+    pattern = _spelling_pattern(name)
+    if pattern is None:
+        return True
+    try:
+        resolve_trgm_segment(conn)
+    except SearchIndexUnavailable:
+        return True
+    params: dict[str, Any] = {
+        "bp": branch_point_value,
+        "pattern": pattern,
+        "id_pattern": f"(^|[^A-Za-z0-9]){pattern}([^A-Za-z0-9]|$)",
+    }
+    selections = _promotion_clauses(filter, scope, params)
+    visible = ["deleted = FALSE", "live_lo <= %(bp)s", "%(bp)s < live_hi", *selections]
+    text_sql = (
+        f"SELECT 1 AS hit FROM {segment} WHERE "
+        + " AND ".join([*visible, "attrs ? 'text'", "(attrs->>'text') ~* %(pattern)s"])
+        + " LIMIT 1"
+    )
+    try:
+        with deadline(at):
+            if _bounded(conn, text_sql, params):
+                return True
+            if _id_index_on(conn, segment):
+                # Only the id condition is left for an index to answer (with
+                # `deleted = FALSE`, the index's own predicate).
+                id_sql = (
+                    f"SELECT 1 AS hit FROM {segment} WHERE deleted = FALSE "
+                    "AND node_id ~* %(id_pattern)s AND "
+                    + _planned_as_keeping_all(" AND ".join(visible[1:]))
+                    + " LIMIT 1"
+                )
+                return bool(_bounded_with(
+                    conn, id_sql, params, settings=_GIN_READ_SETTINGS,
+                ))
+            if _visible_row_estimate(conn, segment, branch_point_value) > _NODE_ID_SCAN_MAX_ROWS:
+                return True
+            id_sql = (
+                f"SELECT 1 AS hit FROM {segment} WHERE "
+                + " AND ".join([*visible, "node_id ~* %(id_pattern)s"])
+                + " LIMIT 1"
+            )
+            return bool(_bounded(conn, id_sql, params))
+    except (_Cancelled, psycopg.Error):
+        _log.debug("spelling read for %r failed", name, exc_info=True)
+        return True
+
+
+def _absence_claimable(
+    conn: psycopg.Connection,
+    session: Session,
+    *,
+    name: str,
+    page_rows: Sequence[Mapping[str, Any]],
+    step_cut: bool,
+    at: float,
+    live_declared: bool,
+    segment: str,
+    branch_point_value: int,
+    filter: dict[str, Any],
+    scope: Optional[ResolvedScope],
+) -> bool:
+    """Whether "no record has the name or id <name>" may be said, after the
+    name check found no record (issue 4053, review rounds 1-2). A false
+    absence is worse than silence, so it is said only when every one of these
+    holds:
+
+    * the deployment runs no access rules (`reader_sees_every_row`): under
+      audit or enforce a name only hidden records bear must read exactly
+      like a name nobody bears, at any count, so nothing is claimed there;
+    * the exact-name step was not cut (rows read, time, or rows);
+    * no row filter on attributes narrows the page (it is checked in Python
+      only, so the reads below could not apply it);
+    * the token is not a path, a file name or a dotted name (`.` or `/`), and
+      not hash-shaped (`_hash_shaped`, UUIDs included);
+    * no row on the page holds the token in any spelling (`_holds_token`);
+    * the catalog declares no live type and no live relation: search reads
+      stored records only, and a live type's names exist outside them;
+    * no attribute overlay may rename a record (`_overlays_possible`);
+    * no stored record holds the name's runs in its text, or as a whole word
+      anywhere in its id (`_stored_spells_it`), and the name has no run of
+      `_SINGLE_CASE_RUN_MIN` letters of one case (`_spelling_pattern`)."""
+    from okg.substrate.mcp.tools import reader_sees_every_row
+
+    if not reader_sees_every_row(session) or step_cut or live_declared:
+        return False
+    if _has_row_filter(filter):
+        return False
+    if _PATH_OR_DOTTED.search(name) or _hash_shaped(name):
+        return False
+    if any(_holds_token(row, name) for row in page_rows):
+        return False
+    if _overlays_possible(conn, session):
+        return False
+    return not _stored_spells_it(
+        conn, name=name, segment=segment, branch_point_value=branch_point_value,
+        filter=filter, scope=scope, at=at,
+    )
+
+
+def _near_named_ids(
+    conn: psycopg.Connection,
+    session: Session,
+    *,
+    name: str,
+    segment: str,
+    branch_point_value: int,
+    filter: dict[str, Any],
+    scope: Optional[ResolvedScope],
+    keep: Callable[[str], bool],
+    fields: Sequence[str],
+    at: float,
+) -> list[str]:
+    """Ids of up to `NEAR_NAMES_SHOWN` records whose name starts like
+    `name` (its `name_stem`, ignoring case), closest first (`rank_near`).
+
+    One statement through the text trigram index: rows whose stored text
+    holds the stem (ILIKE), filtered in SQL to those with one of `fields`
+    starting with it, at most `_NEAR_NAME_READ_ROWS` rows, unordered, in
+    what is left of the name check's budget. A record whose stored text
+    lacks its own name is not found here. The same selections as the name
+    check apply, the stem is re-checked on the effective attributes, and
+    the stored text is not read (`attrs - 'text'`). Not run under enforced
+    access rules (the caller): which rows fill the read could depend on
+    rows the reader may not see. Empty when the name has no usable stem,
+    the trigram index is absent, or the read runs out of time."""
+    from okg.substrate.mcp.grep_search import (
+        _bounded, _Cancelled, deadline, resolve_trgm_segment,
+    )
+
+    stem = name_stem(name)
+    if stem is None or not _ALNUM_RUN.search(stem):
+        return []
+    try:
+        resolve_trgm_segment(conn)
+    except SearchIndexUnavailable:
+        return []
+    params: dict[str, Any] = {
+        "bp": branch_point_value,
+        "mention_subtypes": list(EXACT_NAME_EXCLUDED_SUBTYPES),
+        "stem_text": f"%{_like_literal(stem)}%",
+        "stem_start": f"{_like_literal(stem)}%",
+        **{f"near_field_{index}": field for index, field in enumerate(fields)},
+    }
+    starts = " OR ".join(
+        f"(attrs->>%(near_field_{index})s) ILIKE %(stem_start)s"
+        for index in range(len(fields))
+    )
+    where = [
+        "deleted = FALSE",
+        "live_lo <= %(bp)s",
+        "%(bp)s < live_hi",
+        "attrs ? 'text'",
+        "(attrs->>'text') ILIKE %(stem_text)s",
+        "subtype <> ALL(%(mention_subtypes)s)",
+        f"({starts})",
+    ]
+    where.extend(_promotion_clauses(filter, scope, params))
+    sql = (
+        "SELECT node_id, subtype, attrs - 'text' AS attrs, text_hash, source, "
+        f"source_record_id, source_revision FROM {segment} "
+        f"WHERE {' AND '.join(where)} LIMIT {_NEAR_NAME_READ_ROWS}"
+    )
+    try:
+        with deadline(at):
+            stored = _bounded(conn, sql, params)
+    except _Cancelled:
+        return []
+    candidates = [row for row in stored if keep(str(row["node_id"]))]
+    visible = filter_node_rows_for_session(conn, session, candidates) if candidates else []
+    folded = stem.casefold()
+    found: list[tuple[str, str]] = []
+    for effective in apply_effective_attrs_to_rows(
+        conn, visible, target_kind="node", target_id_field="node_id",
+        generation_id=session.generation_id,
+    ) if visible else []:
+        attrs = effective.get("attrs") or {}
+        if not _matches_filter(effective, _row_filter(filter)):
+            continue
+        if scope is not None and scope.excluded_path_globs and (
+            excluded_by_path_globs(attrs, scope.excluded_path_globs)
+        ):
+            continue
+        for field in fields:
+            value = attrs.get(field)
+            if isinstance(value, str) and value.casefold().startswith(folded):
+                found.append((str(effective["node_id"]), value))
+                break
+    return rank_near(name, found)
 
 
 def _hydrate_lexical_alias_target(
@@ -3170,7 +4336,6 @@ def _effective_view_lexical_candidates(
     branch_point_value: int,
     exclude_node_ids: set[str],
     scope: Optional[ResolvedScope] = None,
-    effective_view_source: Any = None,
     scope_rows: Optional[Union["_RecordScope", "_ChildrenScope"]] = None,
     reader_sql: Optional[str] = None,
     budget_ms: Optional[int] = None,
@@ -3191,123 +4356,20 @@ def _effective_view_lexical_candidates(
     terms = [term.strip() for term in query.split() if term.strip()]
     if not terms:
         return []
-
-    if effective_view_source is not None:
-        _base_table, from_clause, gen_where, gen_params = (
-            effective_view_source(
-                conn,
-                session.generation_id,
-                target_kind="node",
-                source_alias="v",
-            )
-        )
-        source_from = from_clause
-        source_generation = gen_where
-        params: dict[str, Any] = dict(gen_params)
-    else:
-        # Direct Python callers predating the MCP server seam retain the
-        # snapshot-only behavior; the public MCP wrapper always supplies the
-        # pinned source resolver above.
-        source_from = (
-            f"{ATTRIBUTE_EFFECTIVE_VIEW_TABLE} v "
-            "JOIN okg.attribute_versions av "
-            "ON av.target_kind = v.target_kind "
-            "AND av.target_id = v.target_id "
-            "AND av.attrs_hash = v.attrs_hash"
-        )
-        source_generation = "v.generation_id = %(generation_id)s"
-        params = {"generation_id": str(session.generation_id)}
-    where = [
-        "v.target_kind = 'node'",
-        source_generation,
-        "v.namespace = %(namespace)s",
-        "av.attrs ? 'text'",
-        "av.attrs @> %(attr_filters)s",
-    ]
-    params.update({
-        "namespace": DEFAULT_NAMESPACE,
-        "attr_filters": Jsonb(attr_filters),
-        "bp": branch_point_value,
-        "limit": _LEXICAL_RANK_CAP,
-    })
-    subtype = filter.get("subtype")
-    if subtype is not None:
-        where.append("v.subtype = %(subtype)s")
-        params["subtype"] = subtype
-    # Site 2 of 3. This query carries its OWN `LIMIT _LEXICAL_RANK_CAP` and its
-    # rows are unioned into the lexical candidate set, so without the scope here
-    # an `attr_filters` query under a profile would return out-of-scope rows
-    # while the envelope reported a scope — making the disclosure a lie.
-    scope_sql = _scope_sql(scope, params, column="v.subtype")
-    if scope_sql is not None:
-        where.append(scope_sql)
-    # Same argument as the scope above: this query carries its OWN cap and its
-    # rows join the lexical candidate set, so without the family and exclusion
-    # predicates here the envelope's disclosure would be a lie about these rows.
-    family_sql = _family_sql(scope, params, column="n.source")
-    if family_sql is not None:
-        where.append(family_sql)
-    source_sql = _source_sql(filter, params, column="n.source")
-    if source_sql is not None:
-        where.append(source_sql)
-    where.extend(
-        _path_exclusion_sql(scope, params, column="av.attrs", prefix="vglob")
-    )
-    if scope_rows is not None:
-        # This read joins the candidate set with its OWN cap, so a record
-        # scope must hold here too or it would add out-of-scope rows.
-        where.append(scope_rows.sql(params, column="v.target_id"))
-    if exclude_node_ids:
-        where.append("v.target_id <> ALL(%(exclude_node_ids)s::text[])")
-        params["exclude_node_ids"] = sorted(exclude_node_ids)
-    if reader_sql is not None:
-        # #3560: this read has its own cap; rows the reader may not read
-        # (judged on the stored row `n`) never fill it.
-        where.append(reader_sql)
-    for idx, term in enumerate(terms):
-        key = f"term_{idx}"
-        where.append(f"(av.attrs->>'text') ILIKE %({key})s")
-        params[key] = f"%{term}%"
-
-    where_sql = " AND ".join(where)
-    # schema-interval-narrow-split: the snapshot row carries attrs_hash; the
-    # payload is materialized through the version-store join.
-    sql = f"""
-            SELECT v.target_id AS node_id,
-                   v.subtype,
-                   av.attrs,
-                   v.raw_text_hash AS text_hash,
-                   n.source,
-                   n.source_record_id,
-                   n.source_revision,
-                   -0.000001::float8 AS score
-              FROM {source_from}
-              LEFT JOIN {segment} n
-                ON n.node_id = v.target_id
-               AND n.deleted = FALSE
-               AND n.live_lo <= %(bp)s
-               AND %(bp)s < n.live_hi
-             WHERE {where_sql}
-             ORDER BY v.target_id
-             LIMIT %(limit)s
-            """
-
-    def read() -> Optional[list[dict[str, Any]]]:
-        if budget_ms is None:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(sql, params)
-                return cur.fetchall()
-        return _fetch_within_budget(conn, sql, params, budget_ms=budget_ms)
-
-    # The Jsonb wrapper is keyed by the value it carries.
-    key_params = {**params, "attr_filters": attr_filters}
-    return cached_read(
-        _read_key(conn, session, f"effective_read:{budget_ms}", sql, key_params), read,
+    # PACT lane-s-storage-cutover (S2 design 2.7): the Chronos rows at the
+    # pin merged with the generation's overlays, for MCP and direct callers
+    # alike. A failure in it is an error, never a fallback.
+    return _graph_lexical_candidates(
+        conn, session, terms=terms, attr_filters=attr_filters, filter=filter,
+        segment=segment, branch_point_value=branch_point_value,
+        exclude_node_ids=exclude_node_ids, scope=scope, scope_rows=scope_rows,
+        reader_sql=reader_sql, budget_ms=budget_ms,
     )
 
 
 def _fetch_within_budget(
     conn: psycopg.Connection, sql: str, params: dict[str, Any], *, budget_ms: int,
+    prepare: Optional[bool] = None,
 ) -> Optional[list[dict[str, Any]]]:
     """`sql`'s rows, or None when its `budget_ms` statement timeout stopped it.
 
@@ -3315,7 +4377,11 @@ def _fetch_within_budget(
     usable. A transaction-local setting outlives a released savepoint, so
     after a finished read the previous timeout is put back, as
     `aggregate_each.run_within_budget` does. A cancel for any other reason
-    (a client or an administrator) is raised as it came."""
+    (a client or an administrator) is raised as it came.
+
+    `prepare` goes to the main statement's `execute`. The graph path passes
+    False so the statement is planned for its own parameter values (the
+    custom plan of `execute_with_custom_plan`), as without a budget."""
     try:
         with conn.transaction():
             with conn.cursor(row_factory=dict_row) as cur:
@@ -3332,7 +4398,7 @@ def _fetch_within_budget(
                 cur.execute(
                     "SELECT set_config('statement_timeout', %s, true)", (f"{timeout}ms",),
                 )
-                cur.execute(sql, params)
+                cur.execute(sql, params, prepare=prepare)
                 rows = cur.fetchall()
                 cur.execute(
                     "SELECT set_config('statement_timeout', %s, true)", (previous,),
@@ -3344,6 +4410,174 @@ def _fetch_within_budget(
         if not _timed_out(cancelled):
             raise
         return None
+
+
+def _graph_lexical_candidates(
+    conn: psycopg.Connection,
+    session: Session,
+    *,
+    terms: list[str],
+    attr_filters: dict[str, Any],
+    filter: dict[str, Any],
+    segment: str,
+    branch_point_value: int,
+    exclude_node_ids: set[str],
+    scope: Optional[ResolvedScope],
+    scope_rows: Optional[Union["_RecordScope", "_ChildrenScope"]],
+    reader_sql: Optional[str] = None,
+    budget_ms: Optional[int] = None,
+) -> Optional[list[dict[str, Any]]]:
+    """The supplement on the graph read path (PACT lane-s-storage-redesign-s2,
+    design 2.7): the Chronos rows at the pin merged with the generation's
+    overlays, with the same filters and rows as the retired materialized
+    read, except that an overlay accepted after publish is seen (design 1.5).
+    The filter's containment is keyed per top-level key, so no GIN index is
+    read."""
+    from okg.substrate.attributes import RESERVED_EFFECTIVE_ATTR_KEYS
+    from okg.substrate.mcp import graph_read as _graph_read
+
+    _graph_read.require_graph_pin(conn, session)
+    params: dict[str, Any] = {
+        "bp": branch_point_value,
+        "limit": _LEXICAL_RANK_CAP,
+        "overlay_gen": str(session.generation_id),
+        "overlay_reserved": sorted(RESERVED_EFFECTIVE_ATTR_KEYS),
+        "attr_filters": Jsonb(attr_filters),
+    }
+    # The keys whose overlay would change this read: the filter's keys, the
+    # text the terms match, and the path an exclusion reads.
+    keys = {str(key) for key in attr_filters} | {"text"}
+    if scope is not None and scope.excluded_path_globs:
+        keys.add("path")
+    params["graph_overlay_keys"] = sorted(keys)
+
+    def terms_where(attrs: str) -> list[str]:
+        where = []
+        for idx, term in enumerate(terms):
+            key = f"term_{idx}"
+            where.append(f"({attrs}->>'text') ILIKE %({key})s")
+            params[key] = f"%{term}%"
+        return where
+
+    def common(attrs: str) -> list[str]:
+        where = [f"{attrs} ? 'text'"]
+        subtype = filter.get("subtype")
+        if subtype is not None:
+            where.append("n.subtype = %(subtype)s")
+            params["subtype"] = subtype
+        # Scope, family, producer, path exclusions, record scope and
+        # exclusions all hold inside this read's own cap.
+        for clause in (
+            _scope_sql(scope, params, column="n.subtype"),
+            _family_sql(scope, params, column="n.source"),
+            _source_sql(filter, params, column="n.source"),
+        ):
+            if clause is not None:
+                where.append(clause)
+        where.extend(
+            _path_exclusion_sql(scope, params, column=attrs, prefix="vglob")
+        )
+        if scope_rows is not None:
+            where.append(scope_rows.sql(params, column="n.node_id"))
+        if exclude_node_ids:
+            where.append("n.node_id <> ALL(%(exclude_node_ids)s::text[])")
+            params["exclude_node_ids"] = sorted(exclude_node_ids)
+        if reader_sql is not None:
+            # #3560: this read has its own cap; rows the reader may not read
+            # (judged on the stored row `n` at the pin, in both branches) never
+            # fill it.
+            where.append(reader_sql)
+        return where
+
+    graph_where = common("n.attrs")
+    graph_where.append(_graph_read.containment_sql(attr_filters, params, "n.attrs"))
+    merged_where = common("m.attrs") + terms_where("m.attrs")
+    merged_where.append("m.attrs @> %(attr_filters)s")
+    sql = _graph_read.search_supplement_sql(
+        segment=segment, graph_where=graph_where,
+        graph_terms=terms_where("n.attrs"), merged_where=merged_where,
+        candidates_sql=_graph_supplement_candidates(
+            conn, session, attr_filters=attr_filters,
+            branch_point_value=branch_point_value, params=params,
+        ),
+    )
+
+    def read() -> Optional[list[dict[str, Any]]]:
+        if budget_ms is None:
+            with conn.cursor(row_factory=dict_row) as cur:
+                execute_with_custom_plan(cur, sql, params)
+                return cur.fetchall()
+        return _fetch_within_budget(
+            conn, sql, params, budget_ms=budget_ms, prepare=False,
+        )
+
+    # The Jsonb wrapper is keyed by the value it carries.
+    key_params = {**params, "attr_filters": attr_filters}
+    return cached_read(
+        _read_key(conn, session, f"graph_effective_read:{budget_ms}", sql, key_params),
+        read,
+    )
+
+
+def _graph_supplement_candidates(
+    conn: psycopg.Connection,
+    session: Session,
+    *,
+    attr_filters: dict[str, Any],
+    branch_point_value: int,
+    params: dict[str, Any],
+) -> str:
+    """The declared expression-index candidate set of the supplement's graph
+    branch (the filter tool's, okg#3112), or "" when none narrows.
+
+    A scalar filter value ``{k: v}`` is decided per key as ``attrs -> k`` of
+    v's JSON type containing v, which for a scalar is equality, so the
+    declared index's ``eq`` probe admits every such row. Arrays, objects,
+    null and NUL-holding strings narrow nothing; neither does a
+    ``OKG_ATTR_FILTER_INDEX=off`` switch or an index that is not ready (the
+    statement then tests every visible row). A pinned read narrows too: the
+    probe runs at the pin's own branch point. The probe's
+    parameters are bound into ``params``."""
+    from okg.substrate.declared_attr_indexes import declared_filterable_attrs
+    from okg.substrate.mcp import attr_filter_source as _afs
+    from okg.substrate.mcp.operator_sql import holds_nul
+
+    clauses = [
+        {"op": "eq", "field": f"attrs.{key}", "value": value}
+        for key, value in attr_filters.items()
+        if isinstance(value, (str, bool, int, float)) and not holds_nul(value)
+    ]
+    if not clauses or _afs.filter_index_mode() != "expression":
+        return ""
+    try:
+        with conn.transaction():
+            declared = declared_filterable_attrs(conn)
+    except psycopg.Error as exc:
+        # As the filter tool's registry read: the rows are the same without
+        # the candidate set, only slower; said in the log, not hidden.
+        _log.warning(
+            "search supplement: the declared-filterable registry could not be "
+            "read (%s); the graph read tests every visible row", exc,
+        )
+        return ""
+    if not any(str(key) in declared for key in attr_filters):
+        return ""
+    plan, _uncovered = _afs.plan_expression_candidates(
+        conn,
+        generation_id=session.generation_id,
+        predicate={"op": "and", "clauses": clauses},
+        declared=declared,
+        target_kind="node",
+        param_prefix="sdai",
+        # The graph branch reads the graph rows at the pin's own branch
+        # point, so the probe runs there at any pin (a pinned read used to
+        # narrow nothing: 7.7 s of bitmap heap scan at Krama 10%, N-1).
+        at_branch_point=branch_point_value,
+    )
+    if plan is None or plan.params.get("sdai_bp") != branch_point_value:
+        return ""
+    params.update(plan.params)
+    return plan.sql
 
 
 #: Rows examined by the zero-hit diagnostic. One bounded read, never a
@@ -5234,7 +6468,6 @@ def _search_lexical(
     select: Optional[list[str]] = None,
     scope: Optional[ResolvedScope] = None,
     rank_by: str = RANK_BY_SELF,
-    effective_view_source: Any = None,
     max_chars: int = DEFAULT_PREVIEW_CHARS,
     expand_concepts: bool = True,
     completeness: str = COMPLETENESS_BOUNDED,
@@ -5660,7 +6893,6 @@ def _search_lexical(
                 else {str(row["node_id"]) for row in candidates}
             ),
             scope=scope,
-            effective_view_source=effective_view_source,
             scope_rows=scope_rows, reader_sql=reader_sql,
             budget_ms=literal_budget_ms,
         )
@@ -5704,7 +6936,7 @@ def _search_lexical(
             conn, session, query=ranked_query, filter=filter, segment=segment,
             branch_point_value=bp,
             exclude_node_ids={str(row["node_id"]) for row in candidates},
-            scope=scope, effective_view_source=effective_view_source,
+            scope=scope,
             scope_rows=scope_rows, reader_sql=reader_sql,
             budget_ms=literal_budget_ms,
         )
@@ -5841,11 +7073,21 @@ def _search_lexical(
     # target, which keeps the first place.
     exact_name_capped = False
     exact_name_cap: Optional[dict[str, Any]] = None
+    exact_name_absent: Optional[dict[str, Any]] = None
     exact_name = (
         None
         if rank_by == RANK_BY_PASSAGES or phrases
         else exact_name_query(query)
     )
+    # An id-shaped query (`ABC-12-345`, `ABC12345`) also reads records that
+    # spell the id with other separators (PACT search-exact-id-variants-3959).
+    exact_id = (
+        None
+        if rank_by == RANK_BY_PASSAGES or phrases
+        else exact_id_query(query)
+    )
+    if exact_id is not None:
+        exact_name = exact_id.name
     if exact_name is not None:
         name_rows, exact_name_cause = _exact_name_rows(
             conn,
@@ -5860,7 +7102,43 @@ def _search_lexical(
             keep=lambda node_id: node_id != promoted_id and (
                 scope_rows is None or node_id in scope_rows.record_ids
             ),
+            id_query=exact_id,
         )
+        if not name_rows and promoted_id is None and exact_name_cause != "time_limit":
+            # Issue 4053: the step found no record by this name. Ask the
+            # attrs index whether any record is named so (by title too); a
+            # find is listed first, none is said plainly. An alias-promoted
+            # row already answers the name, so the check does not run then,
+            # nor after the step ran out of time (the page names the limit).
+            check = _named_record_check(
+                conn,
+                session,
+                name=exact_name,
+                query=query,
+                segment=segment,
+                branch_point_value=bp,
+                filter=filter,
+                scope=scope,
+                keep=lambda node_id: (
+                    scope_rows is None or node_id in scope_rows.record_ids
+                ),
+                within_filter=bool(
+                    filter.get("subtype") or filter.get("source")
+                    or _has_row_filter(filter) or scope_rows is not None
+                    or (scope is not None and (
+                        scope.subtypes is not None or scope.source_ids is not None
+                        or bool(scope.excluded_path_globs)
+                    ))
+                ),
+                page_rows=candidates,
+                step_cut=exact_name_cause is not None,
+            )
+            name_rows = check.rows
+            exact_name_absent = check.absent
+            if name_rows and exact_name_cause is None and check.cut:
+                # A cut list is a floor. (The check never runs under access
+                # rules, so this needs no enforced variant.)
+                exact_name_cause = "rows"
         if exact_name_cause is not None:
             exact_name_cap = _exact_name_cap(exact_name_cause)
             if name_rows or exact_name_cause != "time_limit":
@@ -6507,6 +7785,10 @@ def _search_lexical(
         # symbols, rows read, or the pass deadline) and says which. The count
         # is a floor unless the time limit cut it before any row was found.
         payload["exact_name_cap"] = exact_name_cap
+    if exact_name_absent is not None:
+        # Issue 4053: the query is a name and no record bears it (the name
+        # check of `_named_record_check`); the text view says so plainly.
+        payload["exact_name_absent"] = exact_name_absent
     payload["completeness"] = cap.mode
     payload["coverage"] = {
         "retrieval": _lexical_retrieval(

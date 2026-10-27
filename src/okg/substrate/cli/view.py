@@ -103,7 +103,10 @@ def _cmd_view_list(args: argparse.Namespace, *, as_json: bool) -> int:
         len("generation"),
         *(len(str(item.target_generation_id)) for item in items),
     )
-    fresh_w = max(len("freshness"), *(len(item.freshness) for item in items))
+    def _state(item: Any) -> str:
+        return "retired" if item.retired else item.freshness
+
+    fresh_w = max(len("freshness"), *(len(_state(item)) for item in items))
     header = (
         f"{'view_id'.ljust(view_w)}  "
         f"{'generation'.rjust(gen_w)}  "
@@ -117,7 +120,7 @@ def _cmd_view_list(args: argparse.Namespace, *, as_json: bool) -> int:
         sys.stdout.write(
             f"{item.view_id.ljust(view_w)}  "
             f"{str(item.target_generation_id).rjust(gen_w)}  "
-            f"{item.freshness.ljust(fresh_w)}  "
+            f"{_state(item).ljust(fresh_w)}  "
             f"{slots}\n"
         )
     return 0
@@ -129,7 +132,10 @@ def _cmd_view_show(args: argparse.Namespace, *, as_json: bool) -> int:
     from okg.substrate.db.connection import connect as db_connect
 
     from okg.substrate.deployments import find_deployment_dir
-    from okg.substrate.derived_artifacts import ViewArtifactReadError
+    from okg.substrate.derived_artifacts import (
+        ViewArtifactReadError,
+        list_view_artifacts,
+    )
     from okg.substrate.views.read_policy import (
         ReadSurfacePolicyError,
         read_governed_native_view,
@@ -186,6 +192,21 @@ def _cmd_view_show(args: argparse.Namespace, *, as_json: bool) -> int:
             None,
         )
         if contract is None:
+            with db_connect(dsn, autocommit=True) as probe_conn:
+                kept = any(
+                    item.view_id == args.view
+                    for item in list_view_artifacts(
+                        probe_conn,
+                        deployment_name=deployment,
+                        registry_view_ids=None,
+                    )
+                )
+            if kept:
+                raise ReadSurfacePolicyError(
+                    "native_read_view_retired",
+                    f"view {args.view!r} is retired: views_registry.yaml no "
+                    "longer lists it. Its manifests are kept but it is not served",
+                )
             raise ReadSurfacePolicyError(
                 "native_read_asset_missing",
                 "view is not selected by the deployment's canonical read registry",

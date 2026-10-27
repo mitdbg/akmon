@@ -54,7 +54,6 @@ ADHOC_CODES = {
     "embedding_model_skew",  # mcp/semantic_readiness.py
     "semantic_coverage_unmeasurable",  # mcp/semantic_readiness.py
     "no_applied_catalog",  # cli/main.py:_cmd_catalog_reconcile
-    "removed_check",  # cli/main.py:_cmd_db_attr_index (okg#3112 step 4b, D7)
     "source_registry_invalid",  # cli/main.py:_cmd_ingest
     "source_registry_cycle",  # cli/main.py:_cmd_ingest
     "deployment_runtime_config_unresolved",  # cli/main.py:_deployment_runtime_enabled

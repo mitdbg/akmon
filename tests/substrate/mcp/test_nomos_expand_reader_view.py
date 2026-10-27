@@ -412,13 +412,10 @@ def _no_bundle_deployment(tmp_path, dsn: str) -> str:
             " || '{\"pii_classes\": {\"assignee\": \"free_text\"}}'::jsonb"
             " WHERE name = 'comment'"
         )
-        conn.execute(
-            "UPDATE okg.attribute_versions SET attrs = attrs - 'nomos_source_lineage',"
-            " raw_attrs = CASE WHEN raw_attrs IS NULL THEN NULL"
-            " ELSE raw_attrs - 'nomos_source_lineage' END"
-            " WHERE target_kind = 'node' AND target_id = ANY(%s)", (NB_NO_LINEAGE,),
-        )
         # A row without lineage carries no read class (read_class.class_facts).
+        # The Chronos node row is the only place the lineage lives: overlays
+        # never hold it (RESERVED_EFFECTIVE_ATTR_KEYS), and the attribute
+        # copy that once also held it is dropped.
         conn.execute(
             f"UPDATE {_segment(conn, 'okg.graph_nodes')}"
             " SET attrs = attrs - 'nomos_source_lineage', source = NULL,"
@@ -639,11 +636,6 @@ def test_an_ordered_page_titles_only_what_the_reader_is_served(
                 f"UPDATE {segment} SET attrs = attrs || jsonb_build_object('name', %s::text)"
                 " WHERE node_id = %s", (title, child),
             )
-            conn.execute(
-                "UPDATE okg.attribute_versions SET attrs = attrs"
-                " || jsonb_build_object('name', %s::text)"
-                " WHERE target_kind = 'node' AND target_id = %s", (title, child),
-            )
     _set_mode(monkeypatch, "enforce")
     mcp = _server(srv, clean_runtime, deployment)
     try:
@@ -721,12 +713,6 @@ def _revealed_deployment(tmp_path, dsn: str, *, case: str) -> str:
                 " nomos_read_class_version = NULL WHERE node_id = ANY(%s)", (UNSEEN_IDS,),
             )
         if case == "no_bundle":
-            conn.execute(
-                "UPDATE okg.attribute_versions SET attrs = attrs - 'nomos_source_lineage',"
-                " raw_attrs = CASE WHEN raw_attrs IS NULL THEN NULL"
-                " ELSE raw_attrs - 'nomos_source_lineage' END"
-                " WHERE target_kind = 'node' AND target_id = ANY(%s)", (UNSEEN_IDS,),
-            )
             conn.execute(
                 f"UPDATE {segment} SET attrs = attrs - 'nomos_source_lineage', source = NULL,"
                 " nomos_read_class = NULL, nomos_read_class_version = NULL"

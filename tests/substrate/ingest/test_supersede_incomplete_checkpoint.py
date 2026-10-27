@@ -1418,3 +1418,323 @@ def test_okg_status_says_source_sync_is_held(monkeypatch, capsys):
     snap.pop("source_sync_hold")
     cli_main.main(["status", "--dsn", "postgresql://x/y", "--deployment", "d"])
     assert "source_sync_held" not in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# PACT recovery-contract-removed-sources: classify each contract source
+# ---------------------------------------------------------------------------
+
+
+def _entry(name, ownership_id, *, params=None, contract="strict_v1"):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        name=name,
+        ownership_id=ownership_id,
+        raw={"module": "m", "params": params or {"k": name}},
+        admission_contract=contract,
+        source_class="discovery_crawl",
+    )
+
+
+def _want(entry, **override):
+    """The contract row a run would have recorded for ``entry``."""
+    from okg.substrate.admission import stable_idempotency_key
+
+    row = {
+        "source": entry.name,
+        "ownership_id": entry.ownership_id,
+        "admission_contract": entry.admission_contract,
+        "catalog_fingerprint": stable_idempotency_key(entry.raw),
+        "binding_fingerprint": "binding-1",
+        "dependencies": [],
+        "graph_branch": "default",
+        "run_mode": "scope_complete",
+        "sync_scope": {},
+    }
+    row.update(override)
+    return row
+
+
+def _classes(contract, registry, **kwargs):
+    return {
+        row["source"]: row
+        for row in ir.classify_contract_sources(
+            contract=contract, registry=registry, **kwargs,
+        )
+    }
+
+
+def test_classifier_names_removed_renamed_and_present():
+    snapshot = _entry("widget-snapshot", "w.snapshot")
+    history = _entry("widget-history", "w.history")
+    keeper = _entry("widget-keeper", "w.keeper")
+    inventory = _entry("widget-inventory", "w.snapshot")  # same ownership id
+    registry = {"widget-inventory": inventory, "widget-keeper": keeper}
+
+    got = _classes([_want(snapshot), _want(history), _want(keeper)], registry)
+
+    assert got["widget-snapshot"]["class"] == "renamed"
+    assert got["widget-snapshot"]["renamed_to"] == "widget-inventory"
+    assert got["widget-history"]["class"] == "removed"
+    assert got["widget-keeper"]["class"] == "present"
+
+
+def test_an_ownership_id_held_by_two_sources_is_removed_not_renamed():
+    gone = _entry("widget-snapshot", "w.shared")
+    registry = {
+        "widget-a": _entry("widget-a", "w.shared"),
+        "widget-b": _entry("widget-b", "w.shared"),
+    }
+
+    assert _classes([_want(gone)], registry)["widget-snapshot"]["class"] == "removed"
+
+
+def test_a_holder_that_is_itself_in_the_contract_does_not_make_a_rename():
+    gone = _entry("widget-snapshot", "w.shared")
+    holder = _entry("widget-holder", "w.shared")
+
+    got = _classes([_want(gone), _want(holder)], {"widget-holder": holder})
+
+    assert got["widget-snapshot"]["class"] == "removed"
+    assert got["widget-holder"]["class"] == "present"
+
+
+@pytest.mark.parametrize("field", ir.REBOUND_FIELDS)
+def test_a_changed_field_makes_a_present_source_rebound(field):
+    entry = _entry("widget-keeper", "w.keeper")
+    run = _want(entry)
+    changed = {**run, field: "something else"}
+
+    # The recorded contract differs from what this run resolves, in one field.
+    got = _classes([changed], {"widget-keeper": entry}, actual_contract=[run])
+
+    assert got["widget-keeper"]["class"] == "rebound"
+    assert got["widget-keeper"]["changed_fields"] == [field]
+
+
+def test_an_unselected_source_is_compared_on_its_registry_facts_only():
+    entry = _entry("widget-keeper", "w.keeper")
+    edited = _entry("widget-keeper", "w.keeper", params={"k": "edited"})
+    recorded = _want(entry, binding_fingerprint="old", run_mode="old-mode")
+
+    # No actual row: binding fingerprint and run mode cannot be resolved
+    # without a run, so only the catalog fingerprint can differ here.
+    assert _classes([recorded], {"widget-keeper": entry})[
+        "widget-keeper"
+    ]["class"] == "present"
+    got = _classes([recorded], {"widget-keeper": edited})
+    assert got["widget-keeper"]["class"] == "rebound"
+    assert got["widget-keeper"]["changed_fields"] == ["catalog_fingerprint"]
+
+
+def test_a_run_mode_only_difference_is_not_rebound_and_keeps_the_mismatch():
+    """The run mode is the run's choice (poll or event scope against a full
+    run), not registry state: a retry with the recorded mode succeeds."""
+    entry = _entry("widget-keeper", "w.keeper")
+    recorded = _want(entry, run_mode="scope_complete")
+    run = _want(entry, run_mode="cursor")
+
+    got = _classes([recorded], {"widget-keeper": entry}, actual_contract=[run])
+    assert got["widget-keeper"]["class"] == "present"
+
+    error = _unsatisfiable(
+        [recorded], {"widget-keeper": entry}, actual=[run],
+        required=["widget-keeper"],
+    )
+    assert error.data["reason"] == "incomplete_recovery_contract_mismatch"
+    assert "cannot succeed" not in error.fix_hint
+    assert error.data["changed_sources"] == ["widget-keeper"]
+
+
+def test_a_renamed_source_kept_rerun_hint_reruns_it_under_its_new_name():
+    classes = [
+        {"source": "widget-snapshot", "ownership_id": "w.snapshot",
+         "class": "renamed", "renamed_to": "widget-inventory"},
+        {"source": "widget-history", "ownership_id": "w.history",
+         "class": "removed"},
+    ]
+    steps = ir._step_that_clears(
+        {"code": "source_rerun_required", "sources": ["w.snapshot", "w.history"]},
+        classes,
+        "d",
+    )
+    assert any(
+        step.endswith("ingest --deployment d --include widget-inventory")
+        for step in steps
+    )
+    assert any("retire-source --source w.history" in step for step in steps)
+    assert not any("retire-source --source w.snapshot" in step for step in steps)
+
+
+def test_the_producer_profile_check_is_recorded_as_evidence():
+    entry = _entry("widget-keeper", "w.keeper")
+    got = _classes(
+        [_want(entry)], {"widget-keeper": entry}, active_producer_ids={"w.keeper"},
+    )
+    assert got["widget-keeper"]["active_producer_profile"] is True
+    got = _classes(
+        [_want(entry)], {"widget-keeper": entry}, active_producer_ids=set(),
+    )
+    assert got["widget-keeper"]["active_producer_profile"] is False
+    assert "active_producer_profile" not in _classes(
+        [_want(entry)], {"widget-keeper": entry},
+    )["widget-keeper"]
+
+
+def _classes_of(*rows):
+    return [{"source": name, "class": kind} for name, kind in rows]
+
+
+def test_retirement_needs_every_required_source_removed_or_renamed():
+    gone = _classes_of(("a", "removed"), ("b", "renamed"), ("c", "present"))
+    assert ir.retirement_class_condition(gone, ["a", "b"]) == (True, None)
+    # `c` exists but is not required: the hold does not protect it.
+    assert ir.retirement_class_condition(gone, ["a"]) == (True, None)
+    assert ir.retirement_class_condition(gone, ["a", "c"]) == (
+        False, "required_source_present",
+    )
+    assert ir.retirement_class_condition(
+        _classes_of(("a", "removed"), ("b", "rebound")), ["a", "b"],
+    ) == (False, "required_source_rebound")
+    # Nothing says what the checkpoint was holding: never retire by class.
+    assert ir.retirement_class_condition(gone, []) == (
+        False, "no_required_sources",
+    )
+
+
+# ---------------------------------------------------------------------------
+# The refusal says the retry is hopeless
+# ---------------------------------------------------------------------------
+
+
+def _unsatisfiable(contract, registry, *, actual, required, **kwargs):
+    state = _blocked_state(
+        source_contract=contract, required_sources=required,
+    )
+    with pytest.raises(SubstrateError) as exc:
+        ir.resume_before_source_writes(
+            redrive_state=state,
+            deployment="kdflex",
+            source_contract=actual,
+            ensure_feedback=lambda *a: None,
+            load_state=lambda: state,
+            promote=lambda *a: {},
+            registry=registry,
+            **kwargs,
+        )
+    return exc.value
+
+
+def test_unsatisfiable_refusal_names_each_change_and_the_ways_out():
+    snapshot = _entry("widget-snapshot", "w.snapshot")
+    history = _entry("widget-history", "w.history")
+    keeper = _entry("widget-keeper", "w.keeper")
+    inventory = _entry("widget-inventory", "w.snapshot")
+    registry = {"widget-inventory": inventory, "widget-keeper": keeper}
+
+    error = _unsatisfiable(
+        [_want(snapshot), _want(history), _want(keeper)],
+        registry,
+        actual=[_want(keeper)],
+        required=["widget-history", "widget-snapshot"],
+    )
+
+    data = error.data
+    assert data["reason"] == "incomplete_recovery_contract_unsatisfiable"
+    assert data["unsatisfiable_sources"] == ["widget-snapshot", "widget-history"]
+    assert data["automatic_retirement_applies"] is True
+    message = str(error)
+    assert "widget-snapshot was renamed to widget-inventory" in message
+    assert "widget-history was removed" in message
+    assert "widget-keeper" not in message.split("but ", 1)[1]
+    hint = error.fix_hint
+    assert "retrying with the same selection cannot succeed" in hint
+    assert "migrate --deployment kdflex --apply" in hint
+    assert data["migrate_command"] in hint
+    command = data["escape_hatch_command"]
+    assert "--apply" not in shlex.split(command)
+    assert _parsed_escape_hatch(command).deployment == "kdflex"
+    assert command in hint
+
+
+def test_a_rebound_refusal_names_the_fields_and_offers_no_migrate():
+    keeper = _entry("widget-keeper", "w.keeper")
+    gone = _entry("widget-history", "w.history")
+    edited = _entry("widget-keeper", "w.keeper", params={"k": "edited"})
+
+    error = _unsatisfiable(
+        [_want(keeper), _want(gone)],
+        {"widget-keeper": edited},
+        actual=[_want(edited, binding_fingerprint="binding-2")],
+        required=["widget-keeper", "widget-history"],
+    )
+
+    assert error.data["reason"] == "incomplete_recovery_contract_unsatisfiable"
+    assert (
+        "widget-keeper is still registered but its catalog_fingerprint, "
+        "binding_fingerprint changed"
+    ) in str(error)
+    # `widget-keeper` is required and only rebound: no automatic retirement.
+    assert error.data["automatic_retirement_applies"] is False
+    assert "migrate --deployment" not in error.fix_hint
+    assert "supersede-checkpoint" in error.fix_hint
+
+
+def test_an_all_present_contract_with_another_selection_keeps_todays_refusal():
+    first = _entry("widget-first", "w.first")
+    second = _entry("widget-second", "w.second")
+    registry = {"widget-first": first, "widget-second": second}
+
+    error = _unsatisfiable(
+        [_want(first), _want(second)],
+        registry,
+        actual=[_want(first)],  # a different selection of present sources
+        required=["widget-second"],
+    )
+
+    assert error.data["reason"] == "incomplete_recovery_contract_mismatch"
+    assert "requires the next run to repeat exactly the sources" in str(error)
+    assert "cannot succeed" not in error.fix_hint
+
+
+def test_the_producer_profile_read_failing_does_not_decide_the_class():
+    gone = _entry("widget-history", "w.history")
+
+    def broken(_ids):
+        raise RuntimeError("database unreachable")
+
+    error = _unsatisfiable(
+        [_want(gone)], {}, actual=[], required=["widget-history"],
+        active_producer_ids=broken,
+    )
+
+    assert error.data["reason"] == "incomplete_recovery_contract_unsatisfiable"
+    assert "active_producer_profile" not in error.data["source_classes"][0]
+
+
+def test_the_hold_line_says_a_retry_cannot_help_and_how_it_retires():
+    hold = {
+        **_HOLD,
+        "deployment": "d",
+        "source_classes": [
+            {"source": "widget-snapshot", "class": "renamed",
+             "renamed_to": "widget-inventory"},
+            {"source": "widget-history", "class": "removed"},
+            {"source": "widget-keeper", "class": "present"},
+        ],
+        "automatic_retirement_applies": True,
+    }
+    line = ir.source_sync_hold_line(hold)
+    assert "A retry cannot succeed: widget-snapshot was renamed to " in line
+    assert "widget-history was removed" in line
+    assert "widget-keeper" not in line.split("A retry cannot succeed", 1)[1]
+    assert "migrate --deployment d --apply" in line
+
+    held = ir.source_sync_hold_line({**hold, "automatic_retirement_applies": False})
+    assert "A retry cannot succeed" in held
+    assert "migrate --deployment" not in held
+    # Untouched when nothing changed: the old sentence is exact.
+    assert ir.source_sync_hold_line(_HOLD) == ir.source_sync_hold_line(
+        {**_HOLD, "source_classes": [], "automatic_retirement_applies": False},
+    )

@@ -1387,6 +1387,53 @@ def _preflight_enricher_contracts(*, deployment: str, dsn: str) -> None:
     ))
 
 
+def _retire_removed_source_contract_at_start(
+    *,
+    dsn: str,
+    deployment: str,
+    manifest: object,
+    repo_root_override: object,
+) -> dict | None:
+    """Retire a repair contract whose required sources are gone (worker start).
+
+    A `repair_required` contract naming only removed or renamed sources can
+    never be repaired and would refuse every source-sync workflow. Never
+    fatal: a worker that cannot read the checkpoint still starts, and the
+    refusal each workflow then gets names the cause. A retirement is logged
+    at INFO; a contract kept for a safety reason at WARNING with the reason;
+    a registry that could not be loaded, or any error, at ERROR.
+    """
+    try:
+        from okg.substrate.ingest.incomplete_recovery import (
+            WORKER_ACTOR,
+            retire_removed_source_contract_for_deployment,
+        )
+
+        report = retire_removed_source_contract_for_deployment(
+            dsn=dsn,
+            deployment=deployment,
+            actor=WORKER_ACTOR,
+            manifest=manifest,
+            repo_root_override=repo_root_override,
+        )
+    except Exception:  # noqa: BLE001 - logged with its traceback; see above
+        log.exception(
+            "source contract retirement at worker start failed for %s",
+            deployment,
+        )
+        return None
+    if report is None:
+        return None
+    if report["status"] in {"retired", "retired_by_other"}:
+        level = logging.INFO
+    elif report.get("reason") == "registry_unavailable":
+        level = logging.ERROR
+    else:
+        level = logging.WARNING
+    log.log(level, "source contract retirement at worker start: %s", report)
+    return report
+
+
 @_own_connection_reservation
 def run_worker(
     *,
@@ -1512,6 +1559,15 @@ def run_worker(
             provenance.get("sync_root_source"),
             (provenance.get("target") or {}).get("identity"),
         )
+
+    # PACT recovery-contract-removed-sources: retire a repair contract whose
+    # required sources were removed or renamed, before any workflow runs.
+    _retire_removed_source_contract_at_start(
+        dsn=dsn,
+        deployment=deployment,
+        manifest=_manifest_for_gates,
+        repo_root_override=_source_registry_repo_root,
+    )
 
     # Issue #945: freeze what this process is about to load. The worker
     # holds its imported modules for life, so an edit to the checkout it

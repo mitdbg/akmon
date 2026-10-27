@@ -77,7 +77,7 @@ _ORDERED_MIGRATION_CHECKSUM_COMPATIBILITIES: dict[str, dict[str, Any]] = {
             "audited rephasing for phase-interval-narrow-split-migration: "
             "the recorded checksum is the original "
             "single-transaction DO-block variant, whose durable end state "
-            "(hash functions, okg.attribute_versions, NOT NULL attrs_hash "
+            "(hash functions, the version store, NOT NULL attrs_hash "
             "columns, composite FKs, wide columns dropped) is identical to "
             "what the multi-phase driver now produces; databases that "
             "applied it atomically are already at that end state"
@@ -97,6 +97,36 @@ _ORDERED_MIGRATION_CHECKSUM_COMPATIBILITIES: dict[str, dict[str, Any]] = {
             "identical DROP NOT NULL / DROP DEFAULT only where the wide "
             "column exists, so durable DDL on every already-migrated "
             "deployment is unchanged"
+        ),
+    },
+    "0013_attribute_integrity_receipts": {
+        "canonical_checksum": (
+            "4cd196cf63b2eb9d0eb9909916635b3bcccac4c57099528bba1fe89e1eac6b07"
+        ),
+        "compatible_recorded_checksums": {
+            "bce81a578940dafa440c305dd7393f6531d4e0afcb6b0673e16b9a9172fc4f80"
+        },
+        "reason": (
+            "audited edit: the trigger loop "
+            "resolves the two attribute copies with to_regclass and skips an "
+            "absent one, so a fresh install (where nothing creates them before "
+            "0046 drops them) applies; the triggers created on an existing "
+            "table are identical"
+        ),
+    },
+    "0015_attribute_integrity_authority_hardening": {
+        "canonical_checksum": (
+            "578e8274b27b360d737f68ba0e6d8871695d5a841d7e25bb0ffc24dd2cdde5d7"
+        ),
+        "compatible_recorded_checksums": {
+            "8c473680bd28f1bfb00fd51b11b9eaa0046b2383e598463ad7d2e3fa9b8acfb1"
+        },
+        "reason": (
+            "audited edit: the trigger loop "
+            "resolves the two attribute copies with to_regclass and skips an "
+            "absent one, so a fresh install (where nothing creates them before "
+            "0046 drops them) applies; the triggers created on an existing "
+            "table are identical"
         ),
     },
 }
@@ -2820,9 +2850,9 @@ _DISK_DEEP_DEAD_PCT_WARN = 25.0
 
 # okg#1324: index structure that outlived its rows. VACUUM reclaims dead tuples
 # but never shrinks a btree, so a table drained of the bulk of its rows keeps
-# index pages sized to rows that are long gone. On okg-workspace
-# `okg.attribute_effective_view` carried 2,333 MB of indexes over a 16 kB heap
-# (16 live rows) after its payload moved to the interval sidecar, and its 974 MB
+# index pages sized to rows that are long gone. On okg-workspace the attribute
+# snapshot table (dropped since, by 0046) carried 2,333 MB of indexes over a
+# 16 kB heap (16 live rows) after its payload moved elsewhere, and its 974 MB
 # primary key had been scanned 24.7M times -- every one of those lookups walking
 # a near-empty multi-gigabyte tree. `REINDEX TABLE CONCURRENTLY` returned it to
 # 56 kB.

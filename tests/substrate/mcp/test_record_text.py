@@ -392,7 +392,7 @@ def _install(monkeypatch: pytest.MonkeyPatch, segments: list[_Segment]) -> None:
     monkeypatch.setattr(record_text, "assert_session_matches", lambda conn, session: None)
     # No graph behind these fakes: a text-less node keeps its attrs pointer.
     monkeypatch.setattr(record_text, "_text_twin_move",
-                        lambda conn, session, node_id: record_text.NO_TEXT_NODE_MOVE)
+                        lambda conn, session, node_id, **_: record_text.NO_TEXT_NODE_MOVE)
     monkeypatch.setattr(
         record_text,
         "_visible_start",
@@ -686,7 +686,7 @@ def _install_chunk(
     )
     monkeypatch.setattr(record_text, "assert_session_matches", lambda conn, session: None)
     monkeypatch.setattr(record_text, "_text_twin_move",
-                        lambda conn, session, node_id: record_text.NO_TEXT_NODE_MOVE)
+                        lambda conn, session, node_id, **_: record_text.NO_TEXT_NODE_MOVE)
     monkeypatch.setattr(
         record_text, "_visible_start", lambda conn, session, graph, node_id, **_kw: chunk
     )
