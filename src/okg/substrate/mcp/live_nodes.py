@@ -581,7 +581,8 @@ async def _expand(
             "live": {"system": system, "observed_at": started, "fields": states},
         })
     listed = len(out)
-    not_comparable: Counter[str] = Counter()
+    # PACT read-stored-metrics (N1): number text the rule refuses is named.
+    not_comparable: Counter[str] = live_reader.NotComparable()
     condition_not_read = live_reader.NotRead()
     unread: list[str] = []
     if condition not in (None, {}, True):

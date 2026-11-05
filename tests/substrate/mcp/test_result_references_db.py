@@ -789,8 +789,9 @@ def test_a_reference_equals_the_readers_explicit_id_call(
     if nomos == "enforce":
         assert MASKED in ids and not set(HIDDEN) & set(ids)
     if tool == "aggregate" and nomos == "off":
-        # The group of members with no status is counted, not dropped.
-        assert any('"attrs.status": null' in row for row in by_ref["rows"]), by_ref
+        # The group of members with no status is counted, not dropped. PACT
+        # read-stored-metrics (one grouping rule): it prints (absent).
+        assert any('"attrs.status": "(absent)"' in row for row in by_ref["rows"]), by_ref
 
 
 def test_a_reference_from_a_hidden_match_pages_like_one_from_an_absent_match(
@@ -1270,7 +1271,8 @@ def test_a_summary_equals_aggregate_over_its_reference(world, monkeypatch, by) -
     assert "bounds" not in page["coverage"]["delivery"]
     if by == ["attrs.status"]:
         # The members with no status are a counted group, as in aggregate.
-        assert any(g["attrs.status"] is None for g in summary["groups"]), summary
+        # PACT read-stored-metrics (one grouping rule): it prints (absent).
+        assert any(g["attrs.status"] == "(absent)" for g in summary["groups"]), summary
 
 
 def test_a_summary_refuses_where_aggregate_over_the_reference_refuses(

@@ -55,6 +55,8 @@ READSIDE_FIELDS = {
     "audit_questions",
     "skill_triggers",
     "skills",
+    # Issue #4280: the served-text report, set at server build.
+    "surface_text",
 }
 
 

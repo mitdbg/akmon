@@ -323,6 +323,10 @@ class GrammarRefusal(ValueError):
         #: Arguments the caller repeats beside `retry_arguments`, which does
         #: not carry them.
         self.retry_repeat: tuple[str, ...] = ()
+        #: Whether `retry_arguments` may be offered on the argument checks
+        #: alone when the read-free proof cannot decide it (PACT
+        #: read-refusal-retry-calls): set only for the logical-word repair.
+        self.offer_on_argument_checks = False
         #: The refusal's code when it is not the argument check's own: a
         #: `select` no row of a fixed-row view can answer keeps the code
         #: every other `select` refusal has. `select_data` is that
@@ -872,6 +876,52 @@ def _holds_conditions(key: str, value: Any) -> bool:
     )
 
 
+def _tests_on_key(key: str, value: Mapping[str, Any]) -> bool:
+    """Whether a logical test written as `key`'s value joins only tests of
+    `key`: each inner condition one comparison naming no `field`, or `key`.
+    Then the field each tests is the key, and the test reads as the same
+    logical word around tests of the key."""
+    if value.get("op") == "not":
+        inner: Any = [value.get("clause")]
+    else:
+        inner = value.get("clauses")
+    if not isinstance(inner, list) or not inner:
+        return False
+    return all(
+        # A known comparison only: an unknown operator stays refused once
+        # moved, so it keeps the words, not a rewrite that is refused too.
+        isinstance(clause, Mapping) and clause.get("op") in _LEAF_OPS
+        and clause.get("field", key) == key
+        and all(isinstance(name, str) for name in clause)
+        for clause in inner
+    )
+
+
+def _around_key(key: str, value: Mapping[str, Any]) -> dict[str, Any]:
+    """`key: {op: not|and|or, ...}` as that word around tests of the key,
+    each test written short: `{op: not, clause: {key: test}}`."""
+
+    def on_key(clause: Mapping[str, Any]) -> dict[str, Any]:
+        return {key: {name: test for name, test in clause.items() if name != "field"}}
+
+    if value["op"] == "not":
+        return {"op": "not", "clause": on_key(value["clause"])}
+    return {"op": value["op"], "clauses": [on_key(clause) for clause in value["clauses"]]}
+
+
+#: The words every logical-word repair says (`_around_key_words`).
+_AROUND_KEY_MARK = "` around the test on "
+
+
+def _around_key_words(key: str, op: str) -> str:
+    return (
+        f"write `{op}{_AROUND_KEY_MARK}{_name(key)}, at the level of the "
+        f"conditions: {{\"op\": \"{op}\", "
+        + ("\"clause\"" if op == "not" else "\"clauses\"")
+        + f": ...}} with {_name(key)} inside"
+    )
+
+
 def _short_clause(
     key: str, value: Any, *, node: Mapping[str, Any], fields: Fields, path: str,
 ) -> dict[str, Any]:
@@ -913,15 +963,21 @@ def _short_clause(
         if value["op"] in _LOGICAL_OPS:
             # `and`, `or` and `not` join conditions; they do not test a
             # field, and a tool given one beside `field` ignores the field.
+            # When every inner test names no field (or this key), the field
+            # they test is the key, and the call is repaired (census M6,
+            # qs-01: `attrs.status: {"op": "not", "clause": {"op": "eq", ...}}`).
+            on_key = _tests_on_key(key, value)
             raise GrammarRefusal(
                 f"{path}: the test on {_name(key)} uses `{value['op']}`, which "
                 "joins conditions; a test on a field is one comparison",
                 fix_hint=(
+                    _around_key_words(key, value["op"]) if on_key else
                     f"write `{value['op']}` at the level of the conditions it "
                     "joins, each of them naming its own field; which fields "
                     "the inner conditions test cannot be told from this value"
                 ),
                 fields=(path,),
+                repairable=on_key,
             )
         if "field" in value:
             same = value["field"] == key
@@ -2321,6 +2377,15 @@ def _repaired(
                 "which of the two tests is meant cannot be told",
             ))
             continue
+        if (
+            isinstance(value, Mapping) and value.get("op") in _LOGICAL_OPS
+            and _tests_on_key(key, value)
+        ):
+            # A logical word written as a field's test, joining tests of
+            # that field only: the word around those tests (census M6).
+            notes.append(("corrected", _around_key_words(key, value["op"])))
+            logical.append(_around_key(key, value))
+            continue
         if isinstance(value, Mapping) and "op" in value and value.get("field") == key:
             notes.append(("corrected", f"drop `field` from the test on {_name(key)}"))
             value = {k: v for k, v in value.items() if k != "field"}
@@ -3109,6 +3174,14 @@ class _Rewrite:
                 refusal.retry_arguments = _replaced(self.sent, argument, repaired)
                 refusal.retry_mode = (
                     "guess" if any(mode == "guess" for mode, _ in notes) else "corrected"
+                )
+                # PACT read-refusal-retry-calls: a repair made only of
+                # logical words moved around tests of their key changes no
+                # field, operator or operand the caller sent, so the call is
+                # offered on the argument checks alone when the read-free
+                # proof cannot decide it (an aggregate `order_by`, a date).
+                refusal.offer_on_argument_checks = bool(notes) and all(
+                    _AROUND_KEY_MARK in words for _, words in notes
                 )
             raise
         self.adjusted += adjusted

@@ -36,6 +36,7 @@ psycopg = pytest.importorskip("psycopg")
 
 from psycopg.rows import dict_row  # noqa: E402
 
+from tests.substrate.mcp._empty_why_reads import own_reads  # noqa: E402
 from okg.substrate import declared_attr_indexes as dai  # noqa: E402
 from okg.substrate.errors import SubstrateError  # noqa: E402
 from okg.substrate.mcp import attr_filter_source as afs  # noqa: E402
@@ -60,6 +61,10 @@ def corpus(clean_runtime: str, okg_mcp_can_log_in: str) -> Iterator[dict[str, An
         yield {"dsn": dsn, "pinned": pinned, "head": head, "reader": reader}
 
 
+#: The open capture, told where each read starts and ends (`_read`).
+_CAPTURES: list["Capture"] = []
+
+
 class Capture:
     """The page statements the reader runs, and every statement any cursor
     runs (to prove none reads ``okg.attr_index``)."""
@@ -74,14 +79,29 @@ class Capture:
             text = str(query)
             capture.everything.append(text)
             if _PAGE_MARK in text and "effective_page" in text:
-                capture.statements.append(text)
+                capture.statements.append((text, dict(params or {})))
             return real(self, query, params, **kwargs)
 
         monkeypatch.setattr(psycopg.Cursor, "execute", execute)
+        self.start = 0
+        self.own: list[tuple[str, Any]] = []
+        _CAPTURES[:] = [self]
+
+    def begin(self) -> None:
+        self.start = len(self.statements)
+
+    def end(self, result: Any, predicate: Any) -> None:
+        # Lane ri F6 (read-empty-why-f6): an empty first page also runs the
+        # page reads its empty_why block reports, after the call's own page
+        # read; their number is asserted exactly (`own_reads`), and `own`
+        # keeps the rest, so `last` is the last statement a call itself ran.
+        self.own += own_reads(
+            self.statements[self.start:], result, scope=c.SCOPE, predicate=predicate,
+        )
 
     def last(self) -> str:
-        assert self.statements, "no page statement ran"
-        return self.statements[-1]
+        assert self.own, "no page statement ran"
+        return self.own[-1][0]
 
     def assert_no_attr_index(self) -> None:
         touched = [s for s in self.everything if _ATTR_INDEX.search(s)]
@@ -95,7 +115,11 @@ def _read(corpus: dict[str, Any], monkeypatch: pytest.MonkeyPatch, mode: str,
         monkeypatch.delenv(afs.SWITCH_ENV, raising=False)
     else:
         monkeypatch.setenv(afs.SWITCH_ENV, mode)
+    for capture in _CAPTURES:
+        capture.begin()
     result = corpus["reader"].filter(generation or corpus["head"], predicate, **kw)
+    for capture in _CAPTURES:
+        capture.end(result, predicate)
     # A range bound the read check cannot read as an instant is refused
     # (issue #3666, 2c); every other read answers.
     assert "error" not in result or c.unreadable_ts_bound(predicate), (mode, predicate, result)

@@ -93,6 +93,7 @@ from okg.substrate.mcp.grep_search import (
 )
 from okg.substrate.mcp.passage_rollup import resolve_edge_segment
 from okg.substrate.mcp.response_bounds import InvalidOperatorArguments
+from okg.substrate.mcp.retry_edits import declare_retry_edit
 from okg.substrate.mcp.search_profiles import ResolvedScope
 from okg.substrate.mcp.session import Session
 
@@ -192,18 +193,18 @@ def validate_within(
             f"search: within must be 'unit' or 'record'; got {within!r}",
         )
     if method != "grep":
-        raise _refusal(
+        raise declare_retry_edit(_refusal(
             f"within='record' is a grep form; this call is method={method!r}",
             fix_hint="send method='grep' with within='record', or drop within",
             method=method,
-        )
+        ), use={"method": "grep"}, mode="guess")
     parsed = parse_grep_query(query or "")
     if parsed.path_terms:
-        raise _refusal(
+        raise declare_retry_edit(_refusal(
             "within='record' takes no path: term",
             fix_hint="scope by path with path_prefix, or drop within",
             reason="path_term",
-        )
+        ), drop=("within",), mode="guess")
     if not parsed.positive:
         raise _refusal(
             "within='record' needs at least one word, phrase or re:/.../ to match",
@@ -221,11 +222,12 @@ def validate_within(
         ) if given
     ]
     if unread:
-        raise _refusal(
+        # `scope` is the caller's argument name for a record scope.
+        raise declare_retry_edit(_refusal(
             f"within='record' does not read {', '.join(unread)}",
             fix_hint=f"drop {', '.join(unread)}, or drop within for grep's unit form",
             arguments=unread,
-        )
+        ), drop=tuple(unread), mode="guess")
     if offset and continuation_token is not None:
         raise InvalidOperatorArguments(
             "search(method=grep): offset and continuation_token cannot be "
@@ -274,7 +276,11 @@ class _Scope:
             # record type out refuses it (`subtype_outside_profile`) unless
             # the call also passes profile="all".
             outside = scope.subtypes is not None and any(o not in scope.subtypes for o in owners)
-            raise _refusal(
+            # The first fix, as a call (census M6, okg3-q008): the caller's
+            # own call without within lists the passages its where names; a
+            # `select` of record-form fields goes too when unit grep does not
+            # take it. A guess: the words also name the record types.
+            raise declare_retry_edit(declare_retry_edit(_refusal(
                 f"within='record' reads passages through their record; "
                 f"{subtype!r} is a passage type",
                 fix_hint=(
@@ -285,7 +291,7 @@ class _Scope:
                 reason="passage_type",
                 record_types=owners,
                 profile_all_needed=outside,
-            )
+            ), drop=("within",), mode="guess"), drop=("within", "select"), mode="guess")
         residual = filter.get("where")
         # A `where` naming a passage type beside other conditions is refused
         # before this (`search._refuse_grep_where_passage_type`).

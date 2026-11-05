@@ -544,7 +544,19 @@ def _timing_detail_is_duration(label: str) -> bool:
 _RECORD_SET_REF_SCHEMA = "okg.source_runner.record_set_ref.v1"
 _CURSOR_BLOB_REF_SCHEMA = "okg.source_runner.cursor_blob_ref.v1"
 _CURSOR_BLOB_STORAGE = "okg.source_cursor_blobs"
-_DEFAULT_INLINE_RECORD_SET_MAX_BYTES = 1_000_000
+# A record set larger than this is stored once in okg.source_record_set_blobs
+# and the cursor carries only a reference. An inline set is copied into the
+# accepted verdict, every admission event and the ingest report (stored twice
+# by DBOS), so at 64 KiB five inline copies cost about one blob row. PACT
+# record-set-by-reference; OKG_SOURCE_RUNNER_INLINE_RECORD_SET_MAX_BYTES
+# overrides it.
+_DEFAULT_INLINE_RECORD_SET_MAX_BYTES = 65_536
+# The inline cap before PACT record-set-by-reference. Sources read the prior
+# record set only when it is inline (doc_corpus's unchanged-input shortcut
+# and scoped runs, agent_sessions, openspec, code_graph, git_graph_files,
+# pact), so the runner hands a source a referenced prior set inline whenever
+# it is at most this size, exactly as before. Fixed: not the env cap.
+_ADAPTER_INLINE_PRIOR_RECORD_SET_MAX_BYTES = 1_000_000
 # Fixed source-tail record fields; caller metadata may not overwrite them.
 _TAIL_RESERVED_KEYS = frozenset({
     "schema", "correlation", "phase", "authority_ordinal", "verified",
@@ -1297,6 +1309,11 @@ class RunResult:
     # Issue #2818 backstop: the operator's `--allow-full-retraction` record
     # for this run (who, when, which source, and what it let through).
     full_retraction_override: Optional[dict[str, Any]] = None
+    # PACT record-set-by-reference: the prior cursor named a record_set_ref
+    # whose blob is not in okg.source_record_set_blobs. The run proceeded
+    # with no prior record set, as before; this names the source and sha256
+    # so the loss is visible instead of silent. None when nothing was lost.
+    prior_record_set_missing: Optional[dict[str, Any]] = None
     # Private transaction-local staging state. It is deliberately omitted from
     # as_dict(), cursors, watermark state, summaries and admission payloads.
     private_authority_candidate: Optional[PrivateAuthorityCandidate] = field(
@@ -1378,6 +1395,8 @@ class RunResult:
             out["record_set_authority"] = self.record_set_authority
         if self.full_retraction_override is not None:
             out["full_retraction_override"] = self.full_retraction_override
+        if self.prior_record_set_missing is not None:
+            out["prior_record_set_missing"] = dict(self.prior_record_set_missing)
         return out
 
     def graph_write_set_as_dict(self) -> dict[str, Any] | None:
@@ -1865,6 +1884,18 @@ def _has_file_image_value(attrs: Any) -> bool:
         site.value.get(IMAGE_TAG) == KIND_FILE
         for site in iter_image_values(attrs)
     )
+
+
+def prior_record_set_report_fields(result: Any) -> dict[str, Any]:
+    """The lost prior record-set blob for the per-source report, when one was.
+
+    PACT record-set-by-reference: present only when the prior cursor named a
+    record_set_ref whose blob was unreachable, so a normal run adds no key.
+    """
+    missing = getattr(result, "prior_record_set_missing", None)
+    if not isinstance(missing, Mapping):
+        return {}
+    return {"prior_record_set_missing": dict(missing)}
 
 
 def image_report_fields(result: Any) -> dict[str, Any]:
@@ -2361,6 +2392,7 @@ class SourceRunner:
         self._active_bootstrap_ledger_next: dict[str, Any] | None = None
         self._active_bootstrap_lock_key: str | None = None
         self._active_private_authority_candidate: PrivateAuthorityCandidate | None = None
+        self._active_prior_record_set_missing: dict[str, str] | None = None
         self._fact_batch_application: Any | None = None
         # ``run()`` resets this per run; a direct flush outside ``run()``
         # compares the way an ordinary (non-replay) run does.
@@ -3294,6 +3326,18 @@ class SourceRunner:
             except Exception:  # noqa: BLE001 — cleanup path; suppress close-time errors
                 pass
 
+    @property
+    def prior_record_set_missing(self) -> Optional[dict[str, str]]:
+        """The unreachable prior record set of the latest ``run()``, if any.
+
+        PACT record-set-by-reference. Set before the adapter reads, so it is
+        known even when the run then raises and no RunResult exists; the next
+        ``run()`` clears it. ``prior_record_set_report_fields`` accepts the
+        runner as well as a RunResult.
+        """
+        missing = getattr(self, "_active_prior_record_set_missing", None)
+        return dict(missing) if isinstance(missing, Mapping) else None
+
     def release_deferred_bootstrap_lock(self) -> None:
         """Release an admission-spanning bootstrap lease, if one is held.
 
@@ -3515,6 +3559,7 @@ class SourceRunner:
             self._active_bootstrap_ledger_expected = None
             self._active_bootstrap_ledger_next = None
             self._active_private_authority_candidate = None
+            self._active_prior_record_set_missing = None
             self._active_pipeline_snapshot = (
                 self._resolve_pipeline_identity_snapshot(adapter)
             )
@@ -3535,6 +3580,9 @@ class SourceRunner:
             )
             result.full_retraction_override = (
                 self._full_retraction_guard.audit_record()
+            )
+            result.prior_record_set_missing = (
+                self._active_prior_record_set_missing
             )
             self._release_owned_run_base()
             return result
@@ -4359,13 +4407,18 @@ class SourceRunner:
                 raw_token=probe_token,
             )
 
+        # PACT record-set-by-reference: a referenced prior set of at most
+        # 1 MB reaches the adapter inline, as it did before the cap moved.
+        adapter_facing_cursor, inlined_prior_record_set = (
+            self._adapter_facing_cursor(adapter_cursor)
+        )
         step_started = time.perf_counter()
         source_run = adapter.run(
             run_id,
             **_adapter_run_kwargs(
                 adapter,
                 mode=mode,
-                cursor=adapter_cursor,
+                cursor=adapter_facing_cursor,
                 since_progress=prior_progress,
                 sync_scope=sync_scope,
                 change_probe_verdict=probe_verdict,
@@ -4488,6 +4541,11 @@ class SourceRunner:
 
         record_retractions: list[NodeFact | EdgeFact] = []
         next_cursor = source_run.next_cursor
+        self._restore_record_set_ref(
+            next_cursor,
+            inlined=inlined_prior_record_set,
+            ref=(adapter_cursor or {}).get(_RECORD_SET_REF_KEY),
+        )
         explicit_record_set = source_run.record_set
         deletion_authorized = self._completed_scope_deletion_authorized(
             mode=mode,
@@ -4873,7 +4931,8 @@ class SourceRunner:
                 source_run=source_run,
                 next_cursor=next_cursor,
                 prior_cursor=prior_cursor,
-                adapter_cursor=adapter_cursor,
+                # The bootstrap claim echoes the cursor the adapter consumed.
+                adapter_cursor=adapter_facing_cursor,
                 persisted_cursor=prelude.persisted_cursor,
                 prior_authority=prior_bootstrap_authority,
                 bindings_before=bootstrap_bindings_before,
@@ -6559,11 +6618,121 @@ class SourceRunner:
             return prior_cursor
         if self._external_record_set_ref_reachable(ref):
             return prior_cursor
+        # The run proceeds with no prior record set, as before, but says so:
+        # this run cannot retract records the unreachable set held.
+        ref_payload = ref if isinstance(ref, Mapping) else {}
+        storage = str(ref_payload.get("storage") or "")
+        if not self._record_set_ref_matches_source(ref):
+            reason = "ref_refused_schema_or_source_mismatch"
+        elif storage == "okg.source_record_sets":
+            reason = "legacy_okg_source_record_sets_row_missing"
+        else:
+            reason = "okg_source_record_set_blobs_row_missing"
+        missing = {
+            "source": self.source_name,
+            "sha256": str(ref_payload.get("sha256") or ""),
+            "reason": reason,
+        }
+        self._active_prior_record_set_missing = missing
+        log.warning(
+            "SourceRunner: prior record_set_ref for source %s "
+            "(sha256=%s) is unreachable (%s); running with no prior "
+            "record set",
+            missing["source"],
+            missing["sha256"],
+            reason,
+        )
         cursor = dict(prior_cursor)
         cursor.pop(_RECORD_SET_REF_KEY, None)
         cursor.pop(_RECORD_SET_SUMMARY_KEY, None)
         cursor.pop(_RECORD_SET_CHRONOS_PROOF_KEY, None)
         return cursor
+
+    def _adapter_facing_cursor(
+        self,
+        adapter_cursor: Optional[dict[str, Any]],
+    ) -> tuple[Optional[dict[str, Any]], Any]:
+        """The prior cursor a source adapter sees, and the set inlined into it.
+
+        PACT record-set-by-reference. The stored cursor references a record
+        set over the inline cap, but sources read the prior set only when it
+        is inline. When the referenced blob is at most
+        ``_ADAPTER_INLINE_PRIOR_RECORD_SET_MAX_BYTES`` (measured as the cursor
+        writer measures it), the adapter gets a copy with ``record_set``
+        inline and no ``record_set_ref``: what it saw before the cap moved.
+        Returns ``(adapter_cursor, None)`` unchanged otherwise. The runner
+        keeps using ``adapter_cursor`` (reference form) for its own reads.
+        """
+        if not isinstance(adapter_cursor, dict):
+            return adapter_cursor, None
+        ref = adapter_cursor.get(_RECORD_SET_REF_KEY)
+        if (
+            ref is None
+            or adapter_cursor.get("record_set") is not None
+            or not isinstance(ref, Mapping)
+            or ref.get("storage") != "okg.source_record_set_blobs"
+            or not self._record_set_ref_matches_source(ref)
+        ):
+            return adapter_cursor, None
+        limit = _ADAPTER_INLINE_PRIOR_RECORD_SET_MAX_BYTES
+        self._ensure_source_record_sets_table()
+        with self._acquire_conn().cursor() as cur:
+            # A pieced set is over the JSONB threshold, far above the limit;
+            # the stored text length bounds the canonical length from above
+            # closely enough to skip loading sets that cannot qualify.
+            cur.execute(
+                """
+                SELECT piece_write_id IS NULL
+                       AND octet_length(
+                             coalesce(record_set_text, record_set::text)
+                           ) <= %s
+                  FROM okg.source_record_set_blobs
+                 WHERE source = %s
+                   AND sha256 = %s
+                """,
+                (2 * limit, self.source_name, str(ref.get("sha256") or "")),
+            )
+            row = cur.fetchone()
+        if not row or not row[0]:
+            return adapter_cursor, None
+        raw = self._load_external_record_set(ref)
+        if raw is None:
+            return adapter_cursor, None
+        payload_bytes = 0
+        for chunk in _iter_record_set_json(raw):
+            payload_bytes += len(chunk.encode("utf-8"))
+            if payload_bytes > limit:
+                return adapter_cursor, None
+        facing = dict(adapter_cursor)
+        facing.pop(_RECORD_SET_REF_KEY, None)
+        facing["record_set"] = raw
+        return facing, raw
+
+    def _restore_record_set_ref(
+        self,
+        next_cursor: Optional[dict[str, Any]],
+        *,
+        inlined: Any,
+        ref: Any,
+    ) -> None:
+        """Put the reference back where an adapter carried the inlined set.
+
+        An adapter that carries its prior authority forward (for example
+        through ``preserve_cursor_record_set_authority``) copies the inline
+        set the runner handed it. That is the referenced set, so the stored
+        cursor gets the reference again, exactly as an adapter that saw the
+        reference would have carried it. Mutates ``next_cursor`` in place:
+        the adapter may still hold it.
+        """
+        if inlined is None or not isinstance(next_cursor, dict):
+            return
+        carried = next_cursor.get("record_set")
+        if carried is None:
+            return
+        if carried is not inlined and carried != inlined:
+            return
+        del next_cursor["record_set"]
+        next_cursor.setdefault(_RECORD_SET_REF_KEY, ref)
 
     @staticmethod
     def _cursor_without_bootstrap_authority(
@@ -7178,6 +7347,12 @@ class SourceRunner:
         try:
             value = int(raw)
         except ValueError:
+            log.warning(
+                "SourceRunner: OKG_SOURCE_RUNNER_INLINE_RECORD_SET_MAX_BYTES=%r "
+                "is not an integer; using the default %d bytes",
+                raw,
+                _DEFAULT_INLINE_RECORD_SET_MAX_BYTES,
+            )
             return _DEFAULT_INLINE_RECORD_SET_MAX_BYTES
         return max(0, value)
 
@@ -7686,6 +7861,28 @@ class SourceRunner:
                     row for row in rows
                     if (row[0], row[2]) not in existing
                 ]
+                if existing:
+                    # A reused blob is current again: refresh updated_at, as
+                    # the record-set writer does, so the automatic blob
+                    # prune's grace window (ingest/source_blob_prune.py)
+                    # counts from this run.
+                    reused = sorted(existing)
+                    cur.execute(
+                        """
+                        UPDATE okg.source_cursor_blobs AS blobs
+                           SET updated_at = now()
+                          FROM unnest(%s::text[], %s::text[])
+                               AS reused(cursor_key, sha256)
+                         WHERE blobs.source = %s
+                           AND blobs.cursor_key = reused.cursor_key
+                           AND blobs.sha256 = reused.sha256
+                        """,
+                        (
+                            [key for key, _digest in reused],
+                            [digest for _key, digest in reused],
+                            self.source_name,
+                        ),
+                    )
             if not missing:
                 return
             try:

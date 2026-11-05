@@ -34,6 +34,7 @@ from typing import Any, Iterator
 import psycopg
 import pytest
 
+from tests.substrate.mcp._empty_why_reads import f6_page_reads, own_reads
 from okg.substrate import declared_attr_indexes as dai
 from okg.substrate.attributes import (
     materialize_effective_attributes_for_generation,
@@ -308,7 +309,9 @@ def _run_filter(
             order_by=order_by,
         )
     assert "error" not in result, result
-    return result, statements
+    # Lane ri F6 (read-empty-why-f6): an empty first page also runs the page
+    # reads its empty_why block reports, after this call's own page read.
+    return result, own_reads(statements, result, scope=scope, predicate=predicate)
 
 
 def _answer(result: dict[str, Any]) -> tuple[Any, ...]:
@@ -672,6 +675,9 @@ def test_the_expression_index_drives_the_page_plan(
     )
     assert result["items"] == []
     assert len(statements) == 1
+    # Lane ri F6 (read-empty-why-f6): the page is empty, so F6 adds 3 page
+    # statements: 2 drop-one probes (the subtype, the path) and 1 value read.
+    assert f6_page_reads(result) == 3, result.get("empty_why")
     if not _expect_narrowed("plan", True):
         # off: no candidate set, nothing to read from an index.
         assert not _narrowed(statements)

@@ -36,6 +36,7 @@ import psycopg
 import pytest
 from psycopg import sql
 
+import tests
 from okg.substrate.db.dsn import redact as _redact_dsn_for_display
 from okg.substrate.db.role_lock import lock_roles_for_alter
 from okg.substrate.dsn_form import (
@@ -1406,6 +1407,89 @@ def okg_migrated(okg_dsn: str) -> Iterator[str]:
 #: and pytest runs each re-export as its own session fixture. Without this
 #: record every one of them would drop and re-migrate the worker database.
 _BUILT_TEMPLATES: dict[str, set[object]] = {}
+
+#: Set to ``1`` to keep every test database this process built when it ends
+#: (for debugging a failed run); see tests/README.md.
+OKG_TEST_KEEP_DBS_ENV = "OKG_TEST_KEEP_DBS"
+
+
+def keep_test_databases() -> bool:
+    """True when ``OKG_TEST_KEEP_DBS=1`` asks to keep the test databases."""
+    return os.environ.get(OKG_TEST_KEEP_DBS_ENV) == "1"
+
+
+def drop_test_databases(
+    worker_dsns: list[str],
+) -> list[tuple[str, bool, str | None]]:
+    """Drop each worker database in ``worker_dsns`` and its ``_tpl`` template.
+
+    Called at the end of a pytest process with the keys of
+    ``_BUILT_TEMPLATES`` (tests/conftest.py ``pytest_sessionfinish``), so
+    each process removes what it built and nothing else: it drops only the
+    names it is given, and refuses a name ``_is_safe_test_dbname`` does not
+    allow. Returns one ``(database, ok, error)`` row per database; a failed
+    drop is a row with ``ok=False``, never an exception, so cleanup cannot
+    change a test outcome. ``OKG_TEST_KEEP_DBS=1`` keeps everything and
+    returns no rows.
+    """
+    if keep_test_databases():
+        return []
+    results: list[tuple[str, bool, str | None]] = []
+    for dsn in worker_dsns:
+        dbname = _target_dbname(dsn)
+        try:
+            names = [okg_test_template_dbname(dsn), dbname]
+        except Exception as exc:  # name too long or missing: report it
+            results.append((str(dbname), False, f"{type(exc).__name__}: {exc}"))
+            continue
+        safe = []
+        for name in names:
+            if _is_safe_test_dbname(name):
+                safe.append(name)
+            else:
+                results.append(
+                    (str(name), False, "refused: not a disposable test database name")
+                )
+        if not safe:
+            continue
+        try:
+            with psycopg.connect(
+                _maintenance_dsn(dsn),
+                connect_timeout=_TEST_DB_CONNECT_TIMEOUT,
+                autocommit=True,
+            ) as conn, conn.cursor() as cur:
+                for name in safe:
+                    try:
+                        _drop_database_force(cur, name)
+                    except Exception as exc:
+                        results.append((name, False, f"{type(exc).__name__}: {exc}"))
+                    else:
+                        results.append((name, True, None))
+        except Exception as exc:  # could not reach the server
+            error = f"{type(exc).__name__}: {exc}"
+            results.extend((name, False, error) for name in safe)
+    return results
+
+
+def drop_built_test_databases() -> list[tuple[str, bool, str | None]]:
+    """Drop every database this process built; the end-of-process cleanup.
+
+    Registered in ``tests.SESSION_CLEANUPS`` below, so ``pytest_sessionfinish``
+    in tests/conftest.py runs it without importing this module. It closes the
+    process's connection pools first, so a pooled connection to a worker
+    database cannot block its drop.
+    """
+    worker_dsns = list(_BUILT_TEMPLATES)
+    if not worker_dsns or keep_test_databases():
+        return []
+    from okg.substrate.db.pool import close_all
+
+    close_all()
+    return drop_test_databases(worker_dsns)
+
+
+if drop_built_test_databases not in tests.SESSION_CLEANUPS:
+    tests.SESSION_CLEANUPS.append(drop_built_test_databases)
 
 
 def _okg_test_template_exists(dsn: str) -> bool:

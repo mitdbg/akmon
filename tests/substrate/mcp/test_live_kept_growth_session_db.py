@@ -313,3 +313,39 @@ def test_a_sort_on_a_field_no_row_holds_after_growth_is_refused(lab) -> None:
     assert failed, json.dumps(refused)[:1500]
     assert refused["error"]["data"]["reason"] in ("order_by_field_not_held", "key_absent_on_every_row")
     assert calls == 0
+
+
+# ---- a kept answer grown inside `run` counts against the run's cap (lane re, review H1)
+
+
+def test_growth_inside_run_steps_counts_against_the_runs_call_cap(lab, monkeypatch) -> None:
+    """FAILS BEFORE (PACT run-argument-shapes, review H1): a map over a kept
+    live-type set inside `run` is sent as its own call, and its growth made
+    up to 1,500 upstream calls per step, none counted against the run's cap.
+    Now two such steps share the run's cap: the first makes its 25 calls,
+    the second plans 25 more past the cap (set to 40 here) and is refused
+    before any call, with the run's own over-cap refusal."""
+    from okg.substrate.mcp import run_steps
+
+    lab.example.set_sites(25)
+    monkeypatch.setattr(run_steps, "MAX_RUN_UPSTREAM_CALLS", 40)
+
+    async def body(client: Any, _second: Any) -> Any:
+        failed, first = await _call(client, "filter", {"where": {"type": "site"}})
+        assert not failed, json.dumps(first)[:1500]
+        handle = first["handle"]["id"]
+        before = lab.example.made(USAGE)
+        grow = {"map": {"input": handle, "select": GROW}, "show": True}
+        result = await client.call_tool("run", {"steps": [grow, grow]}, meta=JSON_META)
+        return json.loads(result.content[0].text), lab.example.made(USAGE) - before
+
+    reply, calls = _sessions(lab, body)
+    first, second = reply["steps"]
+    assert first["status"] == "ok", json.dumps(first)[:1500]
+    assert second["status"] == "refused", json.dumps(second)[:1500]
+    error = second["result"]["error"]
+    assert error["code"] == "run_live_step_refused"
+    assert error["message"] == (
+        "run: step 2 would make 25 upstream calls after 25; a run makes at most 40"
+    )
+    assert calls == 25, "the second step made no upstream call"

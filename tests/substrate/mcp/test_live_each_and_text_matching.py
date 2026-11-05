@@ -91,7 +91,11 @@ def test_a_sum_is_exact_skips_what_is_not_a_number_and_says_how_many() -> None:
         "min(attrs.file_size)": 5,
         "max(attrs.file_size)": max(sizes),
     })]
-    assert skipped == {"attrs.file_size": {"missing": 2, "not_numeric": 1}}
+    # PACT read-stored-metrics (one number rule, named skips): null and absent
+    # are told apart, and "5" is read from numeric text.
+    assert skipped == {"attrs.file_size": {
+        "null": 1, "absent": 1, "not_a_number": 1, "number_text_rejected": 0,
+    }}
 
 
 def test_metrics_per_group_and_a_group_with_no_number_gets_null() -> None:
@@ -248,17 +252,25 @@ def test_a_fanned_out_answer_is_kept_and_summed_exactly(world) -> None:
 
 
 @pytest.mark.postgres
-def test_graph_aggregate_still_needs_by_and_counts_only(world) -> None:
+def test_graph_aggregate_gives_one_total_and_stored_sums(world) -> None:
+    """PACT read-stored-metrics: by=[] over a graph set is one total (the
+    base refused it, "by must name"), and a stored set sums (the base
+    refused it, "kept live answer")."""
     mcp = world["mcp"]
-    no_by = _refused(mcp, "aggregate", {
+    per_type = _ok(mcp, "aggregate", {
+        "input": {"kind": "nodes", "subtype": "page"}, "by": ["subtype"], "metrics": ["count"],
+    })
+    no_by = _ok(mcp, "aggregate", {
         "input": {"kind": "nodes", "subtype": "page"}, "by": [], "metrics": ["count"],
     })
-    assert "by must name" in no_by["message"]
-    summed = _refused(mcp, "aggregate", {
+    assert no_by["by"] == [] and no_by["groups"] == [
+        {"count": sum(g["count"] for g in per_type["groups"])},
+    ]
+    summed = _ok(mcp, "aggregate", {
         "input": {"kind": "nodes", "subtype": "page"}, "by": ["subtype"],
         "metrics": ["sum(attrs.size)"],
     })
-    assert "kept live answer" in summed["message"]
+    assert summed["metrics"] == ["sum(attrs.size)"] and summed["totals_cover"]
 
 
 # ============================================================ 2. matching lines

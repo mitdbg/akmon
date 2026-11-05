@@ -36,6 +36,9 @@ name: release
 #      private: the anonymous pull then fails, the release stays a draft, and
 #      the message says to make the packages public and re-run the failed
 #      jobs.
+#   6. PyPI is not here: once the release is public, dispatch pypi.yml from
+#      main with the tag. It checks the release's wheel again and uploads it
+#      by trusted publishing (see that file for why it is separate).
 #
 # Trusted code: every release-script step runs the copy from the commit this
 # workflow was dispatched from (github.sha, or main before the push), never
@@ -387,14 +390,19 @@ jobs:
           git fetch --no-tags --depth=1 origin "$TRUSTED"
           mkdir -p "${RUNNER_TEMP}/trusted"
           git show "${TRUSTED}:scripts/akmon_release.py" > "${RUNNER_TEMP}/trusted/akmon_release.py"
+          git show "${TRUSTED}:scripts/twine-requirements.txt" > "${RUNNER_TEMP}/trusted/twine-requirements.txt"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       # -I and a working directory outside the checkout: `python -m` would
       # otherwise import a pip/ or pip.py the candidate placed in the checkout.
+      # twine comes from the dispatch commit's hash-pinned requirements.
       - name: Install the release tools
         working-directory: ${{ runner.temp }}
-        run: python -I -m pip install "pyyaml==6.0.3" "uv==0.7.11"
+        run: |
+          set -euo pipefail
+          python -I -m pip install "pyyaml==6.0.3" "uv==0.7.11"
+          python -I -m pip install --require-hashes --only-binary :all: -r "${RUNNER_TEMP}/trusted/twine-requirements.txt"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           artifact-ids: ${{ needs.release-source.outputs.kept-artifact }}
@@ -432,6 +440,11 @@ jobs:
           PY
           python -I "${RUNNER_TEMP}/trusted/akmon_release.py" same-contract \
             "${RUNNER_TEMP}/dist/okg-contract-${TAG}.json" "${RUNNER_TEMP}/candidate/okg-contract-${TAG}.json"
+      # pypi.yml later uploads this wheel to PyPI, which refuses metadata twine
+      # rejects: fail here, before anything is published, not after.
+      - name: Check the wheel's metadata as PyPI will
+        working-directory: ${{ runner.temp }}
+        run: python -I -m twine check --strict "${RUNNER_TEMP}"/dist/okg-*.whl
       - name: Digest the wheel and contract for publish
         id: wheel
         working-directory: ${{ runner.temp }}
@@ -851,8 +864,9 @@ jobs:
       # again here, with this script and freshly staged earlier contracts, and
       # check that every file in the wheel is a byte-for-byte copy of the
       # release tree (or the staged contracts, its build record and its one
-      # standard .dist-info), under a plain, unique name. Requires-Dist is
-      # not compared with pyproject.toml.
+      # standard .dist-info), under a plain, unique name; and that its
+      # METADATA (name, version, Requires-Python, Requires-Dist, extras) is
+      # what the release tree's pyproject.toml declares.
       - name: Check the wheel again
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -871,6 +885,8 @@ jobs:
           python scripts/akmon_release.py wheel-source "$(ls "${RUNNER_TEMP}"/dist/okg-*.whl)" \
             --tree release-tree --revision "$REVISION" --tree-id "$TREE_ID" --version "$VERSION" \
             --contracts "$contracts"
+          python scripts/akmon_release.py wheel-metadata "$(ls "${RUNNER_TEMP}"/dist/okg-*.whl)" \
+            --tree release-tree --version "$VERSION"
       - name: Install the checksum-pinned Helm
         env:
           HELM_VERSION: v3.19.0

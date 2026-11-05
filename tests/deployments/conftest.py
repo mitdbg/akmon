@@ -17,9 +17,12 @@ conflict blocked adding ``tests/deployments`` to the ``fast`` /
 Re-exporting the fixture *functions* here instead has no such conflict -- it is
 a plain import, not a plugin registration -- and makes the chain visible to
 deployment tests (auto-loaded sibling conftests are not). ``okg_dsn`` /
-``okg_migrated`` are session-scoped, but ``okg_migrated`` is idempotent with a
-non-destructive teardown, so the at-most-second setup under co-collection is
-safe.
+``okg_migrated`` are session-scoped, but ``okg_migrated`` is idempotent: a
+second setup under co-collection reuses the template the process already built
+and only takes a fresh clone. Its own teardown leaves the database in place;
+the worker database and its ``_tpl`` template are dropped once, when the
+pytest process ends (``pytest_sessionfinish`` in tests/conftest.py), unless
+``OKG_TEST_KEEP_DBS=1``.
 """
 from tests.substrate.conftest import (  # noqa: F401  (re-exported as fixtures)
     clean_runtime,

@@ -182,6 +182,22 @@ okg perf compare <left> <right> --deployment <name>
 
 The operator UI has no profiling view; use `okg perf` to read captures.
 
+## Benchmark question labels
+
+A benchmark harness names the question and try each MCP call serves, per
+request: the HTTP headers `X-OKG-Question` and `X-OKG-Try`, or the request
+`_meta` keys `okg/question` and `okg/try` on any transport. The server writes
+`<question>#try<n>` to `okg.mcp_trace_events.question_label` and the parts to
+`question_id` and `try_number` in `okg.v_mcp_calls`. A request value wins over
+the in-process label, which wins over `OKG_MCP_SESSION_QUESTION` (no try).
+
+The question is one printable-ASCII token of at most 200 characters without
+`#` or `,`; the try is 1 to 999999. Any other value, a repeated header, a
+header and `_meta` that disagree, or a try without a question refuses a traced
+call with `mcp_question_label_invalid`; the refusal is logged with no question.
+With tracing off, or on a call the tracer skips, no row is written and the
+label is not checked.
+
 ## Unsupported integrations
 
 - **OTLP / Prometheus / StatsD export.** The runtime does not ship a

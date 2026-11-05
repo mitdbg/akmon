@@ -24,6 +24,7 @@ from pydantic import BeforeValidator, Field
 
 from okg.substrate.errors import SubstrateError
 from okg.substrate.mcp.passage_rollup import validate_rank_by
+from okg.substrate.mcp.retry_edits import declare_retry_edit
 
 #: The omitted-``limit`` row budget for cards (and legacy calls), lexical
 #: and grep alike. 8 (was 10; PACT read-reply-size-3666): replies were 90%
@@ -280,7 +281,7 @@ def resolve_search_view(
         pass
     elif view == "list":
         if method != "lexical":
-            raise _refuse(
+            raise declare_retry_edit(_refuse(
                 f"search: view='list' is served on method='lexical' with "
                 f"rank_by='records', on method='grep' and on a where with no "
                 f"query, not method={method!r}",
@@ -289,19 +290,19 @@ def resolve_search_view(
                     "use method='lexical' or method='grep' with query text, "
                     "or omit view for cards"
                 ),
-            )
+            ), drop=("view",), mode="guess")
         resolved_rank = validate_rank_by(
             rank_by, method=method, max_per_parent_argument=max_per_parent_argument,
         )
         if resolved_rank != "records":
-            raise _refuse(
+            raise declare_retry_edit(_refuse(
                 f"search: view='list' needs rank_by='records'; this call "
                 f"resolves rank_by={resolved_rank!r}"
                 + (" (an explicit max_per_parent selects 'self')"
                    if rank_by is None and max_per_parent_argument else ""),
                 data={"view": view, "method": method, "rank_by": resolved_rank},
                 fix_hint="drop rank_by and max_per_parent, or omit view for cards",
-            )
+            ), drop=("rank_by", "max_per_parent"), mode="guess")
     if limit is None:
         limit = default_search_limit(view, method)
     elif isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
@@ -332,11 +333,11 @@ def resolve_search_view(
     if select is None:
         return limit, list(LIST_FIELDS)
     if isinstance(select, (list, tuple)) and not select:
-        raise _refuse(
+        raise declare_retry_edit(_refuse(
             "search: view='list' needs at least one select field",
             data={"view": view, "select": [], "supported_select": list(LIST_FIELDS)},
             fix_hint="omit select for node_id, subtype, handle and parent",
-        )
+        ), drop=("select",))
     # PACT read-passage-rows-3666 (D6): a list row is its head line plus the
     # keys the caller chose: `attrs.<key>` names (one attribute each, as
     # `where` spells them) beside the list's own fields.
@@ -347,7 +348,7 @@ def resolve_search_view(
         not isinstance(name, str) or (name not in LIST_FIELDS and name not in attribute_names)
         for name in select
     ):
-        raise _refuse(
+        raise declare_retry_edit(_refuse(
             "search: view='list' selects node_id, subtype, handle, parent and "
             "attrs.<key> only",
             data={"view": view, "select": select, "supported_select": list(LIST_FIELDS)},
@@ -355,7 +356,7 @@ def resolve_search_view(
                 'omit select, select attributes as "attrs.<key>", or omit view '
                 "for rows with passages"
             ),
-        )
+        ), drop=("select",), mode="guess")
     if len(attribute_names) == len(select):
         # Attributes only: the list's own fields stay (select adds).
         return limit, [*LIST_FIELDS, *attribute_names]
@@ -438,6 +439,14 @@ GREP_LIST_DROPPED_PAGE_KEYS = frozenset({
 })
 #: `grep_search.OWN_MATCH_KEY`, restated: this module imports no search code.
 _OWN_MATCH_KEY = "own_match"
+#: `grep_search.LIST_LINES_KEY`, restated (PACT grep-rows-all-lines).
+_LIST_LINES_KEY = "list_lines"
+#: Matched lines a grep list row shows at most (`grep_search.MAX_WINDOWS`,
+#: the windows grep places a row; a test pins the two).
+GREP_LIST_LINES = 3
+#: Row keys that go with `first_match` (PACT grep-rows-all-lines): a `select`
+#: that keeps `first_match` keeps them, and one without it drops them.
+GREP_LIST_LINE_KEYS = ("other_lines", "lines_left", "lines_left_basis")
 
 
 def grep_list_projection(payload: dict[str, Any]) -> dict[str, Any]:
@@ -469,6 +478,15 @@ def grep_list_projection(payload: dict[str, Any]) -> dict[str, Any]:
       the record's own `text` attribute, which `inspect` text does not
       read). Absent when the query has no text term
       (only `path:`), which leaves no line to show.
+    * `other_lines` (PACT grep-rows-all-lines): the record's next distinct
+      matched lines, in the same shape, so a row shows every matched line
+      up to `GREP_LIST_LINES`: own text first, then passages, each in text
+      order; a line its text and a passage both hold is one line. Read eval
+      hard-10 q009: the first line was a guard and the answer, three lines
+      down, was never opened.
+    * `lines_left`: distinct matched lines of the record not shown, when
+      there are any; `lines_left_basis: "at_least"` when grep did not read
+      every matched line of the record (see `grep_search.LIST_LINES_KEY`).
     """
     result = {k: v for k, v in payload.items() if k not in GREP_LIST_DROPPED_PAGE_KEYS}
     if "parent_relation" in result:
@@ -504,22 +522,29 @@ def _grep_list_row(row: dict[str, Any], *, passage: bool) -> dict[str, Any]:
     # A served row matched somewhere, so never fewer than one.
     out["matches"] = max(folded + (1 if own else 0), 1)
     if windows:
-        if own_windows:
-            first = min(own_windows, key=_window_start)
-        else:
-            # The first passage grep served, and its earliest match.
-            first = min(
-                (w for w in windows if w.get("passage_id") == windows[0].get("passage_id")),
-                key=_window_start,
+        # The record's own text first, earliest match first; then each
+        # passage in the order grep served it, earliest match first.
+        passage_order = list(dict.fromkeys(
+            w["passage_id"] for w in windows if "passage_id" in w
+        ))
+        ordered = sorted(own_windows, key=_window_start) + [
+            w for pid in passage_order
+            for w in sorted(
+                (w for w in windows if w.get("passage_id") == pid), key=_window_start,
             )
-        out["first_match"] = {
-            "chunk": first.get("passage_id", row.get("node_id")),
-            "line": first.get("line"),
-            "text": first.get("excerpt"),
-        }
-        if first.get("line_basis") is not None:
-            # The line is not a line of the record's text: it says of what.
-            out["first_match"]["line_basis"] = first["line_basis"]
+        ]
+        shown = [_list_match(w, row) for w in ordered[:GREP_LIST_LINES]]
+        out["first_match"] = shown[0]
+        if len(shown) > 1:
+            # PACT grep-rows-all-lines: every matched line up to three.
+            out["other_lines"] = shown[1:]
+        seen = row.get(_LIST_LINES_KEY)
+        if isinstance(seen, dict) and isinstance(seen.get("seen"), int):
+            left = seen["seen"] - len(shown)
+            if left > 0:
+                out["lines_left"] = left
+                if seen.get("exact") is not True:
+                    out["lines_left_basis"] = "at_least"
     if passage:
         out[LIST_ROW_UNIT_KEY] = "passage"
     parent = _list_parent(row.get("parent"))
@@ -528,6 +553,20 @@ def _grep_list_row(row: dict[str, Any], *, passage: bool) -> dict[str, Any]:
     for key in ("provenance", "read_provenance"):
         if key in row:
             out[key] = row[key]
+    return out
+
+
+def _list_match(window: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    """One shown line of a grep list row: `{chunk, line, text}`, and its
+    `line_basis` when the line is not a line of the record's text."""
+    out = {
+        "chunk": window.get("passage_id", row.get("node_id")),
+        "line": window.get("line"),
+        "text": window.get("excerpt"),
+    }
+    if window.get("line_basis") is not None:
+        # The line is not a line of the record's text: it says of what.
+        out["line_basis"] = window["line_basis"]
     return out
 
 

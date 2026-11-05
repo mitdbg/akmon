@@ -1499,6 +1499,27 @@ def _run_decide(
                 )
                 if dropped is not None:
                     result["dropped"] = dropped
+    if (
+        connection is None
+        and current.get("intent") == "source_sync"
+        and "emitted" in result
+        and not result.get("already_decided")
+    ):
+        # PACT record-set-blob-autoprune: the approval committed above, so
+        # prune the source's superseded blobs now. A caller's connection may
+        # still be inside its own transaction, so that path leaves the prune
+        # to the source's next accepted run. Never raises.
+        from okg.substrate.ingest.source_blob_prune import (
+            after_accept,
+            report_fields,
+        )
+
+        result.update(report_fields(after_accept(
+            dsn,
+            deployment=deployment,
+            source=str(result["emitted"]["source"]),
+            admission_status=result.get("status"),
+        )))
     result["deployment"] = deployment
     result["decision"] = decision
     return result

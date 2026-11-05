@@ -789,6 +789,15 @@ DEPLOYMENT_KEYS: tuple[DeploymentKey, ...] = (
         ),
     ),
     _key(
+        "source_blob_prune_grace_seconds",
+        "Seconds a superseded source record-set or cursor blob is kept before "
+        "the automatic prune after each accepted run deletes it; 0 turns the "
+        "prune off. Absent or null: 21600 (6 hours).",
+        ("null", "integer"),
+        reader="okg.substrate.ingest.source_blob_prune",
+        value_schema={"minimum": 0, "default": 21600},
+    ),
+    _key(
         "source_registry",
         "Path to the source registry. Required.",
         _S,

@@ -522,7 +522,98 @@ def pytest_sessionstart(session) -> None:
         path.unlink(missing_ok=True)
 
 
+# ---------------------------------------------------------------------------
+# Test-database cleanup at process end (PACT test-db-cleanup)
+#
+# Each process records the worker databases it built through the template
+# builder in `_BUILT_TEMPLATES` of tests/substrate/conftest.py, and that
+# module adds its drop function to `tests.SESSION_CLEANUPS` when it is
+# imported. At session end this hook runs every registered cleanup, so a run
+# with a new database prefix leaves nothing behind; runs that import those
+# fixtures without loading that conftest (tests/deployments,
+# tests/okg-workspace) are covered too. This file never imports or names the
+# registering modules, so a lane that never loads them (the install-path
+# lane) does not depend on them. A failed drop is reported in the terminal
+# summary, never raised, and never changes the exit status. A crashed or
+# killed worker never gets here.
+# ---------------------------------------------------------------------------
+
+_TEST_DB_CLEANUP_OUTPUT_KEY = "test_db_cleanup"
+#: Controller-side rows: (worker id, database, ok, error).
+_TEST_DB_CLEANUP_ROWS = pytest.StashKey[list]()
+
+
+def _drop_this_process_test_databases() -> list[tuple[str, bool, str | None]]:
+    import tests
+
+    results: list[tuple[str, bool, str | None]] = []
+    for cleanup in list(tests.SESSION_CLEANUPS):
+        try:
+            results.extend(cleanup())
+        except Exception as exc:  # report, never raise: cleanup is not a test
+            name = getattr(cleanup, "__qualname__", repr(cleanup))
+            results.append((f"<{name}>", False, f"{type(exc).__name__}: {exc}"))
+    return results
+
+
+def _record_test_db_cleanup(config, worker: str, results) -> None:
+    rows = config.stash.setdefault(_TEST_DB_CLEANUP_ROWS, [])
+    rows.extend((worker, *result) for result in results)
+
+
+def _finish_test_db_cleanup(session) -> None:
+    """Drop this process's test databases and hand the results on."""
+    config = session.config
+    try:
+        results = _drop_this_process_test_databases()
+    except Exception as exc:  # report, never raise: cleanup is not a test
+        results = [("<test database cleanup>", False, f"{type(exc).__name__}: {exc}")]
+    if not results:
+        return
+    workeroutput = getattr(config, "workeroutput", None)
+    if workeroutput is not None:
+        # xdist worker: the controller's pytest_testnodedown reads this.
+        worker = getattr(config, "workerinput", {}).get("workerid", "worker")
+        workeroutput[_TEST_DB_CLEANUP_OUTPUT_KEY] = {
+            "worker": worker,
+            "results": [list(result) for result in results],
+        }
+    else:
+        _record_test_db_cleanup(config, "main", results)
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node, error) -> None:
+    output = (getattr(node, "workeroutput", None) or {}).get(
+        _TEST_DB_CLEANUP_OUTPUT_KEY
+    )
+    if output:
+        _record_test_db_cleanup(node.config, output["worker"], output["results"])
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
+    rows = config.stash.get(_TEST_DB_CLEANUP_ROWS, [])
+    if not rows:
+        return
+    dropped = sum(1 for _worker, _db, ok, _error in rows if ok)
+    failed = [row for row in rows if not row[2]]
+    terminalreporter.write_sep("=", "test database cleanup")
+    terminalreporter.write_line(
+        f"dropped {dropped} test databases; {len(failed)} drops failed"
+        " (set OKG_TEST_KEEP_DBS=1 to keep them)"
+    )
+    for worker, database, _ok, error in failed:
+        terminalreporter.write_line(
+            f"FAILED drop worker={worker} database={database}: {error}", red=True
+        )
+
+
 def pytest_sessionfinish(session, exitstatus) -> None:
+    # Only the real end of a session drops databases: a test that calls this
+    # hook with a stand-in session (tests/test_coverage_area_floors.py) runs
+    # mid-session, where a drop would remove the databases still in use.
+    if isinstance(session, pytest.Session):
+        _finish_test_db_cleanup(session)
     if not _coverage_run_enabled(session.config):
         return
 

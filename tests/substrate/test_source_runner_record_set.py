@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import shutil
 from datetime import datetime, timedelta, timezone
 from typing import Any
 import uuid
@@ -1028,7 +1030,10 @@ def test_large_cursor_fields_are_externalized_and_reloaded(
         )
         blob_count, last_blob_updated_at = cur.fetchone()
     assert blob_count == 1
-    assert last_blob_updated_at == blob_updated_at
+    # PACT record-set-blob-autoprune: reusing the blob refreshes updated_at
+    # (it was left unchanged before), so the automatic prune's grace window
+    # counts from the latest run that wrote it.
+    assert last_blob_updated_at > blob_updated_at
     with psycopg.connect(clean_runtime, autocommit=True) as conn, \
          conn.cursor() as cur:
         cur.execute(
@@ -4239,3 +4244,1605 @@ def test_git_files_owed_list_past_limit_still_retracts_incomplete_run_file(
         after = run("cursor")
         assert after.retractions_node == 0
         assert _source_files(clean_runtime, source) == {"file:demo:other.cc"}
+
+
+# ---------------------------------------------------------------------------
+# PACT record-set-by-reference: the default inline cap is 64 KiB, so a large
+# record set is stored once in okg.source_record_set_blobs and every copy of
+# the cursor (watermark, accepted verdict, admission events, ingest report)
+# carries only record_set_ref. A missing blob is reported, not silent.
+# ---------------------------------------------------------------------------
+
+_CAP_ENV = "OKG_SOURCE_RUNNER_INLINE_RECORD_SET_MAX_BYTES"
+_OLD_CAP = "1000000"
+
+
+def _json_keys(value: Any) -> list[str]:
+    """Every mapping key anywhere inside ``value``."""
+    keys: list[str] = []
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            keys.extend(str(k) for k in item)
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    return keys
+
+
+def _assert_by_reference(surface: str, value: Any, sha256: str) -> None:
+    keys = _json_keys(value)
+    assert "record_set" not in keys, f"{surface} still holds the record set inline"
+    assert "record_set_ref" in keys, f"{surface} names no record_set_ref"
+    assert sha256 in json.dumps(value), f"{surface} names another blob"
+
+
+def _assert_inline(surface: str, value: Any) -> None:
+    keys = _json_keys(value)
+    assert "record_set" in keys, f"{surface} lost the inline record set"
+    assert "record_set_ref" not in keys, f"{surface} moved a small set to a blob"
+
+
+def _catalog_labels(count: int, *, tag: str = "a", width: int = 100) -> tuple[str, ...]:
+    # Whitespace-free labels: the catalog reader splits on whitespace.
+    return tuple(f"REL_{tag}_{i:04d}_" + "x" * width for i in range(count))
+
+
+def _ingest_deployment(tmp_path, dsn: str, labels: tuple[str, ...], monkeypatch):
+    from tests.pytest.source_jobs_inline import use_inline_source_jobs
+    from tests.substrate.runtime import test_connector_completed_scope_modes as modes
+    from tests.substrate.test_connector_completed_scope_modes_e2e import _deployment
+
+    use_inline_source_jobs(monkeypatch)
+    dep, catalog = _deployment(tmp_path, dsn, "ExplicitRecordSetCatalogSource")
+    modes.write_catalog(tmp_path / "releases.txt", labels)
+    return dep, catalog
+
+
+def _ingest_once(dsn: str, dep) -> dict:
+    from tests.substrate.test_connector_completed_scope_modes_e2e import _ingest
+
+    record, report = _ingest(dsn, dep, publish=True)
+    assert record["any_failed"] is False, json.dumps({k: v for k, v in report.items() if k != "results"}, default=str)[:4000]
+    assert record["admission_status"] in {"accepted", "published"}, record
+    return record
+
+
+def _admission_rows(dsn: str, admission_id: str) -> tuple[dict, list[dict]]:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        (verdict,) = conn.execute(
+            "SELECT verdict FROM okg.admission_envelopes"
+            " WHERE admission_id = %s::uuid",
+            (admission_id,),
+        ).fetchone()
+        payloads = [
+            row[0]
+            for row in conn.execute(
+                "SELECT payload FROM okg.admission_events"
+                " WHERE admission_id = %s::uuid ORDER BY event_id",
+                (admission_id,),
+            ).fetchall()
+        ]
+    return verdict, payloads
+
+
+def _svc_watermark(dsn: str) -> dict:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        row = conn.execute(
+            "SELECT last_applied_rev FROM okg.source_watermarks"
+            " WHERE source = 'svc.first'"
+        ).fetchone()
+    assert row is not None, "the sync wrote no watermark"
+    return row[0]
+
+
+def _blob_bytes(dsn: str, source: str, sha256: str) -> int:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        row = conn.execute(
+            "SELECT octet_length(record_set::text)"
+            " FROM okg.source_record_set_blobs"
+            " WHERE source = %s AND sha256 = %s",
+            (source, sha256),
+        ).fetchone()
+    assert row is not None, f"no blob row for {source} {sha256}"
+    return int(row[0])
+
+
+def test_default_cap_moves_a_100kb_record_set_to_a_blob_everywhere(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No override: a ~100 KB set is referenced in the watermark, the
+    accepted verdict's next_cursor, every admission event and the ingest
+    report. Fails on a 1 MB default cap."""
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    dep, _ = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(200), monkeypatch,
+    )
+    record = _ingest_once(clean_runtime, dep)
+
+    watermark = _svc_watermark(clean_runtime)
+    assert watermark.get("record_set_ref") is not None, sorted(watermark)
+    sha256 = watermark["record_set_ref"]["sha256"]
+    _assert_by_reference("watermark", watermark, sha256)
+    size = _blob_bytes(clean_runtime, "svc.first", sha256)
+    assert 65_536 < size < 1_000_000, size
+
+    verdict, payloads = _admission_rows(clean_runtime, record["admission_id"])
+    _assert_by_reference(
+        "verdict.source_terminal_state.next_cursor",
+        verdict["source_terminal_state"]["next_cursor"],
+        sha256,
+    )
+    _assert_by_reference("verdict", verdict, sha256)
+    assert payloads, "no admission events"
+    assert any("record_set_ref" in _json_keys(p) for p in payloads), payloads
+    for payload in payloads:
+        assert "record_set" not in _json_keys(payload), payload.keys()
+    assert "record_set" not in _json_keys(record), "first ingest report"
+
+    # The report carries the verdict for a zero-output run: rerun unchanged.
+    rerun = _ingest_once(clean_runtime, dep)
+    assert rerun["nodes_appended"] == 0, rerun
+    assert rerun["admission_verdict"], rerun
+    rerun_sha = _svc_watermark(clean_runtime)["record_set_ref"]["sha256"]
+    _assert_by_reference("rerun report admission_verdict", rerun["admission_verdict"], rerun_sha)
+    assert "record_set" not in _json_keys(rerun), "rerun ingest report"
+    verdict, payloads = _admission_rows(clean_runtime, rerun["admission_id"])
+    _assert_by_reference("rerun verdict", verdict, rerun_sha)
+    for payload in payloads:
+        assert "record_set" not in _json_keys(payload), payload.keys()
+
+
+def test_default_cap_keeps_a_10kb_record_set_inline(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    dep, _ = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(18), monkeypatch,
+    )
+    record = _ingest_once(clean_runtime, dep)
+
+    watermark = _svc_watermark(clean_runtime)
+    _assert_inline("watermark", watermark)
+    inline_bytes = len(json.dumps(watermark["record_set"]).encode("utf-8"))
+    assert 5_000 < inline_bytes <= 65_536, inline_bytes
+    verdict, _payloads = _admission_rows(clean_runtime, record["admission_id"])
+    _assert_inline(
+        "verdict.source_terminal_state.next_cursor",
+        verdict["source_terminal_state"]["next_cursor"],
+    )
+    rerun = _ingest_once(clean_runtime, dep)
+    assert rerun["nodes_appended"] == 0, rerun
+    _assert_inline("rerun report admission_verdict", rerun["admission_verdict"])
+
+
+
+
+_VOLATILE_ATTRS = frozenset({"parsed_at"})
+
+
+def _live_rows(dsn: str, source: str) -> dict[str, Any]:
+    """Live node and edge ids of ``source`` and a content hash of each row."""
+    store = ChronosGraphStore.connect(dsn, ensure_schema=False)
+    try:
+        nodes = store.query(
+            "SELECT node_id, subtype, attrs FROM okg.graph_nodes"
+            " WHERE source = :source ORDER BY node_id",
+            {"source": source},
+        )
+        edges = store.query(
+            "SELECT edge_id, src, edge_type, dst, attrs FROM okg.graph_edges"
+            " WHERE source = :source ORDER BY edge_id",
+            {"source": source},
+        )
+    finally:
+        store.close()
+
+    def digest(row: Any) -> str:
+        content = dict(row)
+        attrs = content.get("attrs")
+        if isinstance(attrs, dict):
+            # The wall-clock parse time differs between any two syncs.
+            content["attrs"] = {
+                key: value for key, value in attrs.items()
+                if key not in _VOLATILE_ATTRS
+            }
+        return hashlib.sha256(
+            json.dumps(content, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+
+    return {
+        "nodes": {str(row["node_id"]): digest(row) for row in nodes},
+        "edges": {str(row["edge_id"]): digest(row) for row in edges},
+    }
+
+
+def _source_progress(dsn: str, source: str) -> dict[str, str]:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        return dict(
+            conn.execute(
+                "SELECT key, value FROM okg.source_progress"
+                " WHERE source_name = %s AND key NOT LIKE 'sync.%%'",
+                (source,),
+            ).fetchall()
+        )
+
+
+def _source_watermark(dsn: str, source: str) -> dict:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        row = conn.execute(
+            "SELECT last_applied_rev FROM okg.source_watermarks"
+            " WHERE source = %s",
+            (source,),
+        ).fetchone()
+    assert row is not None, f"no watermark for {source}"
+    return row[0]
+
+
+def _sync_outcome(
+    dsn: str, source: str, before: dict[str, Any], run: dict[str, Any],
+) -> dict[str, Any]:
+    """What one sync decided: rows, their content, what it retracted."""
+    after = _live_rows(dsn, source)
+    return {
+        "run": run,
+        "live": after,
+        "retracted_nodes": sorted(set(before["nodes"]) - set(after["nodes"])),
+        "retracted_edges": sorted(set(before["edges"]) - set(after["edges"])),
+        "added_nodes": sorted(set(after["nodes"]) - set(before["nodes"])),
+        "changed_nodes": sorted(
+            key for key in set(before["nodes"]) & set(after["nodes"])
+            if before["nodes"][key] != after["nodes"][key]
+        ),
+        "source_progress": _source_progress(dsn, source),
+        "stored_record_keys": _stored_record_keys(dsn, source),
+    }
+
+
+def _stored_record_keys(dsn: str, source: str) -> list[str]:
+    """The record keys of the record set the watermark holds, either form."""
+    runner = SourceRunner(dsn, source_name=source)
+    try:
+        return sorted(
+            runner._prior_record_set(_source_watermark(dsn, source)).records
+        )
+    finally:
+        runner._release_conn()
+
+
+def _assert_prior_form(dsn: str, source: str, arm: str) -> None:
+    """The prior cursor each arm's second sync starts from."""
+    watermark = _source_watermark(dsn, source)
+    if arm == "old_cap":
+        _assert_inline(f"{arm} prior watermark", watermark)
+        return
+    ref = watermark.get("record_set_ref")
+    assert ref is not None, sorted(watermark)
+    _assert_by_reference(f"{arm} prior watermark", watermark, ref["sha256"])
+    size = _blob_bytes(dsn, source, ref["sha256"])
+    assert 65_536 < size <= 1_000_000, size
+
+
+def _two_arms(
+    okg_migrated: str,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    scenario,
+    *,
+    switch_after_first: bool,
+) -> dict[str, dict[str, Any]]:
+    """Run ``scenario`` in a fresh database twice: kept at the old 1 MB cap,
+    and at the new default (from the start, or only for the second sync)."""
+    from okg.substrate.db.pool import close_all
+    from tests.substrate.conftest import recreate_okg_test_database
+
+    arms: dict[str, dict[str, Any]] = {}
+    for arm in ("old_cap", "new_default"):
+        recreate_okg_test_database(okg_migrated)
+        # One path for both arms: sources record their input paths in rows.
+        root = tmp_path / "arm"
+        shutil.rmtree(root, ignore_errors=True)
+        root.mkdir()
+        try:
+            with monkeypatch.context() as patch:
+                patch.setenv(_CAP_ENV, _OLD_CAP)
+                if arm == "new_default" and not switch_after_first:
+                    patch.delenv(_CAP_ENV)
+
+                def to_second_sync(patch=patch, arm=arm) -> None:
+                    if arm == "new_default" and switch_after_first:
+                        patch.delenv(_CAP_ENV)
+
+                arms[arm] = scenario(okg_migrated, root, patch, arm, to_second_sync)
+        finally:
+            close_all()
+    return arms
+
+
+def _assert_same_outcome(arms: dict[str, dict[str, Any]]) -> None:
+    old, new = arms["old_cap"], arms["new_default"]
+    assert set(old) == set(new)
+    for key in old:
+        assert new[key] == old[key], key
+
+
+def _catalog_switch_scenario(dsn, root, patch, arm, to_second_sync):
+    from tests.substrate.runtime import test_connector_completed_scope_modes as modes
+
+    first_labels = _catalog_labels(200)
+    dep, _ = _ingest_deployment(root, dsn, first_labels, patch)
+    first = _ingest_once(dsn, dep)
+    _assert_inline("watermark after the old-cap sync", _svc_watermark(dsn))
+    before = _live_rows(dsn, "svc.first")
+
+    to_second_sync()
+    # 20 records leave, 10 arrive.
+    modes.write_catalog(root / "releases.txt", first_labels[20:] + _catalog_labels(10, tag="b"))
+    second = _ingest_once(dsn, dep)
+    watermark = _svc_watermark(dsn)
+    if arm == "new_default":
+        ref = watermark.get("record_set_ref")
+        assert ref is not None, sorted(watermark)
+        _assert_by_reference("watermark after the first new-default sync", watermark, ref["sha256"])
+    else:
+        _assert_inline("old-cap watermark", watermark)
+    outcome = _sync_outcome(dsn, "svc.first", before, {
+        key: second[key]
+        for key in ("nodes_appended", "edges_appended", "retract_n", "retract_e")
+    })
+    outcome["first_nodes_appended"] = first["nodes_appended"]
+    outcome["live_after_first"] = before
+    return outcome
+
+
+def test_switching_to_the_default_cap_keeps_graph_progress_and_retractions(
+    okg_migrated: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A source whose prior cursor holds an inline set reads it, writes the
+    reference form, and decides exactly what an old-cap run decides."""
+    arms = _two_arms(
+        okg_migrated, tmp_path, monkeypatch, _catalog_switch_scenario,
+        switch_after_first=True,
+    )
+    old = arms["old_cap"]
+    assert len(old["retracted_nodes"]) == 20, old["retracted_nodes"]
+    assert len(old["added_nodes"]) == 10, old["added_nodes"]
+    _assert_same_outcome(arms)
+
+
+_DOC_CORPUS_SOURCE = "test.doc_corpus.by-reference"
+_DOC_CORPUS_PRIOR_STATS = (
+    "scope_status",
+    "files_changed",
+    "files_processed_unchanged",
+    "files_reused_prior_record_set",
+    "record_set_authority",
+    "record_set_replacement_keys",
+)
+
+
+def _doc_corpus_scoped_scenario(dsn, root, patch, arm, to_second_sync):
+    """A full doc_corpus sync, then a scoped scope_complete run that edits
+    one document and deletes another. doc_corpus builds a scoped run's
+    record set from the prior set only when that set is inline."""
+    from tests.substrate.library.sources import test_doc_corpus_source_file_link as dc
+
+    paths = tuple(f"doc_{i:03d}_{'p' * 40}.md" for i in range(160))
+    dc._seed(dsn, predecessor=False)
+    corpus = dc._corpus(root, git=False, paths=paths)
+    source = dc._source(
+        dsn, corpus, dc._extractors(root), predecessor=False, git_frontier=False,
+    )
+    runner = SourceRunner(dsn, source_name=_DOC_CORPUS_SOURCE)
+    runner.run(source, mode="reconcile")
+    _assert_prior_form(dsn, _DOC_CORPUS_SOURCE, arm)
+    before = _live_rows(dsn, _DOC_CORPUS_SOURCE)
+
+    to_second_sync()
+    (corpus / paths[0]).write_text(f"# {paths[0]}\n\nA new body.\n")
+    (corpus / paths[1]).unlink()
+    scoped = runner.run(
+        source,
+        mode="scope_complete",
+        sync_scope={"scope_keys": [paths[0], paths[1]]},
+    )
+    return _sync_outcome(dsn, _DOC_CORPUS_SOURCE, before, {
+        "completed_scope": scoped.completed_scope,
+        "retractions_node": scoped.retractions_node,
+        "retractions_edge": scoped.retractions_edge,
+        # How the source treated its prior set: reused, rebuilt, or
+        # replaced by key (doc_corpus reads the prior set only inline).
+        "source_stats": {
+            key: source.last_run_stats.get(key)
+            for key in _DOC_CORPUS_PRIOR_STATS
+        },
+    })
+
+
+def test_doc_corpus_scoped_run_over_a_referenced_prior_matches_the_old_cap(
+    okg_migrated: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    arms = _two_arms(
+        okg_migrated, tmp_path, monkeypatch, _doc_corpus_scoped_scenario,
+        switch_after_first=False,
+    )
+    old = arms["old_cap"]
+    assert old["run"]["completed_scope"] is True, old["run"]
+    assert any(":doc_001_" in node for node in old["retracted_nodes"]), old
+    _assert_same_outcome(arms)
+
+
+_AGENT_SESSIONS_SOURCE = "test.agent-sessions.by-reference"
+
+
+def _agent_sessions_scoped_scenario(dsn, root, patch, arm, to_second_sync):
+    """A full agent_sessions sync with one long transcript, then a scoped
+    scope_complete run over that unchanged transcript. agent_sessions
+    completes a scoped run only from an inline prior set. (A changed
+    in-scope transcript is refused at either cap: its record key, the
+    session id, is not its scope key, the transcript path.)"""
+    from okg.substrate.library.sources.agent_sessions import AgentSessionsSource
+    from tests.substrate.library.sources import test_session_source_sync_db as ss
+    from okg_self_micro import materialize  # type: ignore
+
+    fixture = materialize(root)
+    projects_root = fixture.sessions_root.parent
+    alpha = fixture.sessions_root / "alpha-001.jsonl"
+    original = alpha.read_text(encoding="utf-8").rstrip("\n")
+    added = [
+        json.dumps({
+            "type": "user",
+            "timestamp": f"2026-05-05T{12 + i // 3600:02d}:{(i // 60) % 60:02d}:{i % 60:02d}Z",
+            "message": {"content": f"message {i:04d} " + "m" * 60},
+        })
+        for i in range(600)
+    ]
+    alpha.write_text("\n".join([original, *added]) + "\n", encoding="utf-8")
+
+    def source() -> AgentSessionsSource:
+        return AgentSessionsSource(
+            repo="okg",
+            claude_projects_root=projects_root,
+            since="all",
+            cost_estimation=False,
+        )
+
+    ss._seed_catalog_and_external_nodes(dsn, source().run("preview").facts)
+    runner = SourceRunner(dsn, source_name=_AGENT_SESSIONS_SOURCE)
+    baseline = runner.run(source(), mode="scope_complete")
+    assert baseline.completed_scope is True
+    _assert_prior_form(dsn, _AGENT_SESSIONS_SOURCE, arm)
+    before = _live_rows(dsn, _AGENT_SESSIONS_SOURCE)
+
+    to_second_sync()
+    scoped = runner.run(
+        source(),
+        mode="scope_complete",
+        sync_scope={
+            "scope_keys": [alpha.relative_to(projects_root).as_posix()],
+        },
+    )
+    return _sync_outcome(dsn, _AGENT_SESSIONS_SOURCE, before, {
+        "completed_scope": scoped.completed_scope,
+        "retractions_node": scoped.retractions_node,
+        "retractions_edge": scoped.retractions_edge,
+    })
+
+
+def test_agent_sessions_scoped_run_over_a_referenced_prior_matches_the_old_cap(
+    okg_migrated: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    arms = _two_arms(
+        okg_migrated, tmp_path, monkeypatch, _agent_sessions_scoped_scenario,
+        switch_after_first=False,
+    )
+    old = arms["old_cap"]
+    assert old["run"]["completed_scope"] is True, old["run"]
+    _assert_same_outcome(arms)
+
+
+def test_a_carried_forward_inline_prior_is_stored_by_reference_again(
+    clean_runtime: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adapter sees the referenced prior set inline and carries it
+    forward; the stored cursor names the reference again, not the set."""
+    from okg.substrate.library.sources.base import (
+        preserve_cursor_record_set_authority,
+    )
+
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    source = "test.record-set-carry-forward"
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        seed_catalog_version(conn)
+    facts, record_set = _large_record_set(200)
+    seen: list[Any] = []
+
+    class _CarryForward:
+        name = "carry-forward"
+        profile = "discovery_crawl"
+
+        def __init__(self) -> None:
+            self.first = True
+
+        def run(self, run_id, *, mode="cursor", cursor=None, since_progress=None):
+            del run_id, since_progress
+            seen.append(cursor)
+            if self.first:
+                self.first = False
+                return SourceRun(
+                    facts=facts, completed_scope=True, next_cursor={},
+                    run_mode=mode, record_set=record_set,
+                )
+            return SourceRun(
+                facts=[],
+                completed_scope=False,
+                next_cursor=preserve_cursor_record_set_authority({}, cursor),
+                run_mode=mode,
+            )
+
+    adapter = _CarryForward()
+    runner = SourceRunner(clean_runtime, source_name=source)
+    first = runner.run(adapter, mode="scope_complete")
+    ref = first.next_cursor["record_set_ref"]
+    assert 65_536 < _blob_bytes(clean_runtime, source, ref["sha256"]) <= 1_000_000
+
+    second = runner.run(adapter, mode="cursor")
+    # The adapter saw the set inline, as at the old cap, and no reference.
+    assert seen[1]["record_set"] == record_set.to_cursor()
+    assert "record_set_ref" not in seen[1]
+    # What was stored is the reference form.
+    watermark = _source_watermark(clean_runtime, source)
+    _assert_by_reference("carried-forward watermark", watermark, ref["sha256"])
+    assert "record_set" not in _json_keys(second.next_cursor or {})
+
+
+def test_a_referenced_prior_over_the_adapter_limit_reaches_the_adapter_by_reference(
+    clean_runtime: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    monkeypatch.setattr(runner_module, "_ADAPTER_INLINE_PRIOR_RECORD_SET_MAX_BYTES", 65_536)
+    source = "test.record-set-over-adapter-limit"
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        seed_catalog_version(conn)
+    facts, record_set = _large_record_set(200)
+    adapter = _RecordSetAdapter([(facts, record_set), (facts, record_set)])
+    runner = SourceRunner(clean_runtime, source_name=source)
+    runner.run(adapter, mode="scope_complete")
+    runner.run(adapter, mode="scope_complete")
+    assert adapter.seen_cursors[1].get("record_set") is None
+    assert adapter.seen_cursors[1]["record_set_ref"]["storage"] == (
+        "okg.source_record_set_blobs"
+    )
+
+
+def test_a_non_integer_cap_override_warns_and_uses_the_default(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setenv(_CAP_ENV, "64k")
+    with caplog.at_level("WARNING", logger=runner_module.__name__):
+        assert SourceRunner._inline_record_set_max_bytes() == 65_536
+    assert any("64k" in record.getMessage() for record in caplog.records)
+
+
+def _large_record_set(count: int) -> tuple[list[NodeFact], RecordSet]:
+    records: dict[str, RecordEmission] = {}
+    facts: list[NodeFact] = []
+    for i in range(count):
+        node_id = f"doc:{i:04d}:" + "y" * 100
+        facts.append(_node(node_id))
+        records[f"docs/{i:04d}-" + "z" * 100 + ".md"] = RecordEmission(
+            primary=RecordNode(node_id, "concept"),
+        )
+    return facts, RecordSet(records=records)
+
+
+def test_missing_prior_blob_is_reported_by_the_run_and_by_doctor(
+    clean_runtime: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deleted record-set blob: doctor names the source and sha256, and the
+    next run still proceeds but reports prior_record_set_missing."""
+    from okg.substrate.cli import doctor as doctor_cli
+    from okg.substrate.ingest.runner import prior_record_set_report_fields
+
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    source = "test.record-set-missing-blob"
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        seed_catalog_version(conn)
+    facts, record_set = _large_record_set(200)
+    adapter = _RecordSetAdapter([(facts, record_set), (facts, record_set)])
+    runner = SourceRunner(clean_runtime, source_name=source, write_fact_log=True)
+
+    first = runner.run(adapter, mode="scope_complete")
+    assert first.prior_record_set_missing is None
+    assert "prior_record_set_missing" not in first.as_dict()
+    sha256 = first.next_cursor["record_set_ref"]["sha256"]
+
+    report: dict = {"ok": True, "errors": []}
+    clean = doctor_cli._default_doctor_record_set_blobs(clean_runtime, report)
+    assert clean["ok"] is True and clean["missing"] == [], clean
+    assert report.get("warnings", []) == []
+
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        deleted = conn.execute(
+            "DELETE FROM okg.source_record_set_blobs"
+            " WHERE source = %s AND sha256 = %s",
+            (source, sha256),
+        ).rowcount
+    assert deleted == 1
+
+    report = {"ok": True, "errors": []}
+    found = doctor_cli._default_doctor_record_set_blobs(clean_runtime, report)
+    assert found["ok"] is False
+    assert [(m["source"], m["sha256"]) for m in found["missing"]] == [(source, sha256)]
+    (warning,) = [
+        w for w in report["warnings"]
+        if w["code"] == "source_record_set_blob_missing"
+    ]
+    assert source in warning["message"] and sha256 in warning["message"]
+    assert "last_applied_rev" in warning["rev_columns"]
+    assert "next run of this source reads no prior record set" in warning["message"]
+
+    second = runner.run(adapter, mode="scope_complete")
+    expected = {
+        "source": source,
+        "sha256": sha256,
+        "reason": "okg_source_record_set_blobs_row_missing",
+    }
+    assert second.prior_record_set_missing == expected
+    assert second.as_dict()["prior_record_set_missing"] == expected
+    assert prior_record_set_report_fields(second) == {
+        "prior_record_set_missing": expected,
+    }
+    # The run proceeded (as before) and wrote a fresh, reachable blob.
+    assert second.next_cursor["record_set_ref"]["sha256"] == sha256
+    report = {"ok": True, "errors": []}
+    after = doctor_cli._default_doctor_record_set_blobs(clean_runtime, report)
+    assert after["missing"] == [], after
+
+
+def test_doctor_names_a_blob_only_a_published_rev_still_needs(
+    clean_runtime: str,
+) -> None:
+    """A missing blob named only by last_published_rev is reported without
+    claiming the next run reads no prior set."""
+    from okg.substrate.cli import doctor as doctor_cli
+
+    ref = {
+        "schema": "okg.source_runner.record_set_ref.v1",
+        "storage": "okg.source_record_set_blobs",
+        "source": "test.published-only",
+        "sha256": "f" * 64,
+    }
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        conn.execute(
+            "INSERT INTO okg.source_watermarks (source, last_published_rev)"
+            " VALUES (%s, %s::jsonb)",
+            ("test.published-only", json.dumps({"record_set_ref": ref})),
+        )
+    report: dict = {"ok": True, "errors": []}
+    found = doctor_cli._default_doctor_record_set_blobs(clean_runtime, report)
+    assert found["missing"] == [{
+        "source": "test.published-only",
+        "sha256": "f" * 64,
+        "rev_columns": ["last_published_rev"],
+    }]
+    (warning,) = report["warnings"]
+    assert "next run" not in warning["message"]
+    assert "restore" in warning["message"]
+
+
+def test_missing_blob_reaches_the_ingest_report_and_plain_doctor_json(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Through the ingest service and the `okg doctor --json` command: the
+    per-source report row carries prior_record_set_missing, and doctor's
+    record_set_blobs check names the source and sha256."""
+    from okg.substrate.cli import main as cli
+
+    monkeypatch.setenv(_CAP_ENV, "65536")
+    dep, _ = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(200), monkeypatch,
+    )
+    first = _ingest_once(clean_runtime, dep)
+    assert "prior_record_set_missing" not in first
+    sha256 = _svc_watermark(clean_runtime)["record_set_ref"]["sha256"]
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        deleted = conn.execute(
+            "DELETE FROM okg.source_record_set_blobs"
+            " WHERE source = 'svc.first' AND sha256 = %s",
+            (sha256,),
+        ).rowcount
+    assert deleted == 1
+
+    monkeypatch.setenv("OKG_DEPLOYMENTS_DIR", str(dep.parent))
+    monkeypatch.setenv("OKG_DSN", clean_runtime)
+    capsys.readouterr()
+    cli.main(["doctor", "--deployment", str(dep), "--dsn", clean_runtime, "--json"])
+    doctor = json.loads(capsys.readouterr().out)
+    check = doctor["record_set_blobs"]
+    assert [(m["source"], m["sha256"]) for m in check["missing"]] == [
+        ("svc.first", sha256),
+    ], check
+    assert any(
+        w["code"] == "source_record_set_blob_missing"
+        and w["source"] == "svc.first" and w["sha256"] == sha256
+        for w in doctor.get("warnings", [])
+    )
+
+    from tests.substrate.test_connector_completed_scope_modes_e2e import _ingest
+
+    record, _report = _ingest(clean_runtime, dep, publish=True)
+    assert record["prior_record_set_missing"] == {
+        "source": "svc.first",
+        "sha256": sha256,
+        "reason": "okg_source_record_set_blobs_row_missing",
+    }, {key: record.get(key) for key in ("status", "admission_status", "error")}
+
+
+def _ingest_then_lose_the_blob(dsn: str, tmp_path, monkeypatch) -> tuple[Any, str, str]:
+    """One accepted (unpublished) sync of a ~100 KB set, then its blob row
+    deleted. Returns the deployment, the catalog path and the sha256."""
+    from tests.substrate.test_connector_completed_scope_modes_e2e import _ingest
+
+    monkeypatch.setenv(_CAP_ENV, "65536")
+    dep, catalog = _ingest_deployment(tmp_path, dsn, _catalog_labels(200), monkeypatch)
+    first, _report = _ingest(dsn, dep, publish=False)
+    assert first["any_failed"] is False, first
+    sha256 = _svc_watermark(dsn)["record_set_ref"]["sha256"]
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        deleted = conn.execute(
+            "DELETE FROM okg.source_record_set_blobs"
+            " WHERE source = 'svc.first' AND sha256 = %s",
+            (sha256,),
+        ).rowcount
+    assert deleted == 1
+    return dep, catalog, sha256
+
+
+def _expected_missing(sha256: str) -> dict[str, str]:
+    return {
+        "source": "svc.first",
+        "sha256": sha256,
+        "reason": "okg_source_record_set_blobs_row_missing",
+    }
+
+
+def test_missing_blob_reaches_the_fail_row_of_a_sync_that_raises(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The runner notes the unreachable blob before the adapter reads; the
+    adapter then raises (its input is gone), so no RunResult exists. The
+    exception FAIL row still carries prior_record_set_missing."""
+    from pathlib import Path
+
+    from tests.substrate.test_connector_completed_scope_modes_e2e import _ingest
+
+    dep, catalog, sha256 = _ingest_then_lose_the_blob(clean_runtime, tmp_path, monkeypatch)
+    Path(catalog).unlink()
+
+    record, _report = _ingest(clean_runtime, dep, publish=False)
+    assert record["status"] == "FAIL", record
+    assert "admission_reject_reason" not in record, record
+    assert record["prior_record_set_missing"] == _expected_missing(sha256), {
+        key: record.get(key) for key in ("stage", "error")
+    }
+
+
+def test_missing_blob_reaches_the_fail_row_of_an_admission_rejection(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The next sync reads an empty input and claims no complete scope; its
+    only earlier run was never published, so admission rejects it
+    (`prior_emission_unpublished`). That FAIL row carries prior_record_set_missing too."""
+    from pathlib import Path
+
+    from tests.substrate.runtime import test_connector_completed_scope_modes as modes
+    from tests.substrate.test_connector_completed_scope_modes_e2e import _ingest
+
+    dep, catalog, sha256 = _ingest_then_lose_the_blob(clean_runtime, tmp_path, monkeypatch)
+    modes.write_catalog(Path(catalog), ())
+
+    record, _report = _ingest(clean_runtime, dep, publish=False)
+    assert record["status"] == "FAIL", record
+    assert record["admission_reject_reason"] == "prior_emission_unpublished", record
+    assert record["prior_record_set_missing"] == _expected_missing(sha256)
+
+
+# ---------------------------------------------------------------------------
+# PACT record-set-blob-autoprune: after each accepted run okg deletes the
+# source's record-set and cursor blobs that no watermark revision and no held
+# run names, once they are older than the grace window
+# (deployment.yaml source_blob_prune_grace_seconds; 0 turns it off).
+# ---------------------------------------------------------------------------
+
+_SHA_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _set_grace(dsn: str, dep, value: int | None) -> None:
+    """Write (or drop) the grace setting and re-claim the fixture catalog."""
+    import yaml
+
+    from tests.substrate.test_ingest_service import _claim_layered_fixture_catalog
+
+    path = dep / "deployment.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if value is None:
+        data.pop("source_blob_prune_grace_seconds", None)
+    else:
+        data["source_blob_prune_grace_seconds"] = value
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    _claim_layered_fixture_catalog(dsn, dep)
+
+
+def _blob_rows(dsn: str, source: str = "svc.first") -> dict[str, set]:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        record_sets = {
+            row[0] for row in conn.execute(
+                "SELECT sha256 FROM okg.source_record_set_blobs WHERE source = %s",
+                (source,),
+            )
+        }
+        piece_writes = {
+            str(row[0]) for row in conn.execute(
+                "SELECT DISTINCT write_id FROM okg.source_record_set_blob_pieces"
+                " WHERE source = %s",
+                (source,),
+            )
+        }
+        header_writes = {
+            str(row[0]) for row in conn.execute(
+                "SELECT piece_write_id FROM okg.source_record_set_blobs"
+                " WHERE source = %s AND piece_write_id IS NOT NULL",
+                (source,),
+            )
+        }
+        present = conn.execute(
+            "SELECT to_regclass('okg.source_cursor_blobs') IS NOT NULL"
+        ).fetchone()[0]
+        cursors = {
+            (row[0], row[1]) for row in conn.execute(
+                "SELECT cursor_key, sha256 FROM okg.source_cursor_blobs"
+                " WHERE source = %s",
+                (source,),
+            )
+        } if present else set()
+    return {
+        "record_sets": record_sets,
+        "piece_writes": piece_writes,
+        "header_writes": header_writes,
+        "cursors": cursors,
+    }
+
+
+def _watermark_shas(dsn: str, source: str = "svc.first") -> set[str]:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        row = conn.execute(
+            "SELECT concat_ws(' ', last_applied_rev::text,"
+            " cutover_watermark::text, last_published_rev::text)"
+            " FROM okg.source_watermarks WHERE source = %s",
+            (source,),
+        ).fetchone()
+        named = set(_SHA_RE.findall(row[0] if row else ""))
+        # A large cursor field (record_set_ref included) is itself stored as
+        # a cursor blob; what it names is named too.
+        nested = conn.execute(
+            "SELECT string_agg(value::text, ' ') FROM okg.source_cursor_blobs"
+            " WHERE source = %s AND sha256 = ANY(%s::text[])",
+            (source, sorted(named)),
+        ).fetchone()[0]
+    return named | set(_SHA_RE.findall(nested or ""))
+
+
+def _age_blobs(dsn: str, source: str = "svc.first", interval: str = "1 day") -> None:
+    """Make every blob row of ``source`` look ``interval`` old."""
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        for table in ("source_record_set_blobs", "source_cursor_blobs"):
+            if conn.execute(
+                "SELECT to_regclass(%s) IS NOT NULL", (f"okg.{table}",),
+            ).fetchone()[0]:
+                conn.execute(
+                    f"UPDATE okg.{table}"
+                    " SET updated_at = now() - %s::interval WHERE source = %s",
+                    (interval, source),
+                )
+
+
+class _WorkerChildLock:
+    """The two job hooks the service calls, as a worker child has them: the
+    run lock is a real session lock held on its own connection."""
+
+    def __init__(self, dsn: str, deployment: str) -> None:
+        self.dsn, self.deployment = dsn, deployment
+        self.conn: Any = None
+        self.lock_key: str | None = None
+
+    def acquire_run_lock(self, source: str) -> None:
+        from okg.substrate.ingest.source_jobs import run_lock_key
+
+        self.conn = psycopg.connect(self.dsn, autocommit=True)
+        key = run_lock_key(self.deployment, source)
+        (got,) = self.conn.execute(
+            "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))", (key,),
+        ).fetchone()
+        assert got, "the run lock is already held"
+        self.lock_key = key
+
+    def started(self, **_payload: Any) -> None:
+        return None
+
+    def close(self) -> None:
+        if self.conn is not None:
+            self.conn.close()
+
+
+def _run_as_worker_children(dsn: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the inline source runtime run each source with worker-child hooks."""
+    from okg.substrate.ingest import service as ingest_service
+
+    real = ingest_service._run_source
+
+    def run_as_child(options, entry, name, **kwargs):
+        hooks = _WorkerChildLock(dsn, options.deployment)
+        try:
+            return real(options, entry, name, job_hooks=hooks, **kwargs)
+        finally:
+            hooks.close()
+
+    monkeypatch.setattr(ingest_service, "_run_source", run_as_child)
+
+
+_SYNC_COUNTER = iter(range(1, 1_000_000))
+
+
+def _changed_sync(dsn: str, dep, catalog) -> dict:
+    """One accepted sync after one catalog line changed, so the record set
+    (and its blob sha256) is new, as on a live source."""
+    from pathlib import Path
+
+    from tests.substrate.runtime import test_connector_completed_scope_modes as modes
+
+    changed = f"REL_v{next(_SYNC_COUNTER):06d}_" + "x" * 100
+    modes.write_catalog(Path(catalog), _catalog_labels(199) + (changed,))
+    return _ingest_once(dsn, dep)
+
+
+def _seed_orphan_blob(dsn: str, source: str, sha256: str, *, age: str = "1 day") -> None:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(
+            "INSERT INTO okg.source_record_set_blobs"
+            " (source, sha256, record_set, updated_at)"
+            " VALUES (%s, %s, %s::jsonb, now() - %s::interval)",
+            (source, sha256, json.dumps({"records": {"x": "y" * 500}}), age),
+        )
+
+
+def test_autoprune_leaves_exactly_the_watermark_blobs_after_several_syncs(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Several accepted syncs of a ~100 KB set (stored in pieces, with
+    externalized cursor fields), run as worker children holding the run
+    lock: each sync's prune deletes every blob that is older than the window
+    and not named by the watermark; the record-set, piece and cursor tables
+    end holding exactly the watermark's blobs."""
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    monkeypatch.setenv("OKG_SOURCE_RUNNER_RECORD_SET_JSONB_MAX_BYTES", "1")
+    monkeypatch.setenv("OKG_SOURCE_RUNNER_INLINE_CURSOR_FIELD_MAX_BYTES", "100")
+    dep, catalog = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(200), monkeypatch,
+    )
+    _run_as_worker_children(clean_runtime, monkeypatch)
+    _set_grace(clean_runtime, dep, 3600)
+    reports = []
+    written: set[str] = set()
+    for _ in range(4):
+        reports.append(_changed_sync(clean_runtime, dep, catalog))
+        written |= _blob_rows(clean_runtime)["record_sets"]
+        # Two hours pass before the next sync.
+        _age_blobs(clean_runtime, interval="2 hours")
+    reports.append(_changed_sync(clean_runtime, dep, catalog))
+    written |= _blob_rows(clean_runtime)["record_sets"]
+
+    assert len(written) == 5, written
+    prunes = [r["record_set_blob_prune"] for r in reports]
+    assert all(p["status"] == "ok" for p in prunes), prunes
+    assert sum(p["deleted"]["source_record_set_blobs"]["rows"] for p in prunes) >= 2, prunes
+    assert sum(p["deleted"]["source_record_set_blobs"]["pieces"] for p in prunes) >= 2, prunes
+    assert all(p["deleted_bytes"] >= 0 for p in prunes)
+
+    rows = _blob_rows(clean_runtime)
+    named = _watermark_shas(clean_runtime)
+    # Besides the watermark's own blobs, only the last run's run-start blob
+    # remains: the run pinned it, so it is younger than the window.
+    assert named & written <= rows["record_sets"] <= written, (rows, named)
+    assert len(rows["record_sets"] - named) <= 1, (rows, named)
+    assert rows["piece_writes"] == rows["header_writes"] != set()
+    # Here record_set_ref itself is a cursor blob (the 100-byte field cap).
+    assert _svc_watermark(clean_runtime)["record_set_ref"]["storage"] == (
+        "okg.source_cursor_blobs"
+    )
+    assert rows["cursors"], "the run wrote no cursor blob"
+    # With no window at all exactly the watermark's blobs stay, the record-set
+    # blob named only inside the record_set_ref cursor blob included, and the
+    # next sync reads that prior set.
+    from okg.substrate.ingest import source_blob_prune
+
+    _age_blobs(clean_runtime)
+    zero = source_blob_prune.prune_source_blobs_after_accept(
+        clean_runtime, deployment="svc", source="svc.first", grace_seconds=0,
+    )
+    assert zero["status"] == "ok", zero
+    exact = _blob_rows(clean_runtime)
+    assert exact["record_sets"] == written & named, (exact, named)
+    assert exact["piece_writes"] == exact["header_writes"] != set()
+    assert {sha for _key, sha in exact["cursors"]} <= named, exact["cursors"]
+    assert exact["cursors"]
+    nxt = _changed_sync(clean_runtime, dep, catalog)
+    assert "prior_record_set_missing" not in nxt, nxt
+
+
+def test_autoprune_grace_zero_deletes_every_unnamed_blob_and_caps_rows_and_bytes(
+    clean_runtime: str,
+) -> None:
+    """The prune function itself: grace 0 deletes every unnamed row; the row
+    cap and the byte cap bound one prune; named rows always stay."""
+    from okg.substrate.ingest import source_blob_prune
+
+    source = "test.autoprune-caps"
+    named = "a" * 64
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        conn.execute(
+            "INSERT INTO okg.source_watermarks (source, last_applied_rev)"
+            " VALUES (%s, %s::jsonb)",
+            (source, json.dumps({"record_set_ref": {"sha256": named}})),
+        )
+    for index, sha in enumerate([named] + [f"{i:064x}" for i in range(1, 7)]):
+        _seed_orphan_blob(clean_runtime, source, sha, age=f"{10 - index} hours")
+    # A just-written unnamed blob, newer than any window but zero.
+    _seed_orphan_blob(clean_runtime, source, "b" * 64, age="0 seconds")
+
+    def prune(**kwargs):
+        return source_blob_prune.prune_source_blobs_after_accept(
+            clean_runtime, deployment="svc", source=source, **kwargs,
+        )
+
+    capped = prune(grace_seconds=3600, max_rows=2)
+    assert capped["deleted"]["source_record_set_blobs"]["rows"] == 2
+    assert capped["capped"] is True
+    one = prune(grace_seconds=3600, max_bytes=1)
+    assert one["deleted_rows"] == 1 and one["capped"] is True, one
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        sizes = [
+            int(row[0]) for row in conn.execute(
+                "SELECT pg_column_size(b.record_set)"
+                " + pg_column_size(b.record_set_summary)"
+                " FROM okg.source_record_set_blobs b"
+                " WHERE source = %s AND sha256 NOT IN (%s, %s)"
+                " ORDER BY updated_at, sha256",
+                (source, named, "b" * 64),
+            )
+        ]
+    assert len(sizes) == 3, sizes
+    two = prune(grace_seconds=3600, max_bytes=sizes[0] + sizes[1])
+    assert two["deleted_rows"] == 2, two
+    assert two["deleted_bytes"] == sizes[0] + sizes[1], (two, sizes)
+    windowed = prune(grace_seconds=3600)
+    assert windowed["deleted_rows"] == 1 and windowed["capped"] is False, windowed
+    assert _blob_rows(clean_runtime, source)["record_sets"] == {named, "b" * 64}
+    zero = prune(grace_seconds=0)
+    assert zero["deleted_rows"] == 1, zero
+    assert _blob_rows(clean_runtime, source)["record_sets"] == {named}
+
+
+def test_autoprune_skips_while_another_session_holds_the_run_lock(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Another holder of the source's run lock: the prune reports
+    skipped_locked, in the function and in the ingest report, and deletes
+    nothing; a caller that holds the lock itself (a worker child) prunes."""
+    from okg.substrate.ingest import source_blob_prune
+    from okg.substrate.ingest.source_jobs import run_lock_key
+
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    dep, _ = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(200), monkeypatch,
+    )
+    _set_grace(clean_runtime, dep, 3600)
+    _ingest_once(clean_runtime, dep)
+    _seed_orphan_blob(clean_runtime, "svc.first", "c" * 64)
+    with psycopg.connect(clean_runtime, autocommit=True) as holder:
+        holder.execute(
+            "SELECT pg_advisory_lock(hashtextextended(%s, 0))",
+            (run_lock_key("svc", "svc.first"),),
+        )
+        record = _ingest_once(clean_runtime, dep)
+        assert record["record_set_blob_prune"] == {
+            "status": "skipped_locked", "grace_seconds": 3600, "lock": "try_lock",
+        }
+        direct = source_blob_prune.prune_source_blobs_after_accept(
+            clean_runtime, deployment="svc", source="svc.first", grace_seconds=0,
+        )
+        assert direct["status"] == "skipped_locked"
+        assert "c" * 64 in _blob_rows(clean_runtime)["record_sets"]
+        held = source_blob_prune.prune_source_blobs_after_accept(
+            clean_runtime, deployment="svc", source="svc.first",
+            grace_seconds=3600, lock_held=True,
+        )
+    assert held["status"] == "ok" and held["lock"] == "held_by_run", held
+    assert "c" * 64 not in _blob_rows(clean_runtime)["record_sets"]
+
+
+def test_autoprune_default_window_keeps_recent_blobs_and_zero_turns_it_off(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No setting: a 6-hour window, so recent superseded blobs stay and blobs
+    older than 6 hours go. Setting 0: no prune at all."""
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    dep, catalog = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(200), monkeypatch,
+    )
+    first = _changed_sync(clean_runtime, dep, catalog)
+    _changed_sync(clean_runtime, dep, catalog)
+    third = _changed_sync(clean_runtime, dep, catalog)
+    assert first["record_set_blob_prune"]["grace_seconds"] == 21600
+    assert third["record_set_blob_prune"]["deleted_rows"] == 0, third
+    recent = _blob_rows(clean_runtime)["record_sets"]
+    assert len(recent) >= 2, recent
+
+    _seed_orphan_blob(clean_runtime, "svc.first", "d" * 64, age="7 hours")
+    _seed_orphan_blob(clean_runtime, "svc.first", "e" * 64, age="5 hours")
+    fourth = _changed_sync(clean_runtime, dep, catalog)
+    assert fourth["record_set_blob_prune"]["deleted_rows"] == 1, fourth
+    rows = _blob_rows(clean_runtime)["record_sets"]
+    assert "d" * 64 not in rows and "e" * 64 in rows
+    assert recent <= rows
+
+    _set_grace(clean_runtime, dep, 0)
+    _age_blobs(clean_runtime)
+    before = _blob_rows(clean_runtime)["record_sets"]
+    off = _changed_sync(clean_runtime, dep, catalog)
+    assert off["record_set_blob_prune"] == {"status": "disabled", "grace_seconds": 0}
+    assert before <= _blob_rows(clean_runtime)["record_sets"]
+
+
+def test_cursor_blob_reuse_refreshes_updated_at(clean_runtime: str) -> None:
+    source = "test.cursor-blob-reuse"
+    runner = SourceRunner(clean_runtime, source_name=source, write_fact_log=True)
+    value = json.dumps({"k": "v" * 300}).encode("utf-8")
+    digest = hashlib.sha256(value).hexdigest()
+    runner._store_external_cursor_fields([("fact_hashes", value, digest, len(value))])
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        conn.execute(
+            "UPDATE okg.source_cursor_blobs"
+            " SET updated_at = now() - interval '1 day' WHERE source = %s",
+            (source,),
+        )
+    runner._store_external_cursor_fields([("fact_hashes", value, digest, len(value))])
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        (age,) = conn.execute(
+            "SELECT now() - updated_at < interval '1 hour'"
+            " FROM okg.source_cursor_blobs WHERE source = %s",
+            (source,),
+        ).fetchone()
+    assert age is True
+
+
+def test_autoprune_keeps_the_run_start_blob_an_overlapping_run_restores(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An inline run snapshots the watermark (its run-start blob is old),
+    another run of the source is accepted and prunes, then the inline run is
+    rejected and writes its snapshot back: the restored watermark's blob is
+    still there and the next sync reads it (no prior_record_set_missing)."""
+    from okg.substrate.ingest import source_blob_prune
+    from okg.substrate.ingest.compensation import (
+        restore_source_state,
+        snapshot_source_state,
+    )
+
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    dep, catalog = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(200), monkeypatch,
+    )
+    _set_grace(clean_runtime, dep, 3600)
+    _changed_sync(clean_runtime, dep, catalog)
+    start_sha = _svc_watermark(clean_runtime)["record_set_ref"]["sha256"]
+    _age_blobs(clean_runtime)
+
+    # The inline run starts: the service snapshots, then pins.
+    snapshot = snapshot_source_state(clean_runtime, deployment="svc", source="svc.first")
+    source_blob_prune.pin_snapshot_blobs(clean_runtime, snapshot)
+    # A worker run is accepted meanwhile and prunes under its run lock.
+    _run_as_worker_children(clean_runtime, monkeypatch)
+    other = _changed_sync(clean_runtime, dep, catalog)
+    assert other["record_set_blob_prune"]["status"] == "ok", other
+    assert other["record_set_blob_prune"]["lock"] == "held_by_run", other
+    assert _svc_watermark(clean_runtime)["record_set_ref"]["sha256"] != start_sha
+    # The inline run is rejected: its run-start state is written back.
+    restore_source_state(clean_runtime, snapshot)
+    assert _svc_watermark(clean_runtime)["record_set_ref"]["sha256"] == start_sha
+    assert start_sha in _blob_rows(clean_runtime)["record_sets"]
+    after = _changed_sync(clean_runtime, dep, catalog)
+    assert "prior_record_set_missing" not in after, after
+
+
+def test_autoprune_keeps_a_blob_written_by_a_run_not_yet_accepted(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second run of the source writes its blob before the first run's
+    acceptance and prune: the window keeps it, so it is there when that run
+    is accepted."""
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    dep, catalog = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(200), monkeypatch,
+    )
+    _set_grace(clean_runtime, dep, 3600)
+    _changed_sync(clean_runtime, dep, catalog)
+    _age_blobs(clean_runtime)
+    # An old orphan (deleted) and the other run's just-written blob (kept).
+    _seed_orphan_blob(clean_runtime, "svc.first", "0" * 64, age="1 day")
+    _seed_orphan_blob(clean_runtime, "svc.first", "f" * 64, age="1 second")
+    record = _changed_sync(clean_runtime, dep, catalog)
+    assert record["record_set_blob_prune"]["deleted_rows"] == 1, record
+    rows = _blob_rows(clean_runtime)["record_sets"]
+    assert "0" * 64 not in rows and "f" * 64 in rows
+
+
+def _hold_for_review(dsn: str, dep, monkeypatch: pytest.MonkeyPatch) -> None:
+    import yaml
+
+    from okg.substrate.runtime import admission_workflows
+    from tests.substrate.test_ingest_service import _claim_layered_fixture_catalog
+
+    registry_path = dep / "source_registry.yaml"
+    registry = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
+    registry["sources"]["first"]["admission_policy"]["admission_mode"] = "review"
+    registry_path.write_text(yaml.safe_dump(registry), encoding="utf-8")
+    _claim_layered_fixture_catalog(dsn, dep)
+    monkeypatch.setattr(admission_workflows, "_resolve_dsn", lambda _name: dsn)
+    # The approval path resolves the deployment by name for its grace window.
+    monkeypatch.setenv("OKG_DEPLOYMENTS_DIR", str(dep.parent))
+
+
+def _held_envelope(dsn: str) -> dict:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        admission_id, status, verdict = conn.execute(
+            "SELECT admission_id::text, status, verdict FROM okg.admission_envelopes"
+            " WHERE source = 'svc.first' AND intent = 'source_sync'"
+            " ORDER BY created_at DESC, admission_id DESC LIMIT 1"
+        ).fetchone()
+    return {"admission_id": admission_id, "status": status, "verdict": verdict or {}}
+
+
+def _approve(admission_id: str) -> dict:
+    from okg.substrate.runtime import admission_workflows
+
+    return admission_workflows._run_decide(
+        deployment="svc", admission_id=admission_id, decision="accept",
+        actor="operator", reason="record-set-blob-autoprune", verdict=None,
+    )
+
+
+def test_autoprune_runs_on_held_run_approval_and_keeps_a_held_runs_blob(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A held (pending) run's blob is kept by every prune until it is
+    decided; approving it prunes the source the same way the direct path
+    does, and the approved watermark's blob is there to read."""
+    from okg.substrate.ingest import source_blob_prune
+    from tests.substrate.test_connector_completed_scope_modes_e2e import _ingest
+
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    dep, _ = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(200), monkeypatch,
+    )
+    _set_grace(clean_runtime, dep, 3600)
+    _ingest_once(clean_runtime, dep)
+    _hold_for_review(clean_runtime, dep, monkeypatch)
+    held, _report = _ingest(clean_runtime, dep, publish=False)
+    assert held["admission_status"] == "pending", held
+    assert "record_set_blob_prune" not in held, held
+    envelope = _held_envelope(clean_runtime)
+    held_shas = set(_SHA_RE.findall(json.dumps(envelope["verdict"]))) & (
+        _blob_rows(clean_runtime)["record_sets"]
+    )
+    assert held_shas, "the held run names no record-set blob"
+    _age_blobs(clean_runtime)
+
+    # Any prune while the run is held keeps its blob.
+    direct = source_blob_prune.prune_source_blobs_after_accept(
+        clean_runtime, deployment="svc", source="svc.first", grace_seconds=0,
+    )
+    assert direct["status"] == "ok", direct
+    assert held_shas <= _blob_rows(clean_runtime)["record_sets"]
+
+    _seed_orphan_blob(clean_runtime, "svc.first", "9" * 64)
+    decided = _approve(envelope["admission_id"])
+    assert decided["status"] == "accepted", decided
+    prune = decided["record_set_blob_prune"]
+    assert prune["status"] == "ok" and prune["deleted_rows"] >= 1, prune
+    rows = _blob_rows(clean_runtime)["record_sets"]
+    assert "9" * 64 not in rows
+    applied = _svc_watermark(clean_runtime)["record_set_ref"]["sha256"]
+    assert applied in held_shas and applied in rows
+
+
+def test_autoprune_keeps_a_held_runs_blob_through_a_newer_accepted_run(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run is held, a newer run of the source is accepted and prunes, then
+    the held run is approved: its blob survived the newer run's prune, the
+    approval happens, and the approved watermark's blob is there to read."""
+    import yaml
+    from pathlib import Path
+
+    from tests.substrate.runtime import test_connector_completed_scope_modes as modes
+    from tests.substrate.test_connector_completed_scope_modes_e2e import _ingest
+    from tests.substrate.test_ingest_service import _claim_layered_fixture_catalog
+
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    dep, catalog = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(200), monkeypatch,
+    )
+    _set_grace(clean_runtime, dep, 3600)
+    first = _ingest_once(clean_runtime, dep)
+    first_sha = _svc_watermark(clean_runtime)["record_set_ref"]["sha256"]
+    _hold_for_review(clean_runtime, dep, monkeypatch)
+    modes.write_catalog(Path(catalog), _catalog_labels(199) + ("REL_held_" + "x" * 100,))
+    held, _report = _ingest(clean_runtime, dep, publish=False)
+    assert held["admission_status"] == "pending", held
+    envelope = _held_envelope(clean_runtime)
+    held_shas = set(_SHA_RE.findall(json.dumps(envelope["verdict"]))) & (
+        _blob_rows(clean_runtime)["record_sets"]
+    )
+    assert held_shas and first_sha not in held_shas, (held_shas, first)
+    _age_blobs(clean_runtime)
+
+    registry_path = dep / "source_registry.yaml"
+    registry = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
+    registry["sources"]["first"]["admission_policy"]["admission_mode"] = "fast_track"
+    registry_path.write_text(yaml.safe_dump(registry), encoding="utf-8")
+    _claim_layered_fixture_catalog(clean_runtime, dep)
+    modes.write_catalog(Path(catalog), _catalog_labels(199) + ("REL_newer_" + "x" * 100,))
+    newer, _report = _ingest(clean_runtime, dep, publish=False)
+    assert newer["admission_status"] in {"accepted", "published"}, newer
+    assert newer["record_set_blob_prune"]["status"] == "ok", newer
+    # Old and unnamed by the watermark, but the pending envelope names it.
+    assert held_shas <= _blob_rows(clean_runtime)["record_sets"]
+
+    decided = _approve(envelope["admission_id"])
+    assert decided["status"] == "accepted", decided
+    assert "emitted" in decided and not decided.get("already_decided"), decided
+    assert decided["record_set_blob_prune"]["status"] == "ok", decided
+    applied = _svc_watermark(clean_runtime)["record_set_ref"]["sha256"]
+    assert applied in held_shas, (applied, held_shas)
+    assert applied in _blob_rows(clean_runtime)["record_sets"]
+
+
+def test_failed_autoprune_keeps_the_acceptance_and_is_reported_everywhere(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A prune that hits its lock timeout: the run stays accepted, the ingest
+    report and okg.source_progress carry the error, `okg doctor --json` names
+    the source; the next successful prune clears the record."""
+    from okg.substrate.cli import main as cli
+    from okg.substrate.ingest import source_blob_prune
+
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    monkeypatch.setattr(source_blob_prune, "LOCK_TIMEOUT", "300ms")
+    dep, _ = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(200), monkeypatch,
+    )
+    _set_grace(clean_runtime, dep, 3600)
+    _ingest_once(clean_runtime, dep)
+    # An old, unnamed cursor blob, row-locked by another session. (A lock on
+    # a record-set blob row would also block the runner's own ALTER TABLE.)
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        conn.execute(
+            "INSERT INTO okg.source_cursor_blobs"
+            " (source, cursor_key, sha256, value, size_bytes, updated_at)"
+            " VALUES ('svc.first', 'stale', %s, '{}'::jsonb, 2,"
+            " now() - interval '1 day')",
+            ("7" * 64,),
+        )
+    with psycopg.connect(clean_runtime) as blocker:
+        blocker.execute(
+            "SELECT 1 FROM okg.source_cursor_blobs"
+            " WHERE source = 'svc.first' AND sha256 = %s FOR UPDATE",
+            ("7" * 64,),
+        )
+        record = _ingest_once(clean_runtime, dep)
+        blocker.rollback()
+    prune = record["record_set_blob_prune"]
+    assert record["status"] == "OK" and prune["status"] == "error", record
+    assert "lock" in prune["error"].lower(), prune
+    applied = _svc_watermark(clean_runtime)["record_set_ref"]["sha256"]
+    assert applied in _blob_rows(clean_runtime)["record_sets"]
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        (value,) = conn.execute(
+            "SELECT value FROM okg.source_progress WHERE deployment = 'svc'"
+            " AND source_name = 'svc.first' AND key = %s",
+            (source_blob_prune.ERROR_KEY,),
+        ).fetchone()
+    recorded = json.loads(value)
+    assert recorded["source"] == "svc.first" and recorded["at"]
+    assert recorded["error"] == prune["error"]
+
+    monkeypatch.setenv("OKG_DEPLOYMENTS_DIR", str(dep.parent))
+    monkeypatch.setenv("OKG_DSN", clean_runtime)
+    capsys.readouterr()
+    cli.main(["doctor", "--deployment", str(dep), "--dsn", clean_runtime, "--json"])
+    doctor = json.loads(capsys.readouterr().out)
+    check = doctor["record_set_blobs"]
+    assert [e["source"] for e in check["prune_errors"]] == ["svc.first"], check
+    assert check["ok"] is False
+    assert any(
+        w["code"] == "source_record_set_blob_prune_failed"
+        and w["source"] == "svc.first"
+        for w in doctor.get("warnings", [])
+    )
+
+    again = _ingest_once(clean_runtime, dep)
+    assert again["record_set_blob_prune"]["status"] == "ok", again
+    assert ("stale", "7" * 64) not in _blob_rows(clean_runtime)["cursors"]
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM okg.source_progress WHERE key = %s",
+            (source_blob_prune.ERROR_KEY,),
+        ).fetchone()[0] == 0
+    capsys.readouterr()
+    cli.main(["doctor", "--deployment", str(dep), "--dsn", clean_runtime, "--json"])
+    assert json.loads(capsys.readouterr().out)["record_set_blobs"]["prune_errors"] == []
+
+
+def test_autoprune_grace_setting_is_validated() -> None:
+    from okg.substrate.ingest import source_blob_prune
+
+    assert source_blob_prune.grace_seconds_from_manifest({}) == 21600
+    assert source_blob_prune.grace_seconds_from_manifest(
+        {"source_blob_prune_grace_seconds": None},
+    ) == 21600
+    assert source_blob_prune.grace_seconds_from_manifest(
+        {"source_blob_prune_grace_seconds": 0},
+    ) == 0
+    for bad in (-1, "6h", True, 1.5):
+        with pytest.raises(ValueError, match="source_blob_prune_grace_seconds"):
+            source_blob_prune.grace_seconds_from_manifest(
+                {"source_blob_prune_grace_seconds": bad},
+            )
+
+
+def test_autoprune_error_key_is_runner_owned_progress(clean_runtime: str) -> None:
+    """The prune's error record is a sync.* key: a run-start snapshot does
+    not carry it, so a restore neither erases nor revives it; a run undo
+    keeps it; and a source whose only progress row is that record still
+    looks empty to its adapter."""
+    from okg.substrate.ingest import source_blob_prune
+    from okg.substrate.ingest.compensation import (
+        restore_source_state,
+        snapshot_source_state,
+    )
+    from okg.substrate.ingest.run_base import forget_progress_after_undo
+
+    key = source_blob_prune.ERROR_KEY
+    assert key == "sync.record_set_blob_prune.last_error"
+    deployment, source = "test-source-runner", "test.autoprune-error-key"
+
+    def keys() -> set[str]:
+        with psycopg.connect(clean_runtime, autocommit=True) as conn:
+            return {
+                row[0] for row in conn.execute(
+                    "SELECT key FROM okg.source_progress"
+                    " WHERE deployment = %s AND source_name = %s",
+                    (deployment, source),
+                )
+            }
+
+    def put(name: str) -> None:
+        with psycopg.connect(clean_runtime, autocommit=True) as conn:
+            conn.execute(
+                "INSERT INTO okg.source_progress (deployment, source_name, key, value)"
+                " VALUES (%s, %s, %s, '{}')",
+                (deployment, source, name),
+            )
+
+    def drop(name: str) -> None:
+        with psycopg.connect(clean_runtime, autocommit=True) as conn:
+            conn.execute(
+                "DELETE FROM okg.source_progress"
+                " WHERE deployment = %s AND source_name = %s AND key = %s",
+                (deployment, source, name),
+            )
+
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        seed_catalog_version(conn)
+    # Adapter view: only the error record -> the same empty progress as none.
+    put(key)
+    adapter = _ProgressAwareAdapter()
+    SourceRunner(
+        clean_runtime, source_name=source, deployment_name=deployment,
+        write_fact_log=True,
+    ).run(adapter, mode="scope_complete")
+    assert adapter.seen_progress == {}
+    drop(key)
+    keys_after_run = keys()
+
+    # Snapshot and restore: never captured, so never erased or revived.
+    put(key)
+    snapshot = snapshot_source_state(clean_runtime, deployment=deployment, source=source)
+    assert key not in {row["key"] for row in snapshot.progress_rows}
+    restore_source_state(clean_runtime, snapshot)
+    assert key in keys()  # not erased
+    drop(key)
+    restore_source_state(clean_runtime, snapshot)
+    assert key not in keys()  # not revived
+    assert keys() == keys_after_run
+
+    # Run undo forgets the source's own progress but keeps sync.* keys.
+    put(key)
+    put("record:doc:a")
+    checkpoint_id = f"autoprune-undo-{uuid.uuid4()}"
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        # A run base cut with no recorded cut time: the undo forgets all of
+        # the source's progress except sync.* keys.
+        conn.execute(
+            "INSERT INTO public._chronos_branch_interval_checkpoints"
+            " (checkpoint_id, branch_id, segment_id, created_at, metadata)"
+            " VALUES (%s, 'default', 0, now()::text, %s)",
+            (checkpoint_id, json.dumps({"deployment_name": deployment, "source": source})),
+        )
+        forgotten = forget_progress_after_undo(conn, checkpoint_id=checkpoint_id)
+        conn.execute(
+            "DELETE FROM public._chronos_branch_interval_checkpoints"
+            " WHERE checkpoint_id = %s",
+            (checkpoint_id,),
+        )
+    assert forgotten >= 1
+    assert key in keys()
+    assert "record:doc:a" not in keys()
+
+
+def test_autoprune_keeps_a_dead_worker_childs_run_start_blob_for_the_parent_restore(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker child pins its run-start blobs too. Here the child's run is
+    treated as one that died: after its lock is gone a newer worker run is
+    accepted and prunes, and the parent then writes the child's run-start
+    state back. That state's blob, old before the child started, is still
+    there and the next sync reads it."""
+    from okg.substrate.ingest import source_blob_prune
+    from okg.substrate.ingest.compensation import restore_source_state
+
+    monkeypatch.delenv(_CAP_ENV, raising=False)
+    dep, catalog = _ingest_deployment(
+        tmp_path, clean_runtime, _catalog_labels(200), monkeypatch,
+    )
+    _set_grace(clean_runtime, dep, 3600)
+    _changed_sync(clean_runtime, dep, catalog)
+    start_sha = _svc_watermark(clean_runtime)["record_set_ref"]["sha256"]
+    _age_blobs(clean_runtime)
+
+    snapshots: list[Any] = []
+    real_pin = source_blob_prune.pin_snapshot_blobs
+
+    def capture(dsn, snapshot, *args, **kwargs):
+        snapshots.append(snapshot)
+        return real_pin(dsn, snapshot, *args, **kwargs)
+
+    monkeypatch.setattr(source_blob_prune, "pin_snapshot_blobs", capture)
+    _run_as_worker_children(clean_runtime, monkeypatch)
+    child = _changed_sync(clean_runtime, dep, catalog)  # the run that "dies"
+    (child_snapshot,) = snapshots
+    assert start_sha in json.dumps(child_snapshot.watermark, default=str)
+    assert child["record_set_blob_prune"]["lock"] == "held_by_run", child
+    newer = _changed_sync(clean_runtime, dep, catalog)
+    assert newer["record_set_blob_prune"]["status"] == "ok", newer
+    assert start_sha not in _watermark_shas(clean_runtime)
+
+    restore_source_state(clean_runtime, child_snapshot)  # the parent's restore
+    assert _svc_watermark(clean_runtime)["record_set_ref"]["sha256"] == start_sha
+    assert start_sha in _blob_rows(clean_runtime)["record_sets"]
+    after = _changed_sync(clean_runtime, dep, catalog)
+    assert "prior_record_set_missing" not in after, after

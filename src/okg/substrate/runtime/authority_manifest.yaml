@@ -156,6 +156,26 @@ entry_points:
       Issue #1431 moved it out of the ingest service so SourceRunner can use
       the same rollback for a run refused outside the orchestrator.
 
+  - id: source_sync.blob_prune.progress_writer
+    surface_group: source-sync
+    surface: automatic source blob prune error record
+    path: src/okg/substrate/ingest/source_blob_prune.py
+    symbols:
+      - prune_source_blobs_after_accept
+      - after_accept
+    authority_class: source_progress_writer
+    production_execution: false
+    dbos_lifecycle_authority: false
+    dbos_required_when_runtime_enabled: false
+    legacy_okg_job_executor_allowed: false
+    explicit_operator_selection_required: false
+    progress_ledger_only: true
+    notes: >
+      After an accepted run, a failed automatic blob prune records its error
+      under the source's sync.record_set_blob_prune.last_error progress key and the
+      next successful prune deletes it (PACT record-set-blob-autoprune). It
+      does not dispatch, retry, or claim work.
+
   - id: source_sync.rerun_required.progress_writer
     surface_group: source-sync
     surface: failed-run rerun-required publish block

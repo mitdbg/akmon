@@ -3331,6 +3331,16 @@ codes:
     # `calc_column_unknown` (a later read names a `calc.` column the set
     # lacks); while computing, `too_many_rows`, `evaluation_budget`,
     # `regex_budget` and `map_output_too_large`, never a partial answer.
+    # PACT read-stored-metrics: `map(compute)` and a stored sum, min or max
+    # refuse `unknown_type` (a type that is neither a catalog type nor a live
+    # type, with data.closest). A stored sum, min or max refuses, in order,
+    # `stored_metric_under_access_rules` (before any graph read),
+    # `stored_metric_by`, `stored_metric_field`, `stored_metric_input`,
+    # `stored_metric_text_condition`, `unknown_type`,
+    # `stored_metric_needs_number` (an attribute declared text, bool or ts),
+    # then `stored_set_too_large` (over 50,000 records, after one bounded
+    # count, data.records) and `stored_read_over_budget` (the call's 5 s SQL
+    # budget, data.phase and data.elapsed_ms); every one serves zero values.
     fix_hint_template: "correct the named field(s), or re-read the tool's inputSchema in tools/list"
     data_shape: [tool, invalid_fields, validation_kinds]
 
@@ -3492,6 +3502,16 @@ codes:
       - src/okg/substrate/library/linkers/declarative.py
     fix_hint_template: "point the rule at a string field or a list of strings, or emit one string attribute per value"
     data_shape: [rule_id, node_id, field, value_type, item_type]
+
+  - code: cross_link_pair_limit_exceeded
+    python_exception: CrossLinkPairLimitExceeded
+    severity: recoverable
+    raised_by:
+      - declarative cross-source linker (a matcher step that compares every candidate with every value, before it starts)
+    referenced_in:
+      - src/okg/substrate/library/linkers/declarative.py
+    fix_hint_template: "name the rule's field with letters, digits and underscores so the match runs in the database, or raise the linker's max_pair_comparisons"
+    data_shape: [rule_id, step, n_left, n_right, limit]
 
   - code: run_sql_invalid
     python_exception: RunSqlInvalid
@@ -3673,6 +3693,13 @@ codes:
     raised_by: [okg.substrate.mcp.effective_surface, deployment.yaml load]
     fix_hint_template: "fix the key spelling or value under `agent_surface`"
     data_shape: [unknown_keys, accepted_keys]
+
+  - code: surface_text_invalid
+    python_exception: SurfaceTextInvalid
+    severity: user
+    raised_by: [okg.substrate.mcp.surface_text, okg mcp-serve build]
+    fix_hint_template: "fix the surface_text file; see okg.substrate.mcp.surface_text"
+    data_shape: [file, key, unknown, placeholders, unknown_codes, unpublished, published_tools]
 
   - code: agent_surface_projection_wider_than_served
     python_exception: AgentSurfaceProjectionWiderThanServed
@@ -3963,6 +3990,18 @@ codes:
     raised_by: [okg.substrate.mcp.session_tool_surface]
     fix_hint_template: "report this as an okg substrate defect against the pinned mcp SDK"
     data_shape: []
+
+  # A request named its benchmark question or try (X-OKG-Question /
+  # X-OKG-Try headers or _meta okg/question / okg/try) in a shape the call
+  # log cannot hold, or ambiguously; the call is refused and still logged.
+  - code: mcp_question_label_invalid
+    python_exception: QuestionLabelInvalid
+    severity: user
+    raised_by: [okg.substrate.mcp.tracing]
+    referenced_in:
+      - docs/reference/observability.md
+    fix_hint_template: "send the question as one printable-ASCII token of at most 200 characters with no '#' or ',', and the try as a whole number from 1 to 999999, or send neither"
+    data_shape: [field, channel]
 
   - code: search_profile_config_invalid
     python_exception: SearchProfileConfigInvalid

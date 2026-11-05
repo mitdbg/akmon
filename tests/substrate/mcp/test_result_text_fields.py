@@ -273,6 +273,9 @@ ABNORMAL = {
     "names_only": ({"reason": "path_test", "query": "nm-MARK", "terms": 1, "count": 0,
                     "count_basis": "exact"}, ['no file text contains "nm-MARK"']),
     "load_state": ("ls_MARK", ["ls_MARK"]),
+    # Lane ri F6: an empty search page says why.
+    "empty_why": ({"cause": "unknown_type", "unknown_types": ["ew-MARK"], "types": ["ew_t"]},
+                  ['! 0 rows because type "ew-MARK" is not a record type here; types: ew_t']),
 }
 
 

@@ -103,6 +103,7 @@ import logging
 import re
 import threading
 import time
+from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
 
@@ -403,6 +404,11 @@ GREP_PATH_ATTR = "path"
 #: In-process row key of a list page: whether the record's own text matched.
 #: `search_views.grep_list_projection` reads and removes it; no card has it.
 OWN_MATCH_KEY = "own_match"
+#: In-process row key of a list page (PACT grep-rows-all-lines): how many
+#: distinct matched lines grep read in the record (`seen`) and whether that
+#: is all of them (`exact`). `search_views.grep_list_projection` turns it
+#: into the row's `lines_left` and removes it; no card has it.
+LIST_LINES_KEY = "list_lines"
 GREP_DEFAULT: tuple[str, ...] = (
     "node_id", "canonical_node_id", "subtype", "method", "match_kind",
     "excerpt", "citation", "evidence_kind", "evidence_kind_provenance",
@@ -2164,6 +2170,8 @@ class _Admitter:
         self.own_path_only = own_path_only
         self._decided: dict[str, Optional[dict[str, Any]]] = {}
         self._child: dict[str, bool] = {}
+        #: The record-path check's per-call reads (#4227), read once.
+        self._record_path_context: Any = None
 
     def declared_children(self, subtypes: Sequence[str]) -> set[str]:
         """Which of `subtypes` are declared passage children (record results only)."""
@@ -2290,6 +2298,21 @@ class _Admitter:
                 r for r in counted
                 if not excluded_by_path_globs(r.get("attrs"), scope.excluded_path_globs)
             ]
+            # A passage carries no path of its own: the record that declares
+            # it decides (#4227), so its passages are not counted or served
+            # where the record form leaves the record out.
+            from okg.substrate.mcp.passage_path_exclusion import (
+                passages_excluded_by_record_path,
+                record_path_context,
+            )
+
+            if self._record_path_context is None:
+                self._record_path_context = record_path_context(conn, session)
+            gone = passages_excluded_by_record_path(
+                conn, session, counted, scope.excluded_path_globs,
+                context=self._record_path_context,
+            )
+            counted = [r for r in counted if str(r["node_id"]) not in gone]
         if attr_filters:
             from okg.substrate.mcp.search import _matches_filter
 
@@ -3318,6 +3341,23 @@ def search_grep(
         *_term_sql(parsed, params, column=_TEXT),
         *_path_exclusion_sql(scope, params, column="n.attrs"),
     ]
+    # #4227: a passage whose every declaring record is excluded is not read,
+    # so it never fills the scan bound and the SQL count is right. Under
+    # access rules it is a residual at the scan site instead.
+    from okg.substrate.mcp.passage_path_exclusion import (
+        passage_types_in_scope,
+        record_path_exclusion_sql,
+    )
+
+    record_path_sql = record_path_exclusion_sql(
+        conn, session, scope, params, segment=segment, prefix="rpxg",
+    )
+    if record_path_sql is not None:
+        terms.append(record_path_sql)
+    record_path_residual = bool(
+        scope.excluded_path_globs and record_path_sql is None
+        and passage_types_in_scope(conn, session, scope)
+    )
     attr_filters = filter.get("attr_filters") or {}
     if attr_filters:
         # Pushed into the predicate (never into the scope the bounds walk):
@@ -3722,9 +3762,13 @@ def search_grep(
     #: audit can hide nothing here (#3384): a SQL count of stored rows would
     #: count rows audit still hides (no source lineage, masked text), so a
     #: term only they hold would count where an absent term counts none.
+    #: And when a profile's excluded paths judge passages by their record
+    #: only at the scan site (#4227, access rules): a SQL count of stored
+    #: units would count a passage the page leaves out.
     finish = not strict and (
         compiled_where.qualification != "exact"
         or parent_matches_outside_scope is not None
+        or record_path_residual
         or (
             _nomos_runtime(session) and not _audit_hides_nothing(
                 conn, session, redaction=redaction, segment=segment,
@@ -3845,6 +3889,12 @@ def search_grep(
     spellings: dict[str, None] = {}
     match_lines: dict[int, list[dict[str, Any]]] = {}
     line_keys: dict[int, set[tuple[Any, ...]]] = {}
+    #: A list row's matched lines counted (`count`), its own text's matched
+    #: line texts and how often each occurs (`own`), whether the count is
+    #: all of the record's (`exact`), and how many passages were read.
+    list_lines: dict[int, dict[str, Any]] = {}
+    #: Records with a matching `document_chunk` passage served on a list page.
+    list_chunk_records: set[str] = set()
     record_attrs: dict[int, Mapping[str, Any]] = {}
     for at, ((index, _orig, is_record), row, (ok, spans), probe) in enumerate(
         zip(units, served, checks, probes)
@@ -3904,12 +3954,54 @@ def search_grep(
                         trust="untrusted" if untrusted else "trusted",
                     )["excerpt"]
             bucket_lines.append(entry)
-        # `spans` are in text order (`_recheck` sorts them), so the windows
-        # kept under the cap below are the earliest matches.
-        for start, end in spans:
-            if is_record and index not in first_own:
-                first_own[index] = (text, start)
-            bucket = windows.setdefault(index, [])
+        if is_record and spans and index not in first_own:
+            first_own[index] = (text, spans[0][0])
+        bucket = windows.setdefault(index, [])
+        if list_view:
+            # PACT grep-rows-all-lines: a list row shows every matched line,
+            # up to `MAX_WINDOWS`, so its windows come from every match
+            # (`unit_spans`), one per line, not from each term's first match.
+            # Within one text a line is its position: identical lines at two
+            # places are two lines (review H1). Across texts, a passage line
+            # whose text is one of the record's own matched lines is that
+            # line, dropped; when the record holds that text on more than one
+            # line it is not known which, so the count is a lower bound.
+            # Every line is counted, shown or not.
+            seen = list_lines.setdefault(index, {"own": {}, "count": 0, "exact": True})
+            if surfaces_by_unit is None or any(
+                count >= MATCH_SURFACES_PER_TEXT
+                for count in Counter(term for term, _ in surfaces_by_unit.get(at, [])).values()
+            ):
+                seen["exact"] = False
+            if not is_record:
+                seen["passages"] = seen.get("passages", 0) + 1
+                if row.get("subtype") == "document_chunk":
+                    # Its lines may all repeat the record's own lines and
+                    # place no window; the own-text lines are still tried
+                    # as record lines, as when it placed one (below).
+                    list_chunk_records.add(str(page[index]["node_id"]))
+            unit_list_spans = []
+            unit_starts: set[int] = set()
+            for start, end in sorted(unit_spans):
+                lo = _line_start(text, start)
+                if lo in unit_starts:
+                    continue  # another match on a line already counted
+                unit_starts.add(lo)
+                key = text[lo:_line_end(text, max(start, end - 1))].strip()
+                if is_record:
+                    seen["own"][key] = seen["own"].get(key, 0) + 1
+                elif key in seen["own"]:
+                    if seen["own"][key] > 1:
+                        seen["exact"] = False
+                    continue
+                seen["count"] += 1
+                unit_list_spans.append((start, end))
+            window_spans = unit_list_spans[:max(MAX_WINDOWS - len(bucket), 0)]
+        else:
+            # `spans` are in text order (`_recheck` sorts them), so the
+            # windows kept under the cap below are the earliest matches.
+            window_spans = spans
+        for start, end in window_spans:
             if len(bucket) >= MAX_WINDOWS:
                 break
             line = (
@@ -3952,7 +4044,7 @@ def search_grep(
         with_passage = {
             place.record_id for _window, basis, place in placed_windows
             if basis == MATCH_LINE_IN_PASSAGE and place.chunk_subtype == "document_chunk"
-        }
+        } | list_chunk_records
         tried = [
             entry for entry in placed_windows
             if entry[1] == MATCH_LINE_IN_PASSAGE or entry[2].record_id in with_passage
@@ -4009,13 +4101,29 @@ def search_grep(
             full_row[LOCATION_KEY] = location
         if list_view:
             full_row[OWN_MATCH_KEY] = node_id in own_matched
+            lines = list_lines.get(index)
+            if lines is not None and lines["count"]:
+                matching = row.get(MATCHING_KEY)
+                full_row[LIST_LINES_KEY] = {
+                    "seen": lines["count"],
+                    # Every matched line of the record was read: each text
+                    # unit's every match (not cut at the per-term cap), every
+                    # matching passage, and a scan that read the whole match
+                    # set (else a passage may be unscanned).
+                    "exact": bool(
+                        lines["exact"] and exhausted and not (
+                            isinstance(matching, int) and not isinstance(matching, bool)
+                            and matching > lines.get("passages", 0)
+                        )
+                    ),
+                }
         full_rows.append(full_row)
     results = _fence_search_rows(
         conn, session, full_rows,
         # A list is projected from grep's default row plus the own-match
         # fact and the record's handle (PACT read-names-list-3666), whose
         # path falls back to the stored path grep's path terms read.
-        select=[*GREP_DEFAULT, OWN_MATCH_KEY, HANDLE_KEY] if list_view else select,
+        select=[*GREP_DEFAULT, OWN_MATCH_KEY, LIST_LINES_KEY, HANDLE_KEY] if list_view else select,
         default=GREP_DEFAULT, always=GREP_ALWAYS, scope=scope, max_chars=max_chars,
         path_from_default=GREP_PATH_ATTR if list_view else None,
     )
@@ -4124,6 +4232,10 @@ def search_grep(
         "spellings_tried": [spelling_tried(term) for term in parsed.positive],
         "spellings_matched": list(spellings),
     }
+    if scope.excluded_path_globs:
+        # The profile's excluded paths (#4227): a unit is left out by its own
+        # path, and a passage also when every record declaring it is.
+        searched["excluded_path_globs"] = list(scope.excluded_path_globs)
     # Lane ri (CompOps q020): a grep over `source_file` records only read
     # their text, which is the file's path words; the file's contents are its
     # `document`. The reply says "path words", never "text".

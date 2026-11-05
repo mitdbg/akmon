@@ -215,6 +215,60 @@ class RunLiveStepRefused(SubstrateError):
     code = "run_live_step_refused"
 
 
+@dataclass
+class RunCallBudget:
+    """What is left of a run's upstream calls while one of its steps runs
+    as its own call (lane re, review H1): a filter, map or aggregate over a
+    kept answer may fetch missing fields upstream. Its calls count against
+    the run's ``MAX_RUN_UPSTREAM_CALLS``, and it may plan no more than the
+    run has left."""
+
+    step: int
+    before: int
+    made: int = 0
+
+    @property
+    def remaining(self) -> int:
+        return MAX_RUN_UPSTREAM_CALLS - self.before - self.made
+
+
+_CALL_BUDGET: ContextVar[Optional[RunCallBudget]] = ContextVar(
+    "okg_run_call_budget", default=None,
+)
+
+
+@contextmanager
+def call_budget_scope(budget: RunCallBudget) -> Iterator[RunCallBudget]:
+    token = _CALL_BUDGET.set(budget)
+    try:
+        yield budget
+    finally:
+        _CALL_BUDGET.reset(token)
+
+
+def check_planned_calls(calls: int) -> None:
+    """Refuse, before they start, `calls` more upstream calls that would take
+    the run past its cap; nothing outside a run step's own call."""
+    budget = _CALL_BUDGET.get()
+    if budget is None or calls <= budget.remaining:
+        return
+    made = budget.before + budget.made
+    raise RunLiveStepRefused(
+        f"run: step {budget.step} would make {calls:,} upstream calls after "
+        f"{made:,}; a run makes at most {MAX_RUN_UPSTREAM_CALLS:,}",
+        fix_hint="split the run",
+        data={"step": budget.step, "calls": calls, "made": made,
+              "cap": MAX_RUN_UPSTREAM_CALLS},
+    )
+
+
+def note_upstream_calls(calls: int) -> None:
+    """Count `calls` upstream calls made inside a run step's own call."""
+    budget = _CALL_BUDGET.get()
+    if budget is not None:
+        budget.made += calls
+
+
 class RunRefusal(Exception):
     """A step (or the whole run) refused before any call was sent."""
 
@@ -234,8 +288,16 @@ class Step:
     #: graph), ``live`` (an expand that calls a live relation), ``values``,
     #: ``set`` (minus, intersect) or ``rows`` (filter, map or aggregate over
     #: the rows of an earlier step that holds rows). Set by
-    #: :func:`classify_steps`.
+    #: :func:`classify_steps`. ``kept`` (lane re): filter, map or aggregate
+    #: over a kept live answer, served as its own call; the run holds the
+    #: rows of the set that call's reply names.
     kind: str = "graph"
+    #: Lines printed under the step's head: an argument the run accepted
+    #: and set aside (`retain` on a live step), said once.
+    notes: list[str] = dc_field(default_factory=list)
+    #: `{"rule", "sent", "served"}` for an argument the run read as another
+    #: spelling (`input: "$n"` of a graph set as `where: "$n"`).
+    adjusted: list[dict[str, str]] = dc_field(default_factory=list)
 
     @property
     def holds_rows(self) -> bool:
@@ -244,7 +306,10 @@ class Step:
 
 
 #: Step kinds whose rows the run holds in its own memory.
-ROW_KINDS = ("live", "values", "set", "rows")
+ROW_KINDS = ("live", "values", "set", "rows", "kept")
+#: Said under a live step sent with `retain` (lane re): models copy it
+#: from `expand`, and a run keeps the rows anyway.
+RETAIN_NOTE = "! retain ignored: a run keeps a live step's rows for its later steps"
 
 
 def parse_steps(steps: Any) -> list[Step]:
@@ -383,16 +448,26 @@ def live_body(step: Step) -> Optional[Mapping[str, Any]]:
 
 
 #: What a live step takes beside `live`: its anchor, and how many rows it
-#: prints. The graph rows of an expand are not read in a run.
+#: prints. The graph rows of an expand are not read in a run. `retain`
+#: (here or in `live`) is accepted and set aside: a run keeps the rows.
 _LIVE_STEP_ARGUMENTS = frozenset({
     "input", "from", "live", "generation_id", "authority", "limit", "max_bytes",
+    "retain",
 })
-_LIVE_KEYS = frozenset({"relation", "args", "each"})
+_LIVE_KEYS = frozenset({"relation", "args", "each", "retain"})
+
+
+def _is_live_id(value: Any) -> bool:
+    from okg.substrate.mcp.live_result_sets import is_live_id
+
+    return is_live_id(value)
 
 
 def each_source(step: Step) -> Optional[tuple[str, Any]]:
-    """``(argument, values)`` of a live step's `each`: values is a list, or
-    ``(n, column)`` for ``"$n.<column>"``; None without `each`."""
+    """``(argument, values)`` of a live step's `each`: values is a list,
+    ``(n, column)`` for ``"$n.<column>"``, or ``{"ref", "field"}`` for a
+    column of a kept live answer (lane re: expand's own call reads its
+    values, as it does for a call sent alone); None without `each`."""
     live = live_body(step) or {}
     each = live.get("each")
     if each is None:
@@ -409,10 +484,18 @@ def each_source(step: Step) -> Optional[tuple[str, Any]]:
     if ref is not None and is_step_key(ref[0]) and ref[1]:
         return str(argument), (int(ref[0]), row_column(ref[1]))
     if isinstance(source, Mapping) and "ref" in source:
+        field = source.get("field")
+        if (
+            set(source) == {"ref", "field"} and _is_live_id(source.get("ref"))
+            and isinstance(field, str) and field
+        ):
+            # `attrs.<column>` and the bare column are one column, as in
+            # "$n.<column>"; expand reads the kept rows by the bare name.
+            return str(argument), {"ref": source["ref"], "field": row_column(field)}
         raise RunRefusal(
-            f"run: step {step.index}: live.each names a kept answer; in a run, "
-            "name the step that lists the values",
-            f'e.g. "each": {{"{argument}": "$1.<column>"}}',
+            f"run: step {step.index}: live.each.{argument} names a kept answer "
+            'as {"ref": "<l1. id>", "field": "<column>"}',
+            f'e.g. "each": {{"{argument}": {{"ref": "l1...", "field": "<column>"}}}}',
         )
     raise RunRefusal(
         f"run: step {step.index}: live.each.{argument} is a list of values or "
@@ -432,15 +515,30 @@ def rows_input(step: Step) -> Optional[int]:
     return None
 
 
+def kept_input(step: Step) -> Optional[str]:
+    """The kept live answer a filter, map or aggregate step reads, when its
+    `input` names one (``{"ref": "l1..."}``, or the id alone); else None."""
+    if step.operator not in ("filter", "map", "aggregate"):
+        return None
+    scope = step.arguments.get("input")
+    if isinstance(scope, Mapping) and set(scope) == {"ref"}:
+        scope = scope["ref"]
+    return scope if isinstance(scope, str) and _is_live_id(scope) else None
+
+
 def classify_steps(steps: list[Step]) -> None:
     """Set each step's `kind` and check what holds rows; raises
     :class:`RunRefusal` before any step runs.
 
     A live step's `each` and a set step's inputs name earlier steps that
     hold rows; a filter, map or aggregate whose `input` is ``"$n"`` reads
-    step n's rows when step n holds rows. The limits (fan-out steps, values
-    in a list) are checked here too, so nothing upstream is called for a
-    run that cannot run whole."""
+    step n's rows when step n holds rows, and step n's set when it is a
+    graph set (read as ``where: "$n"``, lane re). The limits (fan-out
+    steps, values in a list) are checked here too, so nothing upstream is
+    called for a run that cannot run whole.
+
+    Run it before :func:`check_references`: it writes ``input: "$n"`` of a
+    graph set as the ``where`` that reference check reads."""
     fan_outs = 0
     for step in steps:
         live = live_body(step)
@@ -465,8 +563,10 @@ def classify_steps(steps: list[Step]) -> None:
                             f"{MAX_FAN_OUT_VALUES:,}",
                             "split the values over two runs",
                         )
-                else:
+                elif isinstance(values, tuple):
                     _check_row_source(steps, step, values[0], f"live.each.{argument}")
+                # A kept answer's values are counted when expand reads them,
+                # before any upstream call (`run_live.live_step`).
             continue
         if step.kind == "set":
             for number in step.arguments["inputs"]:
@@ -474,16 +574,45 @@ def classify_steps(steps: list[Step]) -> None:
             continue
         if step.kind == "values":
             continue
+        if kept_input(step) is not None:
+            step.kind = "kept"
+            for key, _field in _walk_refs([step.arguments.get(k) for k in _CONDITION_KEYS]):
+                if is_step_key(key):
+                    raise RunRefusal(
+                        f"run: step {step.index}: a condition over a kept answer "
+                        f"compares its columns; ${key} names a step of this run",
+                        "compare columns, e.g. {\"<column>\": \"<value>\"}, or "
+                        "compare two steps' rows with minus or intersect",
+                    )
+            continue
+        _refuse_link_key_over_set(step)
         source_step = rows_input(step)
         if source_step is None:
             continue
         _check_earlier(steps, step, source_step, "input")
         if not steps[source_step - 1].holds_rows:
-            raise RunRefusal(
-                f"run: step {step.index}: input \"${source_step}\" names a step "
-                "whose records are a graph set; a graph set is a condition",
-                f'write "where": "${source_step}" in place of "input": "${source_step}"',
-            )
+            # A graph set is a condition (lane re): `input: "$n"` is read as
+            # `where: "$n"`, the same records, and the reply says so.
+            given = [key for key in ("where", "predicate") if key in step.arguments]
+            if given:
+                raise RunRefusal(
+                    f"run: step {step.index}: input \"${source_step}\" names a "
+                    f"graph set, which is read as where \"${source_step}\", and "
+                    f"this step also has {given[0]}",
+                    f'give both in where: {{"op": "and", "clauses": '
+                    f'["${source_step}", <your {given[0]}>]}}',
+                )
+            step.arguments.pop("input")
+            step.arguments["where"] = f"${source_step}"
+            step.adjusted.append({
+                "rule": "input_graph_set",
+                "sent": f'"input": "${source_step}"',
+                "served": f'"where": "${source_step}"',
+            })
+            # A link key over the rewritten set counts links, not records:
+            # refused here too, naming the step that counts its links.
+            _refuse_link_key_over_set(step)
+            continue
         step.kind = "rows"
         if step.operator == "aggregate":
             # PACT read-aggregate-order-by (review m3): an order_by typo is
@@ -533,14 +662,14 @@ def _check_live_step(step: Step, live: Mapping[str, Any]) -> None:
         )
     extra = sorted(set(live) - _LIVE_KEYS)
     if extra:
-        hint = (
-            "drop retain: a run keeps a live step's rows for its later steps"
-            if extra == ["retain"] else "live takes relation, args and each"
-        )
         raise RunRefusal(
             f"run: step {step.index}: live does not take {', '.join(extra)} in a run",
-            hint,
+            "live takes relation, args and each",
         )
+    _set_retain_aside(step, live)
+    live = live_body(step) or {}
+    _fold_each_constants(step, live)
+    live = live_body(step) or {}
     if not isinstance(live.get("relation"), str) or not live["relation"]:
         raise RunRefusal(
             f"run: step {step.index}: live names its relation",
@@ -560,13 +689,116 @@ def _check_live_step(step: Step, live: Mapping[str, Any]) -> None:
         )
 
 
+def _set_retain_aside(step: Step, live: Mapping[str, Any]) -> None:
+    """`retain` on a live step, beside `live` or inside it, set aside with
+    one note (lane re): `expand` advertises it and a run keeps the step's
+    rows anyway. Only true or false is set aside; anything else is refused
+    by name. The step's own call is built without it."""
+    given = [holder for holder in (step.arguments, live) if "retain" in holder]
+    if not given:
+        return
+    for holder in given:
+        if not isinstance(holder["retain"], bool):
+            raise RunRefusal(
+                f"run: step {step.index}: retain is true or false",
+                "drop retain: a run keeps a live step's rows for its later steps",
+            )
+    step.arguments.pop("retain", None)
+    step.arguments["live"] = {key: value for key, value in live.items() if key != "retain"}
+    step.notes.append(RETAIN_NOTE)
+
+
+def _varies(value: Any) -> bool:
+    """An `each` value that names several values: a list of two or more,
+    an earlier step's column, or a kept answer's column."""
+    if isinstance(value, list):
+        return len(value) > 1
+    if isinstance(value, Mapping):
+        return "ref" in value
+    ref = _parse_ref(value)
+    return ref is not None and is_step_key(ref[0]) and bool(ref[1])
+
+
+def _constant(value: Any) -> Optional[tuple[Any]]:
+    """`(value,)` for an `each` value that is one plain value (or a list of
+    one), else None."""
+    if isinstance(value, list):
+        if len(value) == 1 and not isinstance(value[0], (list, Mapping)):
+            return (value[0],)
+        return None
+    if isinstance(value, str) and _parse_ref(value) is not None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return (value,)
+    return None
+
+
+def _fold_each_constants(step: Step, live: Mapping[str, Any]) -> None:
+    """`each` with arguments that do not vary beside the one that does
+    (lane ri's read-run-argument-shapes, taken by lane re): each such
+    argument is read as an `args` value and said under the step's head.
+    When which argument varies cannot be told, or one is already in
+    `args`, the step is refused with the call written the way a run takes
+    it."""
+    each = live.get("each")
+    if not (isinstance(each, Mapping) and len(each) > 1):
+        return
+    args = live.get("args") or {}
+    varying = [key for key, value in each.items() if _varies(value)]
+    if not varying:
+        varying = [key for key, value in each.items() if isinstance(value, list)]
+    constants = {key: _constant(value) for key, value in each.items() if key not in varying}
+    if (
+        len(varying) == 1 and isinstance(args, Mapping)
+        and all(found is not None for found in constants.values())
+        and not set(constants) & set(args)
+    ):
+        fixed = {key: found[0] for key, found in constants.items() if found is not None}
+        step.arguments["live"] = {
+            **live, "args": {**args, **fixed}, "each": {varying[0]: each[varying[0]]},
+        }
+        for key, value in fixed.items():
+            step.adjusted.append({
+                "rule": "each_constant_as_args",
+                "sent": f"each.{key} {json.dumps(each[key], default=str)}",
+                "served": f"args.{key} {json.dumps(value, default=str)}",
+            })
+        return
+    message = (
+        f"run: step {step.index}: live.each names the one argument whose values "
+        f"vary; it names {len(each)} ({', '.join(str(k) for k in each)})"
+    )
+    if len(varying) > 1:
+        # Two lists that both vary: no single call is the caller's meaning
+        # (review M2), so no args form is offered to copy.
+        raise RunRefusal(
+            message,
+            f'keep one varying argument in each, e.g. "each": {{"{varying[0]}": '
+            f"{json.dumps(each[varying[0]], default=str)[:120]}}}, and send the "
+            f"values of {', '.join(str(k) for k in varying[1:])} as separate "
+            "steps or runs",
+        )
+    one = varying[0] if varying else str(next(iter(each)))
+    form_args = dict(args) if isinstance(args, Mapping) else {}
+    for key, value in each.items():
+        if key != one:
+            found = _constant(value)
+            form_args[key] = found[0] if found is not None else value
+    raise RunRefusal(
+        message,
+        "put the arguments that stay the same in args: "
+        f'"args": {json.dumps(form_args, default=str)}, "each": {{"{one}": '
+        f"{json.dumps(each[one], default=str)[:120]}}}",
+    )
+
+
 def row_references(step: Step) -> set[int]:
     """The earlier steps whose rows `step` reads."""
     if step.kind == "set":
         return set(step.arguments["inputs"])
     if step.kind == "live":
         source = each_source(step)
-        if source is not None and not isinstance(source[1], list):
+        if source is not None and isinstance(source[1], tuple):
             return {source[1][0]}
         return set()
     if step.kind == "rows":
@@ -820,6 +1052,10 @@ def _sql_text(value: str) -> str:
     return "'" + value.replace("'", "''").replace("%", "%%") + "'"
 
 
+#: A link's end fields: a whole step set stands as their values (PACT
+#: read-link-counts-from-set).
+LINK_END_FIELDS = ("src", "dst")
+
 #: Returned by :func:`lower_marker` for a node that is not a marker leaf.
 NOT_A_MARKER = object()
 
@@ -878,12 +1114,26 @@ def lower_marker(
     found = _marker(node)
     if found is None:
         return NOT_A_MARKER
-    if readable or kind != "nodes":
+    if readable or kind not in ("nodes", "edges"):
         return None
     entry, value_field = found
     field = node.get("field")
     negated = node.get(NEGATED_KEY) is True
     rel = f"{relation}." if relation else ""
+    if kind == "edges":
+        # PACT read-link-counts-from-set: the links whose src or dst is a
+        # record of a set (or a value of a set's id list), probing the
+        # link end's index with the set's ids.
+        if field not in LINK_END_FIELDS or value_field not in (None, "node_id"):
+            return None
+        ids = (
+            f"SELECT run_set.v FROM ({embed(entry.raw_sql)}) AS run_set(v) "
+            "WHERE run_set.v IS NOT NULL"
+            if value_field is None else
+            f"SELECT run_values.v #>> '{{}}' FROM ({embed(entry.values[value_field].raw_sql)}) "
+            "AS run_values(v) WHERE jsonb_typeof(run_values.v) = 'string'"
+        )
+        return _membership(f"{rel}{columns[field]}", ids, indexed=not negated)
     if value_field is None:
         if field != "node_id":
             return None
@@ -1071,6 +1321,11 @@ def marker_matches(
     if value_field is None:
         if entry.ids is None:
             entry.ids = frozenset(str(v) for v in _fetch(entry.raw_sql, values=False))
+        end = node.get("field")
+        if end in LINK_END_FIELDS:
+            # A link's end in a set (PACT read-link-counts-from-set).
+            value = field_value(row, str(end))
+            return value is not None and str(value) in entry.ids
         return str(row.get("node_id")) in entry.ids
     held = entry.values[value_field]
     if held.held is None:
@@ -1472,9 +1727,12 @@ def _set_leaf(sets: RunSets, key: str, inline: bool = False) -> dict[str, Any]:
 
 def _values_list(
     sets: RunSets, value: Any, where: str, binds: Callable[[str], bool],
+    field: Any = None,
 ) -> Optional[list[Any]]:
     """`[marker]` for a ``$n.<field>`` value (alone or as a one-item list),
-    None when `value` holds no reference this binding reads."""
+    None when `value` holds no reference this binding reads. A whole
+    ``$n`` as the value of a link's `src` or `dst` is the set itself (PACT
+    read-link-counts-from-set): the links whose end is one of its records."""
     items = value if isinstance(value, list) else [value]
     refs = [_parse_ref(item) for item in items]
     if not any(ref is not None and binds(ref[0]) for ref in refs):
@@ -1484,14 +1742,24 @@ def _values_list(
             f"{where}: a value list from a set stands alone in its list",
             'e.g. "attrs.key": "$1.attrs.key"',
         )
-    key, field = refs[0]  # type: ignore[misc]
-    if field is None:
+    key, read = refs[0]  # type: ignore[misc]
+    if read is None and field in LINK_END_FIELDS:
+        return [sets.set_marker(key)]
+    if field in LINK_END_FIELDS and read != "node_id":
+        # Review L3: a link end is a record id; a field of the records is
+        # not one, so it is refused here with the forms that are.
+        raise RunRefusal(
+            f"{where}: a link's {field} is a record id; ${key}.{read} is a field of "
+            f"step {key}'s records, not their ids",
+            f'write "{field}": "${key}" (step {key}\'s records) or "{field}": "${key}.node_id"',
+        )
+    if read is None:
         raise RunRefusal(
             f"{where}: ${key} is a set; as a field's values write "
             f"${key}.<field>, or use ${key} as a whole condition",
             f'e.g. {{"op": "and", "clauses": ["${key}", {{"type": "<type>"}}]}}',
         )
-    return [sets.values_marker(key, field)]
+    return [sets.values_marker(key, read)]
 
 
 def expand_from_set_sentence(key: str) -> str:
@@ -1551,7 +1819,7 @@ def _bound_operator_object(
             f"{where}: a value list goes in `in` (or `eq`), not `{op}`",
             f'e.g. {{"{key}": {{"op": "in", "values": ["$<n>.<field>"]}}}}',
         )
-    marker = _values_list(sets, operand, where, binds)
+    marker = _values_list(sets, operand, where, binds, field=key)
     if marker is None:
         return None
     if notes is not None:
@@ -1600,11 +1868,11 @@ def bind_condition(
     if op is not None or "field" in node:
         out = dict(node)
         if "values" in node:
-            marker = _values_list(sets, node["values"], where, binds)
+            marker = _values_list(sets, node["values"], where, binds, field=node.get("field"))
             if marker is not None:
                 out["values"] = marker
         if "value" in node:
-            marker = _values_list(sets, node["value"], where, binds)
+            marker = _values_list(sets, node["value"], where, binds, field=node.get("field"))
             if marker is not None:
                 if op not in (None, "eq"):
                     raise RunRefusal(
@@ -1626,7 +1894,7 @@ def bind_condition(
                     value = bound
             out[key] = value
             continue
-        marker = _values_list(sets, value, where, binds)
+        marker = _values_list(sets, value, where, binds, field=key)
         out[key] = value if marker is None else marker
     return out
 
@@ -1745,4 +2013,44 @@ def names_run_values(values: Any) -> bool:
         isinstance(values, list) and len(values) == 1
         and isinstance(values[0], str)
         and values[0].startswith((_SET_PREFIX, _VALUES_PREFIX))
+    )
+
+
+def _refuse_link_key_over_set(step: Step) -> None:
+    """An aggregate grouping a step's records by a link key (PACT
+    read-link-counts-from-set). Refused before any step runs, naming the run
+    step that counts the links from those records per record at their far
+    end (a link set whose near end is the step's set); the agent chains it.
+    That step counts links (one per src, type and dst), so a far record
+    counts once per record of the set linked to it, and a record of the set
+    with no such link is in no group."""
+    from okg.substrate.mcp.read_grammar import link_key
+
+    if step.operator != "aggregate":
+        return
+    by = step.arguments.get("by")
+    if not (isinstance(by, list) and len(by) == 1 and isinstance(by[0], str)):
+        return
+    parsed = link_key(by[0])
+    if parsed is None or not parsed[0]:
+        return
+    condition = next(
+        (step.arguments[k] for k in _CONDITION_KEYS if k in step.arguments), None,
+    )
+    ref = _parse_ref(condition)
+    if ref is None or not is_step_key(ref[0]) or ref[1] is not None:
+        return
+    edge_type, direction = parsed
+    near, far = ("src", "dst") if direction == "out" else ("dst", "src")
+    offered = {"aggregate": {
+        "input": {"kind": "edges"},
+        "where": {"edge_type": edge_type, near: f"${ref[0]}"},
+        "by": [far], "metrics": ["count"],
+    }}
+    raise RunRefusal(
+        f"run: step {step.index}: by {by[0]} groups step {ref[0]}'s records by the "
+        f"record at the other end of their {edge_type} links; a count of those "
+        "links counts links, not records: each record of the set counts once "
+        f"per {edge_type} link, and a record with no {edge_type} link is in no group",
+        "send this step: " + json.dumps(offered),
     )

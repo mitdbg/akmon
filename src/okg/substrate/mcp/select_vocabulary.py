@@ -740,9 +740,16 @@ def plan_select(
         # Served as sent; the note says whose `attrs` these are.
         notes.append(dict(LINK_ROWS_ATTRS_NOTE))
     if fixed_rows:
+        row_keys = frozenset(returned) | FIXED_ROW_ALWAYS[shape]
+        if shape == "grep_list" and "first_match" in row_keys:
+            # PACT grep-rows-all-lines: a row's other matched lines and the
+            # count of those left out go with its first one.
+            from okg.substrate.mcp.search_views import GREP_LIST_LINE_KEYS
+
+            row_keys = row_keys | frozenset(GREP_LIST_LINE_KEYS)
         return SelectPlan(
             shape=shape, select=None, changed=True, notes=tuple(notes),
-            row_keys=frozenset(returned) | FIXED_ROW_ALWAYS[shape],
+            row_keys=row_keys,
         )
     if not notes:
         return None

@@ -23,9 +23,17 @@ Environment controls:
   research to group calls by the question being investigated.
 
 Internal callers can set a per-trace label that overrides the environment
-default. The former public ``start_trace`` / ``end_trace`` tools were removed;
-unlabeled calls therefore remain explicitly unlabeled unless the launcher or
-an internal integration supplies the question context.
+default. The former public ``start_trace`` / ``end_trace`` tools were removed.
+
+A client (a benchmark harness) names the question and try each call serves
+on the request itself (issue #3773): the HTTP headers ``X-OKG-Question`` and
+``X-OKG-Try``, or the request ``_meta`` keys ``okg/question`` and ``okg/try``
+(any transport, stdio included). They are read from the SDK's per-request
+context, so concurrent calls never share a label. Precedence: the request's
+value, then the in-process label, then ``OKG_MCP_SESSION_QUESTION``. An
+invalid value refuses the call (``mcp_question_label_invalid``) and the
+refusal is still logged, so a malformed id never becomes an unlabeled or
+mislabeled row. See ``call_question`` for the accepted shapes.
 """
 
 from __future__ import annotations
@@ -40,12 +48,15 @@ import re
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping, Optional
 
 from psycopg_pool import ConnectionPool
 
+from okg.substrate.errors import SubstrateError
 from okg.substrate.mcp.operator_models import as_mapping
+from okg.substrate.mcp.retry_edits import arguments_only
 from okg.substrate.telemetry import (
     TelemetrySpan,
     child_span_identity,
@@ -158,6 +169,202 @@ def _process_session_id() -> str:
 
 def _process_question_label() -> Optional[str]:
     return os.environ.get("OKG_MCP_SESSION_QUESTION") or None
+
+
+#: Per-request question context (issue #3773). Headers serve
+#: streamable-HTTP clients that can set per-request headers; the ``_meta``
+#: keys serve any transport, stdio included.
+QUESTION_HEADER = "X-OKG-Question"
+TRY_HEADER = "X-OKG-Try"
+QUESTION_META_KEY = "okg/question"
+TRY_META_KEY = "okg/try"
+QUESTION_ID_MAX_CHARS = 200
+TRY_NUMBER_MAX = 999_999
+_TRY_RE = re.compile(r"[1-9][0-9]{0,5}\Z")
+
+
+class QuestionLabelInvalid(SubstrateError):
+    """A request named its question or try in a shape the log cannot hold.
+
+    The call is refused rather than run unlabeled: a harness that sends a
+    label expects every one of its calls to carry it, and a silently dropped
+    label is indistinguishable from a call that sent none.
+    """
+
+    code = "mcp_question_label_invalid"
+
+
+@dataclass(frozen=True)
+class CallQuestion:
+    """The question (and try) one tool call served.
+
+    ``source`` is ``request`` (header or ``_meta``), ``label`` (the
+    in-process label) or ``env`` (``OKG_MCP_SESSION_QUESTION``). Only a
+    request names a try.
+    """
+
+    question_id: str
+    try_number: Optional[int]
+    source: str
+
+    @property
+    def label(self) -> str:
+        """The ``mcp_trace_events.question_label`` text: ``<id>#try<n>``."""
+        if self.try_number is None:
+            return self.question_id
+        return f"{self.question_id}#try{self.try_number}"
+
+
+def _question_refusal(detail: str, *, field: str, channel: str) -> QuestionLabelInvalid:
+    # The value is NOT echoed: it is caller-controlled request data and the
+    # message reaches logs and evidence artifacts.
+    return QuestionLabelInvalid(
+        f"call refused: the request's {field} {detail}",
+        data={"field": field, "channel": channel},
+        fix_hint=(
+            f"send {QUESTION_HEADER} (or _meta {QUESTION_META_KEY!r}) as one "
+            f"printable-ASCII token of at most {QUESTION_ID_MAX_CHARS} "
+            "characters with no '#' or ',', and "
+            f"{TRY_HEADER} (or _meta {TRY_META_KEY!r}) as a whole number from "
+            f"1 to {TRY_NUMBER_MAX}, or send neither"
+        ),
+    )
+
+
+def _checked_question_id(value: Any, *, channel: str) -> str:
+    if not isinstance(value, str):
+        raise _question_refusal("is not a string", field="question", channel=channel)
+    text = value.strip()
+    if not text:
+        raise _question_refusal("is empty", field="question", channel=channel)
+    if len(text) > QUESTION_ID_MAX_CHARS:
+        raise _question_refusal(
+            f"is longer than {QUESTION_ID_MAX_CHARS} characters",
+            field="question", channel=channel,
+        )
+    if any(not ("!" <= ch <= "~") or ch in "#," for ch in text):
+        raise _question_refusal(
+            "is not one printable-ASCII token without '#' or ','",
+            field="question", channel=channel,
+        )
+    return text
+
+
+def _checked_try_number(value: Any, *, channel: str) -> int:
+    if isinstance(value, bool):
+        raise _question_refusal("is not a whole number", field="try", channel=channel)
+    if isinstance(value, int):
+        number = value
+        if not 1 <= number <= TRY_NUMBER_MAX:
+            raise _question_refusal(
+                f"is outside 1..{TRY_NUMBER_MAX}", field="try", channel=channel,
+            )
+        return number
+    if isinstance(value, str) and _TRY_RE.match(value.strip()):
+        return int(value.strip())
+    raise _question_refusal(
+        f"is not a whole number from 1 to {TRY_NUMBER_MAX}",
+        field="try", channel=channel,
+    )
+
+
+def _single_header(headers: Any, name: str) -> Optional[str]:
+    getlist = getattr(headers, "getlist", None)
+    if callable(getlist):
+        values = list(getlist(name))
+        if len(values) > 1:
+            raise _question_refusal(
+                f"header {name!r} was sent {len(values)} times",
+                field="try" if name == TRY_HEADER else "question",
+                channel="header",
+            )
+    raw = headers.get(name)
+    return None if raw is None else str(raw)
+
+
+def _request_parts() -> tuple[Any, Any]:
+    """``(headers, meta_extra)`` of the in-flight MCP request, or Nones.
+
+    Read through the SDK's per-request ``request_ctx`` (the same channel
+    ``principal_mapping.current_request_headers`` uses), never a global, so
+    two concurrent requests each see their own values.
+    """
+    try:
+        from mcp.server.lowlevel.server import request_ctx
+    except Exception:  # pragma: no cover - SDK import shape
+        return None, None
+    try:
+        context = request_ctx.get()
+    except LookupError:
+        return None, None
+    headers = getattr(getattr(context, "request", None), "headers", None)
+    meta = getattr(context, "meta", None)
+    extra = getattr(meta, "model_extra", None) if meta is not None else None
+    return headers, extra
+
+
+def request_call_question() -> Optional[CallQuestion]:
+    """The question and try the in-flight request names, or None.
+
+    Raises ``QuestionLabelInvalid`` for a malformed or ambiguous value: a
+    repeated header, a header and ``_meta`` that disagree, a try without a
+    question, or a value outside the accepted shape.
+    """
+    headers, extra = _request_parts()
+    found: dict[str, dict[str, Any]] = {"question": {}, "try": {}}
+    if headers is not None:
+        for field, name in (("question", QUESTION_HEADER), ("try", TRY_HEADER)):
+            raw = _single_header(headers, name)
+            if raw is not None:
+                found[field]["header"] = raw
+    if extra:
+        for field, key in (("question", QUESTION_META_KEY), ("try", TRY_META_KEY)):
+            if key in extra and extra[key] is not None:
+                found[field]["meta"] = extra[key]
+    question: Optional[str] = None
+    try_number: Optional[int] = None
+    for channel, raw in found["question"].items():
+        checked = _checked_question_id(raw, channel=channel)
+        if question is not None and checked != question:
+            raise _question_refusal(
+                "differs between the header and _meta",
+                field="question", channel="header+meta",
+            )
+        question = checked
+    for channel, raw in found["try"].items():
+        checked_try = _checked_try_number(raw, channel=channel)
+        if try_number is not None and checked_try != try_number:
+            raise _question_refusal(
+                "differs between the header and _meta",
+                field="try", channel="header+meta",
+            )
+        try_number = checked_try
+    if question is None:
+        if try_number is not None:
+            raise _question_refusal(
+                "was sent without a question", field="try",
+                channel="+".join(sorted(found["try"])),
+            )
+        return None
+    return CallQuestion(question, try_number, "request")
+
+
+def call_question() -> Optional[CallQuestion]:
+    """The question this call served: request > in-process label > env.
+
+    Raises ``QuestionLabelInvalid`` when the request names one badly; the
+    lower-precedence sources are never used to cover a refused request value.
+    """
+    requested = request_call_question()
+    if requested is not None:
+        return requested
+    label = get_current_label()
+    if label:
+        return CallQuestion(label, None, "label")
+    env_label = _process_question_label()
+    if env_label:
+        return CallQuestion(env_label, None, "env")
+    return None
 
 
 def _to_jsonb_str(obj: Any) -> Optional[str]:
@@ -358,9 +565,13 @@ def log_call_to_log(
     response: Any = None,
     session_id: Optional[str] = None,
     cost: Mapping[str, Any] | None = None,
+    question: Optional[CallQuestion] = None,
 ) -> None:
     """Write one row to ``okg.mcp_call_log`` — the leaner cousin
     of ``okg.mcp_trace_events``.
+
+    ``question`` fills ``question_id`` / ``try_number`` (issue #3773). The
+    caller resolves it (``call_question``); None stores NULLs.
 
     Per `improve-mcp-tool-surface` (2026-04-27, task 3.4): one
     row per MCP tool invocation, fire-and-forget. Failure logs
@@ -407,10 +618,11 @@ def log_call_to_log(
                     INSERT INTO okg.mcp_call_log (
                       session_id, deployment_name, tool_name, args, pin,
                       elapsed_ms, result_count, error_code,
-                      operator_name, replacement_operator, cost
+                      operator_name, replacement_operator, cost,
+                      question_id, try_number
                     ) VALUES (
                       %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s,
-                      %s::jsonb
+                      %s::jsonb, %s, %s
                     )
                     """,
                     (
@@ -425,6 +637,8 @@ def log_call_to_log(
                         operator_name,
                         replacement_operator,
                         _to_jsonb_str(cost_payload) or "{}",
+                        None if question is None else question.question_id,
+                        None if question is None else question.try_number,
                     ),
                 )
     except Exception as log_err:
@@ -433,6 +647,10 @@ def log_call_to_log(
             tool_name,
             log_err,
         )
+
+
+#: ``trace_tool_call``'s default: read ``OKG_MCP_SESSION_QUESTION``.
+_ENV_QUESTION_LABEL: Any = object()
 
 
 def trace_tool_call(
@@ -446,7 +664,7 @@ def trace_tool_call(
     duration_ms: Optional[int] = None,
     session_id: Optional[str] = None,
     generation_id: Optional[int | str] = None,
-    question_label: Optional[str] = None,
+    question_label: Any = _ENV_QUESTION_LABEL,
     branch_name: Optional[str] = None,
     route_id: Optional[str] = None,
     route_manifest_checksum: Optional[str] = None,
@@ -455,6 +673,9 @@ def trace_tool_call(
 
     Swallows its own exceptions — tracing failure never breaks
     the tool call.
+
+    ``question_label`` defaults to ``OKG_MCP_SESSION_QUESTION``; an explicit
+    value, None included, is written as given.
 
     ``route_id`` / ``route_manifest_checksum`` (AKMON Phase 6.2)
     attribute this tool call to the route recommendation that led
@@ -466,7 +687,14 @@ def trace_tool_call(
     if not _tracing_enabled():
         return
     effective_session_id = session_id or _process_session_id()
-    effective_question_label = question_label or _process_question_label()
+    # Left unset, the label falls back to OKG_MCP_SESSION_QUESTION; the
+    # tracer wrapper passes the label it resolved (``call_question``), where
+    # None means the call served no named question.
+    effective_question_label = (
+        _process_question_label()
+        if question_label is _ENV_QUESTION_LABEL
+        else question_label
+    )
     effective_branch_name = branch_name or "default"
     try:
         with pool.connection() as conn:
@@ -795,17 +1023,53 @@ def make_tracer(
                     for index, value in enumerate(args)
                     if index != context_position
                 )
-                if _skip_trace(tool_name, args=trace_args, kwargs=trace_kwargs):
+                if arguments_only() or _skip_trace(
+                    tool_name, args=trace_args, kwargs=trace_kwargs,
+                ):
+                    # A body run only to check an offered call's arguments
+                    # is no tool call (PACT read-refusal-retry-calls): it
+                    # writes no trace or call-log row.
                     return fn(*args, **kwargs)
                 start = time.monotonic()
                 generation_id = kwargs.get("generation_id")
-                # Capture the in-process trace label at call entry,
-                # not at trace-write time. This way `end_trace`'s
-                # own row still carries the label of the trace it's
-                # closing — the bracket is inclusive on both ends.
-                # Falls through to the env-default in
-                # `trace_tool_call` if no in-process trace is open.
-                captured_label = get_current_label()
+                # Resolve the question at call entry (issue #3773): the
+                # request's header or _meta, else the in-process label, else
+                # OKG_MCP_SESSION_QUESTION. The request value comes from the
+                # SDK's per-request context, so a concurrent call never sees
+                # another call's question.
+                try:
+                    question = call_question()
+                except QuestionLabelInvalid as refusal:
+                    # Refused before the tool runs, and still logged with
+                    # its reason, so a bad label is visible in both tables
+                    # and is never written as an unlabeled or env-labeled
+                    # row.
+                    trace_tool_call(
+                        pool,
+                        deployment_name=deployment_name,
+                        tool_name=tool_name,
+                        request={"args": trace_args, "kwargs": trace_kwargs},
+                        response=None,
+                        error=refusal,
+                        duration_ms=0,
+                        generation_id=generation_id,
+                        question_label=None,
+                        branch_name=branch_name,
+                    )
+                    log_call_to_log(
+                        pool,
+                        deployment_name=deployment_name,
+                        tool_name=tool_name,
+                        args=trace_kwargs,
+                        response=None,
+                        pin=generation_id,
+                        elapsed_ms=0,
+                        result_count=None,
+                        error_code=refusal.code,
+                        question=None,
+                    )
+                    raise
+                captured_label = None if question is None else question.label
                 try:
                     result = fn(*args, **kwargs)
                 except BaseException as e:
@@ -834,6 +1098,7 @@ def make_tracer(
                         elapsed_ms=duration_ms,
                         result_count=None,
                         error_code=_extract_error_code(e),
+                        question=question,
                     )
                     raise
                 duration_ms = int((time.monotonic() - start) * 1000)
@@ -872,6 +1137,7 @@ def make_tracer(
                     elapsed_ms=duration_ms,
                     result_count=_extract_result_count(result),
                     error_code=None,
+                    question=question,
                 )
                 return result
 

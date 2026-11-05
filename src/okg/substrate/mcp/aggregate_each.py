@@ -128,6 +128,15 @@ def no_list_refusal(field: EachField, *, rows_not_a_list: int) -> Any:
     )
 
 
+def _json_loads_exact(data: Any) -> Any:
+    """jsonb as JSON with every float read exactly, as a Decimal (PACT
+    read-stored-metrics): a module function, so psycopg caches it."""
+    import decimal
+    import json
+
+    return json.loads(data, parse_float=decimal.Decimal)
+
+
 def run_within_budget(
     conn: Any,
     sql: str,
@@ -158,6 +167,11 @@ def run_within_budget(
     try:
         with conn.transaction():
             with conn.cursor() as cur:
+                # PACT read-stored-metrics (re-review R4): grouped numbers are
+                # read exactly, as the plain count reads them.
+                from psycopg.types.json import set_json_loads
+
+                set_json_loads(_json_loads_exact, cur)
                 cur.execute("SELECT current_setting('statement_timeout')")
                 previous = cur.fetchone()[0]
                 cur.execute(

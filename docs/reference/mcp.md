@@ -160,9 +160,9 @@ Search publishes a union of fields from its available methods; each method
 validates its own selection. See [Search capabilities and selection](mcp-results.md#search-capabilities-and-selection)
 for startup probes, missing capabilities and named refusals.
 
-`source_family` restricts ranking to declared `search.source_families`; `max_per_parent` (>= 1) caps each catalog parent. Both select without reranking. Profiles may set `source_families`, `exclude_path_globs`, and `max_per_parent` (disabled by `all`). Rows identify `source_family`.
+`source_family` restricts ranking to declared `search.source_families`; `max_per_parent` (>= 1) caps each catalog parent. Both select without reranking. Profiles may set `source_families`, `exclude_path_globs`, and `max_per_parent` (disabled by `all`). A path exclusion leaves out a row by its own path, and a passage (a declared `passage_rollup` child, such as a chunk) also when every record that declares it has an excluded path; a record with a kept path, or none, keeps it. Rows identify `source_family`.
 
-Each control reports `*_applicable` and `*_application`: `ranked_sql` or `post_fetch_residual`. Residual filtering may under-fill pages, so `truncated`/`next_offset` remain authoritative. Empty results carry measured scope/family counts. Diversity reports post-suppression `total_count` and `total_count_before_diversity`, refuses `rank_by="passages"`, and under `records` does not apply a profile bound (`diversity_reason`). `max_chars` (64–4096, default 280) bounds preview text; trust markers are extra. `attribute_truncation` is distinct from row `truncated` and `truncation_reason`.
+Each control reports `*_applicable` and `*_application`: `ranked_sql` or `post_fetch_residual`. Under access rules the passage rule runs after the read (a record the reader cannot see decides nothing), so grep and lexical then report `post_fetch_residual`; lexical counts the rows it drops toward its rank cap, ranks once deeper (1,000 rows), and a page whose cap those rows filled is `truncated` with `rank_capped`. Residual filtering may under-fill pages, so `truncated`/`next_offset` remain authoritative. Empty results carry measured scope/family counts. Diversity reports post-suppression `total_count` and `total_count_before_diversity`, refuses `rank_by="passages"`, and under `records` does not apply a profile bound (`diversity_reason`). `max_chars` (64–4096, default 280) bounds preview text; trust markers are extra. `attribute_truncation` is distinct from row `truncated` and `truncation_reason`.
 
 ## Direct lookup by stable identifier
 
@@ -243,7 +243,7 @@ is unchanged. `images` sets the render (`render.dpi` 36-300, default 100; `rende
 and rows return in `external_live` — keys and values fenced, untrusted, beside the graph rows, never merged or published, gated every call with no cache; a malformed
 request is refused whole with no rows, a live failure keeps the graph answer under `state: denied | error | timeout`. A call whose principal does not resolve is denied as `live_principal_unresolved` before the policy question and before the adapter -- the service subject is resolved from the relation's declared `principal_mode`, never assumed for a missing one. A hydrated probe (`inspect(target={"kind": "node", "hydrate": ...})`) is different: it is decided as the caller's resolved Nomos subject against `nomos_external_probe.json`, and a caller with no subject gets the field denied as `probe_principal_unresolved`, with no adapter call and no cache row. Live rows share the call's one byte budget with the graph rows: `expand` pages the graph first, runs the adapter once into the room left, and cuts the rows to the longest prefix that fits plus a digest (`truncation_reason: response_byte_budget`). The call sample stores the rows the caller received when they fit its 16 KiB storage cap, else their digest, and records `caller_received` either way. Fencing reduces but does not eliminate prompt
 injection, and an `inline` sample keeps the response for its retention class — prefer `digest` for user-generated sources. Refusals are the `agent_surface_*` and `live_*`
-entries in [error_codes.yaml](error_codes.yaml).
+entries in [error_codes.yaml](error_codes.yaml). `agent_surface.surface_text` names a YAML file in the deployment that changes what the server says, with no code change: `tools` (a tool's whole published description), `params` (`<tool>.<argument>` descriptions), `fix_hints` (a refusal's hint by its error code; the only placeholder is `{default}`, the code's own hint; an empty string drops it), `instructions` (a file replacing `agent_surface.instructions`), and `branches.<name>` layers with the same keys. `okg mcp-serve --branch <name>` serves the base with that layer on top; the default branch serves the base. Paths stay inside the deployment directory. A key, error code, tool or argument the server does not serve is refused at launch (`surface_text_invalid`), in every layer. The `surface_text` report (schema `okg.mcp.surface_text.v1`: a digest over the authored instructions, every published tool and the effective hint map; the branch layer; the overridden ids) is in `okg://readside-metadata/<deployment>` and `inspect(kind="surface")`, and the replay runner records its digest as `served.surface_text`.
 
 ### Inspect kinds
 
@@ -502,8 +502,7 @@ SELECT availability, queue_name, status, queue_depth, dlq_depth, observed_at
 
 ## MCP call log
 
-`okg.v_mcp_calls` exposes bounded telemetry: which tools are called and how
-they behave.
+`okg.v_mcp_calls` exposes bounded telemetry on which tools run and how.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -519,6 +518,7 @@ they behave.
 | `elapsed_ms` | `DOUBLE PRECISION` | Wall-clock duration. |
 | `result_count` | `INTEGER` | Returned row count when known. |
 | `error_code` | `TEXT` | Typed failure code when present. |
+| `question_id`, `try_number` | `TEXT`, `INTEGER` | Question and try served ([observability](observability.md)). |
 
 ```sql
 SELECT tool_name, count(*) AS calls, percentile_cont(0.95)

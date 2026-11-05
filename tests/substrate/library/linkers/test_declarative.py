@@ -108,14 +108,14 @@ def test_declarative_linker_reuses_endpoint_fetches(
     ]
     linker = DeclarativeLinker(rules=rules)
     calls: list[tuple[str, ...]] = []
-    original_query = module._chronos.query
+    original_query = module._chronos.query_strict
 
     def counted_query(cur, sql, params=None):
         if "FROM okg.graph_nodes" in sql:
             calls.append(tuple((params or {}).get("subtypes") or ()))
         return original_query(cur, sql, params)
 
-    monkeypatch.setattr(module._chronos, "query", counted_query)
+    monkeypatch.setattr(module._chronos, "query_strict", counted_query)
 
     with psycopg.connect(clean_runtime, autocommit=True) as conn, \
          conn.cursor() as cur:
@@ -248,7 +248,7 @@ def test_declarative_linker_dirty_side_is_not_read_when_the_other_side_is_empty(
         bidirectional=False,
     )
     linker = DeclarativeLinker(rules=[rule])
-    original_query = module._chronos.query
+    original_query = module._chronos.query_strict
     dirty_reads: list[list[str]] = []
 
     def counting_query(cur, sql, params=None):
@@ -257,7 +257,7 @@ def test_declarative_linker_dirty_side_is_not_read_when_the_other_side_is_empty(
             dirty_reads.append(list(params["node_ids"]))
         return original_query(cur, sql, params)
 
-    monkeypatch.setattr(module._chronos, "query", counting_query)
+    monkeypatch.setattr(module._chronos, "query_strict", counting_query)
 
     def enrich(conn: psycopg.Connection, generation_id: int) -> int:
         return linker.enrich(
@@ -334,7 +334,7 @@ def test_declarative_linker_first_run_skips_the_destination_without_sources(
         edge="references",
         bidirectional=False,
     )
-    original_query = module._chronos.query
+    original_query = module._chronos.query_strict
     destination_reads: list[str] = []
 
     def counting_query(cur, sql, params=None):
@@ -343,7 +343,7 @@ def test_declarative_linker_first_run_skips_the_destination_without_sources(
             destination_reads.append(sql)
         return original_query(cur, sql, params)
 
-    monkeypatch.setattr(module._chronos, "query", counting_query)
+    monkeypatch.setattr(module._chronos, "query_strict", counting_query)
 
     with psycopg.connect(clean_runtime, autocommit=True) as conn, \
          conn.cursor() as cur:
@@ -412,7 +412,7 @@ def test_declarative_linker_dirty_exact_match_uses_bounded_value_lookup(
         bidirectional=False,
     )
     linker = DeclarativeLinker(rules=[rule])
-    original_query = module._chronos.query
+    original_query = module._chronos.query_strict
     bounded_value_queries = 0
 
     def guarded_query(cur, sql, params=None):
@@ -431,7 +431,7 @@ def test_declarative_linker_dirty_exact_match_uses_bounded_value_lookup(
                 raise AssertionError("unscoped source_file scan")
         return original_query(cur, sql, params)
 
-    monkeypatch.setattr(module._chronos, "query", guarded_query)
+    monkeypatch.setattr(module._chronos, "query_strict", guarded_query)
 
     with psycopg.connect(clean_runtime, autocommit=True) as conn, \
          conn.cursor() as cur:
@@ -535,7 +535,7 @@ def test_declarative_linker_dirty_derive_destination_bounds_source_scan(
         bidirectional=False,
     )
     linker = DeclarativeLinker(rules=[rule])
-    original_query = module._chronos.query
+    original_query = module._chronos.query_strict
 
     def guarded_query(cur, sql, params=None):
         params = params or {}
@@ -548,7 +548,7 @@ def test_declarative_linker_dirty_derive_destination_bounds_source_scan(
             raise AssertionError("dirty destination caused full agent_message scan")
         return original_query(cur, sql, params)
 
-    monkeypatch.setattr(module._chronos, "query", guarded_query)
+    monkeypatch.setattr(module._chronos, "query_strict", guarded_query)
 
     with psycopg.connect(clean_runtime, autocommit=True) as conn, \
          conn.cursor() as cur:
@@ -651,7 +651,7 @@ def test_declarative_linker_dirty_derive_destination_skips_unchanged_key(
         bidirectional=False,
     )
     linker = DeclarativeLinker(rules=[rule])
-    original_query = module._chronos.query
+    original_query = module._chronos.query_strict
 
     def guarded_query(cur, sql, params=None):
         params = params or {}
@@ -664,7 +664,7 @@ def test_declarative_linker_dirty_derive_destination_skips_unchanged_key(
             )
         return original_query(cur, sql, params)
 
-    monkeypatch.setattr(module._chronos, "query", guarded_query)
+    monkeypatch.setattr(module._chronos, "query_strict", guarded_query)
 
     with psycopg.connect(clean_runtime, autocommit=True) as conn, \
          conn.cursor() as cur:
@@ -770,7 +770,7 @@ def test_declarative_linker_dirty_derive_irrelevant_scope_skips_dst_scan(
         bidirectional=False,
     )
     linker = DeclarativeLinker(rules=[rule])
-    original_query = module._chronos.query
+    original_query = module._chronos.query_strict
 
     def guarded_query(cur, sql, params=None):
         params = params or {}
@@ -781,7 +781,7 @@ def test_declarative_linker_dirty_derive_irrelevant_scope_skips_dst_scan(
             raise AssertionError("irrelevant dirty scope scanned destinations")
         return original_query(cur, sql, params)
 
-    monkeypatch.setattr(module._chronos, "query", guarded_query)
+    monkeypatch.setattr(module._chronos, "query_strict", guarded_query)
 
     with psycopg.connect(clean_runtime, autocommit=True) as conn, \
          conn.cursor() as cur:
@@ -1070,7 +1070,7 @@ def _fail_unscoped_tool_use_scan(
     monkeypatch: pytest.MonkeyPatch,
     module,
 ) -> None:
-    original_query = module._chronos.query
+    original_query = module._chronos.query_strict
 
     def guarded_query(cur, sql, params=None):
         params = params or {}
@@ -1097,4 +1097,4 @@ def _fail_unscoped_tool_use_scan(
             raise AssertionError("unscoped dst-node scan for pact_change")
         return original_query(cur, sql, params)
 
-    monkeypatch.setattr(module._chronos, "query", guarded_query)
+    monkeypatch.setattr(module._chronos, "query_strict", guarded_query)

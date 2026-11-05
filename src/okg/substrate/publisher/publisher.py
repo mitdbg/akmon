@@ -1789,6 +1789,44 @@ def _chronos_segment_table_delta_sql(
     return statement, params
 
 
+def _overlay_predecessor_id(
+    *,
+    branch_name: str,
+    previous: Any | None,
+    fork_base: Any | None,
+    fork_block_reason: str | None,
+) -> str | None:
+    """The generation whose accepted overlays a publish carries forward.
+
+    The branch's own latest published generation when it has one. On a
+    branch's first publish that is None, so a non-default branch carries
+    forward from its recorded base generation instead (issue #3772: without
+    this, every attribute observation the base served vanished from the
+    branch, silently). Only the default branch's first publish starts from
+    nothing. A first branch publish whose base cannot be resolved is already
+    blocked by name (``fork_base_generation_unresolved``); any other path to
+    a missing base raises rather than publish a branch without its overlays.
+    """
+    if previous is not None:
+        return str(previous.checkpoint_id)
+    if branch_name == "default":
+        return None
+    if fork_base is not None:
+        return str(fork_base.checkpoint_id)
+    if fork_block_reason is not None:
+        # The generation is blocked; no published read will pin it.
+        return None
+    raise SubstrateError(
+        "cannot carry overlays into a branch's first publish: the branch's "
+        "base generation is unresolved",
+        data={"branch": branch_name, "reason": "fork_base_generation_unresolved"},
+        fix_hint=(
+            "create the branch with `okg branch create`, which records a "
+            "published default-branch base generation"
+        ),
+    )
+
+
 class Publisher:
     """One per deployment, built with explicit catalog writer authority.
 
@@ -13576,6 +13614,16 @@ class Publisher:
                 deployment_name=self.deployment_name,
                 branch=self.branch_name,
             )
+            # Issue #3772: a branch's first publish has no published
+            # generation of its own, so its overlays carry forward from the
+            # branch's recorded base generation (the same base that scopes
+            # the gate and the extractor above), never from nothing.
+            overlay_predecessor = _overlay_predecessor_id(
+                branch_name=self.branch_name,
+                previous=previous,
+                fork_base=fork_gate_baseline,
+                fork_block_reason=fork_block_reason,
+            )
             with _publisher_timed_stage(
                 timings_ms,
                 "attribute_effective_attrs_materialize",
@@ -13589,7 +13637,7 @@ class Publisher:
                         conn,
                         generation_id=generation_id,
                         previous_generation_id=(
-                            previous.checkpoint_id if previous is not None else None
+                            overlay_predecessor
                         ),
                     ),
                 }

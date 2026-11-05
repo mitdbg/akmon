@@ -76,7 +76,7 @@ the newest number on the
 [releases page](https://github.com/mitdbg/akmon/releases).
 
 ```bash
-export AKMON_VERSION=0.4.0
+export AKMON_VERSION=0.5.0
 git clone --depth 1 --branch "v${AKMON_VERSION}" https://github.com/mitdbg/akmon.git akmon
 cd akmon
 uv sync --locked
@@ -84,7 +84,7 @@ source .venv/bin/activate
 okg --version
 ```
 
-The last command prints the version you chose, for example `okg 0.4.0`. If
+The last command prints the version you chose, for example `okg 0.5.0`. If
 `uv sync` times out, run `UV_HTTP_TIMEOUT=300 uv sync --locked` until it
 succeeds; until then, `okg --version` may run a different `okg` already on
 your `PATH`. The rest of this page runs `okg` in this activated environment.

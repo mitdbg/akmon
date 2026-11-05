@@ -137,6 +137,7 @@ MANIFEST_FINGERPRINT_OUT: frozenset[str] = frozenset({
     "doctor_checks",
     "deployment_up",   # deployment-up backup/progress policy (lifecycle)
     "host_storage",    # host disk headroom thresholds (ops governance)
+    "source_blob_prune_grace_seconds",  # how long superseded source blobs are kept (storage ops); selects no published or synced row
     "docker",          # compose stack written by okg install for okg start/stop/restart (lifecycle); selects no published or synced row
     "code_drift",      # code-drift check policy: what the doctor/readiness probe compares the sync root with; selects no published or synced row
     # Issue #1479: publish CAPACITY and warning policy -- kickoff interval,

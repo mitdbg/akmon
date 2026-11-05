@@ -593,3 +593,532 @@ def test_a_null_path_attribute_is_kept_by_sql_and_residual_alike(
         )
     # An exclusion names PATHS; a row whose path is null has not been named.
     assert "chunk:docs:nullpath" in _ids(page)
+
+
+# ---------- a passage's record path under exclude_path_globs (#4227) ----------
+#
+# PACT unit-grep-exclude-globs-4227. The usual shape: a document record
+# carries the `path`, its chunks carry none. A profile's `exclude_path_globs`
+# was checked on each row's own path only, so a chunk of an excluded document
+# (no path of its own) was still matched, counted and served by grep's unit
+# form, while the record form (which reads the record) left it out.
+
+EXCLUDED_DOC = "doc:excluded"
+KEPT_DOC = "doc:kept"
+EX_TERM = "zircaloy"
+#: Chunks of the excluded document (no own path).
+EXCLUDED_CHUNKS = ["chunk:excluded:0", "chunk:excluded:1"]
+KEPT_CHUNKS = ["chunk:kept:0"]
+#: A chunk with no record at all: never excluded (it names no path).
+LOOSE_CHUNK = "chunk:loose"
+GLOB_CONFIG = parse_search_config({
+    "profiles": {
+        "no_tests": {"subtypes": ["chunk"], "exclude_path_globs": ["tests/**"]},
+        "chunks": {"subtypes": ["chunk"]},
+        "records_no_tests": {"subtypes": ["doc", "chunk"], "exclude_path_globs": ["tests/**"]},
+    },
+})
+
+
+def _glob_facts() -> list:
+    from okg.substrate.library.sources.base import EdgeFact, NodeFact
+
+    def node(node_id: str, subtype: str, attrs: dict) -> NodeFact:
+        return NodeFact(
+            node_id=node_id, subtype=subtype, attrs=attrs,
+            source_record_id={"id": node_id}, source_revision={"v": 1},
+        )
+
+    def edge(src: str, dst: str) -> EdgeFact:
+        return EdgeFact(
+            src=src, dst=dst, edge_type="contains",
+            source_record_id={"id": f"{src}|contains|{dst}"}, source_revision={"v": 1},
+        )
+
+    facts: list = [
+        node(EXCLUDED_DOC, "doc", {"path": "tests/fixtures/rods.py"}),
+        node(KEPT_DOC, "doc", {"path": "src/okg/rods.py"}),
+        node(LOOSE_CHUNK, "chunk", {"text": f"{EX_TERM} loose note"}),
+    ]
+    for i, chunk in enumerate(EXCLUDED_CHUNKS):
+        facts += [node(chunk, "chunk", {"text": f"{EX_TERM} cladding test {i}"}),
+                  edge(EXCLUDED_DOC, chunk)]
+    for i, chunk in enumerate(KEPT_CHUNKS):
+        facts += [node(chunk, "chunk", {"text": f"{EX_TERM} cladding source {i}"}),
+                  edge(KEPT_DOC, chunk)]
+    return facts
+
+
+@pytest.fixture
+def globbed(clean_runtime: str, tmp_path) -> str:
+    from okg.substrate.library.sources.base import EdgeFact, NodeFact
+
+    deployment = make_search_deployment(tmp_path, dsn=clean_runtime)
+    facts = _glob_facts()
+    publish_nodes(
+        clean_runtime, deployment, subtypes=SUBTYPES, narrowings=NARROWINGS,
+        nodes=[f for f in facts if isinstance(f, NodeFact)],
+        edges=[f for f in facts if isinstance(f, EdgeFact)],
+    )
+    return deployment
+
+
+def _glob_search(dsn: str, deployment: str, *, profile: str, **kwargs):
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        session = open_session(conn, deployment_name=deployment)
+        scope = resolve_scope(
+            conn, catalog_version_id=session.catalog_version_id, config=GLOB_CONFIG,
+            requested_profile=profile, deployment_name=session.deployment_name,
+        )
+        return search(conn, session, EX_TERM, scope=scope, **{"limit": 50, **kwargs})
+
+
+def _doc_of(node_id: str) -> str:
+    return node_id.rsplit(":", 1)[0].replace("chunk:", "doc:")
+
+
+def test_unit_grep_leaves_out_passages_of_an_excluded_record(
+    clean_runtime: str, globbed: str,
+) -> None:
+    """Must-fail on dev: the excluded document's chunks were matched,
+    counted and served by grep's unit form. Now they are not, the count and
+    the complete claim match what is served, and `grep_searched` says the
+    exclusion reads each passage's record path."""
+    from okg.substrate.mcp.envelope import with_read_coverage
+
+    page = _glob_search(clean_runtime, globbed, profile="no_tests", method="grep")
+    ids = _ids(page)
+    assert not set(ids) & set(EXCLUDED_CHUNKS), ids
+    assert set(ids) == {*KEPT_CHUNKS, LOOSE_CHUNK}
+    assert page["total_count"] == len(ids) and page["total_count_basis"] == "exact"
+    assert with_read_coverage({**page, "operator_name": "search"})["coverage"][
+        "delivery"]["complete"] is True
+    searched = page["grep_searched"]
+    assert searched["excluded_path_globs"] == ["tests/**"]
+
+
+@pytest.mark.parametrize("view", ["cards", "list"])
+def test_unit_grep_views_and_counts_agree_on_the_exclusion(
+    clean_runtime: str, globbed: str, view: str,
+) -> None:
+    """Every delivery of the unit form (cards, list) serves and counts the
+    same rows."""
+    page = _glob_search(
+        clean_runtime, globbed, profile="no_tests", method="grep", delivery_view=view,
+    )
+    assert set(_ids(page)) == {*KEPT_CHUNKS, LOOSE_CHUNK}
+    assert page["total_count"] == 2
+
+
+def test_lexical_passages_of_an_excluded_record_are_left_out(
+    clean_runtime: str, globbed: str,
+) -> None:
+    """The same class in lexical search: a chunk is judged by its record's
+    path too, ranked one by one or folded into records."""
+    passages = _glob_search(
+        clean_runtime, globbed, profile="no_tests", method="lexical", rank_by="self",
+    )
+    assert set(_ids(passages)) == {*KEPT_CHUNKS, LOOSE_CHUNK}
+    records = _glob_search(clean_runtime, globbed, profile="no_tests", method="lexical")
+    served = {_doc_of(i) if i.startswith("chunk:") and i != LOOSE_CHUNK else i
+              for i in _ids(records)}
+    assert EXCLUDED_DOC not in served and not set(_ids(records)) & set(EXCLUDED_CHUNKS)
+
+
+def test_without_an_exclusion_every_passage_is_served(
+    clean_runtime: str, globbed: str,
+) -> None:
+    """Control: a profile with no `exclude_path_globs` serves the excluded
+    document's chunks in every form (passes on dev)."""
+    unit = _glob_search(clean_runtime, globbed, profile="chunks", method="grep")
+    assert set(_ids(unit)) == {*EXCLUDED_CHUNKS, *KEPT_CHUNKS, LOOSE_CHUNK}
+    lexical = _glob_search(
+        clean_runtime, globbed, profile="chunks", method="lexical", rank_by="self",
+    )
+    assert set(EXCLUDED_CHUNKS) <= set(_ids(lexical))
+
+
+def test_the_record_form_already_leaves_out_an_excluded_record(
+    clean_runtime: str, globbed: str,
+) -> None:
+    """Control: grep's record form reads the record's path (passes on dev)."""
+    page = _glob_search(
+        clean_runtime, globbed, profile="records_no_tests", method="grep", within="record",
+    )
+    assert _ids(page) == [KEPT_DOC]
+
+
+def test_semantic_passages_of_an_excluded_record_are_left_out(
+    clean_runtime: str, globbed: str,
+) -> None:
+    """The same class in semantic search: ranked chunks of an excluded
+    record are not served; without the exclusion they are (control)."""
+    from okg.substrate.embeddings import HashEmbedder
+    from okg.substrate.mcp.semantic_readiness import resolve_node_segment
+
+    embedder = HashEmbedder()
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        segment = resolve_node_segment(conn)
+        rows = conn.execute(
+            f"SELECT node_id, attrs->>'text' FROM {segment} "
+            "WHERE deleted = FALSE AND attrs ? 'text'"
+        ).fetchall()
+        for node_id, text in rows:
+            vec = embedder.embed(text)
+            conn.execute(
+                f"UPDATE {segment} SET embedding = %s::vector, embedding_model = %s "
+                "WHERE node_id = %s",
+                ("[" + ",".join(f"{v:.6f}" for v in vec) + "]", embedder.model_id, node_id),
+            )
+    excluded = _glob_search(
+        clean_runtime, globbed, profile="no_tests", method="semantic", embedder=embedder,
+    )
+    assert _ids(excluded) and not set(_ids(excluded)) & set(EXCLUDED_CHUNKS)
+    plain = _glob_search(
+        clean_runtime, globbed, profile="chunks", method="semantic", embedder=embedder,
+    )
+    assert set(EXCLUDED_CHUNKS) <= set(_ids(plain))
+
+
+def test_an_alias_to_a_passage_of_an_excluded_record_is_left_out(
+    clean_runtime: str, tmp_path,
+) -> None:
+    """The alias method checks the canonical node against the profile: a
+    passage of an excluded record is left out too; without the exclusion it
+    is served (control), and an alias to a kept passage is served."""
+    from okg.substrate.library.sources.base import EdgeFact, NodeFact
+
+    deployment = make_search_deployment(tmp_path, dsn=clean_runtime)
+    facts = _glob_facts()
+    publish_nodes(
+        clean_runtime, deployment, subtypes=SUBTYPES, narrowings=NARROWINGS,
+        nodes=[f for f in facts if isinstance(f, NodeFact)],
+        edges=[f for f in facts if isinstance(f, EdgeFact)],
+        aliases=[("rodex", EXCLUDED_CHUNKS[0], None), ("rodkept", KEPT_CHUNKS[0], None)],
+    )
+
+    def canonicals(alias: str, profile: str) -> list[str]:
+        with psycopg.connect(clean_runtime, autocommit=True) as conn:
+            session = open_session(conn, deployment_name=deployment)
+            scope = resolve_scope(
+                conn, catalog_version_id=session.catalog_version_id, config=GLOB_CONFIG,
+                requested_profile=profile, deployment_name=session.deployment_name,
+            )
+            page = search(
+                conn, session, alias, method="alias", limit=50,
+                scope=restrict_scope_to_method(scope, "alias"),
+            )
+        return [row["canonical"] for row in page["results"]]
+
+    assert canonicals("rodex", "no_tests") == []
+    assert canonicals("rodex", "chunks") == [EXCLUDED_CHUNKS[0]]
+    assert canonicals("rodkept", "no_tests") == [KEPT_CHUNKS[0]]
+
+
+# ---------- review of 0946d59ad: in the SQL, under access rules, two records ----------
+
+#: Excluded passages that sort before the kept ones: more than grep's
+#: 2,000-candidate scan bound and lexical's 200-row rank cap.
+BULK_EX = 3_000
+BULK_KEPT = 3_000
+
+
+def _bulk_facts() -> list:
+    from okg.substrate.library.sources.base import EdgeFact, NodeFact
+
+    def node(node_id: str, subtype: str, attrs: dict) -> NodeFact:
+        return NodeFact(
+            node_id=node_id, subtype=subtype, attrs=attrs,
+            source_record_id={"id": node_id}, source_revision={"v": 1},
+        )
+
+    def edge(src: str, dst: str) -> EdgeFact:
+        return EdgeFact(
+            src=src, dst=dst, edge_type="contains",
+            source_record_id={"id": f"{src}|contains|{dst}"}, source_revision={"v": 1},
+        )
+
+    facts: list = [
+        node(EXCLUDED_DOC, "doc", {"path": "tests/fixtures/rods.py"}),
+        node(KEPT_DOC, "doc", {"path": "src/okg/rods.py"}),
+    ]
+    for i in range(BULK_EX):
+        chunk = f"chunk:a:{i:05d}"
+        facts += [node(chunk, "chunk", {"text": f"{EX_TERM} test {i}"}), edge(EXCLUDED_DOC, chunk)]
+    for i in range(BULK_KEPT):
+        chunk = f"chunk:b:{i:05d}"
+        facts += [node(chunk, "chunk", {"text": f"{EX_TERM} source {i}"}), edge(KEPT_DOC, chunk)]
+    return facts
+
+
+@pytest.fixture
+def bulk_globbed(clean_runtime: str, tmp_path) -> str:
+    from okg.substrate.library.sources.base import EdgeFact, NodeFact
+
+    deployment = make_search_deployment(tmp_path, dsn=clean_runtime)
+    facts = _bulk_facts()
+    publish_nodes(
+        clean_runtime, deployment, subtypes=SUBTYPES, narrowings=NARROWINGS,
+        nodes=[f for f in facts if isinstance(f, NodeFact)],
+        edges=[f for f in facts if isinstance(f, EdgeFact)],
+    )
+    return deployment
+
+
+def _kept_bulk(ids: list[str]) -> bool:
+    return all(i.startswith("chunk:b:") for i in ids)
+
+
+def test_many_excluded_passages_never_fill_the_bounds(
+    clean_runtime: str, bulk_globbed: str,
+) -> None:
+    """Must-fail on dev and on 0946d59ad: 3,000 excluded chunks sort before
+    3,000 kept ones. They filled grep's 2,000-row scan bound (2 rows served)
+    and lexical's 200-row rank cap (2 rows, `truncated: false`). The rule now
+    runs in the SQL that bounds the read: full pages of kept chunks, the
+    count of kept chunks, `truncated` true, and the reply says the exclusion
+    ran in the ranked SQL."""
+    grep = _glob_search(clean_runtime, bulk_globbed, profile="no_tests", method="grep",
+                        limit=20)
+    assert len(_ids(grep)) == 20 and _kept_bulk(_ids(grep)), _ids(grep)[:5]
+    assert grep["total_count"] == BULK_KEPT and grep["total_count_basis"] == "exact"
+    assert grep["truncated"] is True and grep["next_offset"] == 20
+    assert grep["excluded_path_globs_application"] == "ranked_sql"
+    second = _glob_search(clean_runtime, bulk_globbed, profile="no_tests", method="grep",
+                          limit=20, offset=20)
+    assert len(_ids(second)) == 20 and _kept_bulk(_ids(second))
+    assert not set(_ids(second)) & set(_ids(grep))
+    lexical = _glob_search(clean_runtime, bulk_globbed, profile="no_tests",
+                           method="lexical", rank_by="self", limit=20)
+    assert len(_ids(lexical)) == 20 and _kept_bulk(_ids(lexical)), _ids(lexical)[:5]
+    assert lexical["truncated"] is True
+    assert lexical["excluded_path_globs_application"] == "ranked_sql"
+    records = _glob_search(clean_runtime, bulk_globbed, profile="records_no_tests",
+                           method="lexical", limit=20)
+    served = _ids(records)
+    assert served and EXCLUDED_DOC not in served
+    assert not any(i.startswith("chunk:a:") for i in served)
+
+
+def test_the_exclusion_costs_no_extra_statements_per_row(
+    clean_runtime: str, bulk_globbed: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Measured on 6,000 matches: a grep under the excluding profile runs
+    about as many statements as one under the same profile without
+    exclusions: the count stays in SQL, and the reader-view check adds two
+    statements per decided batch (about 25 more here; 0946d59ad ran 1,015
+    against 129)."""
+    counts: dict[str, int] = {}
+    original = psycopg.Cursor.execute
+
+    def measure(profile: str) -> int:
+        seen = [0]
+
+        def counted(self, *args, **kwargs):
+            seen[0] += 1
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(psycopg.Cursor, "execute", counted)
+        try:
+            _glob_search(clean_runtime, bulk_globbed, profile=profile, method="grep",
+                         limit=20)
+        finally:
+            monkeypatch.setattr(psycopg.Cursor, "execute", original)
+        return seen[0]
+
+    counts["chunks"] = measure("chunks")
+    counts["no_tests"] = measure("no_tests")
+    assert counts["no_tests"] <= counts["chunks"] + 40, counts
+
+
+def _two_record_facts() -> list:
+    from okg.substrate.library.sources.base import EdgeFact, NodeFact
+
+    def node(node_id: str, subtype: str, attrs: dict) -> NodeFact:
+        return NodeFact(
+            node_id=node_id, subtype=subtype, attrs=attrs,
+            source_record_id={"id": node_id}, source_revision={"v": 1},
+        )
+
+    def edge(src: str, dst: str) -> EdgeFact:
+        return EdgeFact(
+            src=src, dst=dst, edge_type="contains",
+            source_record_id={"id": f"{src}|contains|{dst}"}, source_revision={"v": 1},
+        )
+
+    return [
+        node(EXCLUDED_DOC, "doc", {"path": "tests/fixtures/rods.py"}),
+        node(KEPT_DOC, "doc", {"path": "src/okg/rods.py"}),
+        node("doc:nopath", "doc", {"title": "no path"}),
+        node("chunk:shared", "chunk", {"text": f"{EX_TERM} shared"}),
+        edge(EXCLUDED_DOC, "chunk:shared"), edge(KEPT_DOC, "chunk:shared"),
+        node("chunk:ownpath", "chunk", {"text": f"{EX_TERM} own", "path": "src/x.py"}),
+        edge(EXCLUDED_DOC, "chunk:ownpath"),
+        node("chunk:nopathdoc", "chunk", {"text": f"{EX_TERM} nopath"}),
+        edge("doc:nopath", "chunk:nopathdoc"),
+        node("chunk:only", "chunk", {"text": f"{EX_TERM} only"}),
+        edge(EXCLUDED_DOC, "chunk:only"),
+    ]
+
+
+def test_any_record_that_is_not_excluded_keeps_a_passage(
+    clean_runtime: str, tmp_path,
+) -> None:
+    """The rule for a passage with several records, in SQL and as read: it
+    is left out only when every record declaring it is excluded. A record
+    with a kept path, or with no path, keeps it (as any visible lending
+    record admits a unit under `path_prefix`). A passage's own kept path does
+    not keep it when every record is excluded (`chunk:ownpath`)."""
+    from okg.substrate.library.sources.base import EdgeFact, NodeFact
+
+    deployment = make_search_deployment(tmp_path, dsn=clean_runtime)
+    facts = _two_record_facts()
+    publish_nodes(
+        clean_runtime, deployment, subtypes=SUBTYPES, narrowings=NARROWINGS,
+        nodes=[f for f in facts if isinstance(f, NodeFact)],
+        edges=[f for f in facts if isinstance(f, EdgeFact)],
+    )
+    expected = {"chunk:shared", "chunk:nopathdoc"}
+    for kwargs in ({"method": "grep"}, {"method": "lexical", "rank_by": "self"}):
+        page = _glob_search(clean_runtime, deployment, profile="no_tests", **kwargs)
+        assert set(_ids(page)) == expected, (kwargs, _ids(page))
+
+
+#: Producers for the access-rule cases.
+VIS = "connector:vis"
+HID = "connector:hid"
+MSK = "connector:msk"
+
+
+def _nomos_glob_groups() -> list[tuple[str, list]]:
+    from okg.substrate.library.sources.base import EdgeFact, NodeFact
+
+    def node(node_id: str, subtype: str, attrs: dict) -> NodeFact:
+        return NodeFact(
+            node_id=node_id, subtype=subtype, attrs=attrs,
+            source_record_id={"id": node_id}, source_revision={"v": 1},
+        )
+
+    def edge(src: str, dst: str) -> EdgeFact:
+        return EdgeFact(
+            src=src, dst=dst, edge_type="contains",
+            source_record_id={"id": f"{src}|contains|{dst}"}, source_revision={"v": 1},
+        )
+
+    visible = [
+        node("doc:vis:ex", "doc", {"path": "tests/fixtures/a.py"}),
+        node("doc:vis:kept", "doc", {"path": "src/a.py"}),
+        node("chunk:visex", "chunk", {"text": f"{EX_TERM} visible excluded"}),
+        node("chunk:viskept", "chunk", {"text": f"{EX_TERM} visible kept"}),
+        node("chunk:hidrec", "chunk", {"text": f"{EX_TERM} hidden record"}),
+        node("chunk:hidedge", "chunk", {"text": f"{EX_TERM} hidden edge"}),
+        node("chunk:masked", "chunk", {"text": f"{EX_TERM} masked record"}),
+        edge("doc:vis:ex", "chunk:visex"),
+        edge("doc:vis:kept", "chunk:viskept"),
+    ]
+    hidden = [
+        node("doc:hid:ex", "doc", {"path": "tests/fixtures/b.py"}),
+        edge("doc:hid:ex", "chunk:hidrec"),
+        # A visible excluded record reached through a hidden edge.
+        edge("doc:vis:ex", "chunk:hidedge"),
+    ]
+    masked = [
+        node("doc:msk", "doc", {"path": "src/masked.py"}),
+        edge("doc:msk", "chunk:masked"),
+    ]
+    return [(VIS, visible), (HID, hidden), (MSK, masked)]
+
+
+def test_under_access_rules_hidden_records_decide_nothing_and_masked_paths_fail_closed(
+    clean_runtime: str, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nomos `enforce`. A record the reader may not see, or one reached only
+    through an edge the reader may not see, decides nothing: its passage is
+    judged on its own path and served, so a hidden record's path is never
+    revealed. A record whose path the reader reads masked cannot be judged:
+    its passage is left out (fail closed). A visible excluded record leaves
+    its passage out. The count matches the rows served, in grep and lexical,
+    and the reply says the rule ran after the read."""
+    from tests.substrate.mcp.test_search_records import READER, _activate, _allow
+
+    deployment = make_search_deployment(tmp_path, dsn=clean_runtime)
+    publish_nodes(
+        clean_runtime, deployment, subtypes=SUBTYPES, narrowings=NARROWINGS,
+        nodes=[], node_groups=_nomos_glob_groups(),
+    )
+    _activate(clean_runtime, deployment, [_allow(VIS), {
+        "rule_id": "redact_msk", "effect": "redact", "actions": ["graph.read.mcp"],
+        "subjects": [READER], "match": {"source_id": MSK}, "priority": 100,
+        "obligations": [{"type": "redaction"}, {"type": "audit"}],
+    }])
+    with psycopg.connect(clean_runtime, autocommit=True) as conn:
+        conn.execute(
+            "UPDATE okg.subtypes SET metadata = coalesce(metadata, '{}'::jsonb)"
+            " || '{\"pii_classes\": {\"path\": \"free_text\"}}'::jsonb"
+            " WHERE name = 'doc'"
+        )
+    monkeypatch.setenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", "1")
+    expected = {"chunk:viskept", "chunk:hidrec", "chunk:hidedge"}
+
+    def page(**kwargs) -> dict:
+        with psycopg.connect(clean_runtime, autocommit=True) as conn:
+            session = open_session(conn, deployment_name=deployment, nomos_subject=READER)
+            scope = resolve_scope(
+                conn, catalog_version_id=session.catalog_version_id, config=GLOB_CONFIG,
+                requested_profile="no_tests", deployment_name=session.deployment_name,
+            )
+            return search(conn, session, EX_TERM, scope=scope, **{"limit": 50, **kwargs})
+
+    grep = page(method="grep")
+    assert set(_ids(grep)) == expected, _ids(grep)
+    # Counts may be withheld under access rules; when given, they match.
+    assert grep["total_count"] in (None, len(expected)), grep["total_count"]
+    assert grep["excluded_path_globs_application"] == "post_fetch_residual"
+    lexical = page(method="lexical", rank_by="self")
+    assert set(_ids(lexical)) == expected, _ids(lexical)
+    assert lexical["excluded_path_globs_application"] == "post_fetch_residual"
+    assert "tests/fixtures/b.py" not in str(grep) + str(lexical)
+
+
+@pytest.mark.parametrize("regime", ["enforce", "audit"])
+def test_under_access_rules_many_excluded_passages_never_leave_a_false_page(
+    clean_runtime: str, bulk_globbed: str, monkeypatch: pytest.MonkeyPatch, regime: str,
+) -> None:
+    """Must-fail on 743bce14f: under access rules the record-path rule runs
+    after the read, and 3,000 excluded chunks ranked first filled lexical's
+    rank cap: 0-4 rows served with `truncated: false` and `rank_capped:
+    false`, and the folded records lost `doc:kept` without saying so. Grep
+    continues its scan and serves kept rows. Lexical counts the rows the
+    profile dropped toward the cap, ranks once deeper (1,000 rows), and when
+    excluded rows still fill it the page says it is cut (`truncated`,
+    `rank_capped`), never complete. The policy allows every row, so nothing
+    is hidden and only the profile decides."""
+    from tests.substrate.mcp.test_search_records import MAIN, READER, _activate, _allow
+
+    _activate(clean_runtime, bulk_globbed, [_allow(MAIN)])
+    monkeypatch.setenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", "1" if regime == "enforce" else "audit")
+
+    def page(profile: str, **kwargs) -> dict:
+        with psycopg.connect(clean_runtime, autocommit=True) as conn:
+            session = open_session(conn, deployment_name=bulk_globbed, nomos_subject=READER)
+            scope = resolve_scope(
+                conn, catalog_version_id=session.catalog_version_id, config=GLOB_CONFIG,
+                requested_profile=profile, deployment_name=session.deployment_name,
+            )
+            return search(conn, session, EX_TERM, scope=scope, **{"limit": 20, **kwargs})
+
+    grep = page("no_tests", method="grep")
+    assert len(_ids(grep)) == 20 and _kept_bulk(_ids(grep)), _ids(grep)[:5]
+    assert grep["truncated"] is True
+    assert grep["excluded_path_globs_application"] == "post_fetch_residual"
+    lexical = page("no_tests", method="lexical", rank_by="self")
+    assert _kept_bulk(_ids(lexical))
+    assert lexical["truncated"] is True and lexical["rank_capped"] is True
+    assert lexical["excluded_path_globs_application"] == "post_fetch_residual"
+    for kwargs in ({"method": "lexical"}, {"method": "grep"}):
+        got = page("records_no_tests", **kwargs)
+        ids = _ids(got)
+        assert EXCLUDED_DOC not in ids and not any(i.startswith("chunk:a:") for i in ids)
+        if KEPT_DOC not in ids and not any(i.startswith("chunk:b:") for i in ids):
+            # The kept record is past the cap: the page must say it is cut.
+            assert got["truncated"] is True, (kwargs, ids)

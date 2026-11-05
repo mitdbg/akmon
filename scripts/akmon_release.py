@@ -41,6 +41,13 @@ Each subcommand is one step and refuses, naming what is wrong:
 ``check-wheel``       the built wheel is this version and carries exactly the
                       staged contracts, byte for byte.
 ``same-contract``     the contract built here equals the candidate's.
+``wheel-metadata``    the wheel's METADATA name, version, Requires-Python,
+                      Requires-Dist and Provides-Extra are what the release
+                      tree's pyproject.toml declares (wheel-source skips
+                      METADATA).
+``pipeline-release``  (pypi.yml) the GitHub release of a tag is public, not a
+                      prerelease, and it and each named asset were created by
+                      github-actions[bot], as release.yml's publish job does.
 ``wheel-source``      every file of the wheel is a byte-for-byte copy of the
                       release tree (``src/...``, ``schemas/``), the staged
                       contracts, or its build record naming this commit and
@@ -85,6 +92,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from email.parser import BytesParser
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -695,6 +703,167 @@ def same_contract(built: Path, candidate: Path) -> None:
         )
 
 
+# --- wheel metadata against pyproject.toml -------------------------------------
+
+#: A PEP 508 requirement as pyproject.toml and wheel METADATA spell it, without
+#: a URL: name, optional [extras], optional version specifiers (bare or in
+#: parentheses), optional "; marker".
+REQUIREMENT = re.compile(
+    r"\s*(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*"
+    r"(?:\[(?P<extras>[^\]]*)\])?\s*"
+    r"(?P<specs>\(?[^;@()]*\)?)\s*"
+    r"(?:;\s*(?P<marker>.+?))?\s*"
+)
+
+
+def _normal_name(name: str) -> str:
+    """PEP 503 / PEP 685 normal form of a project or extra name."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _normal_marker(marker: str) -> str:
+    return re.sub(r"\s+", "", marker.replace("'", '"'))
+
+
+def _normal_specs(specs: str) -> tuple[str, ...]:
+    inner = specs.strip()
+    if inner.startswith("(") and inner.endswith(")"):
+        inner = inner[1:-1]
+    return tuple(sorted(re.sub(r"\s+", "", s) for s in inner.split(",") if s.strip()))
+
+
+Requirement = tuple[str, tuple[str, ...], tuple[str, ...], str]
+
+
+def parse_requirement(text: str) -> Requirement:
+    """(name, extras, specifiers, marker), each in a normal form, so the same
+    requirement compares equal however a build tool orders or spaces it."""
+    match = REQUIREMENT.fullmatch(text)
+    if match is None:
+        raise Refused(f"cannot read the requirement {text!r} (a URL requirement is not supported)")
+    extras = tuple(sorted(_normal_name(e.strip()) for e in (match["extras"] or "").split(",") if e.strip()))
+    return (
+        _normal_name(match["name"]), extras, _normal_specs(match["specs"] or ""),
+        _normal_marker(match["marker"] or ""),
+    )
+
+
+def declared_metadata(tree: Path) -> dict[str, Any]:
+    """What tree's pyproject.toml [project] says the wheel's METADATA must hold."""
+    try:
+        project = tomllib.loads((tree / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    except (OSError, ValueError, KeyError) as error:
+        raise Refused(f"cannot read [project] from {tree / 'pyproject.toml'}: {error}") from error
+    dynamic = set(project.get("dynamic") or []) & {"version", "dependencies", "optional-dependencies",
+                                                    "requires-python", "name"}
+    if dynamic:
+        raise Refused(f"pyproject.toml declares {sorted(dynamic)} dynamic; the wheel cannot be compared with it")
+    requires: set[Requirement] = {parse_requirement(r) for r in project.get("dependencies") or []}
+    extras: set[str] = set()
+    for extra, rows in (project.get("optional-dependencies") or {}).items():
+        name = _normal_name(extra)
+        extras.add(name)
+        for row in rows:
+            req_name, req_extras, specs, marker = parse_requirement(row)
+            if marker:
+                raise Refused(
+                    f"the {extra} requirement {row!r} has its own marker; this check does not know how "
+                    "the build tool joins it with the extra"
+                )
+            requires.add((req_name, req_extras, specs, _normal_marker(f'extra == "{name}"')))
+    return {
+        "name": _normal_name(str(project.get("name", ""))),
+        "version": str(project.get("version", "")),
+        "requires_python": _normal_specs(str(project.get("requires-python", ""))),
+        "requires": requires,
+        "extras": extras,
+    }
+
+
+def wheel_metadata(wheel: Path) -> dict[str, Any]:
+    """The same fields, read from the wheel's one .dist-info/METADATA."""
+    try:
+        with zipfile.ZipFile(wheel) as archive:
+            found = [n for n in archive.namelist() if n.count("/") == 1 and n.endswith(".dist-info/METADATA")]
+            if len(found) != 1:
+                raise Refused(f"{wheel.name} has {len(found)} .dist-info/METADATA files")
+            message = BytesParser().parsebytes(archive.read(found[0]), headersonly=True)
+    except (OSError, zipfile.BadZipFile) as error:
+        raise Refused(f"cannot read {wheel.name}: {error}") from error
+    for field in ("Name", "Version", "Requires-Python"):
+        if len(message.get_all(field) or []) != 1:
+            raise Refused(f"{wheel.name}'s METADATA has {len(message.get_all(field) or [])} {field} fields")
+    return {
+        "name": _normal_name(str(message["Name"]).strip()),
+        "version": str(message["Version"]).strip(),
+        "requires_python": _normal_specs(str(message["Requires-Python"])),
+        "requires": {parse_requirement(str(r)) for r in message.get_all("Requires-Dist") or []},
+        "extras": {_normal_name(str(e).strip()) for e in message.get_all("Provides-Extra") or []},
+    }
+
+
+def wheel_metadata_problems(wheel: Path, tree: Path, version: str) -> list[str]:
+    """Why the wheel's METADATA does not say what tree's pyproject.toml says:
+    the name, the version (also ``version``), Requires-Python, the set of
+    Requires-Dist (dependencies, and each optional dependency under its
+    extra) and the set of Provides-Extra. wheel-source skips METADATA, so a
+    look-alike dependency would otherwise ship unseen."""
+    declared, held = declared_metadata(tree), wheel_metadata(wheel)
+    problems = []
+    if declared["version"] != version:
+        problems.append(f"pyproject.toml is version {declared['version']}, not {version}")
+    for field in ("name", "version", "requires_python", "extras"):
+        if held[field] != declared[field]:
+            problems.append(f"METADATA {field} is {held[field]!r}, pyproject.toml says {declared[field]!r}")
+    for label, requirements in (("not declared", held["requires"] - declared["requires"]),
+                                ("missing", declared["requires"] - held["requires"])):
+        for name, extras, specs, marker in sorted(requirements):
+            shown = name + (f"[{','.join(extras)}]" if extras else "") + ",".join(specs)
+            shown += f"; {marker}" if marker else ""
+            problems.append(f"Requires-Dist {label}: {shown}")
+    return problems
+
+
+# --- the release pypi.yml publishes --------------------------------------------
+
+#: The identity release.yml's publish job acts as: it creates every release
+#: and uploads every asset with the workflow token.
+RELEASE_BOT = "github-actions[bot]"
+
+
+def pipeline_release_problems(tag: str, assets: Sequence[str], http: Http, token: str) -> list[str]:
+    """Why the GitHub release of ``tag`` is not one release.yml published: it
+    must be public (not a draft, not a prerelease), created by
+    github-actions[bot], and hold each named asset, fully uploaded by
+    github-actions[bot]. A release someone made by hand, with a wheel they
+    built, refuses here."""
+    release = release_view(tag, http, token)  # the tags endpoint never returns a draft
+    if release is None:
+        return [f"no public GitHub release has the tag {tag}"]
+    problems = []
+    if release.get("tag_name") != tag:
+        problems.append(f"the release names the tag {release.get('tag_name')!r}, not {tag}")
+    if release.get("draft") is not False:
+        problems.append(f"the release {tag} is a draft")
+    if release.get("prerelease") is not False:
+        problems.append(f"the release {tag} is a prerelease")
+    author = (release.get("author") or {}).get("login")
+    if author != RELEASE_BOT:
+        problems.append(f"the release {tag} was created by {author!r}, not {RELEASE_BOT}")
+    by_name = {str(a.get("name")): a for a in release.get("assets") or [] if isinstance(a, dict)}
+    for name in assets:
+        asset = by_name.get(name)
+        if asset is None:
+            problems.append(f"the release {tag} has no asset {name}")
+            continue
+        if asset.get("state") != "uploaded":
+            problems.append(f"the asset {name} is {asset.get('state')!r}, not uploaded")
+        uploader = (asset.get("uploader") or {}).get("login")
+        if uploader != RELEASE_BOT:
+            problems.append(f"the asset {name} was uploaded by {uploader!r}, not {RELEASE_BOT}")
+    return problems
+
+
 # --- stage-contracts ---------------------------------------------------------
 
 
@@ -1155,6 +1324,13 @@ def main(argv: Sequence[str] | None = None, *, http: Http = http_request, run: R
     sub.add_argument("--tree-id", required=True)
     sub.add_argument("--version", required=True)
     sub.add_argument("--contracts", default="")
+    sub = commands.add_parser("wheel-metadata")
+    sub.add_argument("wheel", type=Path)
+    sub.add_argument("--tree", type=Path, required=True)
+    sub.add_argument("--version", required=True)
+    sub = commands.add_parser("pipeline-release")
+    sub.add_argument("--tag", required=True)
+    sub.add_argument("--asset", action="append", required=True)
     sub = commands.add_parser("same-contract")
     sub.add_argument("built", type=Path)
     sub.add_argument("candidate", type=Path)
@@ -1224,6 +1400,21 @@ def main(argv: Sequence[str] | None = None, *, http: Http = http_request, run: R
                     + "; ".join(problems[:20])
                 )
             print(f"{args.wheel.name}: every file is a copy of {args.tree} at {args.revision}")
+        elif args.command == "wheel-metadata":
+            problems = wheel_metadata_problems(args.wheel, args.tree, args.version)
+            if problems:
+                raise Refused(
+                    f"{args.wheel.name}'s METADATA is not what {args.tree}/pyproject.toml declares "
+                    f"({len(problems)}): " + "; ".join(problems[:20])
+                )
+            print(f"{args.wheel.name}: METADATA matches {args.tree}/pyproject.toml")
+        elif args.command == "pipeline-release":
+            if parse_tag(args.tag) is None:
+                raise Refused(f"{args.tag!r} is not v0.MINOR.PATCH")
+            problems = pipeline_release_problems(args.tag, args.asset, http, _token())
+            if problems:
+                raise Refused("; ".join(problems))
+            print(f"the release {args.tag} and {', '.join(args.asset)} were published by {RELEASE_BOT}")
         elif args.command == "same-contract":
             same_contract(args.built, args.candidate)
             print("the contract equals the candidate's")

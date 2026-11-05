@@ -43,6 +43,7 @@ psycopg = pytest.importorskip("psycopg")
 from psycopg.rows import dict_row  # noqa: E402
 from psycopg.types.json import Jsonb  # noqa: E402
 
+from tests.substrate.mcp._empty_why_reads import own_reads  # noqa: E402
 from okg.substrate import declared_attr_indexes as dai  # noqa: E402
 from okg.substrate.attributes import (  # noqa: E402
     materialize_effective_attributes_for_generation,
@@ -82,6 +83,10 @@ def _comparable(params: Any) -> dict[str, Any]:
     return {k: (v.obj if isinstance(v, Jsonb) else v) for k, v in dict(params or {}).items()}
 
 
+#: The open capture, told where each read starts and ends (`_read`).
+_CAPTURES: list["Capture"] = []
+
+
 class Capture:
     """The page statements the reader runs (text and parameters), and every
     statement any cursor runs (to prove none reads ``okg.attr_index``)."""
@@ -100,10 +105,25 @@ class Capture:
             return real(self, query, params, **kwargs)
 
         monkeypatch.setattr(psycopg.Cursor, "execute", execute)
+        self.start = 0
+        self.own: list[Any] = []
+        _CAPTURES[:] = [self]
+
+    def begin(self) -> None:
+        self.start = len(self.statements)
+
+    def end(self, result: Any, predicate: Any) -> None:
+        # Lane ri F6 (read-empty-why-f6): an empty first page also runs the
+        # page reads its empty_why block reports, after the call's own page
+        # read; their number is asserted exactly (`own_reads`), and `own`
+        # keeps the rest, so `last` is the last statement a call itself ran.
+        self.own += own_reads(
+            self.statements[self.start:], result, scope=c.SCOPE, predicate=predicate,
+        )
 
     def last(self) -> tuple[str, dict[str, Any]]:
-        assert self.statements, "no page statement ran"
-        return self.statements[-1]
+        assert self.own, "no page statement ran"
+        return self.own[-1]
 
     def last_comparable(self) -> tuple[str, dict[str, Any]]:
         text, params = self.last()
@@ -125,7 +145,11 @@ def _read(corpus: dict[str, Any], monkeypatch: pytest.MonkeyPatch, mode: str,
           predicate: dict[str, Any], *, generation: str | None = None,
           **kw: Any) -> dict[str, Any]:
     _set_mode(monkeypatch, mode)
+    for capture in _CAPTURES:
+        capture.begin()
     result = corpus["reader"].filter(generation or corpus["head"], predicate, **kw)
+    for capture in _CAPTURES:
+        capture.end(result, predicate)
     # A range bound the read check cannot read as an instant is refused
     # (issue #3666, 2c); every other read answers.
     assert "error" not in result or c.unreadable_ts_bound(predicate), (mode, predicate, result)

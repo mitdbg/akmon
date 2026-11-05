@@ -1625,10 +1625,10 @@ def publish_client_readable_schemas(mcp: Any) -> int:
             _drop_published_op(published, "like")
             _drop_published_op(published, "like_exact")
         budget = published.get("properties", {}).get("max_bytes")
-        # `run` (#3666) shares its budget among its steps and refuses a
-        # budget that cannot give each printed step the floor, naming the
-        # value that would; its schema does not repeat the floor.
-        if name in OPERATOR_TOOLS and name != "run" and isinstance(budget, dict):
+        # `run` (#3666) publishes the same floor (lane re: a model sent it
+        # 2000 and was refused); it still refuses a budget that cannot give
+        # each printed step its share, naming the value that would.
+        if name in OPERATOR_TOOLS and isinstance(budget, dict):
             budget["minimum"] = MIN_RESPONSE_BYTES
         _describe_next_alternative(name, published)
         grown += len(json.dumps(published, separators=(",", ":"))) - before

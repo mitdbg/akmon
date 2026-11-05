@@ -827,6 +827,110 @@ def test_join_counts_starts_without_a_link(history):
     assert [(g["subtype"], g["count"]) for g in _result(counted, 3)["groups"]] == [("ticket", 2)]
 
 
+def _no_second_read(history, monkeypatch):
+    """The join's start set and links are read once (`join_pairs`): the
+    per-step reads of dev (the far set as SQL, the facts' second read of the
+    start set and of every link of the type) are not made."""
+    backend = history.mcp._okg_run_backend
+
+    def refused(*_args, **_kwargs):
+        raise AssertionError("the join read its start set or links a second time")
+
+    monkeypatch.setattr(backend, "join_far", refused)
+    monkeypatch.setattr(backend, "join_facts", refused)
+
+
+def test_a_join_reads_its_start_set_and_links_once(history, monkeypatch):
+    """FAILS ON THE BASE (PACT run-join-step-speed): the join read its start
+    set and every link of its type four times (the step's read, its set,
+    its count and its facts), 5.7 s for 91 commits on the eval graph, past
+    the 5 s step budget. Now once, with the same records and facts."""
+    _no_second_read(history, monkeypatch)
+    steps = [
+        {"filter": {"where": {"type": "git_commit", "attrs.ticket_key": {"op": "exists"}}}},
+        {"expand": {"from": "$1", "edge_type": "references", "direction": "out"}},
+        {"aggregate": {"where": "$2", "by": ["subtype"], "metrics": ["count"]}},
+    ]
+    reply = history.json(steps)
+    join = _row(reply, 2)["join"]
+    assert (join["starts"], join["starts_without_link"], join["without_link_ids"], join["reached"]) == (
+        3, 1, ["commit:c4"], 2,
+    )
+    assert [(g["subtype"], g["count"]) for g in _result(reply, 3)["groups"]] == [("ticket", 2)]
+
+
+def _sql_path_calls(history, monkeypatch) -> list[str]:
+    """The SQL path's reads, recorded as they are made."""
+    backend = history.mcp._okg_run_backend
+    made: list[str] = []
+    for name in ("join_far", "join_facts"):
+        real = getattr(backend, name)
+
+        def spy(*args, _name=name, _real=real, **kwargs):
+            made.append(_name)
+            return _real(*args, **kwargs)
+
+        monkeypatch.setattr(backend, name, spy)
+    return made
+
+
+@pytest.mark.parametrize("shape,cap,starts,reached", [
+    # Start records over the cap: 6 commits, cap 1.
+    ([{"filter": {"where": {"type": "git_commit"}}},
+      {"expand": {"from": "$1", "edge_type": "references", "direction": "out"}}], 1, 6, 2),
+    # Start records under the cap, links over it: 1 file, 6 links in, cap 3.
+    ([{"filter": {"where": {"type": "file"}}},
+      {"expand": {"from": "$1", "edge_type": "affects", "direction": "in"}}], 3, 1, 6),
+])
+def test_a_join_past_the_hold_cap_reads_as_sql_with_the_same_answer(
+    history, monkeypatch, shape, cap, starts, reached,
+):
+    """Past JOIN_HOLD_CAP start records or links, the join is read as SQL,
+    as before (join_far and join_facts are called), and answers the same as
+    the held read (review M2: the test must fail without the fallback)."""
+    from okg.substrate.mcp import run_tool
+
+    held = history.json(shape)
+    made = _sql_path_calls(history, monkeypatch)
+    assert made == [] and _row(held, 2)["join"]["starts"] == starts
+    monkeypatch.setattr(run_tool, "JOIN_HOLD_CAP", cap)
+    as_sql = history.json(shape)
+    assert made == ["join_far", "join_facts"], made
+    assert _row(as_sql, 2)["join"] == _row(held, 2)["join"]
+    assert _row(as_sql, 2)["join"]["reached"] == reached
+    assert sorted(_ids(_result(as_sql, 2)["items"])) == sorted(_ids(_result(held, 2)["items"]))
+
+
+def test_a_join_read_past_the_step_deadline_is_refused_count_not_finished(history, monkeypatch):
+    """The held read (join_pairs) cut by the step's budget is refused as the
+    join's counts were before it (review L2): run_count_not_finished, never
+    estimated, and the step that reads the join is skipped."""
+    from okg.substrate.mcp import run_steps
+
+    monkeypatch.setattr(run_steps, "STEP_BUDGET_MS", 1_500)
+    pool = history.mcp._okg_pool
+    backend = history.mcp._okg_run_backend
+
+    def slow_pairs(start_sql, edge_type, direction, cap, generation, authority):
+        left = run_steps.run_time_left_ms()
+        assert left and run_steps.counting()
+        with pool.connection() as conn, conn.transaction(), conn.cursor() as cur:
+            cur.execute("SELECT set_config('statement_timeout', %s, true)", (f"{left}ms",))
+            cur.execute("SELECT pg_sleep(5)")
+        raise AssertionError("the statement timeout did not cut the read")
+
+    monkeypatch.setattr(backend, "join_pairs", slow_pairs)
+    reply = history.json([
+        {"filter": {"where": {"type": "git_commit"}}},
+        {"expand": {"from": "$1", "edge_type": "references", "direction": "out"}},
+        {"aggregate": {"where": "$2", "by": ["subtype"], "metrics": ["count"]}},
+    ])
+    error = _error(_row(reply, 2))
+    assert error["code"] == "run_count_not_finished", error
+    assert "never estimated" in error["message"]
+    assert _row(reply, 3)["status"] == "skipped"
+
+
 def test_join_always_says_it_cannot_count_unloaded_targets(history):
     """Every join says it, also over a link type with no missing target."""
     reply = history.json([
@@ -843,3 +947,172 @@ def test_join_always_says_it_cannot_count_unloaded_targets(history):
         {"expand": {"from": "$1", "direction": "out"}},
     ])
     assert "names one link type (edge_type) and direction" in _error(_row(refused, 2))["message"]
+
+
+# --------------------------------------------------------------------------- #
+# link counts from a step's set (PACT read-link-counts-from-set)              #
+# --------------------------------------------------------------------------- #
+
+#: commit -> the files it changed; c2 is a merge. Across the non-merge
+#: commits: f1 4 links, f2 3, f3 1 (a join from them reaches each file once).
+FANOUT = {
+    "commit:c1": ("f1", "f2"), "commit:c2": ("f1", "f2", "f3"), "commit:c3": ("f1", "f3"),
+    "commit:c4": ("f1",), "commit:c5": ("f1", "f2"), "commit:c6": ("f2",),
+    # Review L4: a non-merge commit with no affects link (in no group).
+    "commit:c7": (),
+}
+#: Review L4: a link of another type from the set (c1 references f3);
+#: never counted as an affects link.
+OTHER_LINKS = [("commit:c1", "references", "file:f3")]
+
+
+@pytest.fixture
+def fanout(clean_runtime, okg_mcp_can_log_in, tmp_path):
+    deployment = make_search_deployment(tmp_path, dsn=clean_runtime)
+    nodes = [node(f"file:{f}", "file", f"file {f}", path=f) for f in ("f1", "f2", "f3")]
+    edges = []
+    for commit_id, files in FANOUT.items():
+        nodes.append(node(commit_id, "git_commit", commit_id,
+                          is_merge=commit_id == "commit:c2", repo="example-repo"))
+        edges += [_link(commit_id, "affects", f"file:{f}") for f in files]
+    edges += [_link(src, edge_type, dst) for src, edge_type, dst in OTHER_LINKS]
+    publish_nodes(
+        clean_runtime, deployment, subtypes=[SubtypeSpec("git_commit"), SubtypeSpec("file")],
+        narrowings=[("git_commit", "affects", "file"), ("git_commit", "references", "file")],
+        edges=edges, nodes=nodes,
+    )
+    server = Server(clean_runtime, deployment)
+    try:
+        yield server
+    finally:
+        server.close()
+
+
+NON_MERGE = {"filter": {"where": {"type": "git_commit", "attrs.is_merge": False}}}
+
+
+def _link_counts(reply: dict, number: int, key: str = "dst") -> dict:
+    return {g[key]: g["count"] for g in _result(reply, number)["groups"]}
+
+
+def test_links_are_counted_from_a_steps_records(fanout):
+    """FAILS ON THE BASE ("$1 is a set; as a field's values write
+    $1.<field>"; "$1.node_id" on a link end could not be counted in SQL):
+    a link set's src or dst takes a step's records, so "commits per file
+    across these commits" is one chained step counting links, not the
+    distinct files a join reaches."""
+    expected = {"file:f1": 4, "file:f2": 3, "file:f3": 1}
+    for src in ("$1", {"op": "in", "values": "$1"}, "$1.node_id"):
+        reply = fanout.json([NON_MERGE, {"aggregate": {
+            "input": {"kind": "edges"}, "where": {"edge_type": "affects", "src": src},
+            "by": ["dst"], "metrics": ["count"], "order_by": "count desc"}}])
+        assert _link_counts(reply, 2) == expected, (src, reply)
+        assert [g["dst"] for g in _result(reply, 2)["groups"]] == ["file:f1", "file:f2", "file:f3"]
+    # The other end: the commits that changed f3 or f2, counted per commit.
+    reply = fanout.json([
+        {"filter": {"where": {"type": "file", "node_id": {"op": "in", "values": ["file:f2", "file:f3"]}}}},
+        {"aggregate": {"input": {"kind": "edges"}, "where": {"edge_type": "affects", "dst": "$1"},
+                       "by": ["src"], "metrics": ["count"]}},
+    ])
+    assert _link_counts(reply, 2, "src") == {
+        "commit:c1": 1, "commit:c2": 2, "commit:c3": 1, "commit:c5": 1, "commit:c6": 1,
+    }
+    # Under `not`: the links from every other commit (c2's three).
+    reply = fanout.json([NON_MERGE, {"aggregate": {
+        "input": {"kind": "edges"},
+        "where": {"op": "and", "clauses": [
+            {"op": "eq", "field": "edge_type", "value": "affects"},
+            {"op": "not", "clause": {"op": "in", "field": "src", "values": "$1"}}]},
+        "by": ["dst"], "metrics": ["count"]}}])
+    assert _link_counts(reply, 2) == {"file:f1": 1, "file:f2": 1, "file:f3": 1}
+    # The join still reaches each file once: it reads records, not links.
+    joined = fanout.json([NON_MERGE, {"expand": {"from": "$1", "edge_type": "affects",
+                                                 "direction": "out"}, "show": False},
+                          {"aggregate": {"where": "$2", "by": ["subtype"], "metrics": ["count"]}}])
+    assert [(g["subtype"], g["count"]) for g in _result(joined, 3)["groups"]] == [("file", 3)]
+    # Review L4: every link type from the set, grouped by type: the
+    # references link is its own group, and c7 (no link) is in none.
+    reply = fanout.json([NON_MERGE, {"aggregate": {
+        "input": {"kind": "edges"}, "where": {"src": "$1"},
+        "by": ["edge_type"], "metrics": ["count"]}}])
+    assert _link_counts(reply, 2, "edge_type") == {"affects": 8, "references": 1}
+    # The wrong direction: no affects link ends at a commit.
+    reply = fanout.json([NON_MERGE, {"aggregate": {
+        "input": {"kind": "edges"}, "where": {"edge_type": "affects", "dst": "$1"},
+        "by": ["src"], "metrics": ["count"]}}])
+    assert _result(reply, 2)["groups"] == []
+    # Review L3: a field of the set's records is not a link end.
+    reply = fanout.json([NON_MERGE, {"aggregate": {
+        "input": {"kind": "edges"}, "where": {"edge_type": "affects", "src": "$1.attrs.repo"},
+        "by": ["dst"], "metrics": ["count"]}}])
+    error = _error(_row(reply, 2))
+    assert "is a record id" in error["message"]
+    assert '"src": "$1.node_id"' in error["fix_hint"]
+
+
+def test_link_counts_from_a_set_keep_the_steps_bounds(fanout):
+    """The step prints at most its limit of groups with the exact group
+    total, and a step that names a set that did not run is skipped."""
+    reply = fanout.json([NON_MERGE, {"aggregate": {
+        "input": {"kind": "edges"}, "where": {"edge_type": "affects", "src": "$1"},
+        "by": ["dst"], "metrics": ["count"], "order_by": "count desc", "limit": 2}}])
+    page = _result(reply, 2)
+    assert [g["dst"] for g in page["groups"]] == ["file:f1", "file:f2"]
+    assert page["total_count"] == 3
+    reply = fanout.json([
+        {"filter": {"where": {"type": "git_commit", "attrs.nope": {"op": "bogus"}}}},
+        {"aggregate": {"input": {"kind": "edges"}, "where": {"edge_type": "affects", "src": "$1"},
+                       "by": ["dst"], "metrics": ["count"]}},
+    ])
+    assert _row(reply, 1)["status"] == "refused"
+    assert _row(reply, 2)["status"] == "skipped"
+
+
+def test_a_link_key_over_a_steps_set_names_the_step_that_counts_its_links(fanout):
+    """FAILS ON THE BASE (the hint said a link condition "cannot yet name a
+    field of the record at its src end" and offered no call): grouping a
+    step's records by a link key is refused before any step runs, naming
+    the run step that counts those links, and that step runs."""
+    result = fanout.call("run", {"steps": [
+        NON_MERGE, {"aggregate": {"where": "$1", "by": ["link:affects:out"], "metrics": ["count"]}},
+    ]}, "json")
+    assert result.isError
+    error = json.loads(result.content[0].text)["error"]
+    assert "counts links, not records" in error["message"], error
+    offered = json.loads(error["fix_hint"].split("send this step: ", 1)[1])
+    assert offered == {"aggregate": {
+        "input": {"kind": "edges"}, "where": {"edge_type": "affects", "src": "$1"},
+        "by": ["dst"], "metrics": ["count"]}}
+    reply = fanout.json([NON_MERGE, offered])
+    assert _link_counts(reply, 2) == {"file:f1": 4, "file:f2": 3, "file:f3": 1}
+
+
+def test_a_link_key_over_input_naming_a_steps_set_names_the_step_that_counts_its_links(fanout):
+    """Review M2: lane re's run-argument-shapes reads `input: "$1"` of a
+    graph set as `where: "$1"`. FAILS ON THE NAIVE MERGE (af33b89249): the
+    link-key refusal ran before that rewrite, so the step passed it and the
+    grammar refused it with a hint that offered no call. The rewritten step
+    gets the same refusal as `where: "$1"`, naming the step that counts the
+    links, and that step runs."""
+    result = fanout.call("run", {"steps": [
+        NON_MERGE, {"aggregate": {"input": "$1", "by": ["link:affects:out"], "metrics": ["count"]}},
+    ]}, "json")
+    assert result.isError, result.content[0].text[:2000]
+    error = json.loads(result.content[0].text)["error"]
+    assert "counts links, not records" in error["message"], error
+    offered = json.loads(error["fix_hint"].split("send this step: ", 1)[1])
+    assert offered == {"aggregate": {
+        "input": {"kind": "edges"}, "where": {"edge_type": "affects", "src": "$1"},
+        "by": ["dst"], "metrics": ["count"]}}
+    reply = fanout.json([NON_MERGE, offered])
+    assert _link_counts(reply, 2) == {"file:f1": 4, "file:f2": 3, "file:f3": 1}
+
+def test_link_counts_from_a_set_under_access_rules_count_nothing(fanout):
+    """Regression: under access rules run is refused before any step, so no
+    link is counted from a set the rules have not checked."""
+    fanout.mcp._okg_run_backend.refused_reason = lambda: "rules on"
+    result = fanout.call("run", {"steps": [NON_MERGE, {"aggregate": {
+        "input": {"kind": "edges"}, "where": {"edge_type": "affects", "src": "$1"},
+        "by": ["dst"], "metrics": ["count"]}}]}, "json")
+    assert result.isError
+    assert "run_refused_under_access_rules" in result.content[0].text

@@ -836,6 +836,58 @@ def test_migrate_idempotent_with_compressed_mcp_call_log_chunks(
             cur.execute("DELETE FROM okg.mcp_call_log WHERE session_id = 'regress'")
 
 
+def test_migrate_adds_question_columns_to_a_compressed_call_log(
+    clean_runtime: str,
+) -> None:
+    """Issue #3773: an upgraded call log gains question_id / try_number.
+
+    The database is put back in the pre-#3773 shape (no question columns,
+    views without them) with a historical row in a COMPRESSED chunk, the
+    shape of an aged deployment. ``migrate`` must add both columns without
+    a rewrite (the chunk stays compressed), keep the old row with NULLs, and
+    serve the columns through ``okg.v_mcp_calls``.
+    """
+    with db_connect(clean_runtime, autocommit=True) as conn, conn.cursor() as cur:
+        cur.execute("DROP VIEW IF EXISTS okg.v_mcp_operator_costs")
+        cur.execute("DROP VIEW IF EXISTS okg.v_mcp_call_costs")
+        cur.execute("DROP VIEW IF EXISTS okg.v_mcp_calls")
+        cur.execute(
+            "ALTER TABLE okg.mcp_call_log DROP COLUMN question_id, "
+            "DROP COLUMN try_number"
+        )
+        cur.execute(
+            "INSERT INTO okg.mcp_call_log (session_id, tool_name, ts) "
+            "VALUES ('pre-3773', 't', now() - interval '60 days')"
+        )
+        cur.execute("SELECT compress_chunk(c) FROM show_chunks('okg.mcp_call_log') c")
+        cur.execute(
+            "SELECT count(*) FROM timescaledb_information.chunks "
+            "WHERE hypertable_name = 'mcp_call_log' AND is_compressed"
+        )
+        assert cur.fetchone()[0] >= 1, "setup: expected a compressed chunk"
+
+    migrate(clean_runtime)
+
+    with db_connect(clean_runtime) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_schema = 'okg' AND table_name = 'mcp_call_log' "
+            "AND column_name IN ('question_id', 'try_number') "
+            "ORDER BY column_name"
+        )
+        assert cur.fetchall() == [("question_id", "text"), ("try_number", "integer")]
+        cur.execute(
+            "SELECT count(*) FROM timescaledb_information.chunks "
+            "WHERE hypertable_name = 'mcp_call_log' AND is_compressed"
+        )
+        assert cur.fetchone()[0] >= 1, "migrate rewrote the compressed chunk"
+        cur.execute(
+            "SELECT question_id, try_number FROM okg.v_mcp_calls "
+            "WHERE session_id = 'pre-3773'"
+        )
+        assert cur.fetchall() == [(None, None)]
+
+
 def test_migrate_refuses_foreign_checkout_snapshot_write(monkeypatch) -> None:
     """Authority gate (guard-migrate-canonical-snapshot-authority).
 
@@ -1150,6 +1202,8 @@ def test_mcp_call_view_preserves_observability_columns(
         "elapsed_ms",
         "result_count",
         "error_code",
+        "question_id",
+        "try_number",
     ]
 
 

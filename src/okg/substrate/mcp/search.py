@@ -69,6 +69,7 @@ from okg.substrate.bm25_node_search import (
 from okg.substrate.embeddings import Embedder
 from okg.substrate.errors import SubstrateError
 from okg.substrate.mcp.response_bounds import InvalidOperatorArguments
+from okg.substrate.mcp.retry_edits import declare_retry_edit
 from okg.substrate.mcp.call_read_cache import cached_read, freeze
 from okg.substrate.mcp.envelope import (
     project_row,
@@ -175,6 +176,7 @@ from okg.substrate.mcp.result_diversity import (
     assert_diversity_rank_mode,
 )
 from okg.substrate.mcp.search_profiles import (
+    APPLICATION_RANKED_SQL,
     UNSCOPED,
     ResolvedScope,
     excluded_by_path_globs,
@@ -252,7 +254,7 @@ def validate_preview_chars(value: Any) -> int:
     if value is None:
         return DEFAULT_PREVIEW_CHARS
     if isinstance(value, bool) or not isinstance(value, int):
-        raise InvalidPreviewCharBudget(
+        raise declare_retry_edit(InvalidPreviewCharBudget(
             f"search: max_chars must be an integer between "
             f"{MIN_PREVIEW_CHARS} and {MAX_PREVIEW_CHARS}; got "
             f"{type(value).__name__}",
@@ -263,9 +265,9 @@ def validate_preview_chars(value: Any) -> int:
                 f"{MAX_PREVIEW_CHARS}, or omit it for "
                 f"{DEFAULT_PREVIEW_CHARS}"
             ),
-        )
+        ), drop=("max_chars",), mode="guess")
     if value < MIN_PREVIEW_CHARS or value > MAX_PREVIEW_CHARS:
-        raise InvalidPreviewCharBudget(
+        raise declare_retry_edit(InvalidPreviewCharBudget(
             f"search: max_chars must be between {MIN_PREVIEW_CHARS} and "
             f"{MAX_PREVIEW_CHARS}; it is refused rather than silently clamped. "
             f"Got {value}.",
@@ -275,7 +277,7 @@ def validate_preview_chars(value: Any) -> int:
                 f"pass max_chars between {MIN_PREVIEW_CHARS} and "
                 f"{MAX_PREVIEW_CHARS}"
             ),
-        )
+        ), drop=("max_chars",), mode="guess")
     return int(value)
 
 
@@ -331,7 +333,7 @@ def validate_completeness(value: Any, *, method: str) -> None:
     if value == COMPLETENESS_BOUNDED:
         return
     if method not in COMPLETENESS_EXACT_METHODS:
-        raise SearchCompletenessRefused(
+        raise declare_retry_edit(SearchCompletenessRefused(
             f"search: completeness='exact' reads every match; method={method!r} "
             "has no such set (it ranks by similarity or reads your query text)",
             data=data,
@@ -339,7 +341,7 @@ def validate_completeness(value: Any, *, method: str) -> None:
                 "omit completeness, or search the same text with "
                 "method='lexical' or method='grep' and completeness='exact'"
             ),
-        )
+        ), drop=("completeness",), mode="guess")
 
 
 #: `completeness` on a served grep or attrs page under `exact` whose match set
@@ -1947,6 +1949,22 @@ def _search_pinned(
     # not saying so is indistinguishable from a complete one, and that is the
     # state in which an analyst concludes the graph is missing data.
     result.update(family_disclosure(scope, method=method))
+    if (
+        scope.excluded_path_globs
+        and result.get("excluded_path_globs_application") == APPLICATION_RANKED_SQL
+    ):
+        # #4227: under access rules the record-path rule for passages runs
+        # after the read, not in the ranked SQL; the reply says so.
+        from okg.substrate.mcp.passage_path_exclusion import (
+            passage_types_in_scope,
+            record_path_exclusion_is_residual,
+        )
+        from okg.substrate.mcp.search_profiles import APPLICATION_RESIDUAL
+
+        if record_path_exclusion_is_residual(session) and passage_types_in_scope(
+            conn, session, scope,
+        ):
+            result["excluded_path_globs_application"] = APPLICATION_RESIDUAL
     if requested_bound_origin is not None:
         result["max_per_parent_origin"] = requested_bound_origin
     if diversity_reason is not None:
@@ -2796,6 +2814,12 @@ _LEXICAL_RANK_CAP = 200
 #: filled by the unranked literal read. 1,000 ranked rows took about 1 s
 #: and left 13-287 rows in the source (lane X2, 2026-10-18).
 _FILTERED_RANK_CAP = 1000
+
+#: The deepest ranked read lexical makes when a profile's record-path rule
+#: ran after the read (access rules, #4227) and left the page short: one
+#: rerun at the filtered-read cap. Deeper reads cost about 4 ms a row under
+#: access rules (5,000 rows: 21 s), so past this the page says it is cut.
+_PROFILE_RANK_CAP_MAX = _FILTERED_RANK_CAP
 
 #: Statement timeout of the literal read (`_effective_view_lexical_candidates`)
 #: under the bounded default. Past it the filter is said to be checked on the
@@ -4477,6 +4501,14 @@ def _graph_lexical_candidates(
         where.extend(
             _path_exclusion_sql(scope, params, column=attrs, prefix="vglob")
         )
+        # #4227: both branches select from `{segment} n`.
+        from okg.substrate.mcp.passage_path_exclusion import record_path_exclusion_sql
+
+        record_path_sql = record_path_exclusion_sql(
+            conn, session, scope, params, segment=segment, prefix="rpxv",
+        )
+        if record_path_sql is not None:
+            where.append(record_path_sql)
         if scope_rows is not None:
             where.append(scope_rows.sql(params, column="n.node_id"))
         if exclude_node_ids:
@@ -6477,6 +6509,7 @@ def _search_lexical(
     list_view: bool = False,
     reference_members: bool = False,
     passage_chars: Optional[int] = None,
+    rank_cap: Optional[int] = None,
 ) -> dict[str, Any]:
     """Generation-pinned BM25 lexical search.
 
@@ -6494,6 +6527,16 @@ def _search_lexical(
     no silent fall back to a scan."""
     validate_select(select, _LEXICAL_FIELDS, tool_name="search(method=lexical)",
                     elsewhere=search_select_elsewhere("lexical"))
+    # The same call, for a deeper ranked read (#4227: under access rules a
+    # profile's record-path rule runs after the read; see `rank_cap` below).
+    rerun = {
+        "filter": dict(filter), "limit": limit, "offset": offset, "select": select,
+        "scope": scope, "rank_by": rank_by, "max_chars": max_chars,
+        "expand_concepts": expand_concepts, "completeness": completeness,
+        "record_ids": record_ids, "children_of": children_of,
+        "include_excerpts": include_excerpts, "list_view": list_view,
+        "reference_members": reference_members, "passage_chars": passage_chars,
+    }
     # Quoted phrases (PACT lexical-quoted-phrases-3064): grep's phrase rule
     # picks the spans; BM25 ranks the query with its quotes removed. With no
     # span `bm25_query` IS `query`, so an unquoted search is served exactly
@@ -6613,6 +6656,8 @@ def _search_lexical(
         and rank_by != RANK_BY_PASSAGES and fold_shape != _FOLD_FILTERED
         else _LEXICAL_RANK_CAP
     )
+    if rank_cap is not None:
+        rank_limit = rank_cap
     # The unindexed literal read runs under a time budget, except in exact mode.
     literal_budget_ms = None if exact else _LITERAL_READ_BUDGET_MS
     literal_read_bounded = False
@@ -6643,6 +6688,15 @@ def _search_lexical(
         where.append(source_sql)
     exclusion_sql = _path_exclusion_sql(scope, params, column="attrs")
     where.extend(exclusion_sql)
+    # #4227: a passage whose every declaring record is excluded never fills
+    # the rank cap (the reads below select from `{segment} n`).
+    from okg.substrate.mcp.passage_path_exclusion import record_path_exclusion_sql
+
+    record_path_sql = record_path_exclusion_sql(
+        conn, session, scope, params, segment=segment, prefix="rpxl",
+    )
+    if record_path_sql is not None:
+        where.append(record_path_sql)
     order_sql = f"(attrs->>'text') <@> to_bm25query(%(q)s, '{index_literal}')"
     # Matches only: BM25 ORDER BY <@> LIMIT pads with 0-score NON-matches when
     # the (filtered) corpus has fewer matches than the limit, so a match test
@@ -6969,17 +7023,34 @@ def _search_lexical(
             if str(row.get("subtype") or "") in declared_children
             or _matches_filter(row, _row_filter(filter))
         ]
+    #: Rows the profile's path rules dropped after the read (#4227): rows the
+    #: reader may see, left out by the reader's own profile, so they count
+    #: toward the rank cap even where hidden rows may not.
+    profile_dropped = 0
+    record_path_dropped = 0
     if scope is not None and scope.excluded_path_globs:
         # The SQL predicate above reads the STORED `attrs->>'path'` so the rank
         # cap is spent correctly; this re-check runs over the EFFECTIVE attrs,
         # so an overlay that changed a row's path cannot smuggle it past an
         # exclusion the envelope reports.
+        before = len(candidates)
         candidates = [
             row for row in candidates
             if not excluded_by_path_globs(
                 row.get("attrs"), scope.excluded_path_globs,
             )
         ]
+        # A passage carries no path of its own: the record that declares it
+        # decides (#4227). Residual like the re-check above.
+        from okg.substrate.mcp.passage_path_exclusion import passages_excluded_by_record_path
+
+        gone = passages_excluded_by_record_path(
+            conn, session, candidates, scope.excluded_path_globs,
+        )
+        kept_rows = [row for row in candidates if str(row["node_id"]) not in gone]
+        record_path_dropped = len(candidates) - len(kept_rows)
+        candidates = kept_rows
+        profile_dropped = before - len(candidates)
 
     # Phrase verdicts on the text each candidate is served from: these rows
     # went through the per-row read filter and the effective-attrs overlay,
@@ -7007,7 +7078,7 @@ def _search_lexical(
     rank_capped = (
         bool(rollup_chunk_cap_reached)
         if rank_by == RANK_BY_PASSAGES
-        else len(candidates) >= rank_limit
+        else len(candidates) + profile_dropped >= rank_limit
         if cap.withhold_counts
         else (
             expansion_scan_capped
@@ -7015,6 +7086,20 @@ def _search_lexical(
             or len(candidates) >= rank_limit
         )
     )
+    if (
+        record_path_dropped and rank_capped and not cap.exact
+        and rank_by != RANK_BY_PASSAGES and rank_limit < _PROFILE_RANK_CAP_MAX
+        and len(candidates) <= offset + limit
+    ):
+        # #4227: under access rules a profile's record-path rule runs after
+        # the read, so passages of excluded records can fill the rank cap
+        # and leave this page short. Rank deeper once, as a filter after
+        # ranking does (`_PROFILE_RANK_CAP_MAX`); past it the page says it is
+        # cut (`truncated`, below).
+        return _search_lexical(
+            conn, session, query,
+            **{**rerun, "rank_cap": _PROFILE_RANK_CAP_MAX},
+        )
 
     # An exact catalog-alias hit is evidence about which node answers the query.
     # Promote the canonical it names to the head of the page so a query phrased
@@ -7148,6 +7233,15 @@ def _search_lexical(
                 # page only names the time limit.
                 exact_name_capped = True
                 rank_capped = True
+        if name_rows and scope is not None and scope.excluded_path_globs:
+            # Exact-name rows join after the candidates' checks: the
+            # record-path rule applies to them too (#4227).
+            from okg.substrate.mcp.passage_path_exclusion import passages_excluded_by_record_path
+
+            gone = passages_excluded_by_record_path(
+                conn, session, name_rows, scope.excluded_path_globs,
+            )
+            name_rows = [row for row in name_rows if str(row["node_id"]) not in gone]
         if name_rows:
             best_score = min(
                 (
@@ -7329,6 +7423,11 @@ def _search_lexical(
         )
         if fold_shape == _FOLD_UNFILTERED:
             read_returned_rows(conn, session, page=page, already_read=self_read_ids)
+    if record_path_dropped and rank_capped and not truncated:
+        # #4227: the rank cap was filled in part by rows the profile's path
+        # rules left out after the read; more matches may follow it. The page
+        # says it is cut (bound reached: rank cap), never complete.
+        truncated = True
     # A list delivers no recency annotation (cards and `inspect` do), so it
     # does not read one.
     recency_rows, recency_block = recency_disclosure(
@@ -8451,6 +8550,13 @@ def _semantic_visible_rows(
         target_id_field="node_id",
         generation_id=session.generation_id,
     )
+    if scope is not None and scope.excluded_path_globs:
+        # A passage carries no path of its own: its record's path decides
+        # (#4227), as the residual below decides the row's own.
+        from okg.substrate.mcp.passage_path_exclusion import passages_excluded_by_record_path
+
+        gone = passages_excluded_by_record_path(conn, session, rows, scope.excluded_path_globs)
+        rows = [row for row in rows if str(row["node_id"]) not in gone]
     return [
         {
             "node_id": row["node_id"],
@@ -9006,6 +9112,15 @@ def _search_alias(
             # side door to a node whose subtype the profile excludes.
             if _matches_filter(row, filter, scope=scope):
                 node_rows.append(row)
+        if scope is not None and scope.excluded_path_globs and node_rows:
+            # Nor to a passage of a record whose path the profile excludes
+            # (#4227).
+            from okg.substrate.mcp.passage_path_exclusion import passages_excluded_by_record_path
+
+            gone = passages_excluded_by_record_path(
+                conn, session, node_rows, scope.excluded_path_globs,
+            )
+            node_rows = [row for row in node_rows if str(row["node_id"]) not in gone]
     node_metadata = _metadata_for_rows(
         conn, session, node_rows,
         metadata=getattr(filter.get("where_context"), "metadata", None),

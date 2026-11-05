@@ -100,7 +100,18 @@ and the cap shows only in the coverage facts (`retrieval bounded`,
   nothing continues the read; narrow it instead.
 - `retry: <change>`: a refusal's one-line `fix_hint` (or `remedy`); else
   the fallback it names; else `none given`. The error block below still
-  carries every field, the hint included.
+  carries every field, the hint included. A refusal that one change of the
+  caller's own call fixes (drop an argument the form does not read, send
+  the method the refusal names, write a `not` around the test it was put
+  inside) names that call: the `retry:` line prints it, `error.retry_call`
+  carries it, and `fix_hint` names it. It is offered only
+  when every check that reads no data takes it, the tool's own checks up
+  to its first read included, so a call with a second such problem gets no
+  offer. The refusal itself reads nothing to decide that: the call is not
+  proven to return rows, and a check made only during the read (a value
+  compared against stored data) can still refuse it. `(a guess)` marks
+  one of several fixes the refusal names. The call holds only what the
+  caller sent, or a value the refusal names.
 
 A `next` token is bound to its deployment, generation, catalog, target,
 order, reader authority and policy, and the server's signing key. A token
@@ -314,8 +325,22 @@ source text never starts a row or adds a fact. No excerpt follows.
 - `first_match`: `{chunk, line, text}`: the earliest match served in the
   record's own text, else in its first served passage; the 1-based line;
   that line cut to about 100 characters. Absent for a `path:`-only query.
+  `line_basis` says what the line counts when it is not a line of the
+  record as `inspect` text numbers it: `passage` (a line of `chunk`) or
+  `own_text` (a line of the record's own `text` attribute).
+- `other_lines`: the record's next matched lines, in the same shape, so a
+  row shows every matched line up to three: the record's own text first,
+  then its passages, each in text order. Two places with the same text are
+  two lines; a passage line that repeats one of the record's own matched
+  lines is shown once. Absent when only one line matched.
+- `lines_left`: matched lines of the record not shown (text: `2 more
+  lines`). `lines_left_basis: "at_least"` (text: `2+`) when grep did not
+  read every matched line: a term with 50 or more matches in one text,
+  matching passages past the three served, an every-match read that ran
+  out of time, or a page that stopped before reading every match.
 
-A `select` cuts rows. Records, order, counts, bounds, continuation and
+A `select` cuts rows. One that keeps `first_match` keeps `other_lines`,
+`lines_left` and `lines_left_basis`; one without it drops them. Records, order, counts, bounds, continuation and
 read checks are the grep cards page's own: a hidden record is never listed
 or counted, and `completeness="exact"` gives the exact number of matching
 records (passages under a passage `subtype_filter`) or refuses naming the
@@ -389,9 +414,24 @@ counting those with no link.
 
 Live, `values`, `minus` and `intersect` steps hold rows;
 `"each": {"<arg>": "$n.<column>"}` calls per value; unanswered ones make
-the run `partial`. Limits: 8 steps, 2 with `each`, 1,000 `values`,
-1,500 calls, 100 s (`OKG_RUN_WALL_SECONDS`); graph steps 5 s, 15 s total.
+the run `partial`. A `map` over a step's rows takes `compute`
+([computed columns](#computed-columns)); later steps read `calc.<name>`
+(`"$n.calc.<name>"` in `each`). Limits: 8 steps, 2 with `each`, 1,000 `values`,
+1,500 calls, 100 s (`OKG_RUN_WALL_SECONDS`); graph steps 5 s, 15 s total; a compute step 5 s, within the wall clock.
 `OKG_MCP_RUN_LIVE_STEPS=0` disables live steps and stops teaching them.
+
+A kept answer feeds a run: `"each": {"<arg>": {"ref": "l1...", "field":
+"<column>"}}` calls per value of its column, and a filter, map or aggregate
+with `"input": {"ref": "l1..."}` answers as that call sent alone; a later
+step reads the rows its reply's handle names (an ordered aggregate's groups
+carry `rank`; a kept answer's `calc.<name>` reads as a run's own computed
+column, its error rows set aside; a kept groups answer's metrics by label, as
+an aggregate step's groups). Its upstream calls count toward the 1,500, and its time is
+bounded by the wall clock and 5 s, not the 15 s graph total. `"input": "$n"`
+of a graph set is read as `"where": "$n"`, said in `adjusted`, as are
+constants beside the varying `each` argument (moved to `args`). `retain` on a
+live step is ignored, with a note. A `max_bytes` under 4096 is raised to it
+and said in `max_bytes_raised`.
 
 ## Byte budget
 
@@ -399,6 +439,13 @@ the run `partial`. Limits: 8 steps, 2 with `each`, 1,000 `values`,
 `model_dump_json(by_alias=True, exclude_none=True)` measures it. Every
 measurer uses the same builder as the server, so a page that fits the
 measure is the page that is served.
+
+A grep list page over its budget cuts lines before rows: it first leaves
+out `other_lines` from its lowest rows, as few rows as fit, and each such
+row adds those lines to its `lines_left`. The page says how many rows lost
+them in `match_lines_cut` (text: `other matched lines of N rows left out
+to fit`). Only when every row's other lines are cut and the page still
+does not fit is it served with fewer rows, as any page is.
 
 Historical text tokens that have no signed budget use the deployment default
 when passed as next alone. Their original budget cannot be recovered. The
@@ -1193,6 +1240,9 @@ the attribute narrows the read.
 `by` is checked first. An unknown key is refused by name with the set's keys
 and any corrected call. `link:<type>:<in|out>` on records is refused with the
 call counting those links, offered when the conditions name record ids alone.
+In `run`, a link set's `src` or `dst` takes a step's records
+(`{"src": "$1"}`), so `by: ["dst"]` counts the links from them, where a
+join reaches each far record once; a link key over `"$1"` names that step.
 
 `each(attrs.<key>)` gives one group per list element, counted once per row.
 Replies add `rows_counted`, `rows_with_none` (the null group),
@@ -1438,9 +1488,10 @@ computes another metric carries `order_note`.
 
 ### Computed columns
 
-`map(input=<live set, live handle, groups handle or chain handle>,
-compute={"fill": "attrs.used / attrs.total"})` adds `calc.fill` to every row:
-the same rows in the same order, kept as a new handle (`from` its input).
+`map(input=<live set, live handle, groups handle, chain handle, or a run
+step's rows "$n">, compute={"fill": "attrs.used / attrs.total"})` adds
+`calc.fill` to every row: the same rows in the same order, kept as a new
+handle (`from` its input); in a run, the step's rows, with no handle.
 `where` narrows the input first (text `input: 24 of 263 rows of l1.…`);
 `select` picks the printed columns (by default `node_id`, the fields the
 expressions read and the new columns). Later reads of the handle name the
@@ -1479,7 +1530,9 @@ reads it, with an `adjusted` note, and is never fetched upstream.
   (`invalid_operator_arguments`, `data.reason`): every expression refusal;
   `calc.` in `where` and `order_by` on `map` (send `filter(input="<the map's
   handle>", ...)`); `projection` beside `compute`; a stored set or `r1.`
-  handle (`compute_on_stored_set`, until stored handles), an edge set;
+  handle (`compute_on_stored_set`, until stored handles), a type that is
+  neither a catalog type nor a live type (`unknown_type`, with the closest
+  types), an edge set;
   `node_id` on raw rows; `date.<meaning>` on live rows; a column named like
   an upstream field the set holds or declares (`column_shadows_field`) or like
   a record or groups column (`reserved_column_name`); an `attrs.` field no
@@ -1504,6 +1557,67 @@ reads it, with an `adjusted` note, and is never fetched upstream.
   reader's. A store that cannot keep it says so (`id: null`, `reason`).
 
 `map` without `compute` serves what it always served, with no note.
+
+### Stored totals
+
+`aggregate(where={"type": "<type>"}, by=[], metrics=["sum(attrs.size)"])`
+sums, minimises or maximises a stored attribute over a stored set or a result
+reference (`input={"ref": "r1..."}`) of at most 50,000 records. `by` is
+empty (one total), `subtype` or `attrs.<key>`; a date period, `match`,
+`each()` or a text condition beside a sum is refused by name
+(`stored_metric_by`, `stored_metric_text_condition`), offering the count.
+`by=[]` with `metrics=["count"]` counts any stored set or result reference as
+one total, with no record cap, directly and as a `run` step (`one_total_of`
+names the grouping the total added); a type or link type that does not
+exist, alone or in a list, is refused `unknown_type`, never counted as 0.
+
+- **One number rule, live and stored.** A value is a number when it is a
+  JSON number (never a bool), or text that is exactly one JSON number. So
+  `" 10 "`, `"+5"`, `"010"`, `".5"`, `"1_000"` and non-ASCII digits are not
+  numbers in sums, min, max and filter comparisons, nor in a computed
+  column's implicit read; `number(attrs.x)` in `map(compute)` still reads
+  them (spaces stripped, a sign taken). A live `filter` names such text in
+  `not_comparable.number_text_rejected` (count and first ids per field).
+- **Nothing dropped silently.** A sum, min or max names, per column, each
+  value it left out in `values_skipped`: `null`, `absent` (the record has no
+  such key), `not_a_number` (other text, a bool, a list, an object) and
+  `number_text_rejected`, each with its count and first 5 ids; numeric text
+  it read is `read_from_text`. The text says it in the totals line: `sum(attrs.size)
+  over 13 of 23 records at generation 7; skipped: 1 null (first ids:
+  item:08), ...; 2 read from text`, exact, never "at least". Whole values add
+  exactly at any size; other values are in `<label> floats`, named in
+  `sum_not_exact`.
+- **One grouping rule.** Numbers group by numeric value on every path (`1`
+  and `1.0`, `100` and `1e2`, `-0` and `0`), keyed from their exact decimal
+  value, and print as an int when whole, else the shortest float; a stored
+  number no float holds (`0.1000000000000000055`) is a JSON number with all
+  its digits, never text, as a group key (also inside a list or an object)
+  and as a min or max, named in `exact_numbers` (a client that reads JSON
+  numbers as floats would see it as its nearest float). Text `"1"`
+  is its own group. A key a record does not carry is the group `(absent)`,
+  apart from a stored null, on counts as on sums (`absent_keys`); a count
+  with a date period keeps both in one null group.
+- **Live sort.** `order_by` on a live field sorts numbers by value, then
+  text by code point (number text sorts as text), then booleans and anything
+  else; a null or missing value is last in both directions.
+- **Bound and budget.** One bounded count runs first: over 50,000 records
+  the call is refused `stored_set_too_large` before any value is read, with
+  the exact count (or "more than 50,000") and the count call offered. Every
+  statement shares one 5 s SQL budget per call, counted from the call's start
+  (the date budget, when the call has a date condition); grouping in memory
+  and writing the reply come after it and are not counted, so a call can
+  take a little over 5 s and still be served; past it the call is refused
+  `stored_read_over_budget`, naming the phase (`count`, `column read`), with
+  no value served. Large records (tens of KB each) reach the budget sooner.
+- **Refusals, in this order.** While access rules are on (audit or
+  enforce), or their state cannot be told, a stored sum, min or max is
+  refused before any graph read (`stored_metric_under_access_rules`:
+  "stored sums are not served while access rules are on (audit/enforce);
+  this is a later change. Still served: aggregate(metrics=["count"]),
+  filter and search"). Then a type that is neither a catalog type nor a live
+  type (`unknown_type`, with the closest types); then an attribute declared
+  text, bool or ts (`stored_metric_needs_number`). All are
+  `invalid_operator_arguments` with `data.reason`.
 
 ## History reads
 

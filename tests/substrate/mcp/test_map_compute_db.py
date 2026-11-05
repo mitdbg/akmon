@@ -836,7 +836,7 @@ def test_a_map_step_with_compute_inside_run_runs_as_its_own_call(lab) -> None:
     """Review L7 (pin of what is true): a live `map` step carrying `compute`
     inside `run` is sent through the tool, as each step is, so it computes
     exactly as the call alone does (one listing, one usage call per site).
-    Steps over a run's held rows still refuse `compute` (3a-ii is paused)."""
+    Steps over a run's held rows compute too (PACT read-run-rows-compute)."""
     _usage(lab, 3)
     body = lab.ok("run", {"steps": [
         {"map": {"where": {"type": "site"}, "compute": FILL}},

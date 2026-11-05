@@ -100,6 +100,7 @@ from okg.substrate.mcp.response_bounds import (
     offer_retry_call,
     current_date_call as _current_date_call,
 )
+from okg.substrate.mcp.retry_edits import declare_retry_edit, stop_at_first_read
 from okg.substrate.mcp import attr_filter_source as _attr_filter_source
 from okg.substrate.mcp import graph_read as _graph_read
 from okg.substrate.attributes import (
@@ -150,6 +151,7 @@ from okg.substrate.mcp import handles as _handles
 from okg.substrate.mcp import map_compute as _map_compute
 from okg.substrate.mcp import aggregate_order as _aggregate_order
 from okg.substrate.mcp import run_steps as _run_steps
+from okg.substrate.mcp import stored_metrics as _stored_metrics
 from okg.substrate.mcp import live_access_rules as _live_access_rules
 from okg.substrate.mcp import continuation as _continuation
 from okg.substrate.mcp.session import resolve_generation
@@ -165,6 +167,7 @@ from okg.substrate.mcp.operator_models import (
 from okg.substrate.mcp.effective_surface import (
     assert_inspect_kind_served,
     assert_surface_files_agree,
+    assert_text_serves_only,
     assert_write_launch_is_served,
     registered_tools_for_launch,
     served_inspect_kinds,
@@ -329,6 +332,16 @@ from okg.substrate.nomos.runtime_enforcement import (
 
 
 log = logging.getLogger(__name__)
+
+
+def _json_loads_exact(data: Any) -> Any:
+    """jsonb as JSON with every float read exactly, as a Decimal (PACT
+    read-stored-metrics, review N2): the grouped count's keys. A module-level
+    function, so psycopg caches the loader (review L3: a closure logs a
+    warning on every call)."""
+    import decimal
+
+    return _json.loads(data, parse_float=decimal.Decimal)
 
 #: The refusal of an aggregate under access rules, in plain words (#3666).
 AGGREGATE_UNDER_ACCESS_RULES = (
@@ -2740,6 +2753,8 @@ READSIDE_PUBLISHED_FIELDS: tuple[str, ...] = (
     "audit_questions",
     "skill_triggers",
     "skills",
+    # Issue #4280: the served-text digest and overridden ids, set at build.
+    "surface_text",
 )
 
 
@@ -2944,6 +2959,9 @@ def _pool_acquire_error(pool, exc: Exception) -> SubstrateError:
 def _pool_getconn(pool):
     from psycopg_pool import PoolTimeout
 
+    # A tool body run only to check an offered call's arguments stops here,
+    # at its first read (PACT read-refusal-retry-calls).
+    stop_at_first_read()
     try:
         return pool.getconn()
     except PoolTimeout as exc:
@@ -2954,6 +2972,7 @@ def _pool_getconn(pool):
 def _pool_connection(pool):
     from psycopg_pool import PoolTimeout
 
+    stop_at_first_read()
     try:
         with pool.connection() as conn:
             yield conn
@@ -3260,6 +3279,32 @@ def _build_server(
     # legacy path (issue #2067): the `mcp:` profile config above, the
     # `mcp_instructions` file, and the warn-only instructions scan.
     agent_surface = readside_metadata.get("agent_surface")
+    # Served text (issue #4280): the deployment's `surface_text` file with
+    # this branch's layer on top, resolved against the deployment directory
+    # like `agent_surface.instructions`. Loaded before the instructions are
+    # read below, because a layer may replace them. No file: every text is
+    # the code default, and the report at the end of the build says so.
+    from okg.substrate.mcp import surface_text as _surface_text
+
+    surface_text_launch = _surface_text.resolve_for_launch(
+        agent_surface, readside_metadata.get("deployment_dir"), branch_name,
+    )
+    surface_text_effective = surface_text_launch.effective
+    if surface_text_launch.instructions_text is not None:
+        readside_metadata = {
+            **readside_metadata,
+            "instructions": surface_text_launch.instructions_text,
+        }
+        # Scanned like the declared instructions file below.
+        assert_text_serves_only(
+            surface_text_launch.instructions_text,
+            served=agent_surface.served,
+            source=(
+                f"the surface_text instructions file "
+                f"{surface_text_effective.instructions}"
+            ),
+            deployment=deployment_name,
+        )
     # `inspect(kind="image")` (#3046) is served where the deployment declares
     # an `agent_surface.images` block. The block sets the per-call budget and
     # the URL allowlist; a caller-supplied `image_source` (tests, an embedding
@@ -4979,6 +5024,9 @@ def _build_server(
                 self.refresh_old_generation_id = old_generation_id
 
         def __enter__(self) -> "_PooledSession":
+            # An argument-only run (PACT read-refusal-retry-calls) stops
+            # before the pool is asked for a connection at all.
+            stop_at_first_read()
             waited_from = time.monotonic()
             self.conn = _pool_getconn(pool)
             opened_from = time.monotonic()
@@ -7132,6 +7180,12 @@ def _build_server(
             from okg.substrate.bm25_node_search import execute_with_custom_plan
 
             with conn.cursor() as cur:
+                # PACT read-stored-metrics (review N2): a grouped number is
+                # read exactly (a Decimal of its stored text, never a float),
+                # then printed canonically below, as the sum path prints it.
+                from psycopg.types.json import set_json_loads
+
+                set_json_loads(_json_loads_exact, cur)
                 execute_with_custom_plan(cur, sql, params)
                 rows = cur.fetchall()
                 facts_row = None
@@ -7172,6 +7226,12 @@ def _build_server(
                     date_budget.mark("group_count")
                 if call is not None:
                     call.pages[groups_key] = (list(fetched), counted)
+        # PACT read-stored-metrics (review H2): every grouped key prints
+        # canonically, the date-period fold's keys included (the cursor read
+        # numbers exactly, as Decimals).
+        fetched = [
+            tuple(_live_results.canonical_number(value) for value in row) for row in fetched
+        ]
         if each_field is not None and counted is not None:
             rows_counted, rows_with_none, rows_not_a_list, rows_with_list = (
                 int(value) for value in counted
@@ -7214,7 +7274,12 @@ def _build_server(
             return folded, compiled.fingerprint
         results: list[Any] = []
         for r in fetched:
-            key = tuple(r[i] for i in range(len(by_exprs)))
+            # PACT read-stored-metrics (N2): SQL groups 1 and 1.0 together and
+            # prints whichever it met first; the key prints canonically (an
+            # int when whole, else the shortest float), as the sum path does.
+            key = tuple(
+                _live_results.canonical_number(r[i]) for i in range(len(by_exprs))
+            )
             if flag_missing:
                 missing = [False] * len(by_exprs)
                 for offset_, (position, _expr) in enumerate(flag_exprs):
@@ -12571,7 +12636,7 @@ def _build_server(
         if (filter or offset or order_by) and not one_hop:
             with _open(generation_id, authority=authority) as h:
                 raise stamp_path_error(
-                    InvalidExpandShape(
+                    declare_retry_edit(InvalidExpandShape(
                         "expand: filter/offset/order_by apply to the 1-hop shape only",
                         data={
                             "requested_shape": "path" if path is not None else "depth"
@@ -12579,7 +12644,7 @@ def _build_server(
                         fix_hint=(
                             "remove filter/offset/order_by, or use the one-hop shape"
                         ),
-                    ),
+                    ), drop=("filter", "where", "offset", "order_by"), mode="guess"),
                     session=h.session,
                     authority=path_authority_summary(h.conn, h.session),
                 )
@@ -13394,12 +13459,12 @@ def _build_server(
         if live_reply is not None:
             return _stamp_operator(live_reply, "expand")
         if args:
-            raise InvalidOperatorArguments(
+            raise declare_retry_edit(InvalidOperatorArguments(
                 "expand: `args` carries the values of a live edge's arguments; "
                 "this node is a stored record",
                 data={"argument": "args"},
                 fix_hint="drop args, or expand a live node such as site:<name>",
-            )
+            ), drop=("args",), mode="guess")
         if next is not None:
             arguments, refusal = _next_call(
                 "expand",
@@ -13750,6 +13815,36 @@ def _build_server(
         )
         return groups, len(visible) > limit, facts
 
+    def _stored_count_page(
+        ordered: Sequence[Any], *, by: list[str], offset: int, limit: int,
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """An unranked stored count's page: `(groups, truncated)`. A key the
+        record does not carry prints `(absent)`, apart from a stored null
+        (PACT read-stored-metrics), as a ranked page and a sum print it."""
+        visible = ordered[offset: offset + limit + 1]
+        return [
+            {
+                **{
+                    by[i]: _aggregate_order.served_key(key[i])
+                    for key in (_aggregate_order.stored_key(item, len(by)),)
+                    for i in range(len(by))
+                },
+                "count": item[1],
+            }
+            for item in visible[:limit]
+        ], len(visible) > limit
+
+    def _stored_absent_keys(ordered: Sequence[Any], by: list[str]) -> dict[str, Any]:
+        """`absent_keys` of a stored count: per `by` field, the records that
+        do not carry it (said as on a sum and a live set)."""
+        absent: dict[str, int] = {}
+        for item in ordered:
+            key = _aggregate_order.stored_key(item, len(by))
+            for i, field in enumerate(by):
+                if key[i] is _aggregate_order.ABSENT_VALUE:
+                    absent[field] = absent.get(field, 0) + int(item[1])
+        return {"absent_keys": absent} if absent else {}
+
     def _live_aggregate_order(
         order_by: Any, *, by: Any, metrics: Any, call: Mapping[str, Any],
     ) -> Any:
@@ -13793,7 +13888,10 @@ def _build_server(
             ordered, fingerprint = _reference_groups(
                 h.conn, h.session, by=by, ids=ids, period_report=period_report,
                 each_report=each_report,
-                flag_missing=order is not None,
+                # PACT read-stored-metrics: a key a record does not carry is
+                # the group (absent), apart from a stored null, ranked or not,
+                # as the sum path and a live set group it.
+                flag_missing=True,
             )
             ranked_facts: dict[str, Any] = {}
             if order is not None:
@@ -13801,12 +13899,7 @@ def _build_server(
                     ordered, by=by, order=order, offset=offset, limit=limit,
                 )
             else:
-                visible = ordered[offset: offset + limit + 1]
-                truncated = len(visible) > limit
-                shown = [
-                    {**{by[i]: key[i] for i in range(len(by))}, "count": count}
-                    for key, count in visible[:limit]
-                ]
+                shown, truncated = _stored_count_page(ordered, by=by, offset=offset, limit=limit)
             payload = {
                 "groups": shown,
                 "by": by,
@@ -13824,6 +13917,8 @@ def _build_server(
                 "generation_id": h.session.generation_id,
                 "pinned_generation_id": h.session.generation_id,
                 "predicate_fingerprint": fingerprint,
+                **_stored_absent_keys(ordered, by),
+                **_live_results.exact_number_fields(shown, by),
                 "input": {"ref": ref_id},
                 # The count covers the rows the reference holds, which can
                 # be fewer than its search matched: said in the reply (a
@@ -13838,6 +13933,470 @@ def _build_server(
             _merge_date_report(payload, _DateConditionReport(), period_report)
             # A count per list element says what it counted (#3666).
             payload.update(each_report)
+            return _stamp_operator(_maybe_stamp_advanced(h, payload), "aggregate")
+
+    def _catalog_type_names(h: Any) -> list[str]:
+        """The catalog's record types at the pin, and the live types: the
+        names a call's `type` may hold (PACT read-stored-metrics)."""
+        with h.conn.cursor() as cur:
+            cur.execute(
+                "SELECT name FROM okg.subtypes WHERE catalog_version_id = %s",
+                (h.session.catalog_version_id,),
+            )
+            names = {str(row[0]) for row in cur.fetchall()}
+        registry = getattr(mcp, "_okg_live_types", None)
+        names.update(str(name) for name in (getattr(registry, "types", None) or {}))
+        return sorted(names)
+
+    def _type_names_in(value: Any) -> list[str]:
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, list):
+            return [str(name) for name in value if isinstance(name, str)]
+        return []
+
+    def _named_types(input: Any, field: str = "subtype") -> list[str]:
+        """The types a scope names (re-review R3): a node scope's `subtype`,
+        or an edge scope's `edge_type` (`field`), one or a list, and every
+        `eq`/`in` leaf on that field (or `type`) in its filter, at any depth."""
+        if not isinstance(input, Mapping):
+            return []
+        if (input.get("kind") == "edges") != (field == "edge_type"):
+            return []
+        names = _type_names_in(input.get(field))
+        pending = [input.get("filter")]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, list):
+                pending.extend(node)
+                continue
+            if not isinstance(node, Mapping):
+                continue
+            pending.extend(node.get("clauses") or [])
+            if node.get("clause") is not None:
+                pending.append(node["clause"])
+            if node.get("field") in (field, "type") and node.get("op") in ("eq", "in"):
+                names += _type_names_in(node.get("value"))
+                names += _type_names_in(node.get("values"))
+        return list(dict.fromkeys(names))
+
+    def _catalog_edge_type_names(h: Any) -> list[str]:
+        """The catalog's link types at the pin (its narrowings)."""
+        with h.conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT edge_type FROM okg.narrowings "
+                "WHERE catalog_version_id = %s",
+                (h.session.catalog_version_id,),
+            )
+            return sorted(str(row[0]) for row in cur.fetchall())
+
+    def _stored_budgeted(
+        conn: psycopg.Connection, budget: Any, phase: str, run: Callable[[], Any],
+        *, soft: bool = False,
+    ) -> Any:
+        """``run()`` with ``statement_timeout`` set to what is left of the
+        call's one SQL budget (PACT read-stored-metrics), inside a
+        transaction so the setting never outlives it. Past the budget the
+        call is refused ``stored_read_over_budget`` naming `phase`; `soft`
+        returns None instead (a statement the reply can do without)."""
+        remaining = budget.remaining_ms()
+        if remaining < int(_stored_metrics.STATEMENT_FLOOR_MS):
+            if soft:
+                return None
+            raise _stored_metrics.over_budget(budget, phase)
+        budget.statements.append((phase, remaining))
+        try:
+            with conn.transaction():
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT set_config('statement_timeout', %s, true)",
+                        (f"{remaining}ms",),
+                    )
+                return run()
+        except psycopg.errors.QueryCanceled:
+            if soft:
+                return None
+            raise _stored_metrics.over_budget(budget, phase) from None
+
+    def _stored_metric_columns(
+        h: Any, *, predicate: Any, keys: list[str], member_ids: list[str] | None,
+        budget: Any, call: Mapping[str, Any],
+    ) -> tuple[list[Any], str]:
+        """The rows of a stored total (PACT read-stored-metrics): first one
+        bounded count (``LIMIT MAX_ROWS + 1``), refused past the bound before
+        any value is read; then one statement at the pin reading, for each
+        key, its merged value as text, its JSON type and whether the record
+        carries it (never a full row). Both over the graph path's two
+        branches (graph values, and the overlaid targets merged)."""
+        from okg.substrate.bm25_node_search import branch_point, execute_with_custom_plan
+        from okg.substrate.declared_attr_indexes import _literal
+        from okg.substrate.mcp.semantic_readiness import resolve_node_segment
+
+        conn, session = h.conn, h.session
+        relation = "effective_aggregate"
+        params: dict[str, Any] = {
+            "graph_bp": branch_point(conn, session),
+            "overlay_gen": str(session.generation_id),
+            "overlay_reserved": sorted(RESERVED_EFFECTIVE_ATTR_KEYS),
+            "tk": "node",
+        }
+        if member_ids is not None:
+            params["rr_member_ids"] = list(member_ids)
+        segment = resolve_node_segment(conn)
+        compiled = _compile_operator_predicate(
+            "nodes", predicate, params, declared=_declared_registry_for(conn),
+            relation=relation, fingerprint_of=predicate,
+        )
+        if compiled is None:
+            err = SubstrateError(
+                "aggregate: a condition of this call cannot be read for a stored total",
+                data={"reason": "stored_condition_not_compiled", "predicate": predicate},
+                fix_hint="compare a declared attribute, or count with metrics=[\"count\"]",
+            )
+            err.code = "unsupported_operator_form"
+            raise err
+        where_sql = compiled.bind_into(params)
+        if member_ids is not None:
+            where_sql = (
+                f"({where_sql}) AND {relation}.target_id = ANY(%(rr_member_ids)s::text[])"
+            )
+        params["graph_overlay_keys"] = sorted(
+            (_graph_read.predicate_attr_keys(predicate) | set(keys))
+            - set(RESERVED_EFFECTIVE_ATTR_KEYS)
+        )
+        sequential = False
+        if member_ids is None:
+            with conn.cursor() as cur:
+                sequential = _graph_read.broad_scope(
+                    cur, kind="nodes", segment=segment, predicate=predicate,
+                ) is not None
+        graph_branch, merged_branch = _graph_read._split_branches(
+            kind="nodes", segment=segment, relation=relation, where_sql=where_sql,
+            whole_attrs=_graph_read.predicate_reads_whole_attrs(predicate),
+            member_ids=member_ids is not None, sequential=sequential,
+        )
+        bound = int(_stored_metrics.MAX_ROWS)
+        count_sql = (
+            f"SELECT count(*) FROM (SELECT 1 {graph_branch} UNION ALL "
+            f"SELECT 1 {merged_branch} LIMIT {bound + 1}) AS bounded"
+        )
+
+        def fetch(sql: str) -> list[Any]:
+            with conn.cursor() as cur:
+                execute_with_custom_plan(cur, sql, params)
+                return cur.fetchall()
+
+        counted = int(_stored_budgeted(conn, budget, "count", lambda: fetch(count_sql))[0][0])
+        if counted > bound:
+            def exact() -> int:
+                grouped = _effective_view_aggregate_groups_within(
+                    conn, session, kind="nodes", by=["subtype"], predicate=predicate,
+                    member_ids=member_ids,
+                )
+                return sum(int(item[1]) for item in (grouped or ([], None))[0])
+
+            raise _stored_metrics.too_large(
+                _stored_budgeted(conn, budget, "exact count", exact, soft=True),
+                call=call,
+            )
+        columns = []
+        for key in keys:
+            if "\x00" in key:
+                name = f"sk{len(params)}"
+                params[name] = key
+                literal = f"%({name})s"
+            else:
+                literal = _literal(key)
+            value = f"({relation}.attrs -> {literal})"
+            columns.append(
+                f"({relation}.attrs ->> {literal}), jsonb_typeof({value}), "
+                f"({relation}.attrs ? {literal})"
+            )
+        select = ", ".join([f"{relation}.target_id", f"{relation}.subtype", *columns])
+        read_sql = (
+            f"SELECT {select} {graph_branch} UNION ALL SELECT {select} {merged_branch}"
+        )
+        fetched = _stored_budgeted(conn, budget, "column read", lambda: fetch(read_sql))
+        return fetched, compiled.fingerprint
+
+    def _echo_one_total(value: Any, key: str) -> Any:
+        """`value` (a refusal's data, retry call or words) with the grouping a
+        one-total count added (`by=[key]`) put back to the `by=[]` the caller
+        sent (re-review R6, N5)."""
+        if isinstance(value, dict):
+            return {
+                k: ([] if k == "by" and v in ([key], (key,)) else _echo_one_total(v, key))
+                for k, v in value.items()
+            }
+        if isinstance(value, list):
+            return [_echo_one_total(item, key) for item in value]
+        if isinstance(value, str):
+            for spelled in (f'by=["{key}"]', f"by=['{key}']", f'"by": ["{key}"]'):
+                value = value.replace(spelled, spelled.split("[", 1)[0] + "[]")
+            return value
+        return value
+
+    def _one_total_count(
+        *, input: Any, metrics: list[str], generation_id: Any, limit: int,
+        offset: int, order_by: Any, authority: Any,
+    ) -> dict[str, Any]:
+        """`aggregate(by=[], metrics=["count"])` over a stored set or a
+        result reference (PACT read-stored-metrics, one total): the same
+        exact SQL count grouped by subtype (edge type on an edge set), its
+        groups added into one. Every refusal of the grouped count is the
+        refusal here; nothing is estimated."""
+        is_ref = isinstance(input, Mapping) and "ref" in input
+        if not is_ref and not is_set_input(input):
+            raise InvalidOperatorArguments(
+                "aggregate: by=[] (one total) counts a set of records or links; "
+                "this input names one record",
+                fix_hint=(
+                    'pass a set, e.g. where={"type": "<type>"}, by=[], '
+                    'metrics=["count"]'
+                ),
+            )
+        if order_by is not None:
+            # One group: only the count ranks it (checked, never ignored).
+            _aggregate_order.check_order_by(
+                order_by, by=[], metrics=list(metrics),
+                call={"input": input, "by": [], "metrics": metrics, "order_by": order_by},
+            )
+        edges = isinstance(input, Mapping) and input.get("kind") == "edges"
+        key = "edge_type" if edges else "subtype"
+        named = [] if is_ref else _named_types(input, key)
+        if named and _live_access_rules.access_rules_state(mcp) is False:
+            # Review M1, re-review R3: a type that does not exist (alone, in a
+            # list, or a link type) is refused by name with the closest
+            # types, never counted as an exact 0. Under access rules the
+            # count itself is refused first, naming no type.
+            with _open(generation_id, authority=authority) as h:
+                refusal = _stored_metrics.unknown_type(
+                    "aggregate", named,
+                    _catalog_edge_type_names(h) if edges else _catalog_type_names(h),
+                    **({"noun": "link type",
+                        "example": 'input={"kind": "edges", "edge_type": "%s"}'}
+                       if edges else {}),
+                )
+            if refusal is not None:
+                raise refusal
+        try:
+            reply = aggregate(
+                input=input, by=[key], metrics=metrics, generation_id=generation_id,
+                limit=MAX_PAGE_LIMIT, offset=0, authority=authority,
+            )
+        except SubstrateError as exc:
+            # Re-review R6, N5: a refusal echoes what the caller sent, by=[],
+            # in its data, its retry call and its words.
+            if isinstance(getattr(exc, "data", None), dict):
+                exc.data = _echo_one_total(exc.data, key)
+            if getattr(exc, "retry_call", None) is not None:
+                exc.retry_call = _echo_one_total(exc.retry_call, key)  # type: ignore[attr-defined]
+            if isinstance(getattr(exc, "fix_hint", None), str):
+                exc.fix_hint = _echo_one_total(exc.fix_hint, key)
+            if isinstance(getattr(exc, "message", None), str):
+                exc.message = _echo_one_total(exc.message, key)
+            if exc.args and isinstance(exc.args[0], str):
+                exc.args = (_echo_one_total(exc.args[0], key), *exc.args[1:])
+            raise
+        if isinstance(reply, dict) and reply.get("status") == "refused":
+            if isinstance(reply.get("error"), dict):
+                reply["error"] = _echo_one_total(reply["error"], key)
+            return reply
+        if not isinstance(reply, dict):
+            return reply
+        if reply.get("truncated"):
+            raise InvalidOperatorArguments(
+                f"aggregate: by=[] adds the groups of one {key} count; this set "
+                f"holds more than {MAX_PAGE_LIMIT:,} of them",
+                fix_hint=f'count per {key}: by=["{key}"], metrics=["count"]',
+            )
+        total = sum(int(group.get("count") or 0) for group in reply.get("groups") or [])
+        group: dict[str, Any] = {"count": total}
+        out = {
+            key_: value for key_, value in reply.items()
+            if key_ not in ("absent_keys", "order_note", "order_by", "ranking_complete",
+                            "ranked_last_no_value", "tie_at_page_end")
+        }
+        shown = [group] if offset == 0 else []
+        if order_by is not None and shown:
+            shown = [{"rank": 1, **group}]
+            out["order_by"] = {"name": "count", "direction": (
+                "desc" if "desc" in str(order_by) or str(order_by).startswith("-") else "asc"
+            ), "kind": "metric"}
+            out["ranking_complete"] = True
+        out.update({
+            "groups": shown, "by": [], "total_count": 1, "total_count_basis": "exact",
+            "truncated": False, "limit": limit, "offset": offset, "next_offset": None,
+            # Which grouping the total added, said so the sum can be checked.
+            "one_total_of": key,
+        })
+        return out
+
+    def _stored_metric_aggregate(
+        *, input: Any, by: list[str], metrics: list[str], generation_id: Any,
+        limit: int, offset: int, order_by: Any, authority: Any, started_at: float,
+    ) -> dict[str, Any]:
+        """`aggregate` with sum, min or max over a stored set (PACT
+        read-stored-metrics): a scope or a result reference of at most
+        `stored_metrics.MAX_ROWS` records, grouped by nothing (one total),
+        `subtype` or `attrs.<key>`, by the same rules as a live total.
+
+        Refusals in their pinned order: access rules (before any graph
+        read), the metric and `by` forms, an unknown type, a declared
+        type that is not a number; then the bound and the budget."""
+        _stored_metrics.refuse_under_access_rules(mcp)
+        call = {"input": input, "by": list(by), "metrics": list(metrics),
+                **({"order_by": order_by} if order_by is not None else {})}
+        parsed = _stored_metrics.check_metrics(metrics)
+        fields = _stored_metrics.check_by(by)
+        ref = input.get("ref") if isinstance(input, Mapping) else None
+        if ref is None and not (
+            is_set_input(input) and as_mapping(input).get("kind") != "edges"
+        ):
+            raise _stored_metrics.refuse(
+                "stored_metric_input",
+                "aggregate: sum, min and max read a set of records",
+                'pass where={"type": "<type>"} or input={"ref": "r1..."}',
+            )
+        order = None
+        if order_by is not None:
+            order = _aggregate_order.check_order_by(
+                order_by, by=fields,
+                metrics=[_live_results.metric_label(m) for m in parsed], live=True,
+                call=call,
+            )
+        labels = [_live_results.metric_label(m) for m in parsed]
+        if ref is not None and _holds_text(input):
+            raise _text_on_reference("aggregate")
+        scope = input
+        if ref is None:
+            from okg.substrate.mcp import text_match as _tm
+
+            validate_set_scope("nodes", input)
+            _text_filter, text_condition = _tm.split_text_condition(
+                input.get("filter"), tool="aggregate",
+            )
+            if text_condition is not None:
+                raise _stored_metrics.refuse(
+                    "stored_metric_text_condition",
+                    "aggregate: sum, min and max over a stored set take no text "
+                    "condition",
+                    'count the matching records: metrics=["count"]; or sum over a '
+                    "condition on stored fields",
+                )
+        open_args: dict[str, Any] = {"authority": authority}
+        if ref is not None:
+            open_args.update(operator_name="aggregate", reference=str(ref))
+        with _open(generation_id, **open_args) as h:
+            _graph_read.require_graph_pin(h.conn, h.session)
+            member_ids: list[str] | None = None
+            caller_scope: Any = None
+            if ref is not None:
+                _reference_rows(h, None)
+                member_ids = [str(m["node_id"]) for m in h.reference_entry.members]
+            else:
+                refusal = _stored_metrics.unknown_type(
+                    "aggregate", _named_types(scope), _catalog_type_names(h),
+                )
+                if refusal is not None:
+                    raise refusal
+                caller_scope = _compose_scope_predicate(kind="nodes", input=scope, predicate=None)
+                _run_steps.note_set("records", "nodes", caller_scope)
+            refusal = _stored_metrics.needs_number(parsed, _declared_registry_for(h.conn))
+            if refusal is not None:
+                raise refusal
+            keys = sorted({
+                *(key for _f, key in parsed if key is not None),
+                *(f.split(".", 1)[1] for f in fields if f.startswith("attrs.")),
+            })
+            date_report = _DateConditionReport()
+            date_budget = (
+                _date_budget("aggregate", caller_scope, kind="nodes", started_at=started_at)
+                if caller_scope is not None else None
+            )
+            budget = _stored_metrics.Budget(started_at, date_budget)
+
+            def read(predicate: Any) -> tuple[list[Any], str]:
+                return _stored_metric_columns(
+                    h, predicate=predicate, keys=keys, member_ids=member_ids,
+                    budget=budget, call=call,
+                )
+
+            if date_budget is not None:
+                try:
+                    _read_with, (fetched, fingerprint) = _dated_read(
+                        h.conn, h.session, kind="nodes", predicate=caller_scope,
+                        operator="aggregate", report=date_report, nomos_runtime=False,
+                        budget=date_budget, run=read,
+                    )
+                except DateCallOverBudget:
+                    raise _stored_metrics.over_budget(budget, "date forms") from None
+            else:
+                fetched, fingerprint = read(caller_scope)
+            rows = _stored_metrics.rows_from(fetched, keys)
+            report = _live_results.group_report(rows, fields, parsed)
+            skipped = _live_results.skipped_payload(report)
+            ranked_facts: dict[str, Any] = {}
+            groups = report.groups
+            if order is not None:
+                def value_of(group: Any) -> Any:
+                    return _aggregate_order.live_value(group, order, fields)
+
+                ranked = _aggregate_order.rank(
+                    groups, order, value=value_of, key=lambda group: group[0],
+                )
+                groups = ranked.groups
+                ranked_facts = _aggregate_order.page_facts(
+                    ranked, order, offset=offset, page=limit, value=value_of,
+                )
+            visible = groups[offset: offset + limit + 1]
+            truncated = len(visible) > limit
+            shown = [
+                {
+                    **({"rank": offset + index + 1} if order is not None else {}),
+                    **{
+                        fields[i]: _aggregate_order.served_key(key[i])
+                        for i in range(len(fields))
+                    },
+                    **computed,
+                }
+                for index, (key, computed) in enumerate(visible[:limit])
+            ]
+            if order is None:
+                note = _aggregate_order.order_note(labels, cut=truncated)
+                if note is not None:
+                    ranked_facts["order_note"] = note
+            generation = h.session.generation_id
+            payload: dict[str, Any] = {
+                "groups": shown,
+                "by": fields,
+                "metrics": labels,
+                "totals_cover": _stored_metrics.totals_cover(
+                    report, parsed, generation=generation, skipped=skipped,
+                ),
+                **({"values_skipped": skipped} if skipped else {}),
+                **({"absent_keys": report.absent} if report.absent else {}),
+                **_live_results.exact_number_fields(shown, fields),
+                **({"sum_not_exact": _live_results.not_exact_labels(report)}
+                   if report.inexact or report.large_floats else {}),
+                **({"sum_large_floats": report.large_floats} if report.large_floats else {}),
+                "records_read": report.rows,
+                "total_count": len(groups),
+                "total_count_basis": "exact",
+                **({"selection_basis": "reference", "input": {"ref": ref},
+                    "reference_members": len(member_ids or []),
+                    "retrieval_basis": "result_reference_members"}
+                   if ref is not None else {"retrieval_exhaustive": True}),
+                "truncated": truncated,
+                "limit": limit,
+                "offset": offset,
+                "next_offset": offset + limit if truncated else None,
+                "generation_id": generation,
+                "pinned_generation_id": generation,
+                "predicate_fingerprint": fingerprint,
+                **ranked_facts,
+            }
+            _merge_date_report(payload, date_report, _PeriodReport())
             return _stamp_operator(_maybe_stamp_advanced(h, payload), "aggregate")
 
     def aggregate(
@@ -13865,8 +14424,9 @@ def _build_server(
         {"text":{"op":"matches","value":"re:/<regex>/"}} counts each
         distinct match; norm(match) merges case, space and punctuation
         variants, words(match) word order too; one (group) in the regex
-        is the text counted. A kept live answer also takes by=[] (one
-        total) and sum/min/max, e.g. "sum(attrs.size)".
+        is the text counted. by=[] gives one total. sum/min/max, e.g.
+        "sum(attrs.size)", read a kept live answer or a stored set of up
+        to 50,000 records (not while access rules are on).
         order_by="<metric or by field> desc" ranks every group before
         limit, e.g. order_by="max(attrs.size) desc", limit=2.
         A live reply names a handle; input=<handle> reads it again. After
@@ -13902,14 +14462,19 @@ def _build_server(
                 data={"argument": "predicate"},
             )
         if metrics != ["count"]:
-            raise InvalidOperatorArguments(
-                "aggregate counts graph records only (metrics=['count']); sum, "
-                "min and max read a kept live answer, input={'ref': 'l1...'}"
+            # PACT read-stored-metrics: sum, min and max over a stored set of
+            # at most 50,000 records (not while access rules are on).
+            return _stored_metric_aggregate(
+                input=input, by=[str(f) for f in by], metrics=list(metrics),
+                generation_id=generation_id, limit=limit, offset=offset,
+                order_by=order_by, authority=authority, started_at=date_started,
             )
         if not by:
-            raise InvalidOperatorArguments(
-                f"aggregate: by must name 1..{MAX_AGGREGATE_BY} fields; only a "
-                "kept live answer (input={'ref': 'l1...'}) may omit it for one total"
+            # PACT read-stored-metrics (one total): by=[] counts a stored set
+            # as one group. 47 refusals in the qs10 read eval (18 inside run).
+            return _one_total_count(
+                input=input, metrics=list(metrics), generation_id=generation_id,
+                limit=limit, offset=offset, order_by=order_by, authority=authority,
             )
         # PACT read-aggregate-order-by: the order is checked before anything
         # is opened; the record-anchor and edge-summary forms refuse it.
@@ -13924,6 +14489,9 @@ def _build_server(
             order = _aggregate_order.check_order_by(
                 order_by, by=[str(f) for f in by], metrics=list(metrics),
                 match=any(_is_match(str(f)) for f in by),
+                # PACT read-stored-metrics: a stored set computes sum, min and
+                # max too (a `match` count does not).
+                live=not any(_is_match(str(f)) for f in by),
                 call={"input": input, "by": by, "metrics": metrics, "order_by": order_by},
             )
         loose_refusal = _loose_match_refusal("aggregate", input)
@@ -14079,7 +14647,10 @@ def _build_server(
                         date_budget=count_budget,
                         each_report=each_report,
                         member_ids=text_ids,
-                        flag_missing=order is not None,
+                        # PACT read-stored-metrics: a key a record does not carry is
+                # the group (absent), apart from a stored null, ranked or not,
+                # as the sum path and a live set group it.
+                flag_missing=True,
                     ), periods_read
 
                 if deployment_requires_nomos_runtime(h.session.deployment_name):
@@ -14144,15 +14715,9 @@ def _build_server(
                         offset=offset, limit=limit,
                     )
                 else:
-                    visible = ordered[offset : offset + limit + 1]
-                    truncated = len(visible) > limit
-                    groups = [
-                        {
-                            **{by[i]: key[i] for i in range(len(by))},
-                            "count": count,
-                        }
-                        for key, count in visible[:limit]
-                    ]
+                    groups, truncated = _stored_count_page(
+                        ordered, by=[str(f) for f in by], offset=offset, limit=limit,
+                    )
                 payload = {
                     "groups": groups,
                     "by": by,
@@ -14169,6 +14734,8 @@ def _build_server(
                     "generation_id": h.session.generation_id,
                     "pinned_generation_id": h.session.generation_id,
                     "predicate_fingerprint": fingerprint,
+                    **_stored_absent_keys(ordered, [str(f) for f in by]),
+                    **_live_results.exact_number_fields(groups, [str(f) for f in by]),
                     **ranked_facts,
                 }
                 if _has_period_field(by):
@@ -15490,6 +16057,90 @@ def _build_server(
 
     mcp._okg_live_kept_set = _live_kept_set  # type: ignore[attr-defined]
 
+    def _live_kept_rows(
+        operator: str, ref_id: str, authority: Any, context: Any = None,
+    ) -> tuple[list[dict[str, Any]], str, bool]:
+        """The rows of the kept answer `ref_id`, its relation and whether it
+        is a groups answer, for a `run` step over a kept answer whose rows a
+        later step reads (lane re).
+
+        Opened as any read of it is (`_live_open`: access rules, the reader
+        and its session, the binding, the gate), in a read call of its own
+        whose sample row records the rows read; no upstream call. `context`
+        is the run call's MCP context, so the session is the one the step's
+        own call kept the set under. Rows come back flat, as a run holds
+        rows: a raw row as the system returned it, a typed row's upstream
+        fields with its `node_id` and `subtype`, a groups handle's rows
+        under the column names its reply printed. A computed column is held
+        as a run's own map(compute) holds it (PACT read-run-rows-compute):
+        its value under `map_compute.value_key(name)`, its state in the
+        row's `map_compute.MARK`, so a later step reads `calc.<name>` of a
+        kept answer and of a run's own rows the same way (an error row set
+        aside, never matched)."""
+        token = _CURRENT_MCP_CONTEXT.set(context) if context is not None else None
+        try:
+            with _result_references.draft_scope() as scope:
+                state = _live_open(operator, ref_id=ref_id, authority=authority)
+                retained = state["set"]
+                rows: list[dict[str, Any]] = []
+                for row in state["rows"]:
+                    if not isinstance(row, Mapping):
+                        rows.append({"value": row})
+                    elif isinstance(retained, _live_results.LiveGroupsSet):
+                        group: dict[str, Any] = {}
+                        mark = row.get(_map_compute.MARK)
+                        held_mark: Optional[dict[str, Any]] = None
+                        for name in retained.columns:
+                            stored = retained.key_of(name)
+                            calc = _map_compute.calc_name(name)
+                            if calc is None:
+                                group[name] = row.get(stored)
+                                continue
+                            key = _map_compute.value_key(calc)
+                            value = row.get(stored) if stored in row else row.get(key)
+                            group[key] = value
+                            if held_mark is None:
+                                # The row's own states (a computed column's
+                                # error stays one); with none, every column
+                                # is ok (a group of error rows is never
+                                # formed: they are set aside).
+                                held_mark = (
+                                    {"s": dict(mark.get("s") or {}), "u": list(mark.get("u") or ())}
+                                    if isinstance(mark, Mapping) else {"s": {}, "u": []}
+                                )
+                            if (
+                                not isinstance(mark, Mapping) and isinstance(value, str)
+                                and calc not in held_mark["u"]
+                            ):
+                                # A text group key is upstream text, as a
+                                # run's own aggregate marks it.
+                                held_mark["u"].append(calc)
+                        if held_mark is not None:
+                            group[_map_compute.MARK] = held_mark
+                        rows.append(group)
+                    else:
+                        flat = dict(_live_reader.attrs_of(row))
+                        if _live_reader.is_typed(row):
+                            flat.update(node_id=row["node_id"], subtype=row["subtype"])
+                        for key, value in row.items():
+                            if _map_compute.is_reserved(key):
+                                flat[key] = value
+                        rows.append(flat)
+                served_key = "groups" if operator == "aggregate" else "items"
+                from okg.substrate.mcp.run_live import shown_row as _shown_row
+
+                # The sample records the rows as a reply prints them
+                # (`calc.<name>`), never the internal keys.
+                scope.finish({"status": "ok", served_key: [_shown_row(r) for r in rows]})
+        finally:
+            if token is not None:
+                _CURRENT_MCP_CONTEXT.reset(token)
+        relation = getattr(_live_results.checked_set(retained), "relation_name", None)
+        grouped = isinstance(retained, _live_results.LiveGroupsSet)
+        return rows, str(relation or "kept_answer"), grouped
+
+    mcp._okg_live_kept_rows = _live_kept_rows  # type: ignore[attr-defined]
+
     def _live_next_gone(
         exc: Any, *, set_id: Optional[str], authority: Any,
     ) -> SubstrateError:
@@ -16278,6 +16929,8 @@ def _build_server(
             # here all the same, with the values it could not compare.
             not_read.absorb(state.get("condition_not_read"))
             not_comparable.update(state.get("condition_not_comparable") or {})
+            if isinstance(not_comparable, _live_reader.NotComparable):
+                not_comparable.absorb_rejected(state.get("condition_number_text_rejected"))
         ids_checked = bool(getattr(retained, "ids_checked", False))
         reader_notes: dict[str, Any] = {}
         if (report_not_read := not_read.report()) is not None:
@@ -16307,7 +16960,18 @@ def _build_server(
             report = _live_results.group_report(
                 [_live_reader.flat_row(row) for row in matched], fields, parsed_metrics,
             )
-            groups, skipped = report.groups, report.skipped
+            groups = report.groups
+            # PACT read-stored-metrics: every value a sum, min or max left
+            # out, by class with its first ids (served as node ids are), and
+            # the values read from numeric text; said in the totals line too.
+            skipped = _live_results.skipped_payload(report)
+            for entry in skipped.values():
+                for item in entry.values():
+                    if isinstance(item, dict):
+                        item["first_ids"] = [
+                            _live_results.served_node_id(i, relation, checked=ids_checked)
+                            for i in item["first_ids"]
+                        ]
             page = max(1, min(int(limit), _live_results.MAX_GROUPS))
             labels = [_live_results.metric_label(m) for m in parsed_metrics]
             short = _live_results.totals_short(retained, _live_coverage(retained, state))
@@ -16355,10 +17019,9 @@ def _build_server(
                 "groups": served_groups,
                 "by": fields,
                 "metrics": labels,
-                # Rows a computed metric left out, per column: never read as 0.
-                **({"values_skipped": skipped} if any(
-                    sum(reasons.values()) for reasons in skipped.values()
-                ) else {}),
+                # Rows a computed metric left out, per column and class:
+                # never read as 0, never dropped silently.
+                **({"values_skipped": skipped} if skipped else {}),
                 **({"absent_keys": report.absent} if report.absent else {}),
                 # A sum that added a non-integer value is not exact.
                 # A whole-number float of 2^53 or more is flagged too (L7).
@@ -16375,6 +17038,8 @@ def _build_server(
                 ) + _live_results.partial_rows_text(
                     parsed_metrics, grouped=bool(fields), counted=len(matched),
                     not_computed=calc_aside.count,
+                ) + "".join(
+                    f"; {sentence}" for sentence in _live_results.skipped_sentences(skipped)
                 ),
                 **reader_notes,
                 "total_count": len(groups),
@@ -16568,6 +17233,17 @@ def _build_server(
                 "map: computed columns are added to records; an edge set holds links",
                 'map a live set of records: map(where={"type": "<live type>"}, compute={...})',
             )
+        named = _named_types(input) if ref is None else []
+        if named:
+            # PACT read-stored-metrics (c003 a3): a type that is neither a
+            # catalog type nor a live type is no set at all; refused naming
+            # the closest types, after the access-rule check above.
+            with _open(generation_id, authority=authority) as h:
+                refusal = _stored_metrics.unknown_type(
+                    "map", named, _catalog_type_names(h),
+                )
+            if refusal is not None:
+                raise refusal
         raise _map_compute.refuse(
             "compute_on_stored_set",
             "map: computed columns over stored records come with stored handles; "
@@ -17192,6 +17868,21 @@ def _build_server(
                     _attach_names_only(
                         h, payload, predicate=sent_predicate, query=None, method="filter",
                     )
+                if (
+                    kind == "nodes" and not off and keyset is None and not projected
+                    and not payload.get("truncated")
+                ):
+                    # Lane ri F6: an empty first page says why, and what the
+                    # condition finds with one part dropped (`empty_why`).
+                    _attach_filter_empty_why(
+                        h, payload, predicate=sent_predicate,
+                        probes_allowed=not (
+                            text_condition is not None
+                            or _holds_date_condition(sent_predicate)
+                            or _run_steps.mentions_marker(sent_predicate)
+                        ),
+                        nomos_runtime=nomos_runtime, declared=declared_registry,
+                    )
                 return _stamp_operator(
                     _maybe_stamp_advanced(h, payload),
                     "filter",
@@ -17289,6 +17980,18 @@ def _build_server(
                 "input": input,
                 "predicate": scoped_predicate,
             }
+            if kind == "nodes" and not off and not rows and not truncated:
+                # An empty page that is cut (rows hidden from this reader in its
+                # read window) is not the whole answer: no explanation then.
+                # Lane ri F6 (`empty_why`), as on the effective-view path.
+                _attach_filter_empty_why(
+                    h, payload, predicate=scoped_predicate,
+                    probes_allowed=not _run_steps.mentions_marker(scoped_predicate),
+                    nomos_runtime=deployment_requires_nomos_runtime(
+                        h.session.deployment_name
+                    ),
+                    declared=_declared_registry_for(h.conn),
+                )
             return _stamp_operator(
                 _maybe_stamp_advanced(h, payload),
                 "filter",
@@ -17309,7 +18012,7 @@ def _build_server(
     ) -> dict[str, Any]:
         """Add computed columns to every row of a set; never drops a row.
 
-        map(input=<handle>, compute={"fill": "attrs.used / attrs.total"}, ...)
+        map(input=<handle>[[if tool:run]] or a run step's "$n"[[/if]], compute={"fill": "attrs.used / attrs.total"}, ...)
         adds calc.fill. Functions: abs round floor ceil min max coalesce
         is_null if lower upper len concat substr split_part starts_with
         ends_with contains regex number string to_unit days_between.[[if tool:filter|aggregate]]
@@ -19205,11 +19908,11 @@ def _build_server(
                 )
             raise scope_refusal
         if where is not None and _effective_method == "identifier_mentions":
-            raise _search_where.WhereUnsupported(
+            raise declare_retry_edit(_search_where.WhereUnsupported(
                 "search: where does not apply to method='identifier_mentions'",
                 data={"method": _effective_method},
                 fix_hint="drop where, or use method='lexical'",
-            )
+            ), drop=("where",), mode="guess")
         _assert_method_can_scope(_effective_method, profile)
         # Same discipline for the authority and diversity controls: refused
         # before any connection is opened, so a caller who names one where it
@@ -19228,12 +19931,12 @@ def _build_server(
             if _effective_method == "attrs":
                 # A `where` with no query runs as attrs: unranked attribute
                 # matches, so "use lexical" would name the call just made.
-                raise DiversityNotApplicable(
+                raise declare_retry_edit(DiversityNotApplicable(
                     "max_per_parent caps ranked rows per parent; a where with "
                     "no query returns unranked attribute matches (method='attrs')",
                     data={"method": "attrs", "max_per_parent": max_per_parent},
                     fix_hint="drop max_per_parent, or add query text to rank the matches",
-                )
+                ), drop=("max_per_parent",), mode="guess")
             assert_diversity_rank_mode(
                 max_per_parent, rank_by="self", method=_effective_method,
             )
@@ -19257,7 +19960,7 @@ def _build_server(
             # so it cannot say it read every match (#3646).
             from okg.substrate.mcp.search import SearchCompletenessRefused
 
-            raise SearchCompletenessRefused(
+            raise declare_retry_edit(SearchCompletenessRefused(
                 "search: completeness='exact' is not served with view='windows' "
                 "(a windows page is cut to its byte budget and carries no count)",
                 data={"completeness": repr(completeness), "method": _effective_method,
@@ -19266,7 +19969,7 @@ def _build_server(
                     "drop completeness to read the windows, or drop view for "
                     "method='grep' with completeness='exact' and its exact count"
                 ),
-            )
+            ), drop=("completeness",), mode="guess")
         # `select=["source_lineage", ...]` (issue #2674). Lexical rows carry
         # no `attrs` by default, so the operator is asked for its default
         # projection plus `attrs`; the lineage is then moved to a row-level
@@ -19825,6 +20528,23 @@ def _build_server(
                     subtype_filter=subtype_filter or (filter or {}).get("subtype"),
                     path_prefix=path_prefix,
                 )
+            if (
+                isinstance(payload, dict) and payload.get("results") == []
+                and not payload.get("truncated") and payload.get("next_offset") is None
+                and method in ("grep", "lexical", "attrs", "semantic")
+                and view not in ("metadata", "windows")
+                and not offset and continuation_token is None
+                and record_ids is None and children_scope is None
+            ):
+                # Lane ri F6: an empty first page says why, and what the
+                # call finds with the failing part dropped (`empty_why`).
+                _attach_empty_why(
+                    h, payload, method=method, query=query, where=where,
+                    subtype_filter=subtype_filter, attr_filters=attr_filters,
+                    filter=filter, path_prefix=path_prefix, profile=profile,
+                    source_family=source_family, max_per_parent=max_per_parent,
+                    rank_by=rank_by, within=within, max_chars=max_chars,
+                )
             if lineage_requested:
                 payload = _move_lineage_to_rows(
                     payload, drop_attrs=lineage_drop_attrs,
@@ -19966,6 +20686,276 @@ def _build_server(
             basis = counted.get("total_count_basis")
         payload[names.NAMES_ONLY_KEY] = names.hint_block(found, total=total, basis=basis)
 
+    def _empty_why_values(h: Any, known: set[str]) -> Any:
+        """The value reader of an empty page's explanation (lane ri F6,
+        `empty_why`): up to a few values of one attribute on the records
+        holding it, of the call's known types. Row-derived, so the caller
+        reads it only when no access rules apply."""
+        from okg.substrate.mcp import empty_why as why
+
+        def values(field: str, without: Any, seconds: float) -> Optional[list[Any]]:
+            # Row-derived: the caller checks no access rules apply. One
+            # bounded effective-view read of the records holding the
+            # attribute, of the call's known types, within the probe budget.
+            key = field[len("attrs."):]
+            if not key or "\x00" in key:
+                return None
+            clauses: list[dict[str, Any]] = [{"op": "exists", "field": field}]
+            named = [name for name in why.named_types(without) if name in known]
+            if named:
+                clauses.append({"op": "in", "field": "subtype", "values": named})
+            predicate = clauses[0] if len(clauses) == 1 else {"op": "and", "clauses": clauses}
+            try:
+                with h.conn.transaction():
+                    with h.conn.cursor() as cur:
+                        cur.execute("SHOW statement_timeout")
+                        (previous,) = cur.fetchone()
+                        cur.execute(
+                            "SELECT set_config('statement_timeout', %s, true)",
+                            (f"{max(1, int(seconds * 1000))}ms",),
+                        )
+                    rows, _more = _effective_view_sql_page(
+                        h.conn, h.session, kind="nodes", predicate=predicate,
+                        limit=why.VALUE_ROWS, offset=0, nomos_runtime=False,
+                    )
+                    with h.conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT set_config('statement_timeout', %s, true)", (previous,),
+                        )
+            except psycopg.errors.QueryCanceled:
+                return None
+            except Exception:  # noqa: BLE001 - the values are optional; the line says none.
+                log.warning("empty-page value read failed", exc_info=True)
+                return None
+            return why.values_of(rows, key)
+
+        return values
+
+    def _attach_empty_why(
+        h: Any,
+        payload: dict[str, Any],
+        *,
+        method: str,
+        query: Any,
+        where: Optional[dict[str, Any]],
+        subtype_filter: Optional[str],
+        attr_filters: Optional[Mapping[str, Any]],
+        filter: Optional[Mapping[str, Any]],
+        path_prefix: Optional[str],
+        profile: Optional[str],
+        source_family: Any,
+        max_per_parent: Any,
+        rank_by: Optional[str],
+        within: Optional[str],
+        max_chars: Any,
+    ) -> None:
+        """Add `empty_why` to an empty first search page (lane ri F6,
+        `empty_why`). Each probe is this search with one part dropped, run
+        as the tool body runs it (the same scope resolution, lookup or
+        core read) on this read's handle, pin and reader, with `select`
+        node ids only. The block is kept in the call's memo, so a byte-fit
+        rerun of the tool body does not probe again."""
+        from okg.substrate.mcp import empty_why as why
+        from okg.substrate.mcp.tools import reader_sees_every_row
+
+        # What narrows the read and is not dropped: a profile that applied
+        # (named or the deployment default) and the source families.
+        scope_parts = []
+        if payload.get("scoped_subtypes") is not None and payload.get("search_profile"):
+            scope_parts.append(f"profile {_json.dumps(payload['search_profile'])}")
+        if source_family:
+            scope_parts.append(f"source_family {_json.dumps(source_family)}")
+        call = why.Call(
+            method=method, query=query or None, where=where,
+            subtype_filter=subtype_filter or None,
+            attr_filters=dict(attr_filters or {}), filter=dict(filter or {}),
+            path_prefix=path_prefix, scope=" and ".join(scope_parts) or None,
+            within=within,
+        )
+        memo = _result_references.call_memo()
+        memo_key = "empty_why:" + _json.dumps(
+            [method, query, where, subtype_filter, attr_filters, filter, path_prefix,
+             profile, source_family, max_per_parent, rank_by, within],
+            sort_keys=True, default=str,
+        )
+        if memo is not None and memo_key in memo:
+            payload[why.EMPTY_WHY_KEY] = _json.loads(memo[memo_key])
+            return
+        every = reader_sees_every_row(h.session)
+
+        def merged_filter(variant: Any) -> dict[str, Any]:
+            # As the tool body merges the old arguments into `filt`.
+            filt = dict(variant.filter)
+            if variant.subtype_filter:
+                filt["subtype"] = variant.subtype_filter
+            if variant.attr_filters:
+                filt["attr_filters"] = dict(variant.attr_filters)
+            return filt
+
+        scopes: dict[str, Any] = {}
+
+        def run(variant: Any, limit: int) -> dict[str, Any]:
+            scope_subtype: Any = variant.subtype_filter
+            if scope_subtype is None and not variant.filter.get("subtype"):
+                if method == "grep":
+                    named = _search_where.profile_subtypes(variant.where)
+                    scope_subtype = named[0] if len(named) == 1 else (list(named) or None)
+                else:
+                    scope_subtype = _search_where.plan_where(
+                        None, variant.where, lift_source=False,
+                    ).filter.get("subtype")
+            # One scope resolution per distinct type set in the reply.
+            scope_key = _json.dumps(scope_subtype, sort_keys=True, default=str)
+            if scope_key not in scopes:
+                scopes[scope_key] = _resolve_mcp_search_scope(
+                    h.conn, h.session, deployment_name=deployment_name,
+                    requested_profile=profile, subtype_filter=scope_subtype,
+                    method=method, requested_families=source_family,
+                    requested_max_per_parent=max_per_parent,
+                )
+            search_scope = scopes[scope_key]
+            filt = merged_filter(variant)
+            if method == "attrs":
+                plan = _search_where.plan_where(
+                    {k: v for k, v in filt.items() if k != "source"},
+                    variant.where, lift_source=False,
+                )
+                lifted = plan.filter.get("subtype") if filt.get("subtype") is None else None
+                filt = {**filt, **plan.filter}
+                _intersect_subtype_filter(search_scope, variant.subtype_filter or lifted)
+                if search_scope.subtypes is not None:
+                    filt["subtypes"] = list(search_scope.subtypes)
+                return _search_attrs_lookup(
+                    h.conn, h.session, filter=filt, limit=limit, offset=0,
+                    select=["node_id"], where=plan.residual, scope=search_scope,
+                )
+            return _search(
+                h.conn, h.session, variant.query, method=method, filter=filt,
+                limit=limit, offset=0, select=["node_id"], scope=search_scope,
+                rank_by=rank_by, max_chars=max_chars, path_prefix=variant.path_prefix,
+                where=variant.where, exact_pass=False,
+                **({"within": within} if within is not None else {}),
+            )
+
+        # The catalog is read only when the call names a type to check.
+        types = why.catalog_types(h.conn, h.session) if why.named_types(call) else []
+        known = set(types)
+        values = _empty_why_values(h, known)
+        clock = _current_date_call()
+        prober = why.Prober(
+            h.conn, run, every_row_readable=every,
+            started_at=clock.started_at if clock is not None else None,
+            cap=why.read_cap(method, every),
+        )
+        page = why.outcome(
+            payload, conditions=call.conditions(), every_row_readable=every, method=method,
+        )
+        sent = call_arguments()
+        served = {"profile": profile, "source_family": source_family}
+        try:
+            explained = why.explain(call, types=types, prober=prober, values=values, page=page)
+        finally:
+            prober.close()
+        block = why.finish(
+            explained,
+            lambda without: {
+                "tool": "search",
+                "arguments": why.search_call_arguments(sent, without, served),
+            },
+        )
+        if memo is not None:
+            memo[memo_key] = _json.dumps(block)
+        payload[why.EMPTY_WHY_KEY] = block
+
+    def _attach_filter_empty_why(
+        h: Any,
+        payload: dict[str, Any],
+        *,
+        predicate: Any,
+        probes_allowed: bool,
+        nomos_runtime: bool,
+        declared: dict[str, str],
+    ) -> None:
+        """Add `empty_why` to an empty first `filter` page over nodes (lane
+        ri F6, `empty_why`). `predicate` is the call's whole condition (the
+        input's type and filter and the predicate, composed). Each probe is
+        that condition with one top-level part dropped, read through the
+        same effective-view page and row check filter reads, on this read's
+        handle, pin and reader, limit 3. `probes_allowed` is False for a
+        condition filter reads through more than that page (a text or date
+        condition, a `run` step reference): then no probe runs and the
+        reply says so."""
+        from okg.substrate.mcp import empty_why as why
+        from okg.substrate.mcp.tools import reader_sees_every_row
+
+        where = predicate if isinstance(predicate, dict) and predicate else None
+        call = why.Call(method="filter", where=where)
+        memo = _result_references.call_memo()
+        memo_key = "empty_why:filter:" + _json.dumps(
+            [where, probes_allowed], sort_keys=True, default=str,
+        )
+        if memo is not None and memo_key in memo:
+            payload[why.EMPTY_WHY_KEY] = _json.loads(memo[memo_key])
+            return
+        every = reader_sees_every_row(h.session)
+
+        def run(variant: Any, limit: int) -> dict[str, Any]:
+            def check(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                return [
+                    row for row in rows
+                    if _operator_read_check(
+                        row, variant.where, declared=declared, nomos_runtime=nomos_runtime,
+                    )
+                ]
+
+            rows, more = _effective_view_sql_page(
+                h.conn, h.session, kind="nodes", predicate=variant.where,
+                limit=limit, offset=0, nomos_runtime=nomos_runtime, residual=check,
+            )
+            rows = check(list(rows))
+            # Under access rules a page may under-fill: no exact 0 then.
+            exact = not rows and not more and not nomos_runtime
+            return {
+                "results": [{"node_id": row.get("node_id")} for row in rows],
+                "total_count": 0 if exact else None,
+                "total_count_basis": "exact" if exact else "unknown",
+            }
+
+        # The catalog is read only when the call names a type to check.
+        types = why.catalog_types(h.conn, h.session) if why.named_types(call) else []
+        known = set(types)
+        clock = _current_date_call()
+        prober = why.Prober(
+            h.conn, run, every_row_readable=every,
+            started_at=clock.started_at if clock is not None else None,
+            allowed=probes_allowed, cap=why.read_cap("filter", every),
+        )
+        page = why.outcome(
+            payload, conditions=call.conditions(), every_row_readable=every, method="filter",
+        )
+        sent = call_arguments() or {}
+        kept = {
+            key: sent[key] for key in ("generation_id", "authority", "select")
+            if sent.get(key) is not None
+        }
+        try:
+            explained = why.explain(
+                call, types=types, prober=prober,
+                values=_empty_why_values(h, known), page=page,
+            )
+        finally:
+            prober.close()
+        block = why.finish(
+            explained,
+            lambda without: {
+                "tool": "filter",
+                "arguments": {"input": {"kind": "nodes"}, "predicate": without.where, **kept},
+            },
+        )
+        if memo is not None:
+            memo[memo_key] = _json.dumps(block)
+        payload[why.EMPTY_WHY_KEY] = block
+
     def _metadata_search_page(
         h: Any,
         payload: dict[str, Any],
@@ -19996,7 +20986,18 @@ def _build_server(
         cached = retained.get(key)
         if cached is None:
             ids = [str(member["node_id"]) for member in retained["members"]]
-            cached, _ = _reference_groups(h.conn, h.session, by=by, ids=ids)
+            grouped, _ = _reference_groups(
+                h.conn, h.session, by=by, ids=ids, flag_missing=True,
+            )
+            # PACT read-stored-metrics: a missing key is the group (absent),
+            # as `aggregate` over the reference prints it (D3: equal).
+            cached = [
+                (tuple(
+                    _aggregate_order.served_key(value)
+                    for value in _aggregate_order.stored_key(item, len(by))
+                ), item[1])
+                for item in grouped
+            ]
             retained[key] = cached
         out["summary"] = _result_references.summary_block(
             cached, by=by, reference_id=reference_id,
@@ -20291,6 +21292,38 @@ def _build_server(
                     starts, without, ids = cur.fetchone()
             return int(starts), int(without), [str(i) for i in (ids or [])]
 
+        def join_pairs(
+            self, start_sql: str, edge_type: str, direction: str, cap: int,
+            generation: Any, authority: Any,
+        ) -> Optional[tuple[list[str], list[tuple[str, str]]]]:
+            """(the start set's distinct ids, the (near, far) ids of every
+            `edge_type` link from them), each read once on one connection;
+            None when either passes `cap` (PACT run-join-step-speed). The
+            links are read from the held ids, so the start set's condition
+            and the whole link type are not read again by the step's set,
+            count and facts."""
+            with _open(generation, authority=authority) as h:
+                links = self._links_sql(h, edge_type, direction)
+                with h.conn.cursor() as cur:
+                    cur.execute(
+                        f"SELECT DISTINCT s.id FROM ({start_sql}) AS s(id) "
+                        f"WHERE s.id IS NOT NULL LIMIT {int(cap) + 1}"
+                    )
+                    start_ids = [str(row[0]) for row in cur.fetchall()]
+                    if len(start_ids) > cap:
+                        return None
+                    held = _run_literal_sql(
+                        h.conn, "SELECT unnest(%(ids)s::text[])", {"ids": start_ids},
+                    )
+                    cur.execute(
+                        f"SELECT run_links.near, run_links.far FROM ({links}) AS run_links "
+                        f"WHERE run_links.near IN ({held}) LIMIT {int(cap) + 1}"
+                    )
+                    pairs = [(str(row[0]), row[1]) for row in cur.fetchall()]
+            if len(pairs) > cap:
+                return None
+            return start_ids, [(near, None if far is None else str(far)) for near, far in pairs]
+
         def count(self, raw_sql: str, generation: Any, authority: Any) -> int:
             """One COUNT over a step's set, under the step's budget (the
             pooled read opens with what is left of it as its timeout)."""
@@ -20301,8 +21334,11 @@ def _build_server(
 
         def row_matches(self, row: dict[str, Any], predicate: Any) -> bool:
             """A held row against a condition on `attrs.<column>` (#3666,
-            lane ri), exactly as a kept live answer's rows are filtered."""
-            return bool(_operator_predicate_matches({"attrs": row}, predicate, declared=None))
+            lane ri), exactly as a kept live answer's rows are filtered; its
+            computed columns as calc.<name> (PACT read-run-rows-compute)."""
+            from okg.substrate.mcp.run_live import condition_row
+
+            return bool(_operator_predicate_matches(condition_row(row), predicate, declared=None))
 
     _run_backend = _RunBackend()
     # Reached through the server so a test can watch every composed read.
@@ -21088,6 +22124,31 @@ def _build_server(
     from okg.substrate.mcp.query_guide import publish_query_description
 
     publish_query_description(mcp, dataset_facts)
+    # Served text (issue #4280), last: the deployment's descriptions replace
+    # what every pass above wrote, on the published copy only. Then one
+    # digest over everything the agent reads that is not data, so a replay
+    # records which text it ran against. Every layer is checked, not only
+    # this branch's, so a mistake in any branch refuses every launch. The
+    # fix_hint codes are checked here, after registration has imported the
+    # modules that declare them.
+    try:
+        _every_layer = _surface_text.all_layers(surface_text_launch.parsed)
+        _surface_text.check_fix_hint_codes(_every_layer)
+        _surface_text.check_tool_text(mcp, _every_layer)
+        _surface_text.apply_tool_text(mcp, surface_text_effective)
+    except Exception:  # noqa: BLE001 - release the pools before propagating, as above.
+        pool.close()
+        if write_pool is not None:
+            write_pool.close()
+        raise
+    surface_text_report = _surface_text.surface_text_report(
+        mcp, instructions=effective_instructions, effective=surface_text_effective,
+        # A caller that passes its own instructions owns the whole text.
+        instructions_applied=instructions == DEFAULT_INSTRUCTIONS,
+    )
+    mcp._okg_surface_text = surface_text_effective  # type: ignore[attr-defined]
+    surface_freshness["surface_text"] = surface_text_report
+    readside_metadata["surface_text"] = surface_text_report
 
     return mcp
 

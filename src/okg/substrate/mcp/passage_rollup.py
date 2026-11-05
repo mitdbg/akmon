@@ -62,6 +62,7 @@ from okg.substrate.mcp.call_read_cache import cached_read
 from okg.substrate.mcp.session import Session
 from okg.substrate.mcp.provenance import _fence_value, classify_sources
 from okg.substrate.mcp.readable_text import keep_readable_text
+from okg.substrate.mcp.retry_edits import declare_retry_edit
 from okg.substrate.nomos.read_filter import (
     filter_edge_rows_for_session,
     filter_node_rows_for_session,
@@ -272,12 +273,13 @@ def validate_rank_by(
         # `records` is the one legal value.
         if rank_by in (None, RANK_BY_RECORDS):
             return RANK_BY_RECORDS
-        raise RankByNotApplicable(
+        # The words name two fixes, so the call without rank_by is a guess.
+        raise declare_retry_edit(RankByNotApplicable(
             f"search: method='grep' ranks records only; rank_by must be 'records' "
             f"or unset, got {rank_by!r}",
             data={"method": method, "rank_by": rank_by},
             fix_hint="drop rank_by, or pass rank_by='records'",
-        )
+        ), drop=("rank_by",), mode="guess")
     if rank_by is None:
         if method == "lexical" and not max_per_parent_argument:
             return RANK_BY_RECORDS
@@ -287,13 +289,13 @@ def validate_rank_by(
             f"search: rank_by must be one of {list(RANK_BY_VALUES)}; got {rank_by!r}"
         )
     if rank_by in (RANK_BY_PASSAGES, RANK_BY_RECORDS) and method != "lexical":
-        raise RankByNotApplicable(
+        raise declare_retry_edit(RankByNotApplicable(
             f"search: rank_by={rank_by!r} applies only to method='lexical'; "
             f"got method={method!r}. It folds child rows ranked by BM25 into "
             f"their parent; no other method scores child text.",
             data={"method": method, "rank_by": rank_by},
             fix_hint="drop rank_by, or use method='lexical'",
-        )
+        ), drop=("rank_by",), mode="guess")
     return str(rank_by)
 
 

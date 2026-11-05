@@ -21,7 +21,7 @@ pytestmark = pytest.mark.postgres
 SUBTYPES = [SubtypeSpec("item"), SubtypeSpec("doc")]
 BACKEND_METHODS = (
     "current_generation", "step_set", "ids_set", "values_sql", "materialize", "count",
-    "join_far", "join_facts",
+    "join_far", "join_facts", "join_pairs",
 )
 
 

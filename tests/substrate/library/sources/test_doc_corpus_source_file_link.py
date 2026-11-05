@@ -15,6 +15,7 @@ from pathlib import Path
 import psycopg
 import pytest
 
+import okg.substrate.ingest.runner as runner_module
 from okg.substrate.consistency.transform_gate import TransformConsistencyGate
 from okg.substrate.graph_store import ChronosGraphStore
 from okg.substrate.ingest import SourceRunner
@@ -213,9 +214,17 @@ def test_link_written_without_predecessor_source(
 
 
 def _use_storage(monkeypatch: pytest.MonkeyPatch, storage: str) -> None:
-    """`ref` stores the record set outside the cursor, as large corpora do."""
+    """`ref` stores the record set outside the cursor, as large corpora do.
+
+    The runner hands a source a referenced prior set inline when it is at
+    most 1 MB (PACT record-set-by-reference); the limit is lowered to zero
+    here so the source sees the reference, as it does for a corpus over 1 MB.
+    """
     if storage == "ref":
         monkeypatch.setenv("OKG_SOURCE_RUNNER_INLINE_RECORD_SET_MAX_BYTES", "1")
+        monkeypatch.setattr(
+            runner_module, "_ADAPTER_INLINE_PRIOR_RECORD_SET_MAX_BYTES", 0,
+        )
 
 
 def _assert_only_link_rebuilt(source: DocCorpusSource, storage: str) -> None:

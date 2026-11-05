@@ -48,7 +48,8 @@
         "live_types": {},
         "projections": {},
         "response_bytes": {},
-        "served": {}
+        "served": {},
+        "surface_text": {}
       },
       "additionalProperties": false
     },
@@ -685,6 +686,15 @@
         "null",
         "string"
       ]
+    },
+    "source_blob_prune_grace_seconds": {
+      "description": "Seconds a superseded source record-set or cursor blob is kept before the automatic prune after each accepted run deletes it; 0 turns the prune off. Absent or null: 21600 (6 hours).",
+      "type": [
+        "null",
+        "integer"
+      ],
+      "minimum": 0,
+      "default": 21600
     },
     "source_registry": {
       "description": "Path to the source registry. Required.",

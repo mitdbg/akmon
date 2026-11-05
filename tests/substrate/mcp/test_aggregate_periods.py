@@ -202,9 +202,11 @@ def test_plain_keys_that_are_lists_or_look_alike_stay_separate_groups() -> None:
         ({"k": 1}, "2026-02-03", True, 1), (True, "2026-02-03", True, 1),
         (1, "2026-02-03", True, 1), (1.0, "2026-02-03", True, 1),
     ], by=by)
+    # PACT read-stored-metrics (one grouping rule): 1 and 1.0 are one number,
+    # as SQL groups them; True stays apart from 1.
     assert sorted(groups, key=repr) == sorted([
         ((["a", "b"], "2026-02-01"), 3), (({"k": 1}, "2026-02-01"), 1),
-        ((True, "2026-02-01"), 1), ((1, "2026-02-01"), 1), ((1.0, "2026-02-01"), 1),
+        ((True, "2026-02-01"), 1), ((1, "2026-02-01"), 2),
     ], key=repr)
     assert [type(key[0]) for key, _ in groups].count(bool) == 1
 
@@ -652,7 +654,9 @@ def test_plain_attribute_grouping_is_unchanged(served) -> None:
     assert "date_fields" not in result
     # A key with parentheses is still a plain attribute, not a period.
     result = _aggregate(served, ["attrs.Size (MB)"])
-    assert _groups(result, "attrs.Size (MB)") == [(None, 6)]
+    # PACT read-stored-metrics (one grouping rule): no record carries the key,
+    # so the group is (absent), apart from a stored null.
+    assert _groups(result, "attrs.Size (MB)") == [("(absent)", 6)]
 
 
 @pytest.mark.postgres

@@ -605,25 +605,86 @@ class _InIndex:
             return True
         return any(value == other for other in self.other)
 
+class NotComparable(Counter):
+    """Per field, the rows whose value could not be read as the condition's
+    (counted once per row and field), and in :attr:`rejected` the number
+    text among them that the one number rule refuses (PACT
+    read-stored-metrics, review N1): per field, its count and first ids, so
+    a live filter that matched " 10 " before the rule says it no longer
+    does, never silently."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.rejected: dict[str, dict[str, Any]] = {}
+
+    def note_rejected(self, name: str, row_id: Any, count: int = 1) -> None:
+        entry = self.rejected.setdefault(name, {"count": 0, "first_ids": []})
+        entry["count"] += count
+        if row_id is not None and len(entry["first_ids"]) < _lrs.SKIP_IDS:
+            entry["first_ids"].append(row_id)
+
+    def absorb_rejected(self, rejected: Any) -> None:
+        """Add a `rejected` mapping (as :meth:`rejected_data` gives it)."""
+        for name, entry in (rejected or {}).items():
+            mine = self.rejected.setdefault(name, {"count": 0, "first_ids": []})
+            mine["count"] += int(entry.get("count") or 0)
+            for row_id in entry.get("first_ids") or []:
+                if len(mine["first_ids"]) < _lrs.SKIP_IDS:
+                    mine["first_ids"].append(row_id)
+
+    def update(self, other: Any = None, /, **kwargs: Any) -> None:  # type: ignore[override]
+        if other is None:
+            super().update(**kwargs)
+        else:
+            super().update(other, **kwargs)
+        if isinstance(other, NotComparable):
+            self.absorb_rejected(other.rejected)
+
+    def rejected_data(self) -> dict[str, dict[str, Any]]:
+        return {
+            name: {"count": entry["count"], "first_ids": list(entry["first_ids"])}
+            for name, entry in self.rejected.items()
+        }
+
+
+def _numeric_expected(expected: Any) -> bool:
+    return isinstance(expected, (int, float)) and not isinstance(expected, bool)
+
+
 class Matcher:
     """The condition evaluator for live typed rows.
 
     One instance per call; :meth:`matches` returns whether a row matches and
     adds to :attr:`not_comparable` the fields whose value could not be read
-    as the condition's value (counted once per row and field).
+    as the condition's value (counted once per row and field), and the number
+    text the one number rule refuses among them (:class:`NotComparable`).
     """
 
     def __init__(self, predicate: Any) -> None:
         self.predicate = predicate
-        self.not_comparable: Counter[str] = Counter()
+        self.not_comparable: NotComparable = NotComparable()
         #: id of an `in` list -> (the list, its index): built once per call.
         self._indexes: dict[int, tuple[Any, _InIndex]] = {}
+        self._row_rejected: set[str] = set()
 
     def matches(self, row: Mapping[str, Any]) -> bool:
         bad: set[str] = set()
+        self._row_rejected = set()
         held = self._node(row, self.predicate, bad)
         self.not_comparable.update(bad)
+        for name in sorted(self._row_rejected):
+            self.not_comparable.note_rejected(name, row.get("node_id"))
         return held
+
+    def _not_comparable(
+        self, name: str, value: Any, numeric: bool, bad: set[str],
+    ) -> bool:
+        """`value` of field `name` could not be compared: counted, and named
+        as rejected number text when the condition compared a number."""
+        bad.add(name)
+        if numeric and isinstance(value, str) and _lrs._lenient_number(value):
+            self._row_rejected.add(name)
+        return False
 
     # -- one node -------------------------------------------------------------
 
@@ -668,15 +729,15 @@ class Matcher:
                 return index.has_none
             if index.comparable(value):
                 return index.equal(value)
-            bad.add(name)
-            return False
+            return self._not_comparable(name, value, bool(index.numbers), bad)
         if op in ("lt", "gt"):
             if value is None:
                 return False
             order = _order(value, node.get("value"))
             if order is None:
-                bad.add(name)
-                return False
+                return self._not_comparable(
+                    name, value, _numeric_expected(node.get("value")), bad,
+                )
             return order < 0 if op == "lt" else order > 0
         if op == "between":
             bounds = node.get("values")
@@ -686,8 +747,9 @@ class Matcher:
                 return False
             low, high = _order(value, bounds[0]), _order(value, bounds[1])
             if low is None or high is None:
-                bad.add(name)
-                return False
+                return self._not_comparable(
+                    name, value, any(_numeric_expected(b) for b in bounds), bad,
+                )
             return low >= 0 and high <= 0
         if op in ("prefix", "suffix", "contains"):
             return self._text(op, value, node.get("value"), name, bad)
@@ -707,8 +769,7 @@ class Matcher:
             return False
         pair = coerce(value, expected)
         if pair is None:
-            bad.add(name)
-            return False
+            return self._not_comparable(name, value, _numeric_expected(expected), bad)
         return pair[0] == pair[1]
 
     def _text(self, op: str, value: Any, needle: Any, name: str, bad: set[str]) -> bool:
@@ -739,7 +800,7 @@ def filter_rows(
     `raw_matches`, the graph evaluator as it always ran."""
 
     if predicate in (None, True, {}):
-        return list(rows), Counter()
+        return list(rows), NotComparable()
     matcher = Matcher(predicate)
     matched = [
         row for row in rows
@@ -786,13 +847,28 @@ def not_comparable_report(counter: Mapping[str, int]) -> Optional[dict[str, Any]
     total = sum(counter.values())
     if not total:
         return None
+    rejected = counter.rejected_data() if isinstance(counter, NotComparable) else {}
+    note = (
+        f"{total:,} values could not be read as the condition's type "
+        "(boolean, number or text): each comparison with them is false (under "
+        "`not` it is true, so those rows match)"
+    )
+    for name, entry in rejected.items():
+        # PACT read-stored-metrics (review N1): number text the one number
+        # rule refuses is named, with its first ids, never dropped silently.
+        ids = ", ".join(str(i) for i in entry["first_ids"])
+        note += (
+            f"; {entry['count']:,} of them in {name} are number text the one "
+            "number rule refuses (it reads text as a number only when it is "
+            "exactly one JSON number), compared as above"
+            + (f", first ids: {ids}" if ids else "")
+            + f'; read them with map(compute={{"n": "number({name})"}})'
+        )
     return {
         "values": total,
         "fields": dict(counter),
-        "note": (
-            f"{total:,} values could not be read as the condition's type "
-            "(boolean, number or text): they do not match"
-        ),
+        **({"number_text_rejected": rejected} if rejected else {}),
+        "note": note,
     }
 
 

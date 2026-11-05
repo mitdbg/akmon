@@ -294,6 +294,7 @@ def lint_deployment(
         manifest_path=manifest_path,
         findings=findings,
     )
+    _check_objectives(deployment_dir=deployment_dir, findings=findings)
     composed_catalog = _check_catalog(
         deployment_dir=deployment_dir,
         manifest_path=manifest_path,
@@ -476,6 +477,57 @@ def _check_agent_surface_text(
                 exc, step=step, manifest_path=manifest_path,
             ))
     return findings
+
+
+def _check_objectives(
+    *,
+    deployment_dir: Path,
+    findings: list[DiagnosticFinding],
+) -> None:
+    """Lint ``objectives.yaml``, the optimizer's statement of what to achieve.
+
+    Optional: a deployment without the file gets no finding. A file that
+    loads gets an info finding naming its path and policy id, so a file in
+    the wrong place is distinguishable from a clean one.
+    """
+    from okg.optimizer.objectives import ObjectivesError, load_objectives
+
+    path = deployment_dir / "objectives.yaml"
+    if not path.exists() and not path.is_symlink():
+        return
+    # Anything else at the path (a directory, a broken link, an unreadable
+    # file) reaches load_objectives and is refused as unreadable.
+    try:
+        objectives = load_objectives(path)
+    except ObjectivesError as exc:
+        for problem in exc.problems:
+            findings.append(_finding(
+                code=f"deployment.objectives.{problem.code}",
+                severity="blocker",
+                stage="manifest",
+                message=problem.message,
+                why=(
+                    "The optimizer scores every knowledge-base version against "
+                    "objectives.yaml; a file it cannot read states no objective."
+                ),
+                location=_loc(path, pointer=problem.pointer or None),
+                next_action="fix objectives.yaml per the reported error",
+            ))
+        return
+    findings.append(_finding(
+        code="deployment.objectives.loaded",
+        severity="info",
+        stage="manifest",
+        message="objectives.yaml loaded",
+        why="The optimizer will score versions of this deployment against it.",
+        location=_loc(path),
+        details={
+            "policy_id": objectives.policy_id,
+            "objectives": len(objectives.objectives),
+            "costs": len(objectives.costs),
+            "specific": len(objectives.specific),
+        },
+    ))
 
 
 def _agent_surface_check_error(

@@ -145,8 +145,12 @@ def test_an_unknown_order_by_is_refused_naming_what_it_takes(mcp_server) -> None
     assert "order_by_unknown" in text or "is not a metric or a by field" in text
     error, _ = _order_refusal(mcp_server, {**SET, "order_by": "attrs.knd desc"}, "order_by_unknown")
     assert error["data"]["closest"] == "attrs.kind"
-    error, _ = _order_refusal(mcp_server, {**SET, "order_by": "sum(attrs.x) desc"}, "order_by_unknown")
-    assert error["message"].endswith("; a stored set computes count only")
+    # PACT read-stored-metrics: a stored set computes sum, min and max, so a
+    # sum named in order_by but not in metrics gets the corrected call.
+    error, _ = _order_refusal(
+        mcp_server, {**SET, "order_by": "sum(attrs.x) desc"}, "order_by_not_in_metrics",
+    )
+    assert error["retry_call"]["arguments"]["metrics"] == ["count", "sum(attrs.x)"]
 
 
 def test_order_by_count_missing_from_metrics_is_refused_with_a_corrected_call(mcp_server) -> None:
@@ -498,7 +502,9 @@ def test_run_rows_step_ranks_then_limits_and_holds_rank_as_a_column() -> None:
         return row["rank"] < 3
 
     kept = run_live.rows_step(later, 2, out, lt)
-    assert [_unfence(r["attrs.node_id"]) for r in kept.rows] == ["site:S2", "site:S3"]
+    # PACT read-run-rows-compute (review H1): later steps read the groups'
+    # raw keys under their bare names; only the printed groups are fenced.
+    assert [r["node_id"] for r in kept.rows] == ["site:S2", "site:S3"]
     assert "attrs.rank" in json.dumps(seen[0]) and '"lt"' in json.dumps(seen[0])
 
 

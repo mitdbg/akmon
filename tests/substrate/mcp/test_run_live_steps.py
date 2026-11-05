@@ -8,6 +8,7 @@ server-driven tests are in ``test_run_live_db.py``.
 """
 from __future__ import annotations
 
+import json
 import threading
 import time
 from typing import Any
@@ -33,9 +34,11 @@ from okg.substrate.mcp.run_steps import RunRefusal
 
 
 def _steps(raw: list[Any]) -> list[run_steps.Step]:
+    # The order `serve_run` checks in: classified first, since it writes
+    # `input: "$n"` of a graph set as the `where` the reference check reads.
     steps = run_steps.parse_steps(raw)
-    run_steps.check_references(steps)
     run_steps.classify_steps(steps)
+    run_steps.check_references(steps)
     return steps
 
 
@@ -83,16 +86,44 @@ def test_step_kinds_are_classified_before_any_step_runs() -> None:
      "2 to 6 steps"),
     ([LIST, LIST, {"minus": ["$1", "$2"]}], "compares rows on one column"),
     ([LIST, {"filter": {"input": "$1"}, "on": "x"}], "`on` belongs to a minus"),
-    ([{"expand": {"input": ANCHOR, "live": {"relation": "fx_list", "retain": True}}}],
-     "drop retain"),
+    ([{"expand": {"input": ANCHOR, "live": {"relation": "fx_list", "retain": "yes"}}}],
+     "retain is true or false"),
+    ([{"expand": {"input": ANCHOR, "live": {"relation": "fx_list"}, "retain": 1}}],
+     "retain is true or false"),
     ([{"expand": {"input": ANCHOR, "edge_type": "cites",
                   "live": {"relation": "fx_list"}}}], "does not take edge_type"),
-    ([LIST, _each({"ref": "l1.x", "field": "dataset"})], "names a kept answer"),
+    # A kept answer in `each` is {"ref", "field"} and nothing else.
+    ([_each({"ref": "l1.x", "field": "dataset", "limit": 1000})],
+     'names a kept answer as {"ref"'),
+    ([_each({"ref": "l1.x"})], 'names a kept answer as {"ref"'),
+    ([_each({"ref": "r1.x", "field": "dataset"})], 'names a kept answer as {"ref"'),
+    ([_each({"ref": "l1.a", "field": "d"}), _each({"ref": "l1.b", "field": "d"}),
+      _each({"ref": "l1.c", "field": "d"})], "at most 2 steps with live.each"),
     ([{"filter": {"where": {"type": "page"}}}, _each("$1.attrs.dataset")],
      "graph set"),
+    # `input: "$n"` of a graph set is read as `where: "$n"`; given both, the
+    # step is refused with the one condition that holds both.
     ([{"filter": {"where": {"type": "page"}}},
-      {"aggregate": {"input": "$1", "by": [], "metrics": ["count"]}}],
-     'write "where": "$1"'),
+      {"aggregate": {"input": "$1", "where": {"type": "page"}, "by": [],
+                     "metrics": ["count"]}}],
+     'give both in where: {"op": "and", "clauses": ["$1", <your where>]}'),
+    ([{"filter": {"where": {"type": "page"}}},
+      {"filter": {"input": "$1", "predicate": {"field": "type", "op": "eq", "value": "page"}}}],
+     "this step also has predicate"),
+    # each's constants move to args (lane ri's shape 3); two varying
+    # arguments, or one already in args, are refused with the call to send.
+    ([{"expand": {"input": ANCHOR, "live": {"relation": "fx_list", "each": {
+        "a": ["x", "y"], "b": ["p", "q"]}}}}], "names the one argument whose values vary"),
+    # Two varying lists: no args form to copy (review M2).
+    ([{"expand": {"input": ANCHOR, "live": {"relation": "fx_list", "each": {
+        "a": ["x", "y"], "b": ["p", "q"]}}}}],
+     'keep one varying argument in each, e.g. "each": {"a": ["x", "y"]}, and send '
+     "the values of b as separate steps or runs"),
+    ([{"expand": {"input": ANCHOR, "live": {"relation": "fx_list", "args": {"b": 1}, "each": {
+        "a": ["x", "y"], "b": 2}}}}], '"args": {"b": 2}'),
+    # A condition over a kept answer compares columns, never a run's set.
+    ([LIST, {"filter": {"input": {"ref": "l1.x"}, "where": "$1"}}],
+     "a condition over a kept answer compares its columns"),
     ([_each("$2.dataset"), LIST], "names only earlier steps"),
     ([LIST, {"filter": {"input": "$1", "where": {"attrs.k": "$1.k"}}}], "names a set"),
     ([LIST, {"expand": {"input": "$1", "live": {"relation": "fx_list"}}}], "by id"),
@@ -101,6 +132,107 @@ def test_a_run_that_cannot_run_whole_is_refused_before_any_step(raw, needle) -> 
     with pytest.raises(RunRefusal) as caught:
         _steps(raw)
     assert needle in caught.value.message + " " + caught.value.fix_hint
+
+
+@pytest.mark.parametrize("raw", [
+    # As `expand` advertises it, inside `live` (GC g002 t2 #8) ...
+    {"expand": {"input": ANCHOR, "live": {
+        "relation": "fx_list", "args": {"pattern": "*"}, "retain": True}}},
+    # ... beside `live` (G7 c003 t3 #28), and false.
+    {"expand": {"input": ANCHOR, "live": {
+        "relation": "fx_list", "args": {"pattern": "*"}}, "retain": True}},
+    {"expand": {"input": ANCHOR, "retain": False, "live": {
+        "relation": "fx_list", "args": {"pattern": "*"}, "retain": False}}},
+])
+def test_retain_on_a_live_step_is_set_aside_with_one_note(raw) -> None:
+    """FAILS BEFORE: `live does not take retain in a run` (2 refusals in r1)."""
+    sent = json.loads(json.dumps(raw))
+    (step,) = _steps([raw])
+    assert step.kind == "live"
+    assert "retain" not in step.arguments
+    assert step.arguments["live"] == {"relation": "fx_list", "args": {"pattern": "*"}}
+    assert step.notes == [run_steps.RETAIN_NOTE]
+    assert raw == sent, "the caller's own step (a next call repeats it) is unchanged"
+
+
+def test_each_constants_are_read_as_args_and_said_at_classify() -> None:
+    """FAILS BEFORE: `live.each names one argument and its values` (GC g002
+    t1 #15, `"limit": 1000` beside the value list; the model gave up on
+    run). Taken from lane ri's read-run-argument-shapes."""
+    (step,) = _steps([{"expand": {"input": ANCHOR, "live": {
+        "relation": "fx_summary", "retain": True, "args": {"x": 1},
+        "each": {"dataset": ["/A", "/B"], "scope": ["cms"], "detail": False}}}}])
+    assert step.arguments["live"] == {
+        "relation": "fx_summary", "args": {"x": 1, "scope": "cms", "detail": False},
+        "each": {"dataset": ["/A", "/B"]},
+    }
+    assert step.notes == [run_steps.RETAIN_NOTE]
+    # One shape with input-as-where's record (review L1).
+    assert step.adjusted == [
+        {"rule": "each_constant_as_args", "sent": 'each.scope ["cms"]',
+         "served": 'args.scope "cms"'},
+        {"rule": "each_constant_as_args", "sent": "each.detail false",
+         "served": "args.detail false"},
+    ]
+    assert run_steps.each_source(step) == ("dataset", ["/A", "/B"])
+    # A kept answer's column is the one that varies.
+    (kept,) = _steps([_each({"ref": "l1.k", "field": "dataset"})])
+    (folded,) = _steps([{"expand": {"input": ANCHOR, "live": {
+        "relation": "fx_summary", "each": {
+            "dataset": {"ref": "l1.k", "field": "dataset"}, "limit": 1000}}}}])
+    assert folded.arguments["live"]["args"] == {"limit": 1000}
+    assert run_steps.each_source(folded) == run_steps.each_source(kept)
+
+
+def test_each_reads_a_column_of_a_kept_answer() -> None:
+    """FAILS BEFORE: `live.each names a kept answer; in a run, name the step
+    that lists the values` (GC q021 t2 #4). `attrs.<column>` and the bare
+    column are one column, as in "$n.<column>"."""
+    for field in ("attrs.dataset", "dataset"):
+        (step,) = _steps([_each({"ref": "l1.uXax", "field": field})])
+        assert step.kind == "live"
+        assert run_steps.each_source(step) == (
+            "dataset", {"ref": "l1.uXax", "field": "dataset"},
+        )
+        assert run_steps.row_references(step) == set()
+
+
+def test_a_kept_answer_as_input_is_a_step_whose_rows_later_steps_read() -> None:
+    """FAILS BEFORE: a filter over a kept answer was a graph step, and a
+    later step reading it was refused as a graph set (GC q021 t2 #5)."""
+    steps = _steps([
+        {"filter": {"input": {"ref": "l1.uXax"}, "where": {"attrs.status": "VALID"}}},
+        {"aggregate": {"input": "l1.zBE0", "by": [], "metrics": ["sum(attrs.file_size)"]}},
+        _each("$1.attrs.dataset"),
+        {"aggregate": {"input": "$3", "by": [], "metrics": ["sum(file_size)"]}},
+        {"filter": {"input": "$2"}},
+        {"intersect": ["$1", "$3"], "on": "dataset"},
+    ])
+    assert [s.kind for s in steps] == ["kept", "kept", "live", "rows", "rows", "set"]
+    assert all(s.holds_rows for s in steps)
+    assert run_steps.row_references(steps[2]) == {1}
+    assert run_steps.row_references(steps[4]) == {2}
+    # A graph result reference (r1.) is not a kept live answer: a graph step.
+    (graph,) = _steps([{"filter": {"input": {"ref": "r1.abc"}}}])
+    assert graph.kind == "graph"
+
+
+@pytest.mark.parametrize("operator", ["filter", "map", "aggregate"])
+def test_input_naming_a_graph_set_is_read_as_where(operator) -> None:
+    """FAILS BEFORE: `input "$1" names a step whose records are a graph set;
+    a graph set is a condition` (7 errored calls in one batch)."""
+    body: dict[str, Any] = {"input": "$1"}
+    if operator == "aggregate":
+        body.update(by=["subtype"], metrics=["count"])
+    steps = _steps([{"filter": {"where": {"type": "page"}}}, {operator: body}])
+    step = steps[1]
+    assert step.kind == "graph"
+    assert step.arguments == {**{k: v for k, v in body.items() if k != "input"}, "where": "$1"}
+    assert step.adjusted == [{
+        "rule": "input_graph_set", "sent": '"input": "$1"', "served": '"where": "$1"',
+    }]
+    # The reference check now sees step 1 named, as for where: "$1".
+    assert run_steps.check_references(steps) == {1}
 
 
 def test_the_wall_clock_is_100_s_and_capped_below_the_client_timeout() -> None:
@@ -636,3 +768,18 @@ def test_an_aggregate_over_a_partial_step_says_its_totals_are_short() -> None:
         "read; count is at least the value shown in each group; sum(attrs.size) is "
         "over the rows received only; a group held only by rows not received is missing"
     )
+
+
+def test_a_compute_step_cut_by_the_run_wall_clock_names_that_clock() -> None:
+    """Review L2 (PACT read-run-rows-compute): a compute step's 5 s is cut
+    to the run's wall clock left; when that cut it, the refusal says so."""
+    from okg.substrate.mcp.map_expressions import ExpressionRefused
+
+    (step,) = _steps([{"values": {"n": [1, 2]}}])
+    source = run_live.values_step(step)
+    (_values, mapped) = _steps([{"values": {"n": [1]}}, {"map": {"input": "$1", "compute": {"x": "n + 1"}}}])
+    with pytest.raises(ExpressionRefused) as caught:
+        run_live.rows_step(mapped, 1, source, lambda row, p: True, deadline=time.monotonic() - 1)
+    assert caught.value.data["reason"] == "evaluation_budget"
+    assert caught.value.data["clock"] == "run"
+    assert "the run's wall clock" in caught.value.message

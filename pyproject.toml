@@ -1,6 +1,6 @@
 [project]
 name = "okg"
-version = "0.4.0"
+version = "0.5.0"
 description = "AKMON (okg): Operational Knowledge Graph — build, query, and traverse typed knowledge graphs from diverse data sources"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"

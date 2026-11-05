@@ -146,6 +146,25 @@ def expected_surface(
     # the database and is in the server's `instructions_hash` only, never in
     # `authored_instructions_hash`, which is what this is compared with.
     agent_surface = metadata.get("agent_surface")
+    # Issue #4280: a `surface_text` file may replace the instructions, and the
+    # server's authored hash includes that text. Registered servers serve the
+    # default branch, so the expectation applies the base layer. A file the
+    # server would refuse is reported unresolvable, not as staleness.
+    from okg.substrate.mcp.surface_text import resolve_for_launch
+
+    try:
+        _surface_text = resolve_for_launch(
+            agent_surface, metadata.get("deployment_dir"), "default",
+        )
+    except Exception as exc:  # noqa: BLE001 - doctor surface
+        return {
+            "kind": "mcp_surface_expectation",
+            "deployment_name": deployment_name,
+            "unresolvable": True,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    if _surface_text.instructions_text is not None:
+        metadata = {**metadata, "instructions": _surface_text.instructions_text}
     try:
         surface = resolve_tool_surface(
             requested_profile=tool_profile,

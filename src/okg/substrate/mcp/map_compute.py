@@ -480,12 +480,13 @@ def _read_spread(row: Mapping[str, Any], column: _expr.Column) -> Optional[tuple
 
 def computed_rows(
     program: _expr.Program, payload: Any, rows: Sequence[Mapping[str, Any]],
-    *, served_id: Any = None,
+    *, served_id: Any = None, seconds: Optional[float] = None,
 ) -> Computed:
     """Every column of every row, kept beside the row's own fields.
 
     `served_id(row)` gives a row's node id as a reply serves it (fenced when
-    it was built from an unchecked upstream name)."""
+    it was built from an unchecked upstream name). `seconds` lowers the
+    evaluation clock (a `run` step: the run's wall clock left)."""
 
     from okg.substrate.mcp.live_reader import is_typed
 
@@ -506,7 +507,10 @@ def computed_rows(
             )
     eval_rows, states = evaluation_rows(payload, rows)
     result = program.evaluate(
-        eval_rows, states, _expr.Budget(max_rows=MAX_ROWS, max_bytes=MAX_OUTPUT_BYTES),
+        eval_rows, states, _expr.Budget(
+            max_rows=MAX_ROWS, max_bytes=MAX_OUTPUT_BYTES,
+            **({"seconds": seconds} if seconds is not None else {}),
+        ),
     )
     existing = set(columns_of(payload, rows))
     replaced = [f"calc.{c.name}" for c in program.columns if c.name in existing]

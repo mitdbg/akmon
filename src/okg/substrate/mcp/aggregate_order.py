@@ -62,8 +62,9 @@ __all__ = [
     "tie_line",
 ]
 
-#: The metrics a stored set computes; a live set (and a `run` step over rows)
-#: also sums, minimises and maximises a column.
+#: The sum, min and max metric forms. A live set, a `run` step over rows and
+#: (PACT read-stored-metrics) a stored set compute them; a `match` count does
+#: not.
 _LIVE_METRIC = re.compile(r"^(sum|min|max)\(.+\)$")
 #: The column `match` groups carry beside their record count.
 OCCURRENCES = "occurrences"
@@ -123,7 +124,8 @@ def check_order_by(
     corrected call), or two directions (`order_by_spelling`).
 
     `metrics` are the printed labels; `live` says the set also computes
-    sum/min/max (so naming one that `metrics` lacks is a missing metric,
+    sum/min/max (a live set, held rows, and since PACT read-stored-metrics a
+    stored set; not a `match` count) (so naming one that `metrics` lacks is a missing metric,
     not an unknown name); `call` is the call's arguments, for the corrected
     call."""
 
@@ -179,12 +181,10 @@ def check_order_by(
             }
         raise refusal
     closest = difflib.get_close_matches(name, names, n=1, cutoff=0.5)
-    stored_metric = not live and _LIVE_METRIC.match(name) is not None
     raise _refuse(
         f'aggregate: order_by "{name}" is not a metric or a by field of this call; '
         f"it takes one of: {', '.join(names)}"
-        + (f" (closest: {closest[0]})" if closest else "")
-        + ("; a stored set computes count only" if stored_metric else ""),
+        + (f" (closest: {closest[0]})" if closest else ""),
         "order_by_unknown",
         f'e.g. order_by="{(closest or names or ["count"])[0]} desc"',
         takes=names, **({"closest": closest[0]} if closest else {}),

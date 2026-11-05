@@ -246,6 +246,24 @@ proves readiness; `stale` found outdated state; `unavailable` could not prove
 state; `command_failed` reports a failed helper. The last two block readiness.
 With `--deployment`, doctor fails `latest_publish_blocked` when the newest
 publish attempt was blocked, and names the fix commands.
+
+With `--deployment`, the `record_set_blobs` section checks the stored record
+sets of each source. A record set larger than 65,536 bytes (override with
+`OKG_SOURCE_RUNNER_INLINE_RECORD_SET_MAX_BYTES`) is stored once in
+`okg.source_record_set_blobs`, and the source's watermark keeps only a
+reference to it. Doctor warns `source_record_set_blob_missing`, naming the
+source and sha256, when a watermark refers to a blob row that is gone: the
+next run of that source then reads no prior record set and cannot retract
+what the lost set held. After each accepted run, the source's older
+record-set and cursor blobs that no watermark or held run names are deleted.
+Blobs written within the grace window are kept: `source_blob_prune_grace_seconds`
+in `deployment.yaml` (default 21600, six hours; `0` turns the prune off). A
+running sync's blobs are protected only for that window: a run that outlives
+it can lose them, so a short window is unsafe while inline or CLI runs of the
+same source can overlap. The ingest report shows the rows and bytes deleted under `record_set_blob_prune`.
+A failed prune leaves the run accepted; doctor then warns
+`source_record_set_blob_prune_failed` for that source until a later prune
+succeeds.
 **Implementation:** `src/okg/substrate/cli/main.py` (`_cmd_doctor`)
 **Related:** [`runbooks/generation-blocked.md`](../runbooks/troubleshooting/generation-blocked.md)
 

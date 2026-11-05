@@ -1618,3 +1618,36 @@ def test_expand_live_with_access_rules_off_is_unchanged(lab) -> None:
     body = lab.ok("expand", LIVE_EXPAND)
     assert lab.example.made("list_all") == 1 and lab.example.total() == 1
     assert "external_live" in body, json.dumps(body)[:3000]
+
+
+#: Refusals on a live type that offer a one-change call (PACT
+#: read-refusal-retry-calls, review H1): `not`/`or` written as a field's test,
+#: with `order_by`, which the read-free proof cannot decide.
+_REFUSED_LIVE = [
+    ("aggregate", {"input": {"subtype": "site"},
+                   "where": {"type": "site",
+                             "attrs.tier": {"op": "not", "clause": {"op": "eq", "value": "1"}}},
+                   "by": ["attrs.tier"], "metrics": ["count"], "order_by": "attrs.tier"}),
+    ("aggregate", {"where": {"type": "site",
+                             "attrs.tier": {"op": "not", "clause": {"op": "eq", "value": "1"}}},
+                   "by": ["attrs.tier"], "metrics": ["count"], "order_by": "attrs.tier"}),
+    ("filter", {"where": {"type": "site", "attrs.kind": {
+        "op": "or", "clauses": [{"op": "eq", "value": "COLD"}, {"op": "eq", "value": "HOT"}]}},
+                "order_by": "attrs.kind"}),
+]
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("case", range(len(_REFUSED_LIVE)))
+def test_a_refusal_on_a_live_type_asks_the_upstream_system_nothing(lab, case) -> None:
+    """Must-fail on 9228404327, which read the offered call to prove it: 13
+    upstream calls on 12 sites for the aggregate, 1 for the filter. A
+    refusal asks the upstream system nothing and writes no call sample; the
+    offered call is only named."""
+    _seed_keep_sites(lab, 12)
+    tool, sent = _REFUSED_LIVE[case]
+    body = lab.refused(tool, sent)
+    assert body["error"].get("retry_call") is not None, body["error"]
+    assert lab.example.total() == 0
+    assert lab.samples("example_list_all_sites") == 0
+    assert lab.samples("example_list_site_attributes") == 0

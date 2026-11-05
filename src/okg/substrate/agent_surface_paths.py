@@ -18,6 +18,7 @@ from typing import Any
 #: Each entry is the key path from the top of a manifest.
 AGENT_SURFACE_PATH_FIELDS: tuple[tuple[str, ...], ...] = (
     ("agent_surface", "instructions"),
+    ("agent_surface", "surface_text"),
     ("agent_surface", "projections", "chat", "system_prompt_ref"),
     ("agent_surface", "projections", "chat", "description_overrides"),
 )

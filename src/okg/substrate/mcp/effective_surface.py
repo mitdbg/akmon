@@ -583,7 +583,7 @@ LEGACY_TOP_LEVEL_KEYS: Mapping[str, str] = {
 #: would set it and believe it did something.
 _BLOCK_KEYS = frozenset({
     "served", "response_bytes", "instructions",
-    "projections", "live_bindings", "images", "live_types",
+    "projections", "live_bindings", "images", "live_types", "surface_text",
 })
 _PROJECTION_KEYS = frozenset({
     "tools", "system_prompt_ref", "description_overrides",
@@ -625,6 +625,10 @@ class AgentSurface:
     #: images at `ImagesConfig.default()`, and no URL is fetched. Use
     #: `images_config` for the settings that apply either way.
     images: ImagesConfig | None = None
+    #: The served-text file (issue #4280), relative to the deployment
+    #: directory, or None: every text is the code default. Parsed and checked
+    #: at server build (`surface_text.load_surface_text`), not here.
+    surface_text: str | None = None
 
     @property
     def images_config(self) -> ImagesConfig:
@@ -917,6 +921,13 @@ def parse_agent_surface(
                 exc.message, data=dict(exc.data), fix_hint=exc.fix_hint,
             ) from exc
 
+    surface_text = block.get("surface_text")
+    if surface_text is not None and (not isinstance(surface_text, str) or not surface_text):
+        raise AgentSurfaceInvalid(
+            f"deployment.yaml `agent_surface.surface_text` must be a file path; "
+            f"got {surface_text!r}.{where}",
+            fix_hint="name the surface_text YAML file relative to the deployment",
+        )
     instructions = block.get("instructions")
     return AgentSurface(
         served=served,
@@ -927,6 +938,7 @@ def parse_agent_surface(
         live_bindings=live_bindings,
         live_types=live_types,
         images=images,
+        surface_text=surface_text,
     )
 
 

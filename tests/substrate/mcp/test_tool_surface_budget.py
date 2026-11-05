@@ -783,10 +783,17 @@ pytestmark = pytest.mark.anyio
 # and aggregate: map's description teaches compute and keeps one runnable
 # column-only example and its paging line (+94 with its published `compute` argument), and aggregate's metric pattern takes sum(calc.<name>)
 # (+18; discovery serves aggregate only, +18).
-FULL_READ_SURFACE_BASELINE_TOKENS = 4_577
-DISCOVERY_SURFACE_BASELINE_TOKENS = 2_970
-READER_SURFACE_BASELINE_TOKENS = 4_577
-WRITE_ADMIN_SURFACE_BASELINE_TOKENS = 5_768
+# Then PACT read-stored-metrics: +18 on surfaces serving aggregate (its
+# description says by=[] gives one total and sum/min/max read a stored set of
+# up to 50,000 records, not while access rules are on; within the PACT's 40).
+# Then PACT run-argument-shapes (lane re): +5 on surfaces serving `run`: its
+# published `"minimum":4096` on max_bytes. Discovery and inspect+search unchanged.
+# Then PACT read-run-rows-compute (+8 on surfaces serving map and run): map's
+# compute line names a run step's "$n" as an input (only where run is served).
+FULL_READ_SURFACE_BASELINE_TOKENS = 4_608
+DISCOVERY_SURFACE_BASELINE_TOKENS = 2_988
+READER_SURFACE_BASELINE_TOKENS = 4_608
+WRITE_ADMIN_SURFACE_BASELINE_TOKENS = 5_799
 TWO_TOOL_SURFACE_BASELINE_TOKENS = 2_473
 
 #: okg-workspace, the deployment that declares an `agent_surface` block.
@@ -874,8 +881,9 @@ TWO_TOOL_SURFACE_BASELINE_TOKENS = 2_473
 #: Then read-multi-handle-input (+19, the aggregate chain-handle sentence).
 #: Then read-map-compute (+112, map's compute teaching and aggregate's calc.
 #: metric pattern, as the full read pins).
-WORKSPACE_READ_SURFACE_BASELINE_TOKENS = 4_430
-WORKSPACE_WRITE_SURFACE_BASELINE_TOKENS = 5_621
+#: Then read-stored-metrics (+18, aggregate's one-total and stored-sum sentence).
+WORKSPACE_READ_SURFACE_BASELINE_TOKENS = 4_448
+WORKSPACE_WRITE_SURFACE_BASELINE_TOKENS = 5_639
 #: read-query-guide-3666, query-by-default (Jason, via orchestrator chat
 #: 2026-10-13): okg-workspace's manifest sets access rules to `enforce`, so
 #: its launches withhold `query` (6 read tools, 17 write). The two pins
@@ -913,8 +921,9 @@ WORKSPACE_WRITE_SURFACE_BASELINE_TOKENS = 5_621
 #: merged from dev).
 #: Then read-multi-handle-input (+19, the aggregate chain-handle sentence).
 #: Then read-map-compute (+112, as the full read pins).
-WORKSPACE_ENFORCE_READ_SURFACE_BASELINE_TOKENS = 4_166
-WORKSPACE_ENFORCE_WRITE_SURFACE_BASELINE_TOKENS = 5_357
+#: Then read-stored-metrics (+18, as the full read pins).
+WORKSPACE_ENFORCE_READ_SURFACE_BASELINE_TOKENS = 4_184
+WORKSPACE_ENFORCE_WRITE_SURFACE_BASELINE_TOKENS = 5_375
 
 #: The opensearch-reference deployment (PACT `opensearch-reference-integration`,
 #: issue #2014, req.ori.budget). Its `agent_surface.served` names five tools;
@@ -2066,8 +2075,13 @@ async def test_read_and_write_moved_by_the_same_amount_in_this_change() -> None:
     # read-multi-handle-input: +19 on both (aggregate's chain-handle sentence).
     # read-map-compute: +112 on both (map's compute teaching, aggregate's
     # calc. metric pattern).
-    assert read.total_tokens - 5_697 == -96 - 1 - 2 - 51 - 77 + 6 - 30 - 2 + 12 + 55 + 3 + 75 + 119 + 14 + 1 - 1 - 2 - 89 + 9 + 55 + 18 + 9 - 1 + 1 - 1 - 2 - 2213 - 14 + 1 + 151 - 13 - 13 - 1 - 12 + 27 + 200 + 63 - 22 + 29 + 29 - 14 + 4 + 7 + 11 + 30 + 29 + 46 + 32 + 21 + 82 + 147 + 42 + 53 + 25 + 19 + 112, measured_delta_message(read)
-    assert write.total_tokens - 6_896 == -123 - 1 - 2 - 51 - 49 + 6 - 30 - 2 + 12 + 55 + 3 + 75 + 119 + 14 + 1 - 1 - 2 - 89 + 9 + 55 + 18 + 9 - 1 + 1 - 1 - 2 - 2222 - 14 + 1 + 151 - 13 - 13 - 1 - 12 + 27 + 200 + 63 - 22 + 29 + 29 - 14 + 4 + 7 + 11 + 30 + 29 + 46 + 32 + 21 + 82 + 147 + 42 + 53 + 25 + 19 + 112, measured_delta_message(write)
+    # read-stored-metrics: +18 on both (aggregate's one-total and stored-sum
+    # sentence).
+    # run-argument-shapes (lane re): +5 on both, `run`'s published
+    # `"minimum":4096` on max_bytes.
+    # read-run-rows-compute: +8 on both (map's input line names a run step's "$n").
+    assert read.total_tokens - 5_697 == -96 - 1 - 2 - 51 - 77 + 6 - 30 - 2 + 12 + 55 + 3 + 75 + 119 + 14 + 1 - 1 - 2 - 89 + 9 + 55 + 18 + 9 - 1 + 1 - 1 - 2 - 2213 - 14 + 1 + 151 - 13 - 13 - 1 - 12 + 27 + 200 + 63 - 22 + 29 + 29 - 14 + 4 + 7 + 11 + 30 + 29 + 46 + 32 + 21 + 82 + 147 + 42 + 53 + 25 + 19 + 112 + 18 + 5 + 8, measured_delta_message(read)
+    assert write.total_tokens - 6_896 == -123 - 1 - 2 - 51 - 49 + 6 - 30 - 2 + 12 + 55 + 3 + 75 + 119 + 14 + 1 - 1 - 2 - 89 + 9 + 55 + 18 + 9 - 1 + 1 - 1 - 2 - 2222 - 14 + 1 + 151 - 13 - 13 - 1 - 12 + 27 + 200 + 63 - 22 + 29 + 29 - 14 + 4 + 7 + 11 + 30 + 29 + 46 + 32 + 21 + 82 + 147 + 42 + 53 + 25 + 19 + 112 + 18 + 5 + 8, measured_delta_message(write)
 
 
 def measured_delta_message(measured) -> str:
@@ -2175,8 +2189,11 @@ def measured_delta_message(measured) -> str:
 # merged from dev).
 # Then read-multi-handle-input (+19, the aggregate chain-handle sentence).
 # Then read-map-compute (+112, as the `full` pins).
-NONE_FULL_READ_SURFACE_BASELINE_TOKENS = 4_608
-NONE_WRITE_ADMIN_SURFACE_BASELINE_TOKENS = 5_799
+# Then read-stored-metrics (+18, as the `full` pins).
+# Then run-argument-shapes (+5, run's published max_bytes minimum).
+# Then read-run-rows-compute (+8, as the `full` pins).
+NONE_FULL_READ_SURFACE_BASELINE_TOKENS = 4_639
+NONE_WRITE_ADMIN_SURFACE_BASELINE_TOKENS = 5_830
 NONE_TWO_TOOL_SURFACE_BASELINE_TOKENS = 2_504
 NONE_GENERATED_INSTRUCTIONS_TOKENS = 31
 

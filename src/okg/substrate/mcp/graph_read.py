@@ -101,16 +101,24 @@ def require_graph_pin(conn: Any, session: Any) -> None:
     except SubstrateError as exc:
         if getattr(exc, "code", None) != UNMARKED_PIN_CODE:
             raise
-        raise unmarked_pin_refusal(exc) from exc
+        raise unmarked_pin_refusal(
+            exc,
+            deployment_name=session.deployment_name,
+            branch_name=getattr(session, "branch_name", None) or "default",
+        ) from exc
 
 
 #: The refusal of a pin with no overlay marker.
 UNMARKED_PIN_CODE = "overlay_generation_unmaterialized"
 
 
-def unmarked_pin_refusal(cause: Any) -> Any:
+def unmarked_pin_refusal(
+    cause: Any, *, deployment_name: str | None = None, branch_name: str = "default",
+) -> Any:
     """``overlay_generation_unmaterialized`` restated: it names the cause
-    and the reads that serve, and keeps the marker check's data."""
+    and the reads that serve, and keeps the marker check's data. The
+    generation-list hint names the session's deployment and, on a
+    non-default branch, its branch (issue #3772)."""
     from okg.substrate.errors import SubstrateError
 
     data = dict(getattr(cause, "data", None) or {})
@@ -130,9 +138,12 @@ def unmarked_pin_refusal(cause: Any) -> Any:
             "generation minted by an older release, or a bare checkpoint "
             "outside them (a bench branch), has none"
         )
+        listing = f"okg generation list --deployment {deployment_name or '<name>'}"
+        if branch_name != "default":
+            listing += f" --branch {branch_name}"
         hint = (
-            "pin an earlier generation that has its marker (see `okg "
-            "generation list --deployment <name>`), or publish this branch "
+            "pin an earlier generation that has its marker (see "
+            f"`{listing}`), or publish this branch "
             "again: a publish that succeeds writes the marker, and a read "
             "with no generation_id then pins it. That publish can itself be "
             "refused; its refusal names its own fix"

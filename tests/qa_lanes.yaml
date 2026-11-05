@@ -31,8 +31,15 @@ lanes:
       - tests/pact
       - tests/operator_ui/test_deployment_theme.py
       - tests/operator_ui/test_console_bundle_has_no_document_viewers.py
+      - tests/optimizer/test_objectives.py
       - tests/pytest/test_tracked_files.py
       - tests/pytest/test_child_pythonpath.py
+      - tests/optimizer/test_question_sets.py
+      - tests/optimizer/test_replay_units.py
+      - tests/optimizer/test_replay_run.py
+      - tests/optimizer/test_replay_mcp_wire.py
+      - tests/optimizer/test_diagnose.py
+      - tests/optimizer/test_propose.py
       - tests/scripts
       - tests/release
       - tests/substrate

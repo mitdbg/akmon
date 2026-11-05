@@ -92,7 +92,7 @@ def test_incremental_exact_lookup_matches_array_without_full_scan(
 ) -> None:
     from okg.substrate.library.linkers import declarative as module
 
-    original_query = module._chronos.query
+    original_query = module._chronos.query_strict
     bounded_queries = 0
 
     def guarded_query(cur, sql, params=None):
@@ -111,7 +111,7 @@ def test_incremental_exact_lookup_matches_array_without_full_scan(
                 raise AssertionError("incremental exact match scanned all destinations")
         return original_query(cur, sql, params)
 
-    monkeypatch.setattr(module._chronos, "query", guarded_query)
+    monkeypatch.setattr(module._chronos, "query_strict", guarded_query)
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
         _seed(conn, [
             NodeFact(

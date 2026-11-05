@@ -43,9 +43,11 @@ import re
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from decimal import Context, Decimal
 from typing import Any, Optional
 
 from okg.substrate.errors import SubstrateError
+from okg.substrate.mcp.operator_sql import _NUMBER_TEXT
 from okg.substrate.external_backed.call_sample import RETAINED_ANSWER_READ
 from okg.substrate.mcp import result_references as _rr
 
@@ -1215,9 +1217,23 @@ def float_part_label(label: str) -> str:
     return f"{label} floats"
 
 
+def is_number_text(text: str) -> bool:
+    """The one number rule's text form (PACT read-stored-metrics): text is a
+    number only when it is exactly one JSON number, the rule the SQL
+    compiler uses for a declared `num` (``operator_sql._NUMBER_TEXT``). So
+    " 10 ", "+5", "010", ".5", "1_000" and non-ASCII digits are not numbers;
+    ``number()`` in a computed column still reads them."""
+
+    return _NUMBER_TEXT.fullmatch(text) is not None
+
+
 def _number(value: Any) -> Optional[Any]:
-    """An int or a finite float; a numeric string is read as one. Anything
-    else (a bool, null, text, a list) is not a number."""
+    """An int or a finite float, by the one number rule (PACT
+    read-stored-metrics): a JSON number (never a bool; a ``Decimal`` as a
+    stored graph value reads), or text that is exactly one JSON number
+    (:func:`is_number_text`). Anything else (null, other text, a list) is not
+    a number. Live sums, min and max, live filter comparisons and equality
+    read numbers through this function, and the stored totals do too."""
 
     if isinstance(value, bool):
         return None
@@ -1225,18 +1241,178 @@ def _number(value: Any) -> Optional[Any]:
         return value
     if isinstance(value, float):
         return value if math.isfinite(value) else None
-    if isinstance(value, str):
-        text = value.strip()
-        try:
-            return int(text)
-        except ValueError:
-            pass
-        try:
-            number = float(text)
-        except ValueError:
+    if isinstance(value, Decimal):
+        if not value.is_finite():
             return None
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, str):
+        if not is_number_text(value):
+            return None
+        if "." not in value and "e" not in value and "E" not in value:
+            return int(value)
+        number = float(value)
         return number if math.isfinite(number) else None
     return None
+
+
+def _lenient_number(value: str) -> bool:
+    """Whether the reader before the one number rule took `value` as a
+    number (Python ``int``/``float`` on the stripped text): text it took and
+    the rule refuses is named `number_text_rejected`, never dropped
+    silently."""
+
+    text = value.strip()
+    try:
+        int(text)
+        return True
+    except ValueError:
+        pass
+    try:
+        return math.isfinite(float(text))
+    except ValueError:
+        return False
+
+
+#: Why a value was left out of a sum, min or max (PACT read-stored-metrics),
+#: in the order a reply names them, with the words of the text line.
+SKIP_CLASSES = ("null", "absent", "not_a_number", "number_text_rejected")
+SKIP_WORDS = {
+    "null": "null",
+    "absent": "absent",
+    "not_a_number": "not a number",
+    "number_text_rejected": "number text rejected",
+}
+#: How many ids each skipped class names.
+SKIP_IDS = 5
+#: The bucket key of a column's values as min and max read them.
+_EXTREME = "\x00extreme:"
+#: Wide enough that normalizing a stored number never rounds it.
+_EXACT = Context(prec=1000)
+
+
+def skip_class(row: Mapping[str, Any], key: str) -> Optional[str]:
+    """Why `row`'s value under `key` is not a number (one of
+    :data:`SKIP_CLASSES`), or None when it is one. `absent` is a key the
+    row does not carry; `null` a stored null."""
+
+    if key not in row:
+        return "absent"
+    value = row[key]
+    if value is None:
+        return "null"
+    if _number(value) is not None:
+        return None
+    if isinstance(value, str) and _lenient_number(value):
+        return "number_text_rejected"
+    return "not_a_number"
+
+
+def number_key(value: Any) -> Optional[str]:
+    """A number's group key by numeric value (PACT read-stored-metrics,
+    review N2): 1 and 1.0, 100 and 1e2, -0 and 0 share one key, as jsonb
+    equality groups them. Built from the exact decimal value, never from a
+    float: an int is itself, a float its shortest text, a ``Decimal`` (a
+    stored value read exactly) itself. None for anything that is not a
+    finite number."""
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        number = Decimal(value)
+    elif isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        number = Decimal(repr(value))
+    elif isinstance(value, Decimal):
+        if not value.is_finite():
+            return None
+        number = value
+    else:
+        return None
+    sign, digits, exponent = number.as_tuple()
+    text = "".join(map(str, digits))
+    stripped = text.rstrip("0")
+    if not stripped:
+        return "#0"
+    assert isinstance(exponent, int)
+    return f"#{'-' if sign else ''}{stripped}e{exponent + len(text) - len(stripped)}"
+
+
+class ExactNumber(Decimal):
+    """A stored number no float holds (`0.1000000000000000055`), kept exact
+    (PACT read-stored-metrics, re-review R1). It groups and ranks as a number
+    and is served as a JSON number literal of its exact text
+    (`result_text._dumps`), never as a string, so it never reads as text."""
+
+    okg_exact_number = True
+
+    def json_text(self) -> str:
+        return _exact_text(self)
+
+
+def _exact_text(value: Decimal) -> str:
+    """The shortest exact text of a finite decimal: no trailing zeros, no
+    exponent for a plain fraction (`0.1000000000000000055`)."""
+
+    text = format(value.normalize(context=_EXACT), "f")
+    return text
+
+
+def _holds_exact(value: Any) -> bool:
+    """Whether `value`, or a value inside it (a list or an object), is an
+    ExactNumber (re-review N2)."""
+
+    if isinstance(value, ExactNumber):
+        return True
+    if isinstance(value, list):
+        return any(_holds_exact(item) for item in value)
+    if isinstance(value, dict):
+        return any(_holds_exact(item) for item in value.values())
+    return False
+
+
+def exact_number_fields(
+    groups: Sequence[Mapping[str, Any]], fields: Sequence[str],
+) -> dict[str, Any]:
+    """`exact_numbers`: the `by` fields whose served groups hold a stored
+    number no float holds, printed with all its digits (a client that reads
+    JSON numbers as floats would merge it with its nearest float). Empty
+    when there are none."""
+
+    named = [
+        field for field in fields
+        if any(_holds_exact(group.get(field)) for group in groups)
+    ]
+    return {"exact_numbers": named} if named else {}
+
+
+def canonical_number(value: Any) -> Any:
+    """A number as a group prints it: an int when whole, else the shortest
+    float (PACT read-stored-metrics). Lists and objects are walked, so a
+    stored value read exactly prints as JSON does. Anything else is
+    itself."""
+
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            return str(value)
+        if value == value.to_integral_value():
+            return int(value)
+        number = float(value)
+        if Decimal(repr(number)) == value:
+            return number
+        # No float holds this stored value (0.1000000000000000055): kept exact,
+        # served as a number literal of its exact text, so two groups never
+        # print alike (review L2, re-review R1); `exact_numbers` names the field.
+        return value if isinstance(value, ExactNumber) else ExactNumber(_exact_text(value))
+    if isinstance(value, float):
+        return int(value) if math.isfinite(value) and value.is_integer() else value
+    if isinstance(value, list):
+        return [canonical_number(item) for item in value]
+    if isinstance(value, dict):
+        return {key: canonical_number(item) for key, item in value.items()}
+    return value
 
 
 #: A group key a row does not carry at all (#3666, lane ri): its own group,
@@ -1266,7 +1442,8 @@ class GroupReport:
     #: (key values, metrics) per group, largest count first. A key a row
     #: does not carry is :data:`ABSENT_VALUE`.
     groups: list[tuple[tuple[Any, ...], dict[str, Any]]]
-    #: Per computed column, rows left out of it (`missing`, `not_numeric`).
+    #: Per computed column, rows left out of it, per class of
+    #: :data:`SKIP_CLASSES` (PACT read-stored-metrics).
     skipped: dict[str, dict[str, int]]
     #: Per `by` field, the rows that do not carry it (only fields with any).
     absent: dict[str, int]
@@ -1277,10 +1454,85 @@ class GroupReport:
     #: (PACT read-multi-handle-input, L7): exact as received, but the
     #: outside system may have rounded it before sending.
     large_floats: list[str] = field(default_factory=list)
+    #: Per computed column and skipped class, the first ids left out
+    #: (:data:`SKIP_IDS`): node ids, or upstream row keys (`row <n>`).
+    skipped_ids: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    #: Per computed column, values read as numbers from numeric text.
+    read_from_text: dict[str, int] = field(default_factory=dict)
+    #: Per computed column, rows whose value was a number.
+    counted: dict[str, int] = field(default_factory=dict)
+    #: Rows grouped.
+    rows: int = 0
+
+
+def skipped_payload(report: GroupReport) -> dict[str, Any]:
+    """`values_skipped` of a reply (PACT read-stored-metrics): per computed
+    column, each class with values left out (count and first ids), and the
+    values read from numeric text. Empty when nothing was skipped or read
+    from text."""
+
+    out: dict[str, Any] = {}
+    for column, classes in report.skipped.items():
+        entry: dict[str, Any] = {
+            name: {"count": count, "first_ids": list(report.skipped_ids.get(column, {}).get(name, []))}
+            for name, count in classes.items() if count
+        }
+        if report.read_from_text.get(column):
+            entry["read_from_text"] = report.read_from_text[column]
+        if entry:
+            out[column] = entry
+    return out
+
+
+def skipped_clause(entry: Mapping[str, Any]) -> str:
+    """`skipped: 2 null (a, b), 1 absent (c); 3 read from text`, or
+    `nothing skipped` for one column's :func:`skipped_payload` entry (empty
+    or missing: nothing skipped)."""
+
+    parts = []
+    for name in SKIP_CLASSES:
+        item = entry.get(name) if isinstance(entry, Mapping) else None
+        if not isinstance(item, Mapping) or not item.get("count"):
+            continue
+        ids = [str(i) for i in item.get("first_ids") or []]
+        more = int(item["count"]) > len(ids)
+        parts.append(
+            f"{int(item['count']):,} {SKIP_WORDS[name]}"
+            + (f" (first ids: {', '.join(ids)}{', ...' if more else ''})" if ids else "")
+        )
+    text = "skipped: " + ", ".join(parts) if parts else "nothing skipped"
+    read = entry.get("read_from_text") if isinstance(entry, Mapping) else None
+    if read:
+        text += f"; {int(read):,} read from text"
+    return text
+
+
+def skipped_sentences(skipped: Mapping[str, Any], *, number_route: bool = True) -> list[str]:
+    """One sentence per column of a `values_skipped` payload, for a reply's
+    totals line: what the metrics over that column left out, and (where
+    `map(compute)` serves the set, `number_route`) the `number()` route for
+    number text the rule rejected."""
+
+    out = []
+    for column, entry in skipped.items():
+        sentence = f"{column} {skipped_clause(entry)}"
+        if number_route and isinstance(entry, Mapping) and entry.get("number_text_rejected"):
+            sentence += (
+                f'; read number text with map(compute={{"n": "number({column})"}})'
+            )
+        out.append(sentence)
+    return out
 
 
 #: A whole-number float at or past this may already be a rounded integer.
 FLOAT_EXACT_LIMIT = 2 ** 53
+
+
+def _row_id(row: Mapping[str, Any], index: int) -> str:
+    """How a skipped value's row is named: its node id, else `row <n>`."""
+
+    node_id = row.get(_RECORD_KEY + "node_id") if isinstance(row, Mapping) else None
+    return str(node_id) if node_id is not None else f"row {index + 1}"
 
 
 def group_report(
@@ -1290,25 +1542,35 @@ def group_report(
 ) -> GroupReport:
     """Groups by `by` with every metric, largest count first.
 
-    Per computed column, rows with no number there (`missing`: absent or
-    null; `not_numeric`: any other value) are left out of that metric,
-    never read as 0. Integers (and whole-number floats) add exactly, at any
-    size, into the metric; other floats are added apart with ``math.fsum``
-    (one rounding, in any row order) into `<metric> floats`, and the metric
-    is named in `inexact`. A row that does not carry a `by`
-    field is in the `(absent)` group, apart from a stored null. A group
-    whose column holds no number gets null for that metric."""
+    Per computed column, rows with no number there are left out of that
+    metric, never read as 0, and counted per class with their first ids
+    (PACT read-stored-metrics): `null`, `absent` (the row does not carry
+    the key), `not_a_number` (other text, a bool, a list, an object) and
+    `number_text_rejected` (text the reader before the one number rule took,
+    such as " 10 "). Numeric text the rule takes is counted as
+    `read_from_text`. Integers (and whole-number floats) add exactly, at
+    any size, into the metric; other floats are added apart with
+    ``math.fsum`` (one rounding, in any row order) into `<metric> floats`,
+    and the metric is named in `inexact`. A row that does not carry a `by`
+    field is in the `(absent)` group, apart from a stored null. Numbers
+    group by numeric value (:func:`number_key`) and print canonically
+    (:func:`canonical_number`). A group whose column holds no number gets
+    null for that metric."""
 
     keys = [_condition_key(field, argument="by") for field in by]
     counts: collections.Counter[tuple[str, ...]] = collections.Counter()
     values: dict[tuple[str, ...], tuple[Any, ...]] = {}
     found: dict[tuple[str, ...], dict[str, list[Any]]] = {}
     skipped: dict[str, dict[str, int]] = {}
+    skipped_ids: dict[str, dict[str, list[str]]] = {}
+    from_text: collections.Counter[str] = collections.Counter()
+    counted: collections.Counter[str] = collections.Counter()
     absent: collections.Counter[str] = collections.Counter()
     columns = sorted({key for _function, key in metrics if key is not None})
     for column in columns:
-        skipped[column_label(column)] = {"missing": 0, "not_numeric": 0}
-    for row in rows:
+        skipped[column_label(column)] = {name: 0 for name in SKIP_CLASSES}
+        skipped_ids[column_label(column)] = {name: [] for name in SKIP_CLASSES}
+    for index, row in enumerate(rows):
         raw = tuple(row[key] if key in row else ABSENT_VALUE for key in keys)
         text = tuple(
             _ABSENT_TEXT if value is ABSENT_VALUE else _group_key(value) for value in raw
@@ -1317,16 +1579,30 @@ def group_report(
             if value is ABSENT_VALUE:
                 absent[name] += 1
         counts[text] += 1
-        values.setdefault(text, raw)
+        if text not in values:
+            values[text] = tuple(
+                value if value is ABSENT_VALUE else canonical_number(value) for value in raw
+            )
         bucket = found.setdefault(text, {})
         for column in columns:
-            value = row.get(column)
-            number = _number(value)
-            if number is None:
-                reason = "missing" if value is None else "not_numeric"
-                skipped[column_label(column)][reason] += 1
+            label = column_label(column)
+            reason = skip_class(row, column)
+            if reason is not None:
+                skipped[label][reason] += 1
+                ids = skipped_ids[label][reason]
+                if len(ids) < SKIP_IDS:
+                    ids.append(_row_id(row, index))
                 continue
-            bucket.setdefault(column, []).append(number)
+            value = row[column]
+            if isinstance(value, str):
+                from_text[label] += 1
+            counted[label] += 1
+            bucket.setdefault(column, []).append(_number(value))
+            # min and max keep a stored number exact (re-review N3): a number
+            # no float holds is compared and printed as itself.
+            bucket.setdefault(_EXTREME + column, []).append(
+                canonical_number(value) if isinstance(value, Decimal) else _number(value)
+            )
     ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     out: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     inexact: set[str] = set()
@@ -1362,12 +1638,16 @@ def group_report(
                     inexact.add(label)
                     computed[float_part_label(label)] = math.fsum(floats)
             else:
-                computed[label] = min(numbers) if function == "min" else max(numbers)
+                exact = found[text].get(_EXTREME + key) or numbers
+                computed[label] = min(exact) if function == "min" else max(exact)
         out.append((values[text], computed))
     return GroupReport(
         groups=out, skipped=skipped, absent=dict(absent),
         inexact=[metric_label(m) for m in metrics if metric_label(m) in inexact],
         large_floats=[metric_label(m) for m in metrics if metric_label(m) in large],
+        skipped_ids=skipped_ids, read_from_text=dict(from_text),
+        counted={column_label(c): counted[column_label(c)] for c in columns},
+        rows=len(rows),
     )
 
 
@@ -1563,7 +1843,28 @@ def refuse_argument(argument: str, operator: str) -> LiveResultPredicateUnsuppor
 
 
 def _group_key(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    """A group's key text: a number by its numeric value (PACT
+    read-stored-metrics: 1 and 1.0 are one group, as in SQL), anything else
+    by its JSON text. No JSON text starts with `#`."""
+
+    key = number_key(value)
+    if key is not None:
+        return key
+    return json.dumps(
+        canonical_number(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        default=_key_default,
+    )
+
+
+def _key_default(value: Any) -> Any:
+    """A number inside a list or object key (re-review N1): written in a
+    form no JSON text takes (NUL, then its numeric key), so it never merges
+    with text of the same characters."""
+
+    key = number_key(value)
+    if key is not None:
+        return "\x00" + key
+    raise TypeError(f"{type(value).__name__} is not a group key")
 
 
 def group_counts(
@@ -1604,8 +1905,18 @@ __all__ = [
     "SERVED_FROM",
     "begin_retain",
     "capture",
+    "ExactNumber",
+    "SKIP_CLASSES",
+    "exact_number_fields",
+    "canonical_number",
     "check_by",
     "check_metrics",
+    "is_number_text",
+    "number_key",
+    "skip_class",
+    "skipped_clause",
+    "skipped_payload",
+    "skipped_sentences",
     "check_predicate",
     "RECORD_COLUMNS",
     "check_projection",

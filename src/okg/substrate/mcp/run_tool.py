@@ -58,6 +58,7 @@ from okg.substrate.mcp.response_bounds import (
     resolve_budget,
     served_call_tool_result,
 )
+from okg.substrate.mcp.surface_text import apply_current_fix_hint
 from okg.substrate.mcp.result_text import (
     compact_json,
     current_result_context,
@@ -135,6 +136,14 @@ class RunBackend(Protocol):
         generation: Any, authority: Any,
     ) -> tuple[int, int, list[str]]: ...
 
+    def join_pairs(
+        self, start_sql: str, edge_type: str, direction: str, cap: int,
+        generation: Any, authority: Any,
+    ) -> Optional[tuple[list[str], list[tuple[str, str]]]]:
+        """(the start set's distinct ids, the (near, far) ids of its
+        `edge_type` links), each read once; None past `cap` of either."""
+        ...
+
     def row_matches(self, row: dict[str, Any], predicate: Any) -> bool:
         """Whether a row the run holds meets `predicate` (a condition on
         `attrs.<column>`), as a kept live answer's rows are checked. Pure:
@@ -155,6 +164,9 @@ def _refusal(
         payload["error"]["fix_hint"] = fix_hint
     if data:
         payload["error"]["data"] = data
+    # Issue #4280: the deployment's fix_hint for this code (run's refusals
+    # are built here, not by the server's serving exit).
+    payload = apply_current_fix_hint(payload)
     return served_call_tool_result(payload, is_error=True, tool=tool)
 
 
@@ -365,6 +377,13 @@ def _first_step_hint(server: Any, raw_steps: Any) -> str:
 async def serve_run(server: Any, arguments: dict[str, Any], backend: RunBackend) -> Any:
     """Serve one `run` call: its steps in order, one reply."""
 
+    from okg.substrate.mcp.response_bounds import _raise_small_budget
+
+    # A max_bytes under the 4 KiB floor is raised to it and said, as every
+    # other read tool does (#3153; taken from lane ri's
+    # read-run-argument-shapes). The schema publishes the floor too.
+    arguments = dict(arguments)
+    raised = _raise_small_budget(arguments, restored_from=None)
     raw_steps = arguments.get("steps")
     reason = await server._okg_run_blocking(backend.refused_reason)
     if reason is not None:
@@ -375,8 +394,10 @@ async def serve_run(server: Any, arguments: dict[str, Any], backend: RunBackend)
         )
     try:
         steps = run_steps.parse_steps(raw_steps)
-        named = run_steps.check_references(steps)
+        # Classified first: it writes `input: "$n"` of a graph set as the
+        # `where` the reference check reads (lane re).
         run_steps.classify_steps(steps)
+        named = run_steps.check_references(steps)
         wall_seconds = run_steps.run_wall_seconds()
     except run_steps.RunRefusal as exc:
         return _refusal("invalid_operator_arguments", exc.message, exc.fix_hint)
@@ -386,7 +407,9 @@ async def serve_run(server: Any, arguments: dict[str, Any], backend: RunBackend)
         deployment_ceiling_bytes=getattr(server, "response_ceiling_bytes", None),
     )
     if budget_refusal is not None:
-        return served_call_tool_result(budget_refusal, is_error=True, tool="run")
+        return served_call_tool_result(
+            apply_current_fix_hint(budget_refusal), is_error=True, tool="run",
+        )
     shown = [step for step in steps if step.show]
     fixed = _RESERVE + _RESERVE_PER_STEP * len(steps)
     share = (budget - fixed) // max(1, len(shown))
@@ -446,6 +469,12 @@ async def serve_run(server: Any, arguments: dict[str, Any], backend: RunBackend)
             for step in steps:
                 outcome = _StepOutcome(step)
                 outcomes.append(outcome)
+                if step.kind == "kept":
+                    await _kept_step(
+                        server, steps, outcome, held, state,
+                        share_bytes=max(MIN_RESPONSE_BYTES, share if step.show else 0),
+                    )
+                    continue
                 if step.holds_rows:
                     await _held_step(server, backend, outcomes, outcome, held, state, generation)
                     continue
@@ -506,7 +535,7 @@ async def serve_run(server: Any, arguments: dict[str, Any], backend: RunBackend)
             from okg.substrate.external_backed.live_dispatch import release_live_heavy_run
 
             release_live_heavy_run(*state.heavy_reader)
-    return _serve(outcomes, budget, arguments, generation)
+    return _serve(outcomes, budget, arguments, generation, raised=raised)
 
 
 async def _held_step(
@@ -536,7 +565,17 @@ async def _held_step(
         else:
             number = run_steps.rows_input(step)
             assert number is not None
-            rows = run_live.rows_step(step, number, held[number], backend.row_matches)
+            if step.operator == "map" and "compute" in step.arguments:
+                # PACT read-run-rows-compute: map(compute)'s own access rule
+                # (nothing hidden is computed), then the computing, both on a
+                # call worker: the rule reads the deployment's Nomos mode,
+                # which stays off the loop (#3923); inside the run's wall clock.
+                rows = await server._okg_run_blocking(
+                    _compute_rows, server, step, number, held[number], backend.row_matches,
+                    state.wall_deadline,
+                )
+            else:
+                rows = run_live.rows_step(step, number, held[number], backend.row_matches)
     except run_live._PrepareRefused as refused:  # noqa: SLF001 - this module's own seam.
         outcome.status = "refused"
         outcome.text = _text(refused.result)
@@ -545,8 +584,98 @@ async def _held_step(
         outcome.status = "refused"
         outcome.text = _text(_failure(step.operator, exc, None, step, generation))
         return
+    notes = list(step.notes)
+    if step.adjusted:
+        # One shape for what a run read as another spelling (review L1):
+        # the records in JSON, as a graph step's `adjusted`, and one line.
+        rows.facts["adjusted"] = [dict(record) for record in step.adjusted]
+        notes.append("! adjusted: " + "; ".join(
+            f"{record['sent']} read as {record['served']}" for record in step.adjusted
+        ))
+    if notes:
+        rows.notes = [*notes, *rows.notes]
     held[step.index] = rows
     outcome.held = rows
+    outcome.status = "ok"
+
+
+def _compute_rows(
+    server: Any, step: run_steps.Step, number: int, source: Any, matches: Any,
+    deadline: float,
+) -> Any:
+    """A map(compute) step over held rows, on a call worker: the access rule,
+    then the computing (PACT read-run-rows-compute)."""
+    from okg.substrate.mcp import run_live
+    from okg.substrate.mcp.map_compute import refuse_under_access_rules
+
+    refuse_under_access_rules(server)
+    return run_live.rows_step(step, number, source, matches, deadline=deadline)
+
+
+async def _kept_step(
+    server: Any, steps: list[run_steps.Step], outcome: _StepOutcome,
+    held: dict[int, Any], state: Any, *, share_bytes: int,
+) -> None:
+    """filter, map or aggregate over a kept live answer (lane re).
+
+    The step is sent as its own call through the server's ``call_tool``, so
+    it reads the answer exactly as the same call sent alone does (the
+    access-rule, reader, binding and gate checks, the conditions, the
+    totals) and prints that reply. When a later step reads its rows, the
+    run holds the rows of the set the reply's handle names: the narrowed
+    rows of a filter, the groups of an aggregate, the input's rows of a
+    map, cut to its `select`. A reply with no handle is refused for the
+    steps that read it, by name."""
+    from okg.substrate.mcp import run_live
+
+    step = outcome.step
+    call = dict(step.arguments)
+    call["max_bytes"] = share_bytes
+    if state.authority is not None and "authority" not in call:
+        call["authority"] = state.authority
+    events = run_steps.BudgetEvents()
+    deadline = min(state.wall_deadline, time.monotonic() + run_steps.STEP_BUDGET_MS / 1000)
+    # The upstream calls the step's own call makes (a kept live-type set
+    # grown by a field it lacks) count against the run's cap, and it plans
+    # no more than the run has left (review H1).
+    calls = run_steps.RunCallBudget(step=step.index, before=state.upstream_calls)
+    try:
+        with (
+            run_steps.deadline_scope(deadline, events),
+            run_steps.capture_scope(outcome.capture),
+            run_steps.call_budget_scope(calls),
+        ):
+            result = await asyncio.wait_for(
+                server.call_tool(step.operator, call),
+                timeout=max(0.05, state.wall_deadline - time.monotonic()),
+            )
+    except asyncio.TimeoutError:
+        outcome.status = "refused"
+        outcome.text = _text(_over_budget(step.operator, step, state.generation))
+        return
+    except Exception as exc:  # noqa: BLE001 - one step's failure is its refusal.
+        outcome.status = "refused"
+        outcome.text = _text(_failure(step.operator, exc, events, step, state.generation))
+        return
+    finally:
+        state.upstream_calls += calls.made
+    outcome.text = _text(result)
+    if getattr(result, "isError", False):
+        outcome.status = "refused"
+        return
+    payload = outcome.capture.payload
+    outcome.payload = dict(payload) if isinstance(payload, dict) else None
+    read_later = any(step.index in run_steps.row_references(s) for s in steps[step.index:])
+    if not read_later:
+        outcome.status = "ok"
+        return
+    try:
+        rows = await run_live.kept_rows(server, step, outcome.payload or {}, state)
+    except Exception as exc:  # noqa: BLE001 - the step's rows cannot be held: its refusal.
+        outcome.status = "refused"
+        outcome.text = _text(_failure(step.operator, exc, None, step, state.generation))
+        return
+    held[step.index] = rows
     outcome.status = "ok"
 
 
@@ -588,7 +717,9 @@ async def _run_step(
             server, backend, sets, key, fields=fields, generation=generation,
             authority=authority, for_inspect=step.operator == "inspect",
         )
-    notes: list[dict[str, str]] = []
+    # What the run itself read as another spelling (`input: "$n"` of a
+    # graph set as `where: "$n"`), said with the step's reply.
+    notes: list[dict[str, str]] = [dict(record) for record in step.adjusted]
     join_from = run_steps.join_source(step)
     if join_from is not None:
         # The link join: the far records of every record of step n's set,
@@ -720,6 +851,9 @@ _JOIN_ARGUMENTS = frozenset({
 })
 #: Most ids of starting records with no link a join names.
 JOIN_IDS_SHOWN = 10
+#: Most start records, and most links from them, a join holds as id lists
+#: (PACT run-join-step-speed); past either it is read as SQL, as before.
+JOIN_HOLD_CAP = 100_000
 
 
 async def _join_call(
@@ -751,9 +885,44 @@ async def _join_call(
         raise run_steps.RunRefusal(f"run: step {step.index}: expand takes `from` or `input`, not both")
     start = sets.sets[str(join_from)].raw_sql
     key = f"join{step.index}"
-    sets.sets[key] = run_steps.StepSet(raw_sql=await server._okg_run_blocking(
-        backend.join_far, start, edge_type, direction, generation, authority,
-    ))
+    # PACT run-join-step-speed: the start ids and their links are read once
+    # and held, so the step's read, set, count and facts each probe a list
+    # of ids instead of reading the start set and every link of the type
+    # again (four times on dev: 5.7 s for 91 commits on the eval graph).
+    try:
+        with run_steps.counting_scope():
+            held = await server._okg_run_blocking(
+                backend.join_pairs, start, edge_type, direction, JOIN_HOLD_CAP,
+                generation, authority,
+            )
+    except Exception as exc:
+        if run_steps.budget_cut(exc):
+            # The same refusal as the join's counts before this read held
+            # them (_join_facts): the counts are never estimated.
+            raise _join_count_not_finished(f"run: step {step.index}") from exc
+        raise
+    facts: dict[str, Any] = {}
+    if held is None:
+        # More start records or links than JOIN_HOLD_CAP: the join is read
+        # as SQL, as before; its counts are then read by _join_facts.
+        sets.sets[key] = run_steps.StepSet(raw_sql=await server._okg_run_blocking(
+            backend.join_far, start, edge_type, direction, generation, authority,
+        ))
+    else:
+        start_ids, pairs = held
+        reached = sorted({far for _near, far in pairs if far is not None})
+        sets.sets[key] = run_steps.StepSet(
+            raw_sql=await server._okg_run_blocking(
+                backend.ids_set, reached, generation, authority,
+            ),
+            ids=frozenset(reached),
+        )
+        linked = {near for near, _far in pairs}
+        without = sorted(set(start_ids) - linked)
+        facts = {
+            "starts": len(set(start_ids)), "starts_without_link": len(without),
+            "without_link_ids": without[:JOIN_IDS_SHOWN],
+        }
     leaf: dict[str, Any] = {"op": "in", "field": "node_id", "values": [sets.set_marker(key)]}
     far = args.get("where", args.get("filter"))
     where: Any = leaf
@@ -768,9 +937,19 @@ async def _join_call(
             call[name] = args[name]
     outcome.join = {
         "from_step": join_from, "edge_type": edge_type, "direction": direction,
-        "start": start,
+        "start": start, **facts,
     }
     return call
+
+
+def _join_count_not_finished(label: str) -> run_steps.RunCountNotFinished:
+    """A join whose reads the step's budget cut: its counts are never estimated."""
+    return run_steps.RunCountNotFinished(
+        f"{label}: the join's counts did not finish inside the step's "
+        f"time budget ({run_steps.STEP_BUDGET_MS:,} ms a step); they are "
+        "never estimated",
+        fix_hint="narrow the starting step, or split the run",
+    )
 
 
 async def _join_facts(
@@ -780,6 +959,8 @@ async def _join_facts(
     """What a join reached and what it did not: exact, never estimated."""
     join = outcome.join
     assert join is not None
+    if "starts" in join:
+        return  # read with its links (`join_pairs`)
     try:
         with run_steps.counting_scope():
             starts, without, ids = await server._okg_run_blocking(
@@ -788,12 +969,7 @@ async def _join_facts(
             )
     except Exception as exc:
         if run_steps.budget_cut(exc):
-            raise run_steps.RunCountNotFinished(
-                f"{label}: the join's counts did not finish inside the step's "
-                f"time budget ({run_steps.STEP_BUDGET_MS:,} ms a step); they are "
-                "never estimated",
-                fix_hint="narrow the starting step, or split the run",
-            ) from exc
+            raise _join_count_not_finished(label) from exc
         raise
     join.update(starts=int(starts), starts_without_link=int(without), without_link_ids=list(ids))
 
@@ -1306,11 +1482,13 @@ def _fenced_held(held: Any, count: int) -> tuple[list[Any], list[str]]:
     """The first `count` printed rows of a held step, wrapped as untrusted
     text of their own source, and those sources."""
     from okg.substrate.external_backed.resolver import _fence_payload
+    from okg.substrate.mcp.run_live import shown_row
 
     if held.groups is not None:
         rows = held.groups[:count]
         return list(rows), [held.group_source or "run_rows"] * len(rows)
-    rows = held.rows[:count]
+    # Computed columns print as `calc.<name>` (PACT read-run-rows-compute).
+    rows = [shown_row(row, held.print_columns) for row in held.rows[:count]]
     sources = held.sources[:count]
     out: list[Any] = []
     start = 0
@@ -1414,7 +1592,7 @@ class _HeldBlock:
 
 def _serve(
     outcomes: list[_StepOutcome], budget: int, arguments: Mapping[str, Any],
-    generation: Any,
+    generation: Any, *, raised: Optional[dict[str, int]] = None,
 ) -> CallToolResult:
     fmt = "json" if current_result_context().format == "json" else "text"
     refused = sum(1 for o in outcomes if o.status == "refused")
@@ -1441,7 +1619,7 @@ def _serve(
     # Every block that is not cut takes its own size; the printed exact
     # steps share what is left, the smallest first, so room one does not
     # use goes to the others.
-    room = budget - len(head.encode("utf-8")) - 64
+    room = budget - len(head.encode("utf-8")) - 64 - (80 if raised else 0)
     flexible = [b for b in blocks if b.flexible]
     for block in blocks:
         if not block.flexible:
@@ -1457,10 +1635,15 @@ def _serve(
             "status": "ok", "operator_name": "run", "generation_id": generation,
             "steps": [block.final() for block in blocks],
             "refused_steps": refused, "skipped_steps": skipped,
+            **({"max_bytes_raised": dict(raised)} if raised else {}),
             **({"partial": True, "live_values_not_read": missing} if partial else {}),
         }
         return served_call_tool_result(payload, tool="run")
     lines = [head]
+    if raised:
+        lines.append(
+            f"! max_bytes {raised['requested']} raised to {raised['applied']} (the minimum)"
+        )
     for block in blocks:
         lines.extend(block.final())
     text = "\n".join(lines)

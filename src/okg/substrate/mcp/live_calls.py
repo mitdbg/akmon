@@ -505,6 +505,7 @@ class Reader:
         cancel sets `stop`; the samples of the calls made are still written."""
 
         from okg.substrate.external_backed import live_dispatch as _ld
+        from okg.substrate.mcp import run_steps as _run_steps
         from okg.substrate.mcp.response_bounds import run_sync_in_request_context
 
         if time.monotonic() >= self.deadline:
@@ -514,6 +515,9 @@ class Reader:
                 f"{relation!r}",
                 "deadline", "narrow the read with a condition the system applies",
             )
+        # Inside a run step sent as its own call (a read over a kept
+        # answer), these calls count against the run's cap (lane re, H1).
+        _run_steps.check_planned_calls(len(per_value))
         bound = self.bound[relation]
         outcome = self.gates[relation]
         adapter = empty_answer_adapter(self.prepared.adapter(relation), empty_error)
@@ -566,6 +570,7 @@ class Reader:
         if entered:
             self.fetch.waited_seconds += max(0.0, entered[0] - submitted)
         self.fetch.calls += made.started
+        _run_steps.note_upstream_calls(made.started)
         counts = made.counts()
         bucket = self.fetch.outcomes.setdefault(relation, {})
         for key, value in counts.items():

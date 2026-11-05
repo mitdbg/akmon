@@ -49,6 +49,11 @@ from okg.substrate.mcp.operator_models import as_mapping, refuse_substring_conta
 from okg.substrate.mcp.run_steps import note_payload as _note_run_payload
 from okg.substrate.mcp.run_steps import STEP_OPERATORS as _SET_TOOLS
 from okg.substrate.mcp.read_grammar import GrammarRefusal, render_call, rewrite_call
+from okg.substrate.mcp.retry_edits import (
+    FirstReadReached,
+    checking_arguments,
+    end_checking_arguments,
+)
 from okg.substrate.mcp.result_text import (
     RESULT_FORMAT_META_KEY,
     RESULT_FORMATS,
@@ -61,6 +66,9 @@ from okg.substrate.mcp.result_text import (
     render,
     result_context,
 )
+from okg.substrate.mcp.surface_text import CURRENT as _SURFACE_TEXT
+from okg.substrate.mcp.surface_text import apply_current_fix_hint as _apply_current_fix_hint
+from okg.substrate.mcp.surface_text import apply_fix_hint as _apply_fix_hint
 from okg.substrate.mcp.session_tool_surface import (
     SessionScopedToolsMixin,
     ToolNotServed,
@@ -276,6 +284,10 @@ class _CallRewrite:
     #: The call's arguments as the tool is given them (after the rewrite),
     #: so a refusal the tool body raises can offer the corrected call.
     arguments: Optional[Mapping[str, Any]] = None
+    #: The call's arguments as the caller sent them, before the rewrite: a
+    #: refusal's one-change call is offered in the caller's own spelling
+    #: when the server takes that as written (PACT read-refusal-retry-calls).
+    sent_arguments: Optional[Mapping[str, Any]] = None
     #: Records the tool body adds while it runs (step 2b): a rewrite that
     #: needs the deployment's own names. One list for the whole call, so a
     #: byte-fitting rerun of the tool adds nothing twice.
@@ -379,6 +391,56 @@ def offer_retry_call(
         return False
     error.retry_call = call
     return True
+
+
+#: Tools whose one-change call a refusal may offer once the tool's own
+#: argument checks take it (`_okg_tool_checks_pass`); never `run`, whose
+#: steps hold calls.
+_EDITED_RETRY_TOOLS = frozenset({"search", "filter", "map", "aggregate", "expand", "inspect"})
+
+#: The longest `fix_hint` a refusal serves (`_expected_error_refusal` cuts
+#: there); a hint that would pass it with the call named keeps its words.
+_FIX_HINT_CHARS = 1_024
+
+
+def _retry_call_record(
+    tool: str, arguments: Mapping[str, Any], mode: str,
+) -> Optional[dict[str, Any]]:
+    """`error.retry_call` for `tool(**arguments)`, or None when it is over
+    its byte bound. The caller's authority is named to repeat, never echoed."""
+    repeat = [name for name in ("authority",) if name in arguments]
+    call = {
+        "tool": tool, "mode": mode,
+        "arguments": {k: v for k, v in arguments.items() if k not in ("authority",)},
+        **({"repeat": repeat} if repeat else {}),
+    }
+    if len(json.dumps(call, default=str)) > _RETRY_CALL_BYTES:
+        return None
+    return call
+
+
+def name_retry_in_hint(error: SubstrateError) -> None:
+    """End `error.fix_hint` with `retry: <call>` for its `retry_call`, so
+    the words and the call say one thing; kept as it was when the call or
+    the hint with it would pass their bounds."""
+    call = getattr(error, "retry_call", None)
+    if not isinstance(call, dict):
+        return
+    arguments = call["arguments"]
+    if call["tool"] == "search":
+        # The hint names the call as it is published (review N2): search
+        # does not publish `max_bytes`, and `_publish_retry_arguments` takes
+        # it out of the served `retry_call`, so the words leave it out too.
+        arguments = {k: v for k, v in arguments.items() if k not in _SEARCH_RETRY_DROPPED}
+    spelled = render_call(call["tool"], arguments)
+    if call.get("repeat"):
+        spelled += ", with the same " + " and ".join(call["repeat"])
+    if call.get("mode") == "guess":
+        spelled += " (a guess)"
+    words = str(error.fix_hint) if error.fix_hint else ""
+    hint = f"{words}; retry: {spelled}" if words else f"retry: {spelled}"
+    if len(spelled) <= _RETRY_CALL_CHARS and len(hint) <= _FIX_HINT_CHARS:
+        error.fix_hint = hint
 
 
 def call_sent_select() -> Optional[list[str]]:
@@ -2257,6 +2319,18 @@ def _rewrite_operator_call(
                 fix_hint=fix_hint,
             )
         refusal.retry_call = retry_call
+        if (
+            retry_call is None and exc.retry_arguments is not None
+            and exc.retry_mode == "corrected" and not exc.retry_repeat
+            and exc.offer_on_argument_checks
+        ):
+            # PACT read-refusal-retry-calls (census M6 qs-01): a repair the
+            # caller's input determines, which the read-free proof cannot
+            # decide (an aggregate `order_by`, a date clause), is offered
+            # when the grammar and the argument model take it, with no read.
+            from okg.substrate.mcp.retry_edits import declare_retry_call
+
+            declare_retry_call(refusal, retry_tool, exc.retry_arguments)
         return arguments, _CallRewrite(refusal=refusal)
     select_retry: dict[str, Any] | None = None
     if rewritten.select_retry is not None and (
@@ -3320,13 +3394,20 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
         # gate refuses is told must not depend on either.
         capabilities = getattr(self, "_okg_capabilities", None)
         available = getattr(capabilities, "available_methods", None)
+        sent_arguments = dict(arguments) if isinstance(arguments, Mapping) else None
         arguments, rewrite = _rewrite_operator_call(
             name, arguments, accepts=self._okg_takes_as_written,
             search_methods=frozenset(available()) if callable(available) else None,
             access_rules_on=self._okg_access_rules_on,
             restartable=self._okg_restartable,
         )
+        if rewrite is not None:
+            # A tool the grammar does not read has no rewrite state.
+            rewrite = dataclasses.replace(rewrite, sent_arguments=sent_arguments)
         token = _CALL_REWRITE.set(rewrite)
+        # Issue #4280: this server's surface text for the whole call, so a
+        # refusal built outside the server object (`run`'s own) applies it.
+        surface_token = _SURFACE_TEXT.set(getattr(self, "_okg_surface_text", None))
         try:
             context = ResultContext(
                 format=requested or default_result_format(),
@@ -3344,6 +3425,7 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
             ):
                 return await self._okg_call_and_serve(name, arguments)
         finally:
+            _SURFACE_TEXT.reset(surface_token)
             _CALL_REWRITE.reset(token)
 
     def _okg_invalid_result_format(self, name: str, value: Any) -> CallToolResult:
@@ -3365,6 +3447,9 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
                 ),
             },
         }
+        # Issue #4280: served before the per-call scope is set, so the
+        # server's own surface text is applied directly.
+        payload = _apply_fix_hint(payload, getattr(self, "_okg_surface_text", None))
         return served_call_tool_result(
             payload, is_error=True, tool=name, result_format="text",
         )
@@ -3382,6 +3467,15 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
                 result = await super().call_tool(name, arguments)
             except Exception as exc:  # noqa: BLE001 - served (or re-raised) by `_okg_serve_outcome`.
                 outcome: tuple[bool, Any] = (False, exc)
+                typed = exc if isinstance(exc, SubstrateError) else exc.__cause__
+                if (
+                    isinstance(typed, SubstrateError)
+                    and getattr(typed, "retry_call", None) is None
+                    and getattr(typed, "retry_edits", None)
+                ):
+                    # PACT read-refusal-retry-calls: a refusal one change
+                    # of the caller's own call fixes names that call.
+                    self._okg_offer_edited_retry(name, typed)
                 read = await self._okg_select_stored_keys(name, arguments, exc)
                 if read is not None:
                     # The bare names are stored attribute keys of the rows:
@@ -3410,6 +3504,137 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
             )
         finally:
             _PENDING_IMAGES.reset(slot)
+
+    def _okg_offer_edited_retry(self, name: str, error: SubstrateError) -> bool:
+        """Offer the first change `error` declares
+        (`retry_edits.declare_retry_edit`) whose call every check that reads
+        no data takes.
+
+        The call is the caller's own arguments with that change, in the
+        caller's spelling first, then as the tool read them. It is offered
+        only when `_okg_tool_checks_pass` takes it: the grammar, the declared
+        arguments, the argument model, and the tool's own checks up to its
+        first read. So a call with a second problem gets no offer, and a
+        `corrected` call is never refused for an argument. The mode is the
+        one the refusal declared: `corrected` only where the refusal names
+        one fix, `guess` otherwise. Nothing is read, no session state or
+        audit record changes, and no external system is asked. Then the
+        call is named in `fix_hint` too. Returns whether one was offered.
+        """
+        from okg.substrate.mcp.retry_edits import edited_call
+
+        state = _CALL_REWRITE.get()
+        # The caller's own spelling first, then the call as the tool read it.
+        spellings = [
+            dict(sent) for sent in (
+                state.sent_arguments if state is not None else None, call_arguments(),
+            ) if sent is not None
+        ] or [None]
+        for edit in getattr(error, "retry_edits", None) or ():
+            tool = edit.get("tool") or name
+            tried: list[dict[str, Any]] = []
+            for sent in spellings:
+                candidate = edited_call(sent, edit)
+                if (
+                    candidate is None or candidate in tried
+                    or candidate.get("live") not in (None, {})
+                ):
+                    continue
+                tried.append(candidate)
+                call = _retry_call_record(tool, candidate, edit["mode"])
+                if call is None or not self._okg_tool_checks_pass(tool, candidate):
+                    continue
+                error.retry_call = call
+                name_retry_in_hint(error)
+                return True
+        return False
+
+    def _okg_order_by_named(self, arguments: Mapping[str, Any]) -> bool:
+        """Whether a set read's `order_by` names a field its order is read
+        on, decided with no read: none, a column of the set, or (access rules
+        off) `attrs.<key>`, with an optional `asc`/`desc`. Such a read checks
+        its order only once it has a connection, so an offered call with any
+        other order (a date, a misspelled field) could be refused when sent:
+        it is not offered (review r2, N1)."""
+        from okg.substrate.mcp.operator_sql import EFFECTIVE_VIEW_FIELD_COLUMNS
+
+        order_by = arguments.get("order_by")
+        if order_by in (None, ""):
+            return True
+        if not isinstance(order_by, str):
+            return False
+        parts = order_by.strip().split()
+        if not parts or len(parts) > 2 or (
+            len(parts) == 2 and parts[1].lower() not in {"asc", "desc"}
+        ):
+            return False
+        scope = arguments.get("input")
+        kind = scope.get("kind", "nodes") if isinstance(scope, Mapping) else "nodes"
+        columns = EFFECTIVE_VIEW_FIELD_COLUMNS.get(kind)
+        if columns is None:
+            return False
+        field = parts[0]
+        if field in columns:
+            return True
+        return (
+            field.startswith("attrs.") and bool(field.split(".", 1)[1])
+            and self._okg_access_rules_state() is False
+        )
+
+    def _okg_tool_checks_pass(self, name: str, arguments: dict[str, Any]) -> bool:
+        """Whether `name(**arguments)` passes every check that reads no data.
+
+        In order: the grammar rewrite with no refusal and no note, the
+        declared arguments, the argument model, and then the tool's own
+        body, run as an argument-only run (`retry_edits`) so that its first database
+        connection stops it (`stop_at_first_read`) before any statement and the
+        tracing wrapper writes no row.
+        A body that refuses before that point refuses the offer. Never for
+        `run`, an async tool, or an aggregate under access rules (every set
+        count is refused there). No statement, session pin, audit record or
+        upstream call results: the live resolver, which runs before a tool
+        body on a served call, is not run here.
+        """
+        if name not in _EDITED_RETRY_TOOLS:
+            return False
+        if name == "aggregate" and self._okg_aggregate_refused():
+            return False
+        tool = self._tool_manager._tools.get(name)
+        if tool is None or tool.is_async:
+            return False
+        if name in ("filter", "map", "expand") and not self._okg_order_by_named(arguments):
+            return False
+        capabilities = getattr(self, "_okg_capabilities", None)
+        available = getattr(capabilities, "available_methods", None)
+        try:
+            rewritten, fresh = _rewrite_operator_call(
+                name, dict(arguments), accepts=self._okg_takes_as_written,
+                search_methods=frozenset(available()) if callable(available) else None,
+                access_rules_on=self._okg_access_rules_on,
+                restartable=self._okg_restartable,
+            )
+            if fresh is None or fresh.refusal is not None or fresh.adjusted:
+                return False
+            self._refuse_unknown_operator_arguments(name, rewritten)
+            self._validate_operator_arguments(name, rewritten)
+            parsed = tool.fn_metadata.arg_model.model_validate(
+                tool.fn_metadata.pre_parse_json(rewritten),
+            ).model_dump_one_level()
+        except Exception:  # noqa: BLE001 - any refusal of the candidate means no offer.
+            return False
+        state_token = _CALL_REWRITE.set(fresh)
+        only_token = checking_arguments()
+        try:
+            result = tool.fn(**parsed)
+        except FirstReadReached:
+            return True
+        except Exception:  # noqa: BLE001 - the body refused the call: no offer.
+            return False
+        finally:
+            end_checking_arguments(only_token)
+            _CALL_REWRITE.reset(state_token)
+        # A body that answers with no read (a query-text read) answers here.
+        return isinstance(result, dict) and result.get("status") != "refused"
 
     async def _okg_select_stored_keys(
         self, name: str, arguments: dict[str, Any], exc: BaseException,
@@ -3552,7 +3777,9 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
                     name, exc, budget=MIN_RESPONSE_BYTES,
                 )
                 payload["schema_behind_by"] = exc.data["schema_behind_by"]
-                payload = _fit_error_payload(payload, budget=MIN_RESPONSE_BYTES)
+                payload = _fit_error_payload(
+                    _apply_current_fix_hint(payload), budget=MIN_RESPONSE_BYTES,
+                )
                 return self._okg_serve_payload(
                     name, payload, is_error=True, raised=True,
                 )
@@ -3565,7 +3792,9 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
                 payload = _expected_error_refusal(
                     shown, exc, budget=MIN_RESPONSE_BYTES,
                 )
-                payload = _fit_error_payload(payload, budget=MIN_RESPONSE_BYTES)
+                payload = _fit_error_payload(
+                    _apply_current_fix_hint(payload), budget=MIN_RESPONSE_BYTES,
+                )
                 return self._okg_serve_payload(
                     shown, payload, is_error=True, raised=True,
                 )
@@ -3640,7 +3869,11 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
             # however the refusal arose (the tool body's, a commit-time
             # capacity refusal, a server fault).
             _live_resolver.name_kept_growth_served(name, arguments, payload)
-            payload = _fit_error_payload(payload, budget=budget)
+            # Issue #4280: the deployment's fix_hint for this code, before the
+            # last fit, so the reply stays inside its byte budget.
+            payload = _fit_error_payload(
+                _apply_current_fix_hint(payload), budget=budget,
+            )
             return self._okg_serve_payload(
                 name, payload, is_error=True, raised=True,
             )
@@ -3721,6 +3954,10 @@ class ByteBoundedFastMCP(SessionScopedToolsMixin, _RawResultFastMCP):
             output_model.model_validate(
                 {"result": payload} if metadata.wrap_output else payload
             )
+        if payload.get("status") == "refused":
+            # Issue #4280: the deployment's fix_hint for this code, before
+            # the fit below.
+            payload = _apply_current_fix_hint(payload)
         if name in OPERATOR_TOOLS:
             from okg.substrate.mcp.operator_models import OperatorResult
 
@@ -5497,6 +5734,69 @@ def _search_page_at(
     return out
 
 
+#: The page key counting the grep list rows whose other matched lines were
+#: left out to fit the reply budget (PACT grep-rows-all-lines).
+MATCH_LINES_CUT_KEY = "match_lines_cut"
+
+
+def _without_other_lines(page: Mapping[str, Any], keep: int) -> dict[str, Any]:
+    """`page` with the `other_lines` of every row after the first `keep`
+    left out, each such row counting them in `lines_left`. Rows are copied,
+    never changed in place."""
+    out = dict(page)
+    rows: list[Any] = []
+    cut = 0
+    for index, row in enumerate(page["results"]):
+        others = row.get("other_lines") if isinstance(row, Mapping) else None
+        if index < keep or not isinstance(others, list) or not others:
+            rows.append(row)
+            continue
+        new = {key: value for key, value in row.items() if key != "other_lines"}
+        left = row.get("lines_left")
+        left = left if isinstance(left, int) and not isinstance(left, bool) else 0
+        new["lines_left"] = left + len(others)
+        rows.append(new)
+        cut += 1
+    out["results"] = rows
+    if cut:
+        out[MATCH_LINES_CUT_KEY] = cut
+    return out
+
+
+def cut_grep_list_lines(
+    page: Any, *, budget: int, measure: Callable[[dict[str, Any]], int],
+) -> Any:
+    """A grep list page over its budget with its lowest rows' other matched
+    lines left out, as few rows as fit (PACT grep-rows-all-lines): rows are
+    kept before lines. The page says how many rows it cut
+    (`MATCH_LINES_CUT_KEY`), and each cut row adds the lines to its
+    `lines_left`, so its count stays true.
+
+    `page` itself when it fits or has no other lines. When even cutting
+    every row's lines does not fit, the page with every row's lines cut,
+    the smallest this step makes: the caller then pages by rows."""
+    if (
+        not isinstance(page, Mapping) or page.get("view") != "list"
+        or not isinstance(page.get("results"), list)
+        or not any(
+            isinstance(row, Mapping) and row.get("other_lines")
+            for row in page["results"]
+        )
+        or measure(page) <= budget
+    ):
+        return page
+    low, high = 0, len(page["results"]) - 1
+    if measure(_without_other_lines(page, 0)) > budget:
+        return _without_other_lines(page, 0)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if measure(_without_other_lines(page, middle)) <= budget:
+            low = middle
+        else:
+            high = middle - 1
+    return _without_other_lines(page, low)
+
+
 def _shortened_search_page(
     page: Any,
     arguments: Optional[Mapping[str, Any]],
@@ -6087,6 +6387,14 @@ def _fit_to_budget_run(
     #: text to shorten page by limit as before.
     passage_rows = False
     if operator_name == "search" and isinstance(initial, dict):
+        # PACT grep-rows-all-lines: a grep list row's other matched lines
+        # are left out, lowest rows first, before any row is.
+        initial = cut_grep_list_lines(initial, budget=budget, measure=measure)
+        if initial.get(MATCH_LINES_CUT_KEY):
+            cut_bytes = measure(initial)
+            if cut_bytes <= budget:
+                return initial
+            smallest_bytes.append(cut_bytes)
         shortened = _shortened_search_page(
             initial, arguments, budget=budget, measure=measure,
         )
@@ -6175,6 +6483,9 @@ def _fit_to_budget_run(
         remedy = _truncation_remedy(operator_name, arguments)
         if remedy is not None:
             candidate["truncation_remedy"] = remedy
+        if operator_name == "search":
+            # PACT grep-rows-all-lines: lines before rows on every rerun too.
+            candidate = cut_grep_list_lines(candidate, budget=budget, measure=measure)
         if smallest["limit"] is None or effective_limit < smallest["limit"]:
             smallest["limit"], smallest["page"] = effective_limit, candidate
         size = measure(candidate)

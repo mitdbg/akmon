@@ -962,7 +962,11 @@ def test_a_test_object_that_joins_conditions_is_refused():
         "where: the test on `type` uses `and`, which joins conditions; a test "
         "on a field is one comparison"
     )
-    assert refusal.retry_arguments is None
+    # PACT read-refusal-retry-calls: the inner tests name no field, so they
+    # test `type`; the call with `and` around them is offered.
+    assert refusal.retry_arguments == {"query": "q", "where": {"op": "and", "clauses": [
+        {"type": {"op": "eq", "value": "a"}}, {"type": {"op": "eq", "value": "b"}},
+    ]}}
     for op in ("or", "not"):
         assert "joins conditions" in _refused({"attrs.x": {"op": op, "clauses": []}}).message
 
@@ -3783,3 +3787,66 @@ def test_not_equal_is_offered_as_a_guess_that_says_what_it_keeps():
     assert "keeps records without that field" in refusal.fix_hint
     assert refusal.retry_arguments == {"where": {"op": "not", "clause": {
         "attrs.n": {"op": "eq", "value": 3}}}}
+
+
+# --------------------------------------------------------------------------- #
+# a logical word written as a field's test (PACT read-refusal-retry-calls)     #
+# --------------------------------------------------------------------------- #
+
+#: Census M6 qs-01 (re-qs10-RA3 t9 call 5), as recorded.
+QS01 = {
+    "where": {
+        "type": "jira_issue", "attrs.project": "CMSTRANSF",
+        "attrs.status": {"op": "not", "clause": {"op": "eq", "value": "Closed"}},
+        "date.created": {"op": "between", "values": ["2025-01-01", "2026-12-31"]},
+    },
+    "by": ["year(date.created)"], "metrics": ["count"],
+    "order_by": "year(date.created)", "limit": 10,
+}
+
+
+def test_census_qs01_not_as_a_fields_test_offers_the_not_around_it():
+    """Must-fail on dev: refused with no call ("which fields the inner
+    conditions test cannot be told"). The inner test names no field, so it
+    tests the key: the call with `not` around that test is offered, and the
+    rewrite takes it with no note."""
+    refusal = _call_refused("aggregate", QS01)
+    assert refusal.repairable and refusal.retry_mode == "corrected"
+    assert refusal.retry_arguments == {**QS01, "where": {"op": "and", "clauses": [
+        {"type": "jira_issue", "attrs.project": "CMSTRANSF",
+         "date.created": {"op": "between", "values": ["2025-01-01", "2026-12-31"]}},
+        {"op": "not", "clause": {"attrs.status": {"op": "eq", "value": "Closed"}}},
+    ]}}
+    assert refusal.fix_hint.startswith("write `not` around the test on `attrs.status`")
+    assert not rewrite_call("aggregate", refusal.retry_arguments).adjusted
+
+
+@pytest.mark.parametrize(("value", "around"), [
+    ({"op": "or", "clauses": [{"op": "eq", "value": "Open"}, {"op": "prefix", "value": "In "}]},
+     {"op": "or", "clauses": [{"attrs.status": {"op": "eq", "value": "Open"}},
+                              {"attrs.status": {"op": "prefix", "value": "In "}}]}),
+    # An inner test that repeats the key as its field: the same field.
+    ({"op": "not", "clause": {"op": "eq", "field": "attrs.status", "value": "Closed"}},
+     {"op": "not", "clause": {"attrs.status": {"op": "eq", "value": "Closed"}}}),
+], ids=["or", "not-field-repeated"])
+def test_a_logical_word_joining_tests_of_its_key_is_offered_around_them(value, around):
+    refusal = _call_refused("filter", {"where": {"attrs.status": value}})
+    assert refusal.retry_mode == "corrected"
+    assert refusal.retry_arguments == {"where": around}
+    assert not rewrite_call("filter", refusal.retry_arguments).adjusted
+
+
+@pytest.mark.parametrize("value", [
+    # Another field inside: which field is meant cannot be told.
+    {"op": "not", "clause": {"op": "eq", "field": "attrs.owner", "value": "me"}},
+    # A logical word inside: not one comparison.
+    {"op": "not", "clause": {"op": "or", "clauses": [{"op": "eq", "value": "a"}]}},
+    {"op": "and", "clauses": []},
+    # An operator that is no comparison: moved, it would still be refused
+    # (review L2), so the words stay and no rewrite is suggested.
+    {"op": "or", "clauses": [{"op": "eq", "value": "a"}, {"op": "zzz", "value": "b"}]},
+], ids=["other-field", "nested-logical", "empty", "unknown-operator"])
+def test_a_logical_word_that_is_not_only_tests_of_its_key_keeps_its_words(value):
+    refusal = _call_refused("filter", {"where": {"attrs.status": value}})
+    assert refusal.retry_arguments is None and not refusal.repairable
+    assert "cannot be told from this value" in refusal.fix_hint

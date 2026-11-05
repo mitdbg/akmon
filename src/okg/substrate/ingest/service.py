@@ -62,10 +62,11 @@ from okg.substrate.ingest.planning import (
     topo_sort,
     validate_deferred_source_activation,
 )
-from okg.substrate.ingest import full_retraction_guard as _retraction_guard
+from okg.substrate.ingest import full_retraction_guard as _retraction_guard, source_blob_prune as _blob_prune
 from okg.substrate.ingest.runner import (
     dedupe_report_fields,
     image_report_fields,
+    prior_record_set_report_fields,
     sanitize_report_fields as _sanitize_report_fields,
     SourceRunner,
     SourceRunContext,
@@ -2118,11 +2119,8 @@ def _run_source(
             job_hooks.acquire_run_lock(entry.ownership_id or name)
             mark_timing("source_run_lock")
         stage = "source_state_snapshot"
-        source_state_snapshot = _snapshot_source_state(
-            options.dsn,
-            deployment=options.deployment,
-            source=entry.ownership_id,
-        )
+        source_state_snapshot = _snapshot_source_state(options.dsn, deployment=options.deployment, source=entry.ownership_id)
+        _blob_prune.pin_snapshot_blobs(options.dsn, source_state_snapshot)
         mark_timing("source_state_snapshot")
         if job_hooks is not None:
             job_hooks.started(
@@ -2332,6 +2330,7 @@ def _run_source(
                 expected_replay_run_id=str(replay_run_id) if replay_run_id else None,
             )
             mark_timing("source_state_restore")
+        blob_prune = _blob_prune.after_accept(options.dsn, deployment=options.deployment, source=entry.ownership_id, admission_status=admission_final_status, deployment_ref=str(options.deployment_dir), lock_held=job_hooks is not None)
         if finalize_result.rejected:
             reason = finalize_result.reason or "source_admission_rejected"
             return {
@@ -2369,6 +2368,7 @@ def _run_source(
                 ),
                 **_sanitize_report_fields(result),
                 **image_report_fields(result),
+                **prior_record_set_report_fields(result),
             }
     except Exception as e:
         # The runner already flushed this sanitized record before unwinding into
@@ -2489,6 +2489,8 @@ def _run_source(
                 wrote=run_context is not None and not before_first_write,
                 recovery_blocked=recovery_blocked,
             ),
+            # A raised run has no RunResult; the runner kept the unreachable blob.
+            **prior_record_set_report_fields(source_runner),
             # The source-job refusals carry their registered code so the
             # completeness receipt names the cause, not only the stage.
             **(
@@ -2599,6 +2601,8 @@ def _run_source(
         # bytes stored; present only when the run saw a file image value.
         **image_report_fields(result),
         **_retraction_guard.full_retraction_report_fields(result),
+        # The prior record-set blob this run could not reach, if any; this run's automatic blob prune.
+        **prior_record_set_report_fields(result), **_blob_prune.report_fields(blob_prune),
     }
     if stale_module_recovery is not None:
         # The run succeeded, but only because the adapter's module had to be re-imported. Report it

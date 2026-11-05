@@ -1156,8 +1156,10 @@ def test_a_classification_overlay_added_at_a_read_generation_is_seen(
         after = [v._state.overlay for v in opened if v.row_kind == "node"]
     finally:
         _close(mcp)
-    assert before == [False], before
-    assert after == [True], after
+    # Lane ri F6 (read-empty-why-f6): the page is empty, so F6 runs 2
+    # drop-one probes (the subtype, the assignee), each opening a view.
+    assert before == [False] * 3, before
+    assert after == [True] * 3, after
 
 
 def test_the_view_takes_the_callers_reading_of_the_nomos_mode(

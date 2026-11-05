@@ -230,11 +230,8 @@ async def test_max_bytes_publishes_the_minimum_the_runtime_enforces(
             # page shortens its text to fit instead.
             assert "max_bytes" not in listed[name]["properties"]
             continue
-        if name == "run":
-            # `run` shares its budget among its steps and its own refusal
-            # names the value that works; it does not publish the floor.
-            assert listed[name]["properties"]["max_bytes"] == {"type": "integer"}
-            continue
+        # `run` too (lane re): a model sent it 2000, 2048 and 4000 and was
+        # refused 7 times; the floor is now in its schema like the others.
         assert listed[name]["properties"]["max_bytes"] == {
             "minimum": MIN_RESPONSE_BYTES, "type": "integer",
         }, name

@@ -2825,6 +2825,8 @@ CREATE TABLE IF NOT EXISTS okg.mcp_call_log (
   elapsed_ms   INTEGER,
   result_count INTEGER,
   error_code   TEXT,
+  question_id  TEXT,
+  try_number   INTEGER,
   PRIMARY KEY (ts, call_id)
 );
 
@@ -2841,6 +2843,16 @@ ALTER TABLE okg.mcp_call_log
   ADD COLUMN IF NOT EXISTS operator_name TEXT,
   ADD COLUMN IF NOT EXISTS replacement_operator TEXT,
   ADD COLUMN IF NOT EXISTS cost JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- The benchmark question and try a call served (issue #3773), sent by the
+-- client per request (X-OKG-Question / X-OKG-Try headers or _meta
+-- okg/question / okg/try), else the in-process or OKG_MCP_SESSION_QUESTION
+-- label with no try. Nullable with no default: TimescaleDB adds such a
+-- column to a hypertable with compressed chunks without a rewrite, and
+-- historical rows stay NULL (no question recorded).
+ALTER TABLE okg.mcp_call_log
+  ADD COLUMN IF NOT EXISTS question_id TEXT,
+  ADD COLUMN IF NOT EXISTS try_number INTEGER;
 
 -- Guard the pin->TEXT conversion exactly as schema.sql guards the
 -- mcp_trace_events generation_id->TEXT conversion
@@ -2937,7 +2949,9 @@ SELECT
   pin,
   elapsed_ms,
   result_count,
-  error_code
+  error_code,
+  question_id,
+  try_number
 FROM okg.mcp_call_log;
 
 -- `okg.v_mcp_call_costs` — typed per-call cost columns projected from

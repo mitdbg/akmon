@@ -113,6 +113,10 @@ MAX_PATTERN_CHARS = 200
 MAX_REPEAT_COUNT = 1_000
 #: Characters of text read as a number.
 MAX_NUMBER_TEXT = 64
+#: The one number rule's text form (PACT read-stored-metrics): exactly one JSON
+#: number. The same pattern as `operator_sql._NUMBER_TEXT` (a test pins the two
+#: equal); written here because this module imports nothing from the read path.
+_NUMBER_TEXT = _re.compile(r"-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?")
 #: Every number stays below this in absolute value.
 NUMBER_LIMIT = 10 ** 38
 #: Significant digits a stored non-whole number keeps (DBL_DIG).
@@ -301,8 +305,15 @@ def _from_text(text: str) -> Number:
     return _in_range(_whole(value))
 
 
-def to_number(value: Any) -> Optional[Number]:
+def to_number(value: Any, *, strict: bool = True) -> Optional[Number]:
     """The one rule for reading a value as a number (spec 5.3).
+
+    Text is read by the one number rule of live and stored totals (PACT
+    read-stored-metrics): with `strict` (an operand read implicitly), only
+    text that is exactly one JSON number (`operator_sql._NUMBER_TEXT`) is a
+    number, so " 10 ", "+5" and "010" are `not_a_number`. The explicit
+    `number()` and a number literal pass `strict=False`: surrounding spaces
+    and a sign are taken, as documented.
 
     ``None`` is null. A ``bool`` is not a number. An ``int`` is itself. A
     finite ``float`` is ``Decimal(repr(x))``, its shortest text, so a stored
@@ -330,6 +341,8 @@ def to_number(value: Any) -> Optional[Number]:
             raise RowError("number_too_large")
         return _in_range(_whole(value))
     if isinstance(value, str):
+        if strict and _NUMBER_TEXT.fullmatch(value) is None:
+            raise RowError("not_a_number")
         return _from_text(value)
     raise RowError("not_a_number")
 
@@ -738,7 +751,7 @@ def _lex(text: str, column: str) -> list[_Tok]:
                     "shorten the number", limit=MAX_NUMBER_TEXT, position=i + 1, column=column,
                 )
             try:
-                value = to_number(literal)
+                value = to_number(literal, strict=False)
             except RowError as exc:
                 raise _refuse(
                     exc.kind, f"calc.{column}: the number {literal} is out of range: every number stays below 10^38 and above 10^-999999",
@@ -1991,7 +2004,7 @@ def _apply(run: _Run, name: str, values: list[Any], node: _Call) -> Any:
         value = values[0]
         if isinstance(value, (bool, _dt.datetime)):
             raise RowError("not_a_number")
-        return to_number(value)
+        return to_number(value, strict=False)
     if name == "string":
         return _text_result(_text_of(values[0]) or "")
     if name == "to_unit":

@@ -403,7 +403,12 @@ async def test_the_read_tools_publish_far_fewer_tokens(lean, full):
     # Then 3,359 (+112, read-map-compute): map's description teaches
     # compute (with one runnable column-only example and its paging line) and its published
     # `compute` argument; aggregate's metric pattern takes sum(calc.<name>).
-    assert after == 3_359, after
+    # Then 3,377 (+18, read-stored-metrics): aggregate says by=[] gives one
+    # total and sum/min/max read a stored set of up to 50,000 records, not
+    # while access rules are on.
+    # Then 3,385 (+8, read-run-rows-compute): map's input line names a run
+    # step's "$n" where run is served.
+    assert after == 3_385, after
     assert before - after >= 1_200, (before, after)
 
 

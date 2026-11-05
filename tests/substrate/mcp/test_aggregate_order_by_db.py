@@ -196,9 +196,12 @@ def test_stored_missing_key_and_json_null_groups(clean_runtime: str, deployment:
         unranked = await _json(client, "aggregate", PROBE_K)
         keys = [g["attrs.k"] for g in unranked["groups"]]
         # Publish keeps both: the missing key (SQL NULL) and the JSON null
-        # are two groups, each printed null without order_by.
-        assert sorted(map(str, keys)) == ["None", "None", "v"], unranked["groups"]
+        # are two groups. PACT read-stored-metrics (one grouping rule): the
+        # missing key prints (absent) without order_by too, named in
+        # absent_keys, as a sum and a live set print it.
+        assert sorted(map(str, keys)) == ["(absent)", "None", "v"], unranked["groups"]
         assert all(set(g) == {"attrs.k", "count"} for g in unranked["groups"])
+        assert unranked["absent_keys"] == {"attrs.k": 1}
         assert unranked["total_count"] == 3
         seen = set()
         for desc in ("", " desc") * 10:
@@ -228,7 +231,8 @@ def test_an_each_count_with_another_field_ranks_null_and_absent_in_a_total_order
 
     async def body(client: Any) -> None:
         unranked = await _json(client, "aggregate", call)
-        assert sorted(str(g["attrs.k"]) for g in unranked["groups"]) == ["None", "None", "v"]
+        # PACT read-stored-metrics (one grouping rule): (absent) unranked too.
+        assert sorted(str(g["attrs.k"]) for g in unranked["groups"]) == ["(absent)", "None", "v"]
         seen = set()
         for desc in ("", " desc") * 5:
             ranked = await _json(client, "aggregate", {**call, "order_by": "attrs.k" + desc})

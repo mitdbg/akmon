@@ -257,17 +257,38 @@ def _finite(value: Any) -> Any:
     return value
 
 
+#: PACT read-stored-metrics (re-review R1): a stored number no float holds
+#: (`live_result_sets.ExactNumber`) is written as a JSON number literal of
+#: its exact text, never as a string, so it never reads as text with the same
+#: characters. `json` cannot write a literal for a custom type, so it is
+#: written as a marked string first and the mark is replaced. The mark starts
+#: with NUL and holds a per-process nonce: no served text can forge it.
+_EXACT_MARK = "\x00okg-exact-number-" + __import__("secrets").token_hex(8) + ":"
+_EXACT_WRITTEN = re.compile(
+    '"' + re.escape(json.dumps(_EXACT_MARK)[1:-1]) + r'(-?[0-9][0-9.eE+-]*)"'
+)
+
+
+def _default(value: Any) -> Any:
+    if getattr(value, "okg_exact_number", False):
+        return _EXACT_MARK + value.json_text()
+    return str(value)
+
+
 def _dumps(value: Any) -> str:
     try:
-        return json.dumps(
-            value, separators=(",", ":"), ensure_ascii=False, default=str,
+        text = json.dumps(
+            value, separators=(",", ":"), ensure_ascii=False, default=_default,
             allow_nan=False,
         )
     except ValueError:
-        return json.dumps(
-            _finite(value), separators=(",", ":"), ensure_ascii=False, default=str,
+        text = json.dumps(
+            _finite(value), separators=(",", ":"), ensure_ascii=False, default=_default,
             allow_nan=False,
         )
+    if _EXACT_MARK[1:] in text:
+        text = _EXACT_WRITTEN.sub(r"\1", text)
+    return text
 
 
 def safe_json(value: Any) -> str:
@@ -2309,6 +2330,10 @@ def _notices(
     absent = _exact_name_absent_line(payload)
     if absent is not None:
         out.append(absent)
+    from okg.substrate.mcp.empty_why import EMPTY_WHY_KEY, render as render_empty_why
+
+    # Lane ri F6: why an empty search page is empty, and its loosened ids.
+    out += render_empty_why(payload.get(EMPTY_WHY_KEY))
     freshness = payload.get("source_freshness")
     key = stale_key(freshness)
     announce = key is not None
@@ -2895,7 +2920,7 @@ _PLACED_TOP = frozenset({
     "totals_cover", "names_only", "absent_keys", "sum_not_exact", "value_lists_not_read",
     "sum_large_floats", "combined",
     "items", "groups", "rows", "columns", "mentions", "not_a_total", "value_hint",
-    "where_checked_on", "exact_name_absent",
+    "where_checked_on", "exact_name_absent", "empty_why",
 })
 
 _ROW_KEYS = ("results", "neighbors", "items", "groups", "rows")
@@ -2997,6 +3022,12 @@ def _placed_leftovers(
         ):
             # Said by its notice line (#3666, lane ri; read-live-handles R3-3).
             if value is None or isinstance(value, (dict, list)):
+                continue
+        elif key == "empty_why":
+            # Said by its notice lines whenever they render (lane ri F6).
+            from okg.substrate.mcp.empty_why import render as render_empty_why
+
+            if value is None or render_empty_why(value):
                 continue
         elif key == "names_only":
             # Said by its notice line whenever it renders (lane ri, q020).
@@ -3548,6 +3579,8 @@ class _LineParts(_Parts):
 _LIST_ROW_PLACED = frozenset({
     "node_id", "subtype", HANDLE_KEY, "provenance", "read_provenance", "evidence_kind",
     "unit", "copies", "copies_total", "parent", "matches", "first_match", CITATION_KEY,
+    # PACT grep-rows-all-lines: placed after the first line.
+    "other_lines", "lines_left", "lines_left_basis",
 })
 #: ``search_views.LIST_ROW_UNIT_KEY``, restated: result_text imports no
 #: operator module.
@@ -3563,13 +3596,21 @@ _SHARED_LINE_BASIS_NOTICE = {
 
 
 def _shared_line_basis(rows: list[Any]) -> Optional[str]:
-    """The one `line_basis` every list row with a first match carries, when
-    there are at least two such rows and the basis has a notice; else None."""
-    bases = [
-        row["first_match"].get("line_basis") for row in rows
+    """The one `line_basis` every shown line of a list page carries (each
+    row's first match and its other lines, PACT grep-rows-all-lines), when
+    at least two rows show a line and the basis has a notice; else None."""
+    shown = [
+        row for row in rows
         if isinstance(row, dict) and isinstance(row.get("first_match"), dict)
     ]
-    if len(bases) < 2 or len(set(bases)) != 1 or bases[0] not in _SHARED_LINE_BASIS_NOTICE:
+    bases = [
+        line.get("line_basis") for row in shown
+        for line in [row["first_match"], *(
+            other for other in (row.get("other_lines") or [])
+            if isinstance(other, dict)
+        )]
+    ]
+    if len(shown) < 2 or len(set(bases)) != 1 or bases[0] not in _SHARED_LINE_BASIS_NOTICE:
         return None
     return bases[0]
 
@@ -3598,6 +3639,43 @@ def _restated_in_handle(text: Any, handle: Any) -> Optional[str]:
         if field and core in field.casefold():
             return name
     return None
+
+
+def _list_other_lines(
+    parts: "_LineParts", row: dict[str, Any], *, shared_basis: Optional[str],
+) -> None:
+    """A grep list row's other matched lines, then how many it left out
+    (PACT grep-rows-all-lines): ``line 490 · text="..."`` each, the line's
+    place said as the first line's is, then ``2 more lines`` (``2+`` when
+    that is a lower bound). Each text is quoted or fenced inline."""
+    others = row.get("other_lines")
+    for other in others if isinstance(others, list) else ():
+        if not isinstance(other, dict):
+            continue
+        where = f"line {scalar(other.get('line'))}"
+        if other.get("chunk") != row.get("node_id"):
+            where = f"{token_text(other.get('chunk'))} {where}"
+        if (
+            other.get("line_basis") == MATCH_LINE_IN_OWN_TEXT
+            and shared_basis != MATCH_LINE_IN_OWN_TEXT
+        ):
+            where = f"own-text {where}"
+        parts.facts.append(where)
+        if other.get("text") is not None:
+            parts.block("text", other["text"])
+        basis = other.get("line_basis")
+        if basis in (None, MATCH_LINE_IN_OWN_TEXT) or basis == shared_basis:
+            # Said beside the line, or once in the page's notice.
+            pass
+        elif basis == MATCH_LINE_IN_PASSAGE:
+            # Review M1: said for each line, as for the first.
+            parts.facts.append("line counted in the passage")
+        else:
+            parts.fact("line_basis", basis)
+    left = _int(row.get("lines_left"))
+    if left is not None and left > 0:
+        plus = "+" if row.get("lines_left_basis") == "at_least" else ""
+        parts.facts.append(f"{left}{plus} more line" + ("" if left == 1 and not plus else "s"))
 
 
 def _search_list_line(
@@ -3660,6 +3738,7 @@ def _search_list_line(
             parts.facts.append("line counted in the passage")
         elif first.get("line_basis") is not None:
             parts.fact("line_basis", first["line_basis"])
+    _list_other_lines(parts, row, shared_basis=shared_basis)
     parent = row.get("parent")
     if isinstance(parent, dict) and parent.get("node_id"):
         # Issue #3467: which record a listed passage belongs to.
@@ -5059,6 +5138,14 @@ def _search_status(
             facts.append(f"other passages left out to fit{kept}")
         else:
             facts.append("head lines only to fit")
+    lines_cut = _int(payload.get("match_lines_cut"))
+    if lines_cut is not None and lines_cut > 0:
+        # PACT grep-rows-all-lines: every row is kept; the lowest rows'
+        # other matched lines were left out to fit (each row counts them).
+        facts.append(
+            f"other matched lines of {lines_cut} {'row' if lines_cut == 1 else 'rows'}"
+            " left out to fit"
+        )
     heads_cut = payload.get("head_lines_shortened")
     if isinstance(heads_cut, dict) and heads_cut:
         # D4: even the head lines were shortened to keep every row.

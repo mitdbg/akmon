@@ -39,7 +39,12 @@ from okg.substrate.library.linkers.rules import (
 )
 
 
-__all__ = ["CrossLinkFieldShapeError", "DeclarativeLinker"]
+__all__ = [
+    "DEFAULT_MAX_PAIR_COMPARISONS",
+    "CrossLinkFieldShapeError",
+    "CrossLinkPairLimitExceeded",
+    "DeclarativeLinker",
+]
 
 log = logging.getLogger(__name__)
 
@@ -190,6 +195,120 @@ def _index_by_value(
     for node_id, value in pairs:
         index.setdefault(value, set()).add(node_id)
     return {value: tuple(sorted(ids)) for value, ids in index.items()}
+
+
+def _index_by_slug(dsts: list[tuple[str, str]]) -> dict[str, list[str]]:
+    """Map each non-empty slug to the destinations carrying it."""
+    by_slug: dict[str, list[str]] = {}
+    for dst_id, slug in dsts:
+        if slug:
+            by_slug.setdefault(slug, []).append(dst_id)
+    return by_slug
+
+
+# `subject_prefix`: a slug may end right before one of these characters.
+_SUBJECT_BREAK = re.compile(r"[: ]")
+# `word_boundary`: a slug must not touch one of these on either side.
+_WORD_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+)
+# One token per maximal run of word characters, one per other character.
+_WORD_TOKEN = re.compile(r"[a-zA-Z0-9-]+|[^a-zA-Z0-9-]")
+# At or below this many distinct slugs, `word_boundary` tests each text for
+# each slug directly (a C substring scan, then the regex on a hit): with one
+# or two slugs that beats tokenizing every text. The work is still bounded
+# by texts x this constant, not by texts x destinations.
+_FEW_SLUGS = 32
+
+
+class _WordBoundaryIndex:
+    """The slugs of a `word_boundary` rule, indexed for a one-pass scan.
+
+    `by_slug` maps each non-empty slug to its destinations; `prefixes`
+    holds every proper token-prefix of every slug (see
+    `DeclarativeLinker._pairs_word_boundary` for why tokens suffice)."""
+
+    __slots__ = ("by_slug", "prefixes")
+
+    def __init__(self, dsts: list[tuple[str, str]]) -> None:
+        self.by_slug = _index_by_slug(dsts)
+        self.prefixes: set[str] = set()
+        for slug in self.by_slug:
+            ends = [m.end() for m in _WORD_TOKEN.finditer(slug)]
+            for end in ends[:-1]:
+                self.prefixes.add(slug[:end])
+
+    def slugs_in(self, text: str) -> set[str]:
+        """Every slug the word-boundary regex would find in `text`."""
+        by_slug = self.by_slug
+        prefixes = self.prefixes
+        word_chars = _WORD_CHARS
+        n = len(text)
+        ends = [m.end() for m in _WORD_TOKEN.finditer(text)]
+        n_tokens = len(ends)
+        found: set[str] = set()
+        start = 0
+        for k in range(n_tokens):
+            i = start
+            start = ends[k]
+            # Left neighbour: the start of the text, or a non-word character.
+            if i and text[i - 1] in word_chars:
+                continue
+            for m in range(k, n_tokens):
+                j = ends[m]
+                piece = text[i:j]
+                # Right neighbour: the end of the text, or a non-word character.
+                if piece in by_slug and (j == n or text[j] not in word_chars):
+                    found.add(piece)
+                if piece not in prefixes:
+                    break
+        return found
+
+
+# Default ceiling on the comparisons one matcher step may make when it has
+# to compare every candidate with every value. Above it the step refuses
+# instead of running for hours (`cross_link_pair_limit_exceeded`).
+DEFAULT_MAX_PAIR_COMPARISONS = 50_000_000
+
+
+class CrossLinkPairLimitExceeded(SubstrateError):
+    """A cross-link matcher step would compare more pairs than its limit.
+
+    Raised before the work starts, so a rule that would grind for hours
+    fails the run at once with the sizes that caused it."""
+
+    code = "cross_link_pair_limit_exceeded"
+
+
+def _check_pair_limit(
+    *,
+    rule_id: str,
+    step: str,
+    n_left: int,
+    n_right: int,
+    limit: int,
+) -> None:
+    n_pairs = n_left * n_right
+    if n_pairs <= limit:
+        return
+    raise CrossLinkPairLimitExceeded(
+        f"cross-link rule {rule_id!r}: {step} would compare "
+        f"{n_left} x {n_right} = {n_pairs} pairs, over the limit of {limit}",
+        data={
+            "rule_id": rule_id,
+            "step": step,
+            "n_left": n_left,
+            "n_right": n_right,
+            "limit": limit,
+        },
+        fix_hint=_PAIR_LIMIT_FIX_HINT,
+    )
+
+
+_PAIR_LIMIT_FIX_HINT = (
+    "name the rule's field with letters, digits and underscores so the "
+    "match runs in the database, or raise the linker's max_pair_comparisons"
+)
 
 
 def _cached_skips(
@@ -350,9 +469,16 @@ class DeclarativeLinker:
         exclude_rule_ids: Optional[list[str]] = None,
         publisher_skip_when_clean: Optional[bool] = None,
         publisher_skip_alias_table_when_clean: Optional[bool] = None,
+        max_pair_comparisons: Optional[int] = None,
     ) -> None:
-        """Construct a DeclarativeLinker. Sources of rules
-        (in priority order; first non-empty wins):
+        """Construct a DeclarativeLinker.
+
+        `max_pair_comparisons` caps a matcher step that has to compare
+        every candidate with every value (default
+        `DEFAULT_MAX_PAIR_COMPARISONS`); a step above it raises
+        `CrossLinkPairLimitExceeded` before doing the work.
+
+        Sources of rules (in priority order; first non-empty wins):
 
           1. `rules=[CrossLinkRule, ...]` — programmatic.
           2. `rules_files=["path/a.yaml", ...]` — explicit list.
@@ -407,6 +533,18 @@ class DeclarativeLinker:
         # the input-quarantine ledger is keyed by deployment and branch.
         self._publisher_deployment_name: str | None = None
         self._publisher_branch_name: str | None = None
+        if max_pair_comparisons is None:
+            max_pair_comparisons = DEFAULT_MAX_PAIR_COMPARISONS
+        if (
+            isinstance(max_pair_comparisons, bool)
+            or not isinstance(max_pair_comparisons, int)
+            or max_pair_comparisons < 1
+        ):
+            raise ValueError(
+                "max_pair_comparisons must be a positive integer, got "
+                f"{max_pair_comparisons!r}"
+            )
+        self.max_pair_comparisons = max_pair_comparisons
         self.rules = collected
         # Aggregate every read subtype across all rules; the
         # publisher-side validator uses this to confirm subtypes
@@ -822,7 +960,7 @@ class DeclarativeLinker:
         if cache_key in endpoint_cache:
             cached = endpoint_cache[cache_key]
             return frozenset(subtype for _node_id, subtype in cached)
-        rows = _chronos.query(
+        rows = _chronos.query_strict(
             cur,
             """
             SELECT node_id, subtype
@@ -857,7 +995,7 @@ class DeclarativeLinker:
         cache_key = ("any_live", tuple(subtypes))
         if endpoint_cache is not None and cache_key in endpoint_cache:
             return bool(endpoint_cache[cache_key])
-        rows = _chronos.query(
+        rows = _chronos.query_strict(
             cur,
             """
             SELECT node_id
@@ -950,6 +1088,7 @@ class DeclarativeLinker:
                 ),
                 endpoint_cache=endpoint_cache,
                 shape_skips=shape_skips,
+                max_pair_comparisons=self.max_pair_comparisons,
             )
         if m == "alias_table":
             return self._match_alias_table(
@@ -1005,7 +1144,7 @@ class DeclarativeLinker:
         params: dict[str, Any] = {"subtypes": list(subtypes)}
         if only_node_ids is not None:
             params["node_ids"] = list(only_node_ids)
-        rows = _chronos.query(
+        rows = _chronos.query_strict(
             cur,
             f"""
             SELECT node_id, attrs
@@ -1016,7 +1155,7 @@ class DeclarativeLinker:
             params,
         )
         if only_node_ids is not None and not rows:
-            rows = _chronos.query(
+            rows = _chronos.query_strict(
                 cur,
                 """
                 SELECT node_id, subtype, attrs
@@ -1081,7 +1220,7 @@ class DeclarativeLinker:
         params: dict[str, Any] = {"subtypes": list(subtypes)}
         if only_node_ids is not None:
             params["node_ids"] = list(only_node_ids)
-        rows = _chronos.query(
+        rows = _chronos.query_strict(
             cur,
             f"""
             SELECT node_id, attrs
@@ -1092,7 +1231,7 @@ class DeclarativeLinker:
             params,
         )
         if only_node_ids is not None and not rows:
-            rows = _chronos.query(
+            rows = _chronos.query_strict(
                 cur,
                 """
                 SELECT node_id, subtype, attrs
@@ -1128,16 +1267,15 @@ class DeclarativeLinker:
         field: str,
         values: set[str],
         endpoint_cache: _EndpointCache | None = None,
-        strict: bool = False,
         shape_skips: list[CrossLinkFieldShapeError] | None = None,
     ) -> list[tuple[str, str]]:
         """Return `(node_id, value)` for nodes whose `field` holds a value.
 
         The values bind as one array, so any number of them fits in one
-        query. With `strict=True` a failed query raises instead of reading
-        as "no node matches"; callers that must not mistake an error for an
-        empty answer pass it. Passing `shape_skips` reads a matched node's
-        field as `_fetch_subtype_field` does with it.
+        query. A failed query raises instead of reading as "no node
+        matches", like every graph read in this linker. Passing
+        `shape_skips` reads a matched node's field as `_fetch_subtype_field`
+        does with it.
         """
         if not values:
             return []
@@ -1162,8 +1300,7 @@ class DeclarativeLinker:
             if shape_skips is not None:
                 shape_skips.extend(_cached_skips(endpoint_cache, cache_key))
             return endpoint_cache[cache_key]
-        read = _chronos.query_strict if strict else _chronos.query
-        rows = read(
+        rows = _chronos.query_strict(
             cur,
             f"""
             SELECT node_id, attrs
@@ -1221,13 +1358,20 @@ class DeclarativeLinker:
         values: set[str],
         shape_skips: list[CrossLinkFieldShapeError],
         endpoint_cache: _EndpointCache | None = None,
+        rule_id: str = "",
+        max_pair_comparisons: int = DEFAULT_MAX_PAIR_COMPARISONS,
     ) -> list[tuple[str, str]]:
         """Return `(node_id, value)` for nodes whose `field` may contain
         one of `values`, read the way `derive_from_path` reads a field:
         one row per scalar, or per item of a list of scalars; a node it
         cannot read is appended to `shape_skips`. Only `derive_from_path`
         calls this; the SQL filter is a superset and the caller's regex
-        decides."""
+        decides.
+
+        A field name the SQL cannot embed is filtered here instead, by
+        testing every row against every value. That is the one every-pair
+        step left in this linker, so it refuses with
+        `CrossLinkPairLimitExceeded` above `max_pair_comparisons`."""
         if not values:
             return []
         if not _SAFE_ATTR_FIELD.match(field):
@@ -1237,6 +1381,13 @@ class DeclarativeLinker:
                 field=field,
                 endpoint_cache=endpoint_cache,
                 shape_skips=shape_skips,
+            )
+            _check_pair_limit(
+                rule_id=rule_id,
+                step=f"derive_from_path containment filter on field {field!r}",
+                n_left=len(rows),
+                n_right=len(values),
+                limit=max_pair_comparisons,
             )
             return [
                 row for row in rows
@@ -1254,7 +1405,7 @@ class DeclarativeLinker:
         patterns = [f"%{value}%" for value in sorted(values) if value]
         if not patterns:
             return []
-        rows = _chronos.query(
+        rows = _chronos.query_strict(
             cur,
             f"""
             SELECT node_id, attrs
@@ -1461,16 +1612,28 @@ class DeclarativeLinker:
         srcs: list[tuple[str, str]],
         dsts: list[tuple[str, str]],
     ) -> set[tuple[str, str]]:
+        """Pair a subject with every non-empty slug it starts with.
+
+        A slug matches when ``subj == slug`` or ``subj`` starts with
+        ``slug + ":"`` or ``slug + " "``. Equivalently, the slug is the
+        whole subject or the part of it before a ``:`` or a space. So each
+        subject probes a slug table with those few candidates instead of
+        comparing against every slug: the work grows with the text, not
+        with sources times destinations."""
+        by_slug = _index_by_slug(dsts)
+        if not by_slug:
+            return set()
+        max_len = max(len(slug) for slug in by_slug)
         out: set[tuple[str, str]] = set()
         for src_id, subj in srcs:
-            for dst_id, slug in dsts:
-                if not slug:
-                    continue
-                if (
-                    subj == slug
-                    or subj.startswith(slug + ":")
-                    or subj.startswith(slug + " ")
-                ):
+            for dst_id in by_slug.get(subj, ()):
+                out.add((src_id, dst_id))
+            # A break at index k means the candidate slug is subj[:k]; the
+            # slug is non-empty (k >= 1) and no longer than the longest one.
+            for brk in _SUBJECT_BREAK.finditer(
+                subj, 1, min(len(subj), max_len + 1),
+            ):
+                for dst_id in by_slug.get(subj[:brk.start()], ()):
                     out.add((src_id, dst_id))
         return out
 
@@ -1528,21 +1691,50 @@ class DeclarativeLinker:
         srcs: list[tuple[str, str]],
         dsts: list[tuple[str, str]],
     ) -> set[tuple[str, str]]:
-        pat_cache: dict[str, re.Pattern] = {}
+        """Pair a text with every non-empty slug it mentions as a whole word.
+
+        A slug matches when the regex
+        ``(?:^|[^a-zA-Z0-9-])<slug>(?:[^a-zA-Z0-9-]|$)`` finds it: the slug
+        occurs, and neither neighbour is a letter, digit or hyphen. This
+        computes the same answer in one pass over each text.
+
+        Split a string into tokens: each maximal run of letters, digits and
+        hyphens is one token, and every other character is a token of its
+        own. If a slug occurs at ``text[i:j]`` with the neighbour rule
+        holding, then ``i`` and ``j`` both fall on token boundaries of the
+        text (the character before ``i`` and the one at ``j`` are not word
+        characters), and the text's tokens in that span are exactly the
+        slug's own tokens. So each slug is found by starting at a token,
+        extending one token at a time while the text read so far is a
+        token-prefix of some slug, and checking the full slug and its right
+        neighbour at each step. Every reported slug is checked against the
+        neighbour rule directly, and the walk stops as soon as no slug
+        starts with the text read, so the work grows with the text, not
+        with sources times destinations."""
+        by_slug = _index_by_slug(dsts)
+        if not by_slug:
+            return set()
         out: set[tuple[str, str]] = set()
+        if len(by_slug) <= _FEW_SLUGS:
+            # Few slugs (an incremental run with a handful of changed
+            # destinations): a substring test per text and slug is cheaper
+            # than tokenizing every text, and confirming a hit with the
+            # original regex keeps the answer identical by construction.
+            for slug, dst_ids in by_slug.items():
+                pat = re.compile(
+                    r"(?:^|[^a-zA-Z0-9-])"
+                    + re.escape(slug)
+                    + r"(?:[^a-zA-Z0-9-]|$)"
+                )
+                for src_id, text in srcs:
+                    if slug in text and pat.search(text):
+                        for dst_id in dst_ids:
+                            out.add((src_id, dst_id))
+            return out
+        index = _WordBoundaryIndex(dsts)
         for src_id, text in srcs:
-            for dst_id, slug in dsts:
-                if not slug:
-                    continue
-                pat = pat_cache.get(slug)
-                if pat is None:
-                    pat = re.compile(
-                        r"(?:^|[^a-zA-Z0-9-])"
-                        + re.escape(slug)
-                        + r"(?:[^a-zA-Z0-9-]|$)"
-                    )
-                    pat_cache[slug] = pat
-                if pat.search(text):
+            for slug in index.slugs_in(text):
+                for dst_id in index.by_slug[slug]:
                     out.add((src_id, dst_id))
         return out
 
@@ -1560,6 +1752,7 @@ class DeclarativeLinker:
         ),
         endpoint_cache: _EndpointCache,
         shape_skips: list[CrossLinkFieldShapeError],
+        max_pair_comparisons: int = DEFAULT_MAX_PAIR_COMPARISONS,
     ) -> set[tuple[str, str]]:
         """For each src node (or via_edge.dst_subtype node), run
         the regex on `derive_from_path.attr`; the capture group
@@ -1638,6 +1831,8 @@ class DeclarativeLinker:
                     values=set(scoped_capture_to_dst),
                     endpoint_cache=endpoint_cache,
                     shape_skips=shape_skips,
+                    rule_id=rule.id,
+                    max_pair_comparisons=max_pair_comparisons,
                 )
                 via_to_captures_for_dst: dict[str, list[str]] = {}
                 for via_id, val in via_rows_for_dst:
@@ -1682,7 +1877,7 @@ class DeclarativeLinker:
                 capture_to_dst = _capture_to_dst(None)
                 if not capture_to_dst:
                     return out
-            via_rows = _chronos.query(
+            via_rows = _chronos.query_strict(
                 cur,
                 f"""
                 SELECT node_id, attrs
@@ -1743,7 +1938,7 @@ class DeclarativeLinker:
                 return set()
             # Edges: src -> via_edge.edge_type -> via_dst.
             if candidate_edges is None:
-                edge_rows = _chronos.query(
+                edge_rows = _chronos.query_strict(
                     cur,
                     """
                     SELECT e.src, e.dst
@@ -1799,6 +1994,8 @@ class DeclarativeLinker:
                     values=set(scoped_capture_to_dst),
                     endpoint_cache=endpoint_cache,
                     shape_skips=shape_skips,
+                    rule_id=rule.id,
+                    max_pair_comparisons=max_pair_comparisons,
                 )
             else:
                 srcs = cls._fetch_subtype_field(
@@ -1943,7 +2140,7 @@ class DeclarativeLinker:
         if cache_key in endpoint_cache:
             cached = endpoint_cache[cache_key]
             return frozenset(node_id for node_id, _subtype in cached)
-        rows = _chronos.query(
+        rows = _chronos.query_strict(
             cur,
             """
             SELECT node_id, subtype
@@ -1957,7 +2154,7 @@ class DeclarativeLinker:
             },
         )
         if not rows:
-            rows = _chronos.query(
+            rows = _chronos.query_strict(
                 cur,
                 """
                 SELECT node_id, subtype
@@ -2000,7 +2197,7 @@ class DeclarativeLinker:
                 (str(src), str(dst), int(edge_id))
                 for src, dst, edge_id in endpoint_cache[cache_key]
             ]
-        rows = _chronos.query(
+        rows = _chronos.query_strict(
             cur,
             """
             SELECT e.src, e.dst, e.edge_id
@@ -2046,7 +2243,7 @@ class DeclarativeLinker:
                 (str(src), str(dst), int(edge_id))
                 for src, dst, edge_id in endpoint_cache[cache_key]
             ]
-        rows = _chronos.query(
+        rows = _chronos.query_strict(
             cur,
             """
             SELECT e.src, e.dst, e.edge_id
@@ -2094,7 +2291,7 @@ class DeclarativeLinker:
                 (str(src), str(dst), int(edge_id))
                 for src, dst, edge_id in endpoint_cache[cache_key]
             ]
-        rows = _chronos.query(
+        rows = _chronos.query_strict(
             cur,
             """
             SELECT e.src, e.dst, e.edge_id
@@ -2189,7 +2386,7 @@ class DeclarativeLinker:
         if not alias_to_canon:
             return set()
         canonicals = list(set(alias_to_canon.values()))
-        live_rows = _chronos.query(
+        live_rows = _chronos.query_strict(
             cur,
             "SELECT node_id FROM okg.graph_nodes "
             " WHERE node_id = ANY(:canonicals)",
@@ -2271,7 +2468,6 @@ class DeclarativeLinker:
             field=fallback.field,
             values=remaining,
             endpoint_cache=endpoint_cache,
-            strict=True,
         )
         targets: dict[str, set[str]] = {}
         for node_id, value in rows:

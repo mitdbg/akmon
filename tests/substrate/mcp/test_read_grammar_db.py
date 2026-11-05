@@ -3276,3 +3276,440 @@ def test_date_created_in_a_search_select_is_the_handle(node_select_tools):
     assert not failed, page
     assert all("handle" in row for row in page["results"]), page
     assert any(record["sent"] == "select `date.created`" for record in page["adjusted"])
+
+
+# --------------------------------------------------------------------------- #
+# refusals that name a working call (PACT read-refusal-retry-calls, census M6) #
+# --------------------------------------------------------------------------- #
+
+#: A refusal one change of the caller's own call fixes, the change, and the
+#: field and values of the rows the changed call must serve (None: any rows).
+#: Must-fail on dev: each refusal carried words only, no `retry_call`.
+_EDITED: list[tuple[str, dict, dict, Any]] = [
+    # census M6 okg3-q008 (re-c1-G0 t1 call 23): a passage type with the
+    # record form. The call without within lists the passages (its select
+    # goes too when unit grep does not serve it).
+    ("search", {"query": TERM, "method": "grep", "within": "record",
+                "where": {"type": "doc_chunk"}, "limit": 30,
+                "select": ["node_id", "handle", "provenance"]},
+     {"drop": ["within"]}, ("results", "subtype", {"doc_chunk"})),
+    # within is a grep form: the same call with method grep.
+    ("search", {"query": TERM, "method": "lexical", "within": "record", "limit": 5},
+     {"use": {"method": "grep"}}, ("results", "subtype", {"doc", "ticket"})),
+    # within takes no path: term.
+    ("search", {"query": f"path:docs/00 {TERM}", "method": "grep", "within": "record",
+                "limit": 5},
+     {"drop": ["within"]}, None),
+    # within does not read rank_by.
+    ("search", {"query": TERM, "method": "grep", "within": "record", "rank_by": "records",
+                "limit": 5},
+     {"drop": ["rank_by"]}, None),
+    # grep ranks records only: rank_by='self' goes.
+    ("search", {"query": TERM, "method": "grep", "rank_by": "self", "limit": 5},
+     {"drop": ["rank_by"]}, None),
+    # max_per_parent on a non-lexical method.
+    ("search", {"query": TERM, "method": "grep", "max_per_parent": 1, "limit": 5},
+     {"drop": ["max_per_parent"]}, None),
+    # max_per_parent beside rank_by='records' removes nothing.
+    ("search", {"query": TERM, "rank_by": "records", "max_per_parent": 1, "limit": 5},
+     {"drop": ["max_per_parent"]}, None),
+    # max_per_parent on a where with no query (unranked).
+    ("search", {"where": {"type": "ticket"}, "max_per_parent": 1},
+     {"drop": ["max_per_parent"]}, ("results", "node_id", {"ticket:1"})),
+    # completeness='exact' with the windows view.
+    ("search", {"query": TERM, "method": "grep", "view": "windows",
+                "completeness": "exact", "limit": 3},
+     {"drop": ["completeness"]}, None),
+    # view='list' needs rank_by='records'.
+    ("search", {"query": TERM, "view": "list", "rank_by": "self", "limit": 5},
+     {"drop": ["rank_by"]}, None),
+    # view='list' on a method that has no list.
+    ("search", {"query": "zr-alias", "method": "alias", "view": "list"},
+     {"drop": ["view"]}, None),
+    # view='list' needs at least one select field.
+    ("search", {"query": TERM, "view": "list", "select": [], "limit": 5},
+     {"drop": ["select"]}, None),
+    # view='list' selects its own fields and attrs.<key> only.
+    ("search", {"query": TERM, "view": "list", "select": ["text"], "limit": 5},
+     {"drop": ["select"]}, None),
+    # rank_by='records' on a method that does not fold passages.
+    ("search", {"query": "zr-alias", "method": "alias", "rank_by": "records"},
+     {"drop": ["rank_by"]}, None),
+    # completeness='exact' on a method with no whole match set.
+    ("search", {"query": "zr-alias", "method": "alias", "completeness": "exact"},
+     {"drop": ["completeness"]}, None),
+    # where on identifier_mentions, which reads the query text only.
+    ("search", {"query": "see doc:000", "method": "identifier_mentions",
+                "where": {"type": "doc"}},
+     {"drop": ["where"]}, None),
+    # max_chars outside its range, and not an integer.
+    ("search", {"query": TERM, "max_chars": 5, "limit": 5}, {"drop": ["max_chars"]}, None),
+    ("search", {"query": TERM, "max_chars": "x", "limit": 5}, {"drop": ["max_chars"]}, None),
+    # expand: filter applies to the one-hop shape only.
+    ("expand", {"input": {"node_id": "doc:000"}, "edge_type": "contains", "depth": 2,
+                "filter": {"type": "doc_chunk"}},
+     {"drop": ["filter"]}, None),
+    # expand: args are a live edge's values; this record is stored.
+    ("expand", {"input": {"node_id": "doc:000"}, "edge_type": "contains",
+                "args": {"site": "x"}},
+     {"drop": ["args"]}, ("neighbors", "node_id",
+                          {"doc_chunk:000-0", "doc_chunk:000-1", "doc_chunk:000-2"})),
+]
+
+
+def _edited(sent: dict, edit: dict) -> dict:
+    call = {k: v for k, v in sent.items() if k not in edit.get("drop", ())}
+    return {**call, **edit.get("use", {})}
+
+
+@pytest.mark.parametrize("case", range(len(_EDITED)), ids=lambda i: f"{_EDITED[i][0]}-{i}")
+def test_a_refusal_one_change_fixes_names_that_call_and_it_is_served(tools, case):
+    """The refusal carries the caller's own call with the one change as
+    `retry_call`; JSON and text say the same call; the hint names it within
+    its byte bound; and the call, sent as written, is served."""
+    from okg.substrate.mcp.read_grammar import render_call
+
+    tool, sent, edit, rows = _EDITED[case]
+    (result,) = tools.run((tool, sent, "json"))
+    reply = json.loads(result.content[0].text)
+    assert result.isError and reply["status"] == "refused", reply
+    error = reply["error"]
+    retry = error.get("retry_call")
+    assert retry is not None, error
+    assert retry["tool"] == tool
+    offered = retry["arguments"]
+    # The change, and nothing the caller did not send: every offered
+    # argument is the caller's own (as the grammar reads it) or one the
+    # change names.
+    # The caller's own spelling is offered (census M6: the hint repeats the
+    # call the caller wrote, changed once).
+    assert offered == _edited(sent, edit), offered
+    assert set(offered) <= set(sent) | set(edit.get("use", {}))
+    spelled = render_call(tool, offered) + (" (a guess)" if retry["mode"] == "guess" else "")
+    assert error["fix_hint"].endswith("retry: " + spelled), error["fix_hint"]
+    assert len(error["fix_hint"]) <= 1024
+    if "within" in sent and sent.get("where") == {"type": "doc_chunk"}:
+        # q008's call is served with the passage type's own note ("where
+        # type = `doc_chunk` read as its passages", #4226), so it is sent
+        # here rather than through `_dispatched`, which asks for no note.
+        from tests.substrate.mcp.test_retry_call_reaches_the_caller_db import (
+            received_retry_call,
+        )
+
+        (as_text,) = tools.run((tool, sent, "text"))
+        assert received_retry_call(as_text) == retry
+        assert "retry: " in as_text.content[0].text.splitlines()[0]
+        (result,) = tools.run((tool, offered, "json"))
+        served = json.loads(result.content[0].text)
+        assert not result.isError and served.get("status") != "refused", served
+        assert {note["rule"] for note in served.get("adjusted", [])} == {
+            "grep_passage_type",
+        }, served.get("adjusted")
+    else:
+        served = _dispatched(tools, reply, sent)
+    if rows is not None:
+        key, field, values = rows
+        got = {str(row[field]) for row in served[key]}
+        assert got and got <= values, got
+
+
+def test_census_qs01_a_not_written_as_a_fields_test_names_the_count_that_runs(tools):
+    """Census M6 qs-01 (re-qs10-RA3 t9 call 5): `not` written as the value
+    of a field. Must-fail on dev: refused with words only ("which fields the
+    inner conditions test cannot be told"). The inner test names no field,
+    so the field is the key: the refusal names the call with `not` around
+    that test, and the count it runs is every doc but one."""
+    sent = {
+        "where": {
+            "type": "doc",
+            "attrs.path": {"op": "not", "clause": {"op": "eq", "value": "docs/001.md"}},
+            "date.created": {"op": "between", "values": ["2026-01-01", "2026-12-31"]},
+        },
+        "by": ["year(date.created)"], "metrics": ["count"],
+        "order_by": "year(date.created)", "limit": 10,
+    }
+    (result,) = tools.run(("aggregate", sent, "json"))
+    reply = json.loads(result.content[0].text)
+    assert result.isError, reply
+    retry = reply["error"]["retry_call"]
+    assert retry["mode"] == "corrected"
+    from okg.substrate.mcp.read_grammar import render_call
+
+    hint = reply["error"]["fix_hint"]
+    assert hint.endswith("retry: " + render_call("aggregate", retry["arguments"])), hint
+    assert len(hint) <= 1024
+    assert retry["arguments"]["where"] == {"op": "and", "clauses": [
+        {"type": "doc",
+         "date.created": {"op": "between", "values": ["2026-01-01", "2026-12-31"]}},
+        {"op": "not", "clause": {"attrs.path": {"op": "eq", "value": "docs/001.md"}}},
+    ]}
+    assert {k: v for k, v in retry["arguments"].items() if k != "where"} == {
+        k: v for k, v in sent.items() if k != "where"
+    }
+    served = _dispatched(tools, reply, sent)
+    (group,) = served["groups"]
+    # 132 dated docs, one of them docs/001.md (the undated and external
+    # docs carry no 2026 date).
+    assert group["count"] == RECORDS_DATED - 1, served
+    # The same count as the caller's intent written by hand.
+    (direct,) = tools.run(("aggregate", {**sent, "where": {
+        "op": "and", "clauses": [
+            {"type": "doc", "date.created": {"op": "between",
+                                             "values": ["2026-01-01", "2026-12-31"]}},
+            {"op": "not", "clause": {"op": "eq", "field": "attrs.path",
+                                     "value": "docs/001.md"}},
+        ]}}, "json"))
+    assert json.loads(direct.content[0].text)["groups"] == served["groups"]
+
+
+#: Docs with an `opened_at` date in the list corpus (`test_search_list._corpus`).
+RECORDS_DATED = 133
+
+
+def test_a_logical_test_whose_inner_test_names_another_field_keeps_its_words(tools):
+    """Control: an inner test naming another field cannot be read as a test
+    of the key, so no call is offered and the words say why."""
+    sent = {"where": {"type": "doc", "attrs.path": {
+        "op": "not", "clause": {"op": "eq", "field": "attrs.summary", "value": "x"}}}}
+    (result,) = tools.run(("filter", sent, "json"))
+    reply = json.loads(result.content[0].text)
+    assert result.isError and "retry_call" not in reply["error"], reply
+    assert "cannot be told from this value" in reply["error"]["fix_hint"]
+
+
+# A refusal runs no read of its own (review of read-refusal-retry-calls, H1/M1/M2):
+# the offered call is decided on the argument checks alone.
+
+#: Every changed class: the `_EDITED` calls and the census qs-01 call.
+_QS01_LIKE = (
+    "aggregate",
+    {"where": {"type": "doc",
+               "attrs.path": {"op": "not", "clause": {"op": "eq", "value": "docs/001.md"}},
+               "date.created": {"op": "between", "values": ["2026-01-01", "2026-12-31"]}},
+     "by": ["year(date.created)"], "metrics": ["count"],
+     "order_by": "year(date.created)", "limit": 10},
+)
+_REFUSED = [(tool, sent) for tool, sent, _edit, _rows in _EDITED] + [_QS01_LIKE]
+
+
+#: psycopg_pool's maintenance threads (`<pool name>-worker-<n>`). A returned
+#: connection's reset (`pg_advisory_unlock_all()`, okg.substrate.db.pool) runs
+#: there whenever the pool gets to it, so it is never the offer's statement.
+_POOL_WORKER = re.compile(r".+-worker-\d+")
+
+#: The per-connection database fingerprint (`okg.substrate.mcp.session.
+#: _db_fingerprint`): run once by the first call a pooled connection serves,
+#: then cached on it, so it shows in whichever call is handed a connection
+#: that has not served one yet.
+_FINGERPRINT_SQL = "FROM pg_control_system()"
+
+
+def _counted(tools: Tools, tool: str, sent: dict, *, offer: bool,
+             monkeypatch) -> tuple[int, int, dict]:
+    """One refused call: the statements run while it decides its offered
+    call, the statements of the whole call, and its JSON reply. With `offer`
+    False the server offers no one-change call (as on dev), so the first
+    count is 0.
+
+    Issue #4325: neither count holds a statement whose place depends on
+    timing. Statements on psycopg_pool's maintenance threads are never
+    counted: the pool's reset of a returned connection lands in this call
+    or the next. The whole-call count also leaves out the per-connection
+    fingerprint, which depends on which connection the call is handed; it
+    is matched by its SQL text rather than by warming every pooled
+    connection first, because the pool opens a new connection whenever it
+    replaces or adds one, and a warm-up cannot reach those. Every other
+    thread's statements count, so a read the decision runs through the tool
+    executor, or one serving the offer runs after the decision, still shows."""
+    import inspect
+    import threading
+
+    import psycopg as pg
+
+    from okg.substrate.mcp.response_bounds import ByteBoundedFastMCP
+
+    count = [0]
+    whole = [0]
+    deciding = [0]
+    original = pg.Cursor.execute
+    decide = ByteBoundedFastMCP._okg_offer_edited_retry
+
+    def execute(self, *args, **kwargs):
+        if not _POOL_WORKER.fullmatch(threading.current_thread().name):
+            if deciding[0]:
+                count[0] += 1
+            query = args[0] if args else kwargs.get("query")
+            if not (isinstance(query, str) and _FINGERPRINT_SQL in query):
+                whole[0] += 1
+        return original(self, *args, **kwargs)
+
+    async def awaited(pending):
+        deciding[0] += 1
+        try:
+            return await pending
+        finally:
+            deciding[0] -= 1
+
+    def counted_decide(self, name, error):
+        deciding[0] += 1
+        try:
+            offered = decide(self, name, error)
+        finally:
+            deciding[0] -= 1
+        return awaited(offered) if inspect.isawaitable(offered) else offered
+
+    with monkeypatch.context() as patch:
+        patch.setattr(pg.Cursor, "execute", execute)
+        patch.setattr(
+            ByteBoundedFastMCP, "_okg_offer_edited_retry",
+            counted_decide if offer else lambda self, name, error: False,
+        )
+        (result,) = tools.run((tool, sent, "json"))
+    reply = json.loads(result.content[0].text)
+    assert result.isError, reply
+    return count[0], whole[0], reply
+
+
+def _without_offer(reply: dict) -> dict:
+    """A refusal without the offered call and the hint that names it."""
+    error = {k: v for k, v in reply["error"].items() if k not in ("retry_call", "fix_hint")}
+    return _same({**reply, "error": error})
+
+
+def _assert_no_reads(tools: Tools, monkeypatch) -> list[dict]:
+    replies = []
+    for tool, sent in _REFUSED:
+        _counted(tools, tool, sent, offer=True, monkeypatch=monkeypatch)  # warm caches
+        deciding, offered, reply = _counted(
+            tools, tool, sent, offer=True, monkeypatch=monkeypatch)
+        _none, plain, words = _counted(tools, tool, sent, offer=False, monkeypatch=monkeypatch)
+        # Deciding the offer runs no statement; the whole call runs the same
+        # statements as without the offer (so nothing serving the offer
+        # reads, records or audits either); and the offer changes nothing
+        # else the reply says: no session pin, no other field (each call is a
+        # new session).
+        assert deciding == 0, (tool, sent, deciding)
+        assert offered == plain, (tool, sent, offered, plain)
+        assert _without_offer(reply) == _without_offer(words), (tool, sent)
+        replies.append(reply)
+    return replies
+
+
+def test_a_refusal_that_offers_a_call_runs_no_extra_statement(tools, monkeypatch):
+    """Must-fail on 9228404327, which read the offered call once to prove it
+    (14 of the 20 classes, 10-60 ms each). Now deciding the offered call
+    runs no statement, and the whole call runs the statements it runs
+    without the offer."""
+    replies = _assert_no_reads(tools, monkeypatch)
+    assert all("retry_call" in reply["error"] for reply in replies)
+
+
+@pytest.mark.parametrize("mode", ["1", "audit"], ids=["enforce", "audit"])
+def test_under_access_rules_a_refusal_runs_no_read_and_names_nothing_hidden(
+        clean_runtime, okg_mcp_can_log_in, tmp_path, monkeypatch, mode):
+    """Nomos enforce and audit, a reader denied the external source: each
+    refusal decides its offered call without running a statement and runs
+    the statements it runs without an offer (so no extra policy decision or
+    audit record), and neither the reply nor its offered
+    call names the hidden record, its path or its text. The offered call
+    holds only the caller's own arguments."""
+    deployment = _corpus(tmp_path, clean_runtime)
+    _activate(clean_runtime, deployment, _DENY_EXTERNAL)
+    monkeypatch.setenv("OKG_NOMOS_RUNTIME_ENFORCEMENT", mode)
+    monkeypatch.setenv("OKG_NOMOS_SUBJECT", READER)
+    server = Tools(clean_runtime, deployment)
+    try:
+        replies = _assert_no_reads(server, monkeypatch)
+        texts = [server.text(tool, sent) for tool, sent in _REFUSED]
+    finally:
+        server.close()
+    served = json.dumps(replies) + "".join(texts)
+    for hidden in ("doc:ext", "x/y.md", "Ignore previous", "external."):
+        assert hidden not in served, hidden
+    for (tool, sent), reply in zip(_REFUSED, replies):
+        retry = reply["error"].get("retry_call")
+        if retry is not None:
+            assert set(retry["arguments"]) <= set(sent) | {"method"}, retry
+
+
+#: Calls with two problems: the one a refusal declares a change for, and a
+#: second one (review r2, N1). The offered call is checked by the tool's own
+#: checks up to its first read, so no offer is refused for the second
+#: problem when sent. Each case: (tool, sent, path the first refusal takes).
+_TWO_PROBLEMS: list[tuple[str, dict, str]] = [
+    ("search", {"query": TERM, "view": "list", "select": [], "max_chars": 5}, "corrected"),
+    ("search", {"query": TERM, "view": "list", "select": [], "offset": 5,
+                "continuation_token": "abc"}, "corrected"),
+    ("aggregate", {**_QS01_LIKE[1], "order_by": "attrs.path"}, "corrected"),
+    ("aggregate", {**_QS01_LIKE[1], "metrics": ["sum(attrs.nosuch)"]}, "corrected"),
+    ("filter", {"where": {"type": "doc", "attrs.path": {
+        "op": "not", "clause": {"op": "eq", "value": "docs/001.md"}}},
+        "order_by": "nosuch.field"}, "corrected"),
+    ("search", {"query": TERM, "method": "grep", "rank_by": "self", "max_chars": 5}, "guess"),
+    ("search", {"query": TERM, "method": "lexical", "within": "record",
+                "max_per_parent": 1}, "guess"),
+    ("search", {"query": TERM, "method": "lexical", "within": "record", "view": "list"},
+     "guess"),
+    ("search", {"query": TERM, "max_chars": "x", "view": "list", "select": ["text"]}, "guess"),
+]
+
+
+@pytest.mark.parametrize("case", range(len(_TWO_PROBLEMS)),
+                         ids=lambda i: f"{_TWO_PROBLEMS[i][2]}-{_TWO_PROBLEMS[i][0]}-{i}")
+def test_an_offered_call_is_never_refused_for_a_second_problem(tools, case):
+    """Must-fail on d734d01bbc: the fallback ran only the grammar and the
+    argument model, so each of these offered a call that, sent as written,
+    was refused for the other argument (5 corrected, 4 guesses). Now a call
+    is offered only when the tool's own checks take it; here that means no
+    offer, and the refusal keeps its words."""
+    tool, sent, _path = _TWO_PROBLEMS[case]
+    (result,) = tools.run((tool, sent, "json"))
+    reply = json.loads(result.content[0].text)
+    assert result.isError, reply
+    retry = reply["error"].get("retry_call")
+    # A call that is offered must be served; here none is.
+    if retry is not None:
+        (sent_again,) = tools.run((retry["tool"], retry["arguments"], "json"))
+        served = json.loads(sent_again.content[0].text)
+        assert not sent_again.isError and served.get("status") != "refused", (retry, served)
+    assert retry is None, retry
+    assert "retry: " not in reply["error"].get("fix_hint", ""), reply["error"]
+
+
+def test_an_offer_on_a_fresh_server_runs_no_extra_statement(
+        clean_runtime, okg_mcp_can_log_in, tmp_path, monkeypatch):
+    """Review r2, N3: a server's first refusal is counted with no warm-up of
+    that call, on two fresh servers, one offering and one not. A one-time
+    read on the offer path would show here."""
+    deployment = _corpus(tmp_path, clean_runtime)
+    deciding, counts = {}, {}
+    for offer in (True, False):
+        server = Tools(clean_runtime, deployment)
+        try:
+            for tool, sent in (_REFUSED[0], _QS01_LIKE):
+                deciding[(offer, tool)], counts[(offer, tool)], reply = _counted(
+                    server, tool, sent, offer=offer, monkeypatch=monkeypatch,
+                )
+                assert ("retry_call" in reply["error"]) is offer, reply["error"]
+        finally:
+            server.close()
+    assert deciding[(True, "search")] == deciding[(True, "aggregate")] == 0, deciding
+    assert counts[(True, "search")] == counts[(False, "search")], counts
+    assert counts[(True, "aggregate")] == counts[(False, "aggregate")], counts
+
+
+def test_a_search_hint_names_the_call_as_published_without_max_bytes(tools):
+    """Review r2, N2: search does not publish `max_bytes`, and the served
+    `retry_call` drops it; the hint named it. Now the hint, the JSON call
+    and the text `retry:` line name the same call."""
+    from okg.substrate.mcp.read_grammar import render_call
+
+    sent = {"query": TERM, "view": "list", "select": [], "max_bytes": 20000}
+    (result,) = tools.run(("search", sent, "json"))
+    error = json.loads(result.content[0].text)["error"]
+    retry = error["retry_call"]
+    assert "max_bytes" not in retry["arguments"] and "max_bytes" not in error["fix_hint"]
+    assert error["fix_hint"].endswith("retry: " + render_call("search", retry["arguments"]))
+    (as_text,) = tools.run(("search", sent, "text"))
+    head = as_text.content[0].text.splitlines()[0]
+    assert "retry: search(" in head and "max_bytes" not in head, head

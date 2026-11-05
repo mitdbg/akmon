@@ -50,6 +50,7 @@ from okg.substrate.mcp.passage_rollup import (
     declared_parents_reached,
     passage_child_declarations,
 )
+from okg.substrate.mcp.retry_edits import declare_retry_edit
 from okg.substrate.mcp.session import Session
 from okg.substrate.nomos.read_filter import (
     filter_edge_rows_for_session,
@@ -114,15 +115,15 @@ def assert_diversity_rank_mode(
     if max_per_parent is None:
         return
     if method != "lexical":
-        raise DiversityNotApplicable(
+        raise declare_retry_edit(DiversityNotApplicable(
             f"max_per_parent applies only to method='lexical'; got "
             f"method={method!r}. The parent relation is followed over the "
             f"ranked lexical candidates; no other method produces that set.",
             data={"method": method, "max_per_parent": max_per_parent},
             fix_hint="drop max_per_parent, or use method='lexical'",
-        )
+        ), drop=("max_per_parent",), mode="guess")
     if rank_by != "self":
-        raise DiversityNotApplicable(
+        refusal = DiversityNotApplicable(
             f"max_per_parent cannot combine with rank_by={rank_by!r}: that "
             f"mode already rolls every child up into its parent and returns "
             f"ONE row per parent, so a per-parent cap of {max_per_parent} "
@@ -134,6 +135,9 @@ def assert_diversity_rank_mode(
                 "already give one row per parent), or use rank_by='self'"
             ),
         )
+        # The cap removes nothing here; the words also name rank_by="self",
+        # so the call without the cap is offered as a guess.
+        raise declare_retry_edit(refusal, drop=("max_per_parent",), mode="guess")
 
 
 def resolve_declared_parents(

@@ -112,6 +112,13 @@ and runs `serial_db` tests separately. If you export a single
 share the same database; use `OKG_TEST_DSN_TEMPLATE` or pass
 `--serial` for debugging.
 
+Each pytest process drops the worker databases it built, and their
+`<dbname>_tpl` templates (isolated `okg_workspace_test_isolated_*` clones
+included), when it ends; the terminal summary reports how many it dropped
+and every drop that failed. To keep them for debugging a failed run, set
+`OKG_TEST_KEEP_DBS=1`. A worker that crashes or is killed never reaches the
+end of the session and leaves its databases behind.
+
 **Per-class runs** still work via `pytest -k`, but prefer lanes for routine
 work because they carry marker policy, runtime budgets, and reports:
 

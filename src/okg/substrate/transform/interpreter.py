@@ -152,6 +152,10 @@ def _eval_op(program, binding, res, surfaces, kernels, checksum) -> Any:
         return [proj(r) for r in ins[0]]                 # preserves order
     if k is OpKind.JOIN:
         if "on" in a:
+            # Python ``==`` here (expr.py header): NULL = NULL keeps the pair.
+            hashed = _hash_join(ins[0], ins[1], a.get("how", "inner"), a["on"], null_matches=True)
+            if hashed is not None:
+                return hashed
             cond = lambda lr, rr: eval_expr(a["on"], {**rr, **lr}, pv)  # noqa: E731
         else:
             cond = kernels[a["condition"]]
@@ -230,7 +234,129 @@ def _eval_op(program, binding, res, surfaces, kernels, checksum) -> Any:
     raise InterpreterError(f"no denotation for op kind {k!r}")
 
 
+_NO_MATCH = object()  # a key that equals nothing (NaN; NULL when NULL never matches)
+_HASH_KEY_TYPES = frozenset({str, int, float, bool, type(None)})  # == agrees with hash()
+
+
+def _hash_join(
+    left: Relation, right: Relation, how: str, on: Any, *, null_matches: bool
+) -> Relation | None:
+    """``_join`` for an ``on`` made only of column equalities, in O(|left| + |right|).
+
+    ``on`` must be ``eq(col, col)`` or a non-empty ``and`` of them, each pairing a
+    column every left row carries with a column no left row carries (read from
+    the right row, as the merged ``{**rr, **lr}`` lookup does), and every key
+    value must be a ``str``/``int``/``float``/``bool``/``None``. Then the result
+    is exactly the nested loop's: the same rows in the same order (left order,
+    and right order within one left row), the same merged rows, the same
+    unmatched rows for ``left``/``full``. ``null_matches`` says whether a NULL
+    key equals a NULL key (Python ``==``) or nothing (SQL); NaN never matches.
+    Returns None when ``on`` or the rows do not qualify; the caller then runs
+    the nested loop. With an empty side the nested loop is already linear.
+    """
+    pairs = _column_equalities(on)
+    if pairs is None or not left or not right:
+        return None
+    left_readers: list[Callable[[Row], Any]] = []
+    right_readers: list[Callable[[Row], Any]] = []
+    for x, y in pairs:
+        sx, rx = _column_side(x, left)
+        sy, ry = _column_side(y, left)
+        if (sx, sy) == ("left", "right"):
+            left_readers.append(rx)
+            right_readers.append(ry)
+        elif (sx, sy) == ("right", "left"):
+            left_readers.append(ry)
+            right_readers.append(rx)
+        else:
+            return None
+    left_keys = _join_keys(left, left_readers, null_matches)
+    right_keys = _join_keys(right, right_readers, null_matches)
+    if left_keys is None or right_keys is None:
+        return None
+    index: dict[tuple, list[int]] = {}
+    for j, key in enumerate(right_keys):
+        if key is not _NO_MATCH:
+            index.setdefault(key, []).append(j)
+    out: Relation = []
+    matched_right: set[int] = set()
+    for lr, key in zip(left, left_keys):
+        hits = index.get(key, ()) if key is not _NO_MATCH else ()
+        for j in hits:
+            out.append({**right[j], **lr})
+            matched_right.add(j)
+        if not hits and how in ("left", "full"):
+            out.append(dict(lr))
+    if how == "full":
+        for j, rr in enumerate(right):
+            if j not in matched_right:
+                out.append(dict(rr))
+    return out
+
+
+def _column_equalities(on: Any) -> list[tuple[str, str]] | None:
+    """The (column, column) pairs of ``eq(col, col)`` or a non-empty ``and`` of them."""
+    if not isinstance(on, dict) or len(on) != 1:
+        return None
+    if "and" in on:
+        terms = on["and"]
+        if not isinstance(terms, list) or not terms:
+            return None
+    else:
+        terms = [on]
+    pairs: list[tuple[str, str]] = []
+    for term in terms:
+        if not isinstance(term, dict) or list(term) != ["eq"]:
+            return None
+        operands = term["eq"]
+        if not isinstance(operands, (list, tuple)) or len(operands) != 2:
+            return None
+        names = []
+        for operand in operands:
+            if not isinstance(operand, dict) or list(operand) != ["col"]:
+                return None
+            if not isinstance(operand["col"], str):
+                return None
+            names.append(operand["col"])
+        pairs.append((names[0], names[1]))
+    return pairs
+
+
+def _column_side(name: str, left: Relation) -> tuple[str, Callable[[Row], Any] | None]:
+    """Which input a ``col`` resolves from in the merged row ``{**rr, **lr}``.
+
+    ``eval_expr`` reads ``row[name]`` when present, else the bare name after the
+    last dot. So the value comes from the left row when every left row has
+    ``name``, and from the right row when no left row has ``name`` or its bare
+    name. Anything else depends on the pair and is ``"mixed"``.
+    """
+    bare = name.split(".")[-1]
+    if all(name in lr for lr in left):
+        return "left", lambda r: r[name]
+    if not any(name in lr or bare in lr for lr in left):
+        return "right", lambda r: r[name] if name in r else r.get(bare)
+    return "mixed", None
+
+
+def _join_keys(
+    rows: Relation, readers: list[Callable[[Row], Any]], null_matches: bool
+) -> list[Any] | None:
+    """One hash key per row (a tuple, or ``_NO_MATCH``); None if a value is not hashable-safe."""
+    keys: list[Any] = []
+    for r in rows:
+        key = tuple(read(r) for read in readers)
+        for v in key:
+            if type(v) not in _HASH_KEY_TYPES:
+                return None
+        if any(v != v or (v is None and not null_matches) for v in key):
+            keys.append(_NO_MATCH)  # NaN != NaN, so the nested loop never matches it
+        else:
+            keys.append(key)
+    return keys
+
+
 def _join(left: Relation, right: Relation, how: str, cond: Callable) -> Relation:
+    """The nested loop: ``cond`` for every (left, right) pair, |left| x |right| calls."""
     out: Relation = []
     matched_right: set[int] = set()
     for lr in left:

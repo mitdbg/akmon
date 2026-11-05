@@ -4400,6 +4400,30 @@ def _cmd_doctor(args: argparse.Namespace, *, as_json: bool) -> int:
                 dsn, deployment_name, report
             )
 
+    # PACT record-set-by-reference: a source whose current watermark names a
+    # record-set blob that is gone. The next scope-complete run of that
+    # source reads no prior record set, so it cannot retract records the lost
+    # set held. A warning: the published graph itself is intact.
+    if deployment_name:
+        if any(
+            error.get("code") == "doctor_probe_failed"
+            for error in report["errors"]
+        ):
+            report["record_set_blobs"] = {
+                "ok": False,
+                "skipped": True,
+                "code": "record_set_blobs_skipped_database_unreachable",
+            }
+        else:
+            report["record_set_blobs"] = _default_doctor_record_set_blobs(
+                dsn, report
+            )
+            # source_progress rows carry the deployment's name, not a path.
+            _add_record_set_blob_prune_errors(
+                report["record_set_blobs"], dsn,
+                getattr(manifest, "name", None) or deployment_name, report,
+            )
+
     # Vector sets (PACT openrouter-embeddings-hnsw): per set coverage at the
     # published generation, index state, spend, file-versus-database drift,
     # and old-column vectors no set owns. Warnings only: semantic search is
@@ -4571,6 +4595,163 @@ def _default_doctor_source_record_loss(
             }
         )
     return result
+
+
+# Each (source, sha256) a watermark rev names as a record-set blob. The revs
+# are the three ``okg db prune-source-blobs`` (db/management.py) keeps blobs
+# for. ``{filter}`` keeps only the unreachable ones.
+_RECORD_SET_REF_SQL = """
+WITH refs AS (
+  SELECT sw.source, r.rev_column, r.ref->>'sha256' AS sha256
+    FROM okg.source_watermarks sw
+   CROSS JOIN LATERAL (VALUES
+     ('last_applied_rev', sw.last_applied_rev->'record_set_ref'),
+     ('cutover_watermark', sw.cutover_watermark->'record_set_ref'),
+     ('last_published_rev', sw.last_published_rev->'record_set_ref')
+   ) AS r(rev_column, ref)
+   WHERE jsonb_typeof(r.ref) = 'object'
+     AND r.ref->>'storage' = 'okg.source_record_set_blobs'
+     AND coalesce(r.ref->>'sha256', '') <> ''
+)
+SELECT refs.source,
+       refs.sha256,
+       array_agg(DISTINCT refs.rev_column ORDER BY refs.rev_column)
+         AS rev_columns
+  FROM refs
+ {filter}
+ GROUP BY refs.source, refs.sha256
+ ORDER BY refs.source, refs.sha256
+"""
+_RECORD_SET_BLOB_ABSENT_FILTER = """WHERE NOT EXISTS (
+         SELECT 1 FROM okg.source_record_set_blobs b
+          WHERE b.source = refs.source AND b.sha256 = refs.sha256
+       )"""
+
+
+def _default_doctor_record_set_blobs(dsn: str, report: dict) -> dict[str, object]:
+    """Warn for each source whose watermark names a missing record-set blob.
+
+    PACT record-set-by-reference. A large record set is stored once in
+    ``okg.source_record_set_blobs`` and the source's watermark carries only
+    its ``record_set_ref`` (source, sha256). When that row is gone the next
+    run proceeds with no prior record set and cannot retract what the lost
+    set held. Appends one ``source_record_set_blob_missing`` warning per
+    (source, sha256). A probe that cannot run is a
+    ``record_set_blob_probe_failed`` warning, never a clean result.
+    """
+    from okg.substrate.db.connection import connect as db_connect
+
+    warnings = report.setdefault("warnings", [])
+    try:
+        with db_connect(dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT to_regclass('okg.source_watermarks') IS NOT NULL, "
+                    "to_regclass('okg.source_record_set_blobs') IS NOT NULL"
+                )
+                watermarks_present, blobs_present = cur.fetchone()
+                if not watermarks_present:
+                    return {"ok": True, "present": False, "missing": []}
+                # With no blob table at all every reference is unreachable.
+                cur.execute(
+                    _RECORD_SET_REF_SQL.format(
+                        filter=(
+                            _RECORD_SET_BLOB_ABSENT_FILTER if blobs_present else ""
+                        )
+                    )
+                )
+                rows = cur.fetchall()
+    except Exception as e:  # noqa: BLE001 - the probe's own failure is reported, never masked.
+        message = f"{type(e).__name__}: {e}"
+        warnings.append({"code": "record_set_blob_probe_failed", "message": message})
+        return {"ok": False, "code": "record_set_blob_probe_failed", "message": message}
+    missing = [
+        {"source": str(source), "sha256": str(sha256), "rev_columns": list(columns)}
+        for source, sha256, columns in rows
+    ]
+    for item in missing:
+        # Only last_applied_rev is the prior cursor the next run reads; the
+        # other two revs are what a rejected run or a cutover restores.
+        if "last_applied_rev" in item["rev_columns"]:
+            consequence = (
+                "the next run of this source reads no prior record set and "
+                "cannot retract records the lost set held"
+            )
+        else:
+            consequence = (
+                "a restore to that revision would leave the source with no "
+                "prior record set"
+            )
+        warnings.append(
+            {
+                "code": "source_record_set_blob_missing",
+                "message": (
+                    f"source {item['source']} names record-set blob "
+                    f"sha256={item['sha256']} in "
+                    f"{', '.join(item['rev_columns'])}, but "
+                    "okg.source_record_set_blobs has no such row; "
+                    f"{consequence}"
+                ),
+                "fix_hint": (
+                    "run the source once in a whole-scope mode (reconcile or "
+                    "scope_complete) to write a new record set, then check "
+                    "that `okg db prune-source-blobs --confirm` is only run "
+                    "with the worker paused"
+                ),
+                **item,
+            }
+        )
+    return {"ok": not missing, "present": True, "missing": missing}
+
+
+def _add_record_set_blob_prune_errors(
+    check: dict, dsn: str, deployment_name: str, report: dict,
+) -> None:
+    """Warn for each source whose last automatic blob prune failed.
+
+    PACT record-set-blob-autoprune. A failed prune leaves the run accepted
+    and records the error in ``okg.source_progress``
+    (``sync.record_set_blob_prune.last_error``); the next successful prune clears
+    it. Appends one ``source_record_set_blob_prune_failed`` warning per
+    source to the report and lists them under the check's ``prune_errors``.
+    """
+    from okg.substrate.db.connection import connect as db_connect
+    from okg.substrate.ingest.source_blob_prune import ERROR_KEY, recorded_errors
+
+    warnings = report.setdefault("warnings", [])
+    try:
+        with db_connect(dsn, autocommit=True) as conn:
+            present = conn.execute(
+                "SELECT to_regclass('okg.source_progress') IS NOT NULL"
+            ).fetchone()[0]
+            errors = recorded_errors(conn, deployment_name) if present else []
+    except Exception as e:  # noqa: BLE001 - the probe's own failure is reported, never masked.
+        message = f"{type(e).__name__}: {e}"
+        warnings.append({"code": "record_set_blob_probe_failed", "message": message})
+        check["ok"] = False
+        check["prune_errors_probe"] = message
+        return
+    check["prune_errors"] = errors
+    if errors:
+        check["ok"] = False
+    for item in errors:
+        warnings.append(
+            {
+                "code": "source_record_set_blob_prune_failed",
+                "message": (
+                    f"source {item['source']}: the automatic blob prune after "
+                    f"its accepted run at {item['at']} failed ({item['error']}); "
+                    "its superseded record-set and cursor blobs are not being "
+                    f"deleted (okg.source_progress key {ERROR_KEY})"
+                ),
+                "fix_hint": (
+                    "fix the cause named in the error; the next accepted run "
+                    "of the source prunes again and clears this record, or run "
+                    "`okg db prune-source-blobs --confirm` with the worker paused"
+                ),
+                **item,
+            }
+        )
 
 
 def _add_latest_publish_attempt(

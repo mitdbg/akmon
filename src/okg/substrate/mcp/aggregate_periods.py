@@ -35,7 +35,6 @@ compiled with the rest of the filter and never reaches this module.
 """
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -50,6 +49,7 @@ from okg.substrate.mcp.date_conditions import (
     parse_date_field,
     stored_instant,
 )
+from okg.substrate.mcp.live_result_sets import _group_key
 from okg.substrate.mcp.handle_fields import (
     DATE_MEANINGS,
     MASK_TOKEN,
@@ -477,8 +477,10 @@ def fold_period_groups(
                 if periods[text].date_field not in report.utc_stored:
                     report.utc_stored.append(periods[text].date_field)
         # A plain key may be a list or object (a JSON attribute), and True
-        # must not merge with 1: groups are told apart by their JSON form.
-        identity = tuple(json.dumps(v, sort_keys=True, default=str) for v in key)
+        # must not merge with 1: groups are told apart by their JSON form, a
+        # number by its numeric value (PACT read-stored-metrics, re-review
+        # R1: an exact number never merges with text of the same characters).
+        identity = tuple(_group_key(v) for v in key)
         slot = counts.setdefault(identity, [tuple(key), 0])
         slot[1] += n
     for text, tally in tallies.items():

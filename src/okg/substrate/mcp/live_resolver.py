@@ -1626,6 +1626,10 @@ async def _grow_kept(
             "planned_overrun", "narrow the set first, then ask for the field",
             planned=planned, made=0, cap=MAX_UPSTREAM_CALLS,
         )
+    # Inside a run step (a read over a kept answer): within the run's cap too.
+    from okg.substrate.mcp import run_steps as _run_steps
+
+    _run_steps.check_planned_calls(planned + (1 if from_listing else 0))
     prepared = await prepare_read(server, name, arguments, sorted(subtypes))
     reader = Reader(server, name, prepared, time.monotonic() + DEADLINE_SECONDS)
     started = now_text()
@@ -2096,7 +2100,8 @@ async def _read(
                 row["live"]["fields"].setdefault(key, "unavailable" if not_reached else "absent")
 
     # Conditions on listing fields first: a node they drop needs no call.
-    not_comparable: Counter[str] = Counter()
+    # PACT read-stored-metrics (N1): number text the rule refuses is named.
+    not_comparable: Counter[str] = live_reader.NotComparable()
     condition_not_read = live_reader.NotRead()
     rest = push.rest
     early, late = [], []
@@ -2162,6 +2167,10 @@ async def _read(
             **({} if pushable else {"listing_fields": [f"attrs.{k}" for k in columns]}),
         )
 
+    # Inside a run step (a read over a kept answer): within the run's cap too.
+    from okg.substrate.mcp import run_steps as _run_steps
+
+    _run_steps.check_planned_calls(planned - reader.fetch.calls)
     await fetch_groups(reader, groups, rows_out, system_node, declared)
 
     # Before any remaining condition: a key no node read carries. On the
@@ -2242,6 +2251,11 @@ def note_conditions(
         state["condition_not_read"] = condition_not_read.data()
     if not_comparable:
         state["condition_not_comparable"] = dict(not_comparable)
+        rejected = getattr(not_comparable, "rejected_data", None)
+        if callable(rejected) and rejected():
+            # PACT read-stored-metrics (N1): the number text the one rule
+            # refused, with its first ids, carried to the reply's note.
+            state["condition_number_text_rejected"] = rejected()
     if names_refused:
         state["names_refused"] = list(names_refused[:MAX_NAMES_SHOWN])
         state["names_refused_count"] = len(names_refused)
