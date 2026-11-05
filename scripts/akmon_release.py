@@ -45,6 +45,10 @@ Each subcommand is one step and refuses, naming what is wrong:
                       Requires-Dist and Provides-Extra are what the release
                       tree's pyproject.toml declares (wheel-source skips
                       METADATA).
+``release-wheel``     (pypi.yml) the release wheel's file name for a tag, from
+                      the tag's own pyproject.toml [project] name and version
+                      (okg up to v0.5.0, akmon from v0.6.0); ``--require-name``
+                      refuses a tag whose distribution is any other name.
 ``pipeline-release``  (pypi.yml) the GitHub release of a tag is public, not a
                       prerelease, and it and each named asset were created by
                       github-actions[bot], as release.yml's publish job does.
@@ -110,7 +114,12 @@ SOURCE_CHART_NAME = "okg"
 CHART_NAME = "akmon"
 CHART_REFERENCE = f"{CHART_REPOSITORY}/{CHART_NAME}"
 RELEASED_ANNOTATION = "okg.mitdbg.io/released"
+#: The import package (``import okg``, ``okg/_release_contracts/``). The
+#: distribution is named in each release tree's pyproject.toml [project] name:
+#: okg up to v0.5.0, akmon from v0.6.0.
 PACKAGE = "okg"
+#: The only distribution pypi.yml uploads: the PyPI project is akmon.
+PYPI_PROJECT = "akmon"
 TAG_PATTERN = re.compile(r"v0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 #: Release contracts start here (decision 312).
 CONTRACT_HISTORY_STARTS = (0, 2, 0)
@@ -570,6 +579,48 @@ def _unsafe_member(name: str) -> str | None:
     return None
 
 
+def tree_distribution(tree: Path) -> str:
+    """The distribution name the release tree's pyproject.toml declares."""
+    try:
+        name = tomllib.loads((tree / "pyproject.toml").read_text(encoding="utf-8"))["project"]["name"]
+    except (OSError, KeyError, tomllib.TOMLDecodeError) as error:
+        raise Refused(f"pyproject.toml in the release tree: {error}") from error
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?", name):
+        raise Refused(f"pyproject.toml in the release tree names the project {name!r}")
+    return name
+
+
+def wheel_name_part(name: str) -> str:
+    """A project name as a wheel file name spells it: runs of -_. become one
+    underscore, lower case (``okg``, ``akmon``)."""
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+def release_wheel(tag: str, repo: Path, run: Runner, require_name: str | None = None) -> dict[str, str]:
+    """The project name and wheel file name of the release ``tag``, read from
+    the tag's own pyproject.toml, so a release keeps the name it shipped
+    under (``okg-0.5.0-py3-none-any.whl``, ``akmon-0.6.0-py3-none-any.whl``).
+    Refuses a version other than the tag's and, with ``require_name``, any
+    project name but that one."""
+    if parse_tag(tag) is None:
+        raise Refused(f"{tag!r} is not v0.MINOR.PATCH")
+    try:
+        project = tomllib.loads(_git(run, repo, "show", f"refs/tags/{tag}:pyproject.toml"))["project"]
+        name, version = project["name"], project["version"]
+    except (KeyError, TypeError, tomllib.TOMLDecodeError) as error:
+        raise Refused(f"pyproject.toml at {tag}: {error}") from error
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?", name):
+        raise Refused(f"pyproject.toml at {tag} names the project {name!r}")
+    if version != tag[1:]:
+        raise Refused(f"pyproject.toml at {tag} declares version {version!r}, not {tag[1:]}")
+    if require_name is not None and _normal_name(name) != _normal_name(require_name):
+        raise Refused(
+            f"{tag} is the distribution {name!r}, not {require_name!r}; its wheel cannot go to the "
+            f"PyPI project {require_name}"
+        )
+    return {"name": name, "wheel": f"{wheel_name_part(name)}-{version}-py3-none-any.whl"}
+
+
 def _declared_entry_points(tree: Path) -> dict[str, dict[str, str]]:
     """The entry points the release tree's pyproject.toml declares."""
     try:
@@ -604,13 +655,14 @@ def wheel_source_problems(
     package lives under src/; ``okg/_schemas/X`` equals ``schemas/X``), byte
     for byte. ``okg/_release_contracts/`` holds exactly the staged
     ``contracts`` (name -> sha256); ``okg/_build_info.json`` names this
-    commit and tree, clean. The one ``okg-<version>.dist-info/`` holds only
+    commit and tree, clean. The one ``<name>-<version>.dist-info/`` (``name``
+    the tree's pyproject.toml [project] name, escaped) holds only
     the standard metadata files, its entry points are the ones pyproject.toml
     declares, and its ``licenses/`` are copies of the tree's root files.
     Anything else is a problem."""
     problems: list[str] = []
     root = tree.resolve()
-    dist_info = f"{PACKAGE}-{version}.dist-info/"
+    dist_info = f"{wheel_name_part(tree_distribution(tree))}-{version}.dist-info/"
     contract_dir = f"{PACKAGE}/_release_contracts/"
     held_contracts: dict[str, str] = {}
     held_entry_points: dict[str, dict[str, str]] = {}
@@ -802,14 +854,17 @@ def wheel_metadata(wheel: Path) -> dict[str, Any]:
     }
 
 
-def wheel_metadata_problems(wheel: Path, tree: Path, version: str) -> list[str]:
+def wheel_metadata_problems(wheel: Path, tree: Path, version: str, require_name: str | None = None) -> list[str]:
     """Why the wheel's METADATA does not say what tree's pyproject.toml says:
     the name, the version (also ``version``), Requires-Python, the set of
     Requires-Dist (dependencies, and each optional dependency under its
     extra) and the set of Provides-Extra. wheel-source skips METADATA, so a
-    look-alike dependency would otherwise ship unseen."""
+    look-alike dependency would otherwise ship unseen. With ``require_name``
+    the METADATA Name must also be that name (pypi.yml: only akmon)."""
     declared, held = declared_metadata(tree), wheel_metadata(wheel)
     problems = []
+    if require_name is not None and held["name"] != _normal_name(require_name):
+        problems.append(f"METADATA name is {held['name']!r}, not {_normal_name(require_name)!r}")
     if declared["version"] != version:
         problems.append(f"pyproject.toml is version {declared['version']}, not {version}")
     for field in ("name", "version", "requires_python", "extras"):
@@ -1328,6 +1383,11 @@ def main(argv: Sequence[str] | None = None, *, http: Http = http_request, run: R
     sub.add_argument("wheel", type=Path)
     sub.add_argument("--tree", type=Path, required=True)
     sub.add_argument("--version", required=True)
+    sub.add_argument("--require-name", default=None)
+    sub = commands.add_parser("release-wheel")
+    sub.add_argument("--tag", required=True)
+    sub.add_argument("--repo", type=Path, default=Path.cwd())
+    sub.add_argument("--require-name", default=None)
     sub = commands.add_parser("pipeline-release")
     sub.add_argument("--tag", required=True)
     sub.add_argument("--asset", action="append", required=True)
@@ -1401,13 +1461,15 @@ def main(argv: Sequence[str] | None = None, *, http: Http = http_request, run: R
                 )
             print(f"{args.wheel.name}: every file is a copy of {args.tree} at {args.revision}")
         elif args.command == "wheel-metadata":
-            problems = wheel_metadata_problems(args.wheel, args.tree, args.version)
+            problems = wheel_metadata_problems(args.wheel, args.tree, args.version, args.require_name)
             if problems:
                 raise Refused(
                     f"{args.wheel.name}'s METADATA is not what {args.tree}/pyproject.toml declares "
                     f"({len(problems)}): " + "; ".join(problems[:20])
                 )
             print(f"{args.wheel.name}: METADATA matches {args.tree}/pyproject.toml")
+        elif args.command == "release-wheel":
+            write_outputs(release_wheel(args.tag, args.repo.resolve(), run, args.require_name))
         elif args.command == "pipeline-release":
             if parse_tag(args.tag) is None:
                 raise Refused(f"{args.tag!r} is not v0.MINOR.PATCH")

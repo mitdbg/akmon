@@ -431,7 +431,10 @@ jobs:
         run: |
           set -euo pipefail
           uv build --wheel --out-dir "${RUNNER_TEMP}/dist"
-          wheel="$(ls "${RUNNER_TEMP}"/dist/okg-*.whl)"
+          # The one wheel, named for the release tree's pyproject.toml [project]
+          # name (akmon from v0.6.0); wheel-metadata compares its Name with it.
+          test "$(ls "${RUNNER_TEMP}"/dist/*-py3-none-any.whl | wc -l)" = 1
+          wheel="$(ls "${RUNNER_TEMP}"/dist/*-py3-none-any.whl)"
           python -I "${RUNNER_TEMP}/trusted/akmon_release.py" check-wheel "$wheel" --version "$VERSION" --contracts "$CONTRACTS"
           uv run --isolated --no-project --with "$wheel" python - "${RUNNER_TEMP}/dist/okg-contract-${TAG}.json" <<'PY'
           import sys
@@ -444,7 +447,7 @@ jobs:
       # rejects: fail here, before anything is published, not after.
       - name: Check the wheel's metadata as PyPI will
         working-directory: ${{ runner.temp }}
-        run: python -I -m twine check --strict "${RUNNER_TEMP}"/dist/okg-*.whl
+        run: python -I -m twine check --strict "${RUNNER_TEMP}"/dist/*-py3-none-any.whl
       - name: Digest the wheel and contract for publish
         id: wheel
         working-directory: ${{ runner.temp }}
@@ -452,7 +455,7 @@ jobs:
           set -euo pipefail
           out="${RUNNER_TEMP}/wheel-out"
           mkdir "$out"
-          cp "${RUNNER_TEMP}"/dist/okg-*.whl "${RUNNER_TEMP}/dist/okg-contract-${TAG}.json" "$out/"
+          cp "${RUNNER_TEMP}"/dist/*-py3-none-any.whl "${RUNNER_TEMP}/dist/okg-contract-${TAG}.json" "$out/"
           python -I "${RUNNER_TEMP}/trusted/akmon_release.py" tree-digest "$out"
       - id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -878,14 +881,14 @@ jobs:
           history="$(python scripts/akmon_release.py history --tag "$TAG" | sed -n 's/^history=//p')"
           contracts="$(python scripts/akmon_release.py stage-contracts --history "$history" \
             --dir "${RUNNER_TEMP}/contracts" | sed -n 's/^contracts=//p')"
-          python scripts/akmon_release.py check-wheel "$(ls "${RUNNER_TEMP}"/dist/okg-*.whl)" \
+          python scripts/akmon_release.py check-wheel "$(ls "${RUNNER_TEMP}"/dist/*-py3-none-any.whl)" \
             --version "$VERSION" --contracts "$contracts"
           python scripts/akmon_release.py same-contract \
             "${RUNNER_TEMP}/dist/okg-contract-${TAG}.json" "${RUNNER_TEMP}/candidate/okg-contract-${TAG}.json"
-          python scripts/akmon_release.py wheel-source "$(ls "${RUNNER_TEMP}"/dist/okg-*.whl)" \
+          python scripts/akmon_release.py wheel-source "$(ls "${RUNNER_TEMP}"/dist/*-py3-none-any.whl)" \
             --tree release-tree --revision "$REVISION" --tree-id "$TREE_ID" --version "$VERSION" \
             --contracts "$contracts"
-          python scripts/akmon_release.py wheel-metadata "$(ls "${RUNNER_TEMP}"/dist/okg-*.whl)" \
+          python scripts/akmon_release.py wheel-metadata "$(ls "${RUNNER_TEMP}"/dist/*-py3-none-any.whl)" \
             --tree release-tree --version "$VERSION"
       - name: Install the checksum-pinned Helm
         env:
@@ -988,7 +991,7 @@ jobs:
           cp "${candidate}/release-body.md" "$body"
           python scripts/akmon_release.py notes --tag "$TAG" --body "$body" \
             --runtime-digest "$RUNTIME_DIGEST" --postgres-digest "$POSTGRES_DIGEST" --chart-digest "$CHART_DIGEST"
-          assets=("${RUNNER_TEMP}"/dist/okg-*.whl "${candidate}/okg-contract-${TAG}.json" "${candidate}/release.json")
+          assets=("${RUNNER_TEMP}"/dist/*-py3-none-any.whl "${candidate}/okg-contract-${TAG}.json" "${candidate}/release.json")
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --verify-tag --title "AKMON ${TAG}" --notes-file "$body" "${assets[@]}"
           else

@@ -1,7 +1,11 @@
 name: pypi
 
-# Publishes the okg wheel of one public AKMON release to PyPI, as the
-# project `okg`, so a package can depend on okg and install from PyPI.
+# Publishes the wheel of one public AKMON release to PyPI, as the project
+# `akmon`, so `pip install akmon` installs it and a package can depend on it.
+# The distribution is akmon from v0.6.0 (akmon-X.Y.Z-py3-none-any.whl); the
+# import package and the command stay `okg`. Releases up to v0.5.0 shipped the
+# distribution okg (okg-X.Y.Z-py3-none-any.whl): this workflow refuses them,
+# so an okg wheel can never reach the akmon project.
 #
 # Why a workflow of its own, dispatched by hand after a release, and not a
 # job inside release.yml:
@@ -9,12 +13,12 @@ name: pypi
 #      and a change to it reaches main only with the next release. A PyPI job
 #      added there would first run one release after the release that ships
 #      it. This workflow can publish the very release that shipped it.
-#   2. It can publish the wheel of any public release (an earlier one too)
-#      without running a release again: a release's tag and package
+#   2. It can publish the wheel of any public akmon-named release (an earlier
+#      one too) without running a release again: a release's tag and package
 #      references are written once and cannot be made again.
 #
 # Trusted publishing, no token anywhere: PyPI trusts this workflow by name.
-# The PyPI project `okg` names the publisher owner mitdbg, repository akmon,
+# The PyPI project `akmon` names the publisher owner mitdbg, repository akmon,
 # workflow pypi.yml, environment `pypi`. The publish job asks GitHub for a
 # short-lived OIDC identity (id-token: write) and PyPI exchanges it for an
 # upload token valid for minutes and for this project only. No API token is
@@ -29,7 +33,9 @@ name: pypi
 #
 # Order is the point:
 #   1. check (contents read, no secret, no environment), main's release
-#      script only: refuse unless the GitHub release of the tag is public, not
+#      script only: refuse unless the tag's pyproject.toml names the
+#      distribution akmon at the tag's version, and the GitHub release of the
+#      tag is public, not
 #      a prerelease, and it and its wheel were created by github-actions[bot]
 #      (release.yml's publish job), and its tag commit is on main; download
 #      the wheel; refuse unless its sha256 is the digest GitHub recorded for
@@ -37,16 +43,17 @@ name: pypi
 #      the pinned pyyaml is installed; check it again as release.yml's publish
 #      job did (the version, the earlier releases' contracts it carries, every
 #      file a byte-for-byte copy of the tag's tree, checked out beside as
-#      data) and its METADATA against the tag's pyproject.toml; keep only the
-#      wheel.
+#      data) and its METADATA against the tag's pyproject.toml, with Name
+#      akmon; keep only the wheel.
 #   2. twine (contents read): take the kept wheel by artifact id, confirm its
 #      sha256, install twine from the hash-pinned scripts/twine-requirements.txt
 #      and run `twine check --strict`. Its third-party code never touches the
 #      bytes publish uploads, and publish reads none of its outputs.
 #   3. publish (environment `pypi`, id-token write and nothing else): no
 #      checkout and no repository code. It takes the kept wheel by artifact
-#      id, refuses unless it is the one wheel, its sha256 is the one check
-#      recorded, and that is also the digest GitHub's API reports for the
+#      id, refuses unless it is the one akmon-*.whl file, its sha256 is the
+#      one check recorded (the bytes whose METADATA Name check proved is
+#      akmon), and that is also the digest GitHub's API reports for the
 #      release asset (read anonymously), and uploads it with the pinned PyPI
 #      publish action. A version PyPI already holds fails the upload: PyPI
 #      never replaces a file, and a rerun after a success says so rather than
@@ -64,7 +71,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag of a public AKMON release, v0.MINOR.PATCH (for example v0.5.0)
+        description: Tag of a public AKMON release named akmon, v0.MINOR.PATCH (v0.6.0 or later)
         required: true
         type: string
 
@@ -102,6 +109,7 @@ jobs:
       contents: read
     outputs:
       tag: ${{ steps.release.outputs.tag }}
+      wheel: ${{ steps.release.outputs.wheel }}
       wheel-artifact: ${{ steps.upload.outputs.artifact-id }}
       wheel-sha256: ${{ steps.wheel.outputs.sha256 }}
     env:
@@ -128,15 +136,20 @@ jobs:
         run: python -I -m pip install "pyyaml==6.0.3"
       # Only a release release.yml published: a draft has not passed its
       # anonymous-pull step, and a release or wheel someone made by hand is
-      # not a release at all.
-      - name: Require a release that release.yml published, on main
+      # not a release at all. Only an akmon release: the wheel's name comes
+      # from the tag's own pyproject.toml, and any project name but akmon
+      # (okg, up to v0.5.0) refuses here.
+      - name: Require an akmon release that release.yml published, on main
         id: release
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python scripts/akmon_release.py pipeline-release --tag "$TAG" --asset "okg-${TAG#v}-py3-none-any.whl"
           git -c core.hooksPath=/dev/null fetch --no-tags origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+          wheel="$(python scripts/akmon_release.py release-wheel --tag "$TAG" --require-name akmon \
+            | sed -n 's/^wheel=//p')"
+          test "$wheel" = "akmon-${TAG#v}-py3-none-any.whl"
+          python scripts/akmon_release.py pipeline-release --tag "$TAG" --asset "$wheel"
           revision="$(git rev-parse "refs/tags/${TAG}^{commit}")"
           tree="$(git rev-parse "refs/tags/${TAG}^{tree}")"
           if ! git merge-base --is-ancestor "$revision" "$GITHUB_SHA"; then
@@ -150,35 +163,39 @@ jobs:
         working-directory: ${{ runner.temp }}
         env:
           GH_TOKEN: ${{ github.token }}
+          WHEEL: ${{ steps.release.outputs.wheel }}
         run: |
           set -euo pipefail
           assets="${RUNNER_TEMP}/release-assets"
           mkdir "$assets"
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "okg-${TAG#v}-py3-none-any.whl" --dir "$assets"
+            --pattern "$WHEEL" --dir "$assets"
           test "$(find "$assets" -mindepth 1 | wc -l)" = 1
-          test -f "${assets}/okg-${TAG#v}-py3-none-any.whl"
+          test -f "${assets}/${WHEEL}"
       # The bytes downloaded are the bytes the release published: GitHub
       # records each asset's sha256 digest when it is uploaded.
       - name: Require the wheel to be the asset GitHub reports
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          WHEEL: ${{ steps.release.outputs.wheel }}
         run: >-
           python scripts/akmon_release.py assets --tag "$TAG" --check
-          "${RUNNER_TEMP}/release-assets/okg-${TAG#v}-py3-none-any.whl"
+          "${RUNNER_TEMP}/release-assets/${WHEEL}"
       # Right after the digest check, before any other step: publish uploads
       # only a wheel with exactly this sha256.
       - name: Digest the wheel for publish
         id: wheel
         working-directory: ${{ runner.temp }}
+        env:
+          WHEEL: ${{ steps.release.outputs.wheel }}
         run: |
           set -euo pipefail
           out="${RUNNER_TEMP}/pypi-dist"
           mkdir "$out"
-          cp "${RUNNER_TEMP}/release-assets/okg-${TAG#v}-py3-none-any.whl" "$out/"
-          digest="$(sha256sum "${out}/okg-${TAG#v}-py3-none-any.whl" | cut -d ' ' -f 1)"
+          cp "${RUNNER_TEMP}/release-assets/${WHEEL}" "$out/"
+          digest="$(sha256sum "${out}/${WHEEL}" | cut -d ' ' -f 1)"
           echo "sha256=${digest}" >> "$GITHUB_OUTPUT"
-          echo "okg-${TAG#v}-py3-none-any.whl sha256 ${digest}" >> "$GITHUB_STEP_SUMMARY"
+          echo "${WHEEL} sha256 ${digest}" >> "$GITHUB_STEP_SUMMARY"
       - name: Put the release's tree beside this checkout
         env:
           REVISION: ${{ steps.release.outputs.revision }}
@@ -190,16 +207,17 @@ jobs:
       # wheel, on the kept copy: this version, exactly the earlier releases'
       # contracts, every file a byte-for-byte copy of the release's tree, and
       # METADATA (name, version, Requires-Python, Requires-Dist, extras) as
-      # the tree's pyproject.toml declares it.
+      # the tree's pyproject.toml declares it, with Name akmon.
       - name: Check the wheel as the release did
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REVISION: ${{ steps.release.outputs.revision }}
           TREE_ID: ${{ steps.release.outputs.tree }}
+          WHEEL: ${{ steps.release.outputs.wheel }}
         run: |
           set -euo pipefail
           version="${TAG#v}"
-          wheel="${RUNNER_TEMP}/pypi-dist/okg-${version}-py3-none-any.whl"
+          wheel="${RUNNER_TEMP}/pypi-dist/${WHEEL}"
           history="$(python scripts/akmon_release.py history --tag "$TAG" | sed -n 's/^history=//p')"
           contracts="$(python scripts/akmon_release.py stage-contracts --history "$history" \
             --dir "${RUNNER_TEMP}/contracts" | sed -n 's/^contracts=//p')"
@@ -208,7 +226,7 @@ jobs:
             --tree "${RUNNER_TEMP}/release-tree" --revision "$REVISION" --tree-id "$TREE_ID" \
             --version "$version" --contracts "$contracts"
           python scripts/akmon_release.py wheel-metadata "$wheel" \
-            --tree "${RUNNER_TEMP}/release-tree" --version "$version"
+            --tree "${RUNNER_TEMP}/release-tree" --version "$version" --require-name akmon
       - id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -252,8 +270,8 @@ jobs:
           fi
           wheel="${files[0]}"
           case "$wheel" in
-            dist/okg-*-py3-none-any.whl) ;;
-            *) echo "::error::the kept file is not an okg wheel"; exit 1 ;;
+            dist/akmon-*-py3-none-any.whl) ;;
+            *) echo "::error::the kept file is not an akmon wheel"; exit 1 ;;
           esac
           if [ -L "$wheel" ] || [ ! -f "$wheel" ]; then
             echo "::error::the kept wheel is not a regular file"
@@ -268,7 +286,7 @@ jobs:
           -r "${GITHUB_WORKSPACE}/scripts/twine-requirements.txt"
       - name: Check the wheel's metadata as PyPI will
         working-directory: ${{ runner.temp }}
-        run: python -I -m twine check --strict dist/okg-*-py3-none-any.whl
+        run: python -I -m twine check --strict dist/akmon-*-py3-none-any.whl
 
   # The only job that can ask for an identity PyPI trusts. It runs no code from
   # this repository: no checkout, only the kept wheel, two digest checks and
@@ -280,7 +298,7 @@ jobs:
     timeout-minutes: 15
     environment:
       name: pypi
-      url: https://pypi.org/project/okg/
+      url: https://pypi.org/project/akmon/
     permissions:
       id-token: write
     steps:
@@ -301,8 +319,8 @@ jobs:
           fi
           wheel="${files[0]}"
           case "$wheel" in
-            dist/okg-*-py3-none-any.whl) ;;
-            *) echo "::error::the kept file is not an okg wheel"; exit 1 ;;
+            dist/akmon-*-py3-none-any.whl) ;;
+            *) echo "::error::the kept file is not an akmon wheel"; exit 1 ;;
           esac
           if [ -L "$wheel" ] || [ ! -f "$wheel" ]; then
             echo "::error::the kept wheel is not a regular file"
@@ -319,7 +337,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$TAG" =~ ^v0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          name="okg-${TAG#v}-py3-none-any.whl"
+          name="akmon-${TAG#v}-py3-none-any.whl"
           test -f "dist/${name}"
           release="$(curl --fail --silent --show-error --retry 3 \
             --header "Accept: application/vnd.github+json" \
