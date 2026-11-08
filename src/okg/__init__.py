@@ -17,6 +17,12 @@ that needs that surface back gets a new substrate-capability
 proposal designed in Postgres primitives.
 """
 
+#: The installed distribution's name (``pip install akmon``). The import
+#: package and the ``okg`` command keep the name okg; only the PyPI project
+#: and the wheel (``akmon-<version>-py3-none-any.whl``) are named akmon.
+#: Every package-metadata lookup of this framework goes through this name.
+DISTRIBUTION = "akmon"
+
 
 def __getattr__(name: str) -> str:
     """`okg.__version__`: the installed distribution's version.
@@ -31,9 +37,9 @@ def __getattr__(name: str) -> str:
     import importlib.metadata
 
     try:
-        return importlib.metadata.version("okg")
+        return importlib.metadata.version(DISTRIBUTION)
     except importlib.metadata.PackageNotFoundError as error:
         raise AttributeError(
-            "okg.__version__ is unknown: no installed package metadata for 'okg'. "
-            "Install okg (for example `uv sync`) to report a version."
+            f"okg.__version__ is unknown: no installed package metadata for {DISTRIBUTION!r}. "
+            f"Install {DISTRIBUTION} (for example `uv sync`) to report a version."
         ) from error

@@ -20,7 +20,8 @@ from functools import lru_cache
 from importlib import metadata
 import re
 
-DISTRIBUTION = "okg"
+from okg import DISTRIBUTION
+
 _URL_LABEL = "repository"
 _GITHUB_URL_RE = re.compile(
     r"^https://github\.com/(?P<owner>[A-Za-z0-9][A-Za-z0-9-]*)/"

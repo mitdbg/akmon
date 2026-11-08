@@ -4688,21 +4688,16 @@ def build_router(
         }
 
     # ---------- console view payloads --------------------------------
-    # Canonical endpoint the supervisor-console renderers fetch from.
-    # Per `back-console-views-with-akmon-views`:
-    #   * `id` query param is a `view_def_id` (e.g.
-    #     `okg_workspace.today_brief`).
+    # Endpoint for the direct-SQL console composers:
+    #   * `id` query param names the composer (e.g.
+    #     `okg_workspace.today`).
     #   * Returns `{generation_id, payload}` where `payload`
     #     conforms to the typed TS schema for the view.
-    #   * Missing view: HTTP 404 with a body naming the id.
-    #   * Registered-but-unmaterialized: HTTP 503 with the
-    #     latest published generation in the body.
-    #   * No `summary.json` or JS composer — reads materialized
-    #     fragments via `read_view_slot` only.
-    #
-    # The composer registry maps view_def_id -> composer
-    # callable. The first instance is `okg_workspace.today_brief`;
-    # follow-on views add entries here.
+    #   * Unknown id: HTTP 404 with a body naming the id and the
+    #     known ids.
+    # The Today-brief composers that read materialized view
+    # fragments were retired with their views
+    # (akmon-views-on-concord).
     def console_view(
         id: str = Query(..., description="view_def_id"),
         focus_id: str | None = Query(
@@ -4713,10 +4708,6 @@ def build_router(
             ),
         ),
     ) -> dict[str, Any]:
-        from okg.substrate.console_views.today_brief import (
-            compose_today_brief_from_view_manifest,
-            compose_today_pi_scientist_from_view_manifest,
-        )
         from okg.substrate.console_views.today_workspace import (
             compose_today_workspace,
         )
@@ -4727,9 +4718,6 @@ def build_router(
             compose_overview,
             compose_map,
             compose_sources,
-        )
-        from okg.substrate.derived_artifacts import (
-            ViewArtifactReadError,
         )
 
         # ---- Direct-SQL composers ---------------------------------
@@ -4749,8 +4737,7 @@ def build_router(
             #   1. OKG_OPERATOR_EMAIL env (explicit override)
             #   2. git config user.email
             # display_name comes from OKG_OPERATOR_NAME → git
-            # config user.name → email-localpart. Same path as
-            # today_brief uses for its greeting.
+            # config user.name → email-localpart.
             import os
             import subprocess
             operator_email: str | None = os.environ.get("OKG_OPERATOR_EMAIL") or None
@@ -4917,163 +4904,20 @@ def build_router(
                 "payload": payload,
             }
 
-        # Per-view composer registry. Each composer takes
-        # `(view_manifest_dict, *, generation_id, generated_at,
-        # operator_name)` and returns a Pydantic model whose
-        # `model_dump()` is the wire payload.
-        composers = {
-            "okg_workspace.today_brief": compose_today_brief_from_view_manifest,
-            "okg_workspace.today_brief.pi_scientist": compose_today_pi_scientist_from_view_manifest,
-        }
-        if id not in composers:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "reason": "unknown_view_def_id",
-                    "view_def_id": id,
-                    "known": sorted([
-                        *composers,
-                        "okg_workspace.today",
-                        "okg_workspace.decisions",
-                        "okg_workspace.overview",
-                        "okg_workspace.map",
-                        "okg_workspace.sources",
-                    ]),
-                },
-            )
-        compose = composers[id]
-
-        ctx = ctx_provider()
-        pin = ctx.session.generation_id
-        with ctx.conn() as conn:
-            # Verify the view_definition is in the catalog.
-            # The error case is "operator typo'd the id but it
-            # IS a real shape we support" vs. "the id is a real
-            # registered view that just hasn't materialized yet".
-            if not reads.view_definition_registered(
-                conn, ctx.session, view_def_id=id,
-                deployment=ctx.deployment_name,
-            ):
-                raise HTTPException(
-                    status_code=404,
-                    detail={
-                        "reason": "view_definition_not_registered",
-                        "view_def_id": id,
-                        "deployment": ctx.deployment_name,
-                        "hint": (
-                            "add the view to "
-                            "deployments/<deployment>/views_registry.yaml "
-                            "and run `okg catalog load --apply`"
-                        ),
-                    },
-                )
-
-            # Read the materialized JSON slot (the view_manifest
-            # with fragments). 503 when no completed manifest yet.
-            try:
-                read = _read_viz_view_slot(
-                    conn,
-                    deployment_name=ctx.deployment_name,
-                    view_id=id,
-                    slot_name="json",
-                )
-            except ViewArtifactReadError as exc:
-                raise HTTPException(
-                    status_code=503,
-                    detail={
-                        "reason": "view_not_materialized",
-                        "view_def_id": id,
-                        "deployment": ctx.deployment_name,
-                        "latest_published_generation_id": pin,
-                        "hint": (
-                            "the publisher's native view stage has not "
-                            "produced a completed manifest for this "
-                            "view at any published generation; verify "
-                            "publisher cycles are succeeding (`okg "
-                            "metrics`, `okg doctor`)"
-                        ),
-                    },
-                ) from exc
-
-            # Resolve `published_at` for the artifact's
-            # generation so eyebrow/greeting are stable.
-            target_gen = read.artifact.target_generation_id
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT published_at
-                      FROM okg.graph_generations
-                     WHERE generation_id = %s
-                    """,
-                    (target_gen,),
-                )
-                row = cur.fetchone()
-            published_at = row[0] if row and row[0] is not None else None
-
-        # Unwrap the inline JSON slot. `payload_value()` returns
-        # the raw object the substrate stored (the
-        # {view_manifest, refresh_stats, ...} dict).
-        raw = read.slot.payload_value()
-        if not isinstance(raw, dict):
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "reason": "slot_payload_unexpected_shape",
-                    "view_def_id": id,
-                    "type": type(raw).__name__,
-                },
-            )
-        view_manifest = raw.get("view_manifest") or {}
-        # `promoted_at` is the timestamp the manifest moved to
-        # status=completed. Falling back to it (over `staged_at`)
-        # keeps the field stable across re-reads.
-        if published_at is not None:
-            generated_at = published_at.isoformat()
-        elif read.artifact.promoted_at is not None:
-            generated_at = read.artifact.promoted_at.isoformat()
-        else:
-            generated_at = ""
-
-        # Resolve operator name from runtime config. The substrate
-        # does not know who's looking at the dashboard — that's a
-        # presentation concern owned at the wire boundary. Order
-        # of precedence: env var → git user.name → $USER → empty.
-        import os
-        import subprocess
-        operator_name = os.environ.get("OKG_OPERATOR_NAME") or ""
-        if not operator_name:
-            try:
-                operator_name = subprocess.check_output(
-                    ["git", "config", "user.name"],
-                    text=True, timeout=2.0,
-                ).strip()
-            except Exception:
-                operator_name = ""
-        if not operator_name:
-            operator_name = os.environ.get("USER") or ""
-
-        try:
-            brief = compose(
-                view_manifest,
-                generation_id=target_gen,
-                generated_at=generated_at,
-                operator_name=operator_name,
-            )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=500,
-                detail=console_failure_detail(
-                    "composer_failed",
-                    exc,
-                    view_def_id=id,
-                    generation_id=target_gen,
-                ),
-            ) from exc
-
-        return {
-            "generation_id": target_gen,
-            "payload": brief.model_dump(),
-        }
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "reason": "unknown_view_def_id",
+                "view_def_id": id,
+                "known": sorted([
+                    "okg_workspace.today",
+                    "okg_workspace.decisions",
+                    "okg_workspace.overview",
+                    "okg_workspace.map",
+                    "okg_workspace.sources",
+                ]),
+            },
+        )
 
     def _resolve_operator_identity() -> tuple[str | None, str | None]:
         """Resolve (email, display_name) for the live operator.
@@ -5889,37 +5733,6 @@ def build_router(
                         "error_type": type(exc).__name__,
                     },
                 }
-        return {"ok": True, "generation_id": gen, "payload": payload}
-
-    @router.get("/console/view-diagnostics")
-    def console_view_diagnostics(
-        name: str | None = Query(None, description="optional selected view id"),
-        run_limit: int = Query(20, ge=1, le=50),
-    ) -> dict[str, Any]:
-        """Registry-complete native-view inventory and bounded run history."""
-        from okg.substrate.console_views.view_diagnostics import compose_view_diagnostics
-
-        ctx = ctx_provider()
-        gen = ctx.session.generation_id
-        with ctx.conn() as conn:
-            try:
-                payload = compose_view_diagnostics(
-                    conn,
-                    deployment_name=ctx.deployment_name,
-                    deployment_dir=ctx.deployment_dir,
-                    session=ctx.session,
-                    selected_view=name,
-                    run_limit=run_limit,
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(
-                    status_code=503,
-                    detail=console_failure_detail(
-                        "view_diagnostics_composer_failed",
-                        exc,
-                        generation_id=gen,
-                    ),
-                ) from exc
         return {"ok": True, "generation_id": gen, "payload": payload}
 
     @router.get("/console/producer-metrics")

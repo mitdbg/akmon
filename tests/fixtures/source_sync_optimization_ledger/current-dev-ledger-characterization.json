@@ -5,7 +5,7 @@
     "source_module": "okg.substrate.source_sync_microbench"
   },
   "expected": {
-    "canonical_payload_sha256": "ee7662f2489986d05bc6be8b5262687696e192a0a585d9fb0c1c56919f158f37",
+    "canonical_payload_sha256": "196d61cbe2808fcdb5e426ef8a9a582ff14a1fee4a5ce1198012f4ee8d5c24a9",
     "enricher_count_metadata": 77,
     "ledger_schema": "okg.source_sync.microbench.optimization_ledger.v1",
     "ordered_names": [

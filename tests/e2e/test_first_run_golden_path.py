@@ -870,9 +870,9 @@ def _build_wheel_environment(root: Path) -> _WheelEnvironment:
         timeout=WHEEL_BUILD_TIMEOUT_S,
     )
     _require_ok("build wheel", build)
-    wheels = sorted(dist.glob("okg-*-py3-none-any.whl"))
+    wheels = sorted(dist.glob("akmon-*-py3-none-any.whl"))
     if len(wheels) != 1:
-        pytest.fail(f"expected one okg wheel in {dist}; found {wheels}")
+        pytest.fail(f"expected one akmon wheel in {dist}; found {wheels}")
     wheel = wheels[0]
 
     # `python3.12 -m venv ~/okg-venv`, with this lane's interpreter for

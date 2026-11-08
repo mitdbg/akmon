@@ -16,7 +16,7 @@ from okg.substrate.cli.main import main
 
 
 def test_version_flag_prints_installed_metadata_version(capsys) -> None:
-    expected = importlib.metadata.version("okg")
+    expected = importlib.metadata.version("akmon")
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
     assert exc.value.code == 0
@@ -26,7 +26,7 @@ def test_version_flag_prints_installed_metadata_version(capsys) -> None:
 
 
 def test_version_flag_subprocess_exits_zero() -> None:
-    expected = importlib.metadata.version("okg")
+    expected = importlib.metadata.version("akmon")
     result = subprocess.run(
         [sys.executable, "-m", "okg.substrate.cli.main", "--version"],
         capture_output=True,

@@ -73,10 +73,12 @@ def _child_interpreter_report() -> str:
     try:
         from importlib.metadata import PackageNotFoundError, version
 
+        from okg import DISTRIBUTION
+
         try:
-            release = version("okg")
+            release = version(DISTRIBUTION)
         except PackageNotFoundError:
-            release = "unavailable (okg distribution not installed)"
+            release = f"unavailable ({DISTRIBUTION} distribution not installed)"
     except Exception as exc:
         release = f"unavailable ({exc})"
     return (

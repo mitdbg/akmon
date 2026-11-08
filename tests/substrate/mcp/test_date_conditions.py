@@ -843,25 +843,35 @@ DATE_LIMITS = (
 NO_LIMIT_MS = 600_000
 
 
-@pytest.fixture(autouse=True)
-def date_budget_for_tests(caplog):
+@pytest.fixture(autouse=True, scope="module")
+def date_limits_out_of_reach():
     """Every test here runs with the date limits out of reach, so a test
     about rows, order or the shape of a statement cannot be refused, or
     served in the ISO-only mode, because the machine was slow. A test about
     the budget sets the limit it is about (with `monkeypatch`, on the same
     module attributes) and injects its slow part far from it.
 
-    Its own patch, not the test's `monkeypatch`: a test that calls
-    `monkeypatch.undo()` keeps these. The per-phase line of every date call
-    is captured, so a failed test prints where each call's time went."""
+    Module scope on purpose. A test's `monkeypatch` is set up by the autouse
+    fixtures in tests/conftest.py, before any function fixture here, and is
+    undone after them, so it would restore the out-of-reach value after a
+    function fixture had put the real limit back, and the next test file on
+    the worker would run with it. Its own patch, not `monkeypatch`: a test
+    that calls `monkeypatch.undo()` keeps these."""
     from okg.substrate.mcp import server as srv
 
-    caplog.set_level("DEBUG", logger="okg.substrate.mcp.server")
     with pytest.MonkeyPatch.context() as patch:
         for name in DATE_LIMITS:
             assert isinstance(getattr(srv, name), int), name
             patch.setattr(srv, name, NO_LIMIT_MS)
         yield
+
+
+@pytest.fixture(autouse=True)
+def date_budget_for_tests(date_limits_out_of_reach, caplog):
+    """The per-phase line of every date call is captured, so a failed test
+    prints where each call's time went."""
+    caplog.set_level("DEBUG", logger="okg.substrate.mcp.server")
+    yield
 
 
 @pytest.fixture

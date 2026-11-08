@@ -17,15 +17,19 @@ from okg.substrate.console_views.enricher_diagnostics import (
 )
 from okg.substrate.console_views.source_diagnostics import _latest_runs_by_source
 from okg.substrate.console_views.sources import compose_sources
-from okg.substrate.console_views.view_diagnostics import compose_view_diagnostics
 from okg.substrate.graph_store import ChronosGraphStore
 from okg.substrate.mcp.session import Session
-from okg.substrate.views.registry import load_views_registry
 
 
 logger = logging.getLogger(__name__)
 
 _METRICS = ("duration", "output", "throughput", "failures", "observation_lag")
+
+#: Producer keys of the retired view producer kind (akmon-views-on-concord).
+#: A stale link that still selects one gets no series and the omission
+#: below, never a source series under that name.
+RETIRED_VIEW_KEY_PREFIX = "view:"
+RETIRED_VIEW_KEYS_OMISSION = "retired_view_producer_keys_ignored"
 
 # The enricher-run read (issue #2113). It used to call
 # `store.list_generations`, which moved every checkpoint's full metadata to
@@ -89,45 +93,6 @@ SELECT registry_source_name, run_id, status, observed_at,
 FROM ranked
 WHERE rn <= %(limit)s
 ORDER BY registry_source_name, COALESCE(observed_at, finished_at, started_at)
-"""
-
-_SELECTED_VIEW_RUNS_SQL = """
-WITH ranked AS (
-  SELECT
-    d.definition_id,
-    r.run_id,
-    r.status,
-    r.metrics,
-    r.started_at,
-    r.completed_at,
-    row_number() OVER (
-      PARTITION BY d.definition_id
-      ORDER BY r.completed_at DESC NULLS LAST, r.started_at DESC
-    ) AS rn
-  FROM okg.derived_artifact_definitions d
-  JOIN okg.derived_artifact_runs r ON r.definition_id = d.definition_id
-  WHERE d.deployment_name = %(deployment)s
-    AND d.artifact_kind = 'view'
-    AND d.definition_id = ANY(%(definition_ids)s)
-    AND COALESCE(r.completed_at, r.started_at) >= %(start)s
-    AND COALESCE(r.completed_at, r.started_at) <= %(end)s
-)
-SELECT
-  ranked.definition_id,
-  ranked.run_id,
-  ranked.status,
-  ranked.metrics,
-  ranked.started_at,
-  ranked.completed_at,
-  (
-    SELECT sum(s.row_count)
-    FROM okg.derived_output_manifests m
-    JOIN okg.derived_output_slots s ON s.manifest_id = m.manifest_id
-    WHERE m.run_id = ranked.run_id
-  ) AS row_count
-FROM ranked
-WHERE ranked.rn <= %(limit)s
-ORDER BY ranked.definition_id, COALESCE(ranked.completed_at, ranked.started_at)
 """
 
 
@@ -281,60 +246,6 @@ def _collect_enricher_runs(
     return runs, False
 
 
-def _view_elapsed_ms(row: Mapping[str, Any]) -> float | None:
-    metrics = row.get("metrics")
-    if isinstance(metrics, Mapping):
-        for key in ("elapsed_ms", "scheduler_elapsed_ms", "total_ms"):
-            value = _number(metrics.get(key))
-            if value is not None:
-                return value
-    started = _datetime(row.get("started_at"))
-    completed = _datetime(row.get("completed_at"))
-    if started is not None and completed is not None:
-        return max(0.0, (completed - started).total_seconds() * 1000)
-    return None
-
-
-def _selected_view_runs(
-    conn: Any,
-    *,
-    deployment_name: str,
-    definition_ids: list[str],
-    start: datetime,
-    end: datetime,
-    limit: int,
-) -> dict[str, list[dict[str, Any]]]:
-    if not definition_ids:
-        return {}
-    with conn.cursor() as cur:
-        cur.execute(
-            _SELECTED_VIEW_RUNS_SQL,
-            {
-                "deployment": deployment_name,
-                "definition_ids": definition_ids,
-                "start": start,
-                "end": end,
-                "limit": limit,
-            },
-        )
-        rows = _rows_as_dicts(cur)
-    runs = {definition_id: [] for definition_id in definition_ids}
-    for row in rows:
-        definition_id = str(row.get("definition_id") or "")
-        runs.setdefault(definition_id, []).append({
-            "run_id": str(row.get("run_id") or ""),
-            "status": row.get("status"),
-            "observed_at": row.get("completed_at") or row.get("started_at"),
-            "row_count": (
-                int(row["row_count"])
-                if row.get("row_count") is not None
-                else None
-            ),
-            "total_ms": _view_elapsed_ms(row),
-        })
-    return runs
-
-
 def _source_observation(run: Mapping[str, Any]) -> dict[str, Any] | None:
     observed = _datetime(run.get("observed_at") or run.get("finished_at") or run.get("started_at"))
     if observed is None:
@@ -474,9 +385,13 @@ def _selected_producer_observations(
     end: datetime,
     run_limit: int,
 ) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
-    source_keys = sorted(key for key in selected if not key.startswith(("_enricher:", "view:")))
+    # `view:` keys name retired view producers; the caller drops them and
+    # says so in `omissions`, so none is read here as a source name.
+    source_keys = sorted(
+        key for key in selected
+        if not key.startswith(("_enricher:", RETIRED_VIEW_KEY_PREFIX))
+    )
     enricher_keys = sorted(key for key in selected if key.startswith("_enricher:"))
-    view_keys = sorted(key for key in selected if key.startswith("view:"))
 
     source_names = [
         key.removeprefix(f"{deployment_name}.")
@@ -502,22 +417,6 @@ def _selected_producer_observations(
         limit=run_limit,
     )
 
-    view_ids = [key.removeprefix("view:") for key in view_keys]
-    view_runs = _selected_view_runs(
-        conn,
-        deployment_name=deployment_name,
-        definition_ids=view_ids,
-        start=start,
-        end=end,
-        limit=run_limit,
-    )
-    selected_view_ids = set(view_ids)
-    view_names = {
-        entry.view_def_id: entry.view_name
-        for entry in (load_views_registry(Path(deployment_dir)) if view_ids else [])
-        if entry.view_def_id in selected_view_ids
-    }
-
     producers: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
     for key, name in zip(source_keys, source_names):
         observations = [
@@ -531,16 +430,6 @@ def _selected_producer_observations(
             if (item := _derived_observation(run, output_key="n_edges_emitted"))
         ]
         producers.append(({"key": key, "name": name, "kind": "enricher"}, observations))
-    for key, definition_id in zip(view_keys, view_ids):
-        observations = [
-            item for run in view_runs.get(definition_id, [])
-            if (item := _derived_observation(run, output_key="row_count"))
-        ]
-        producers.append(({
-            "key": key,
-            "name": view_names.get(definition_id, definition_id),
-            "kind": "view",
-        }, observations))
     return producers
 
 
@@ -586,9 +475,15 @@ def compose_producer_metrics(
     if not requested_metrics:
         requested_metrics = list(_METRICS)
     selected = {key for key in producer_keys if key}
+    retired_view_keys = sorted(
+        key for key in selected if key.startswith(RETIRED_VIEW_KEY_PREFIX)
+    )
+    selected -= set(retired_view_keys)
     resolved_label, resolved_seconds, resolution_note = _resolve_period(start, end, period, max_buckets)
 
-    if selected:
+    # A request that named only retired view keys still asked for named
+    # producers, so it gets none rather than every producer.
+    if selected or retired_view_keys:
         producers = _selected_producer_observations(
             conn,
             deployment_name=deployment_name,
@@ -614,13 +509,6 @@ def compose_producer_metrics(
             run_limit=run_limit,
             run_scope="all",
         )
-        view_payload = compose_view_diagnostics(
-            conn,
-            deployment_name=deployment_name,
-            deployment_dir=deployment_dir,
-            session=session,
-            run_limit=run_limit,
-        )
         producers = []
         for row in source_rows:
             name = str(row.get("name") or row.get("source_key") or "Source")
@@ -637,11 +525,6 @@ def compose_producer_metrics(
                 if (item := _derived_observation(run, output_key="n_edges_emitted"))
             ]
             producers.append(({"key": key, "name": name, "kind": "enricher"}, observations))
-        for row in view_payload.get("views") or []:
-            name = str(row.get("display_name") or row.get("name") or "View")
-            key = str(row.get("producer_key") or f"view:{row.get('name')}")
-            observations = [item for run in row.get("run_history") or [] if (item := _derived_observation(run, output_key="row_count"))]
-            producers.append(({"key": key, "name": name, "kind": "view"}, observations))
 
     series = [
         _series(
@@ -666,7 +549,10 @@ def compose_producer_metrics(
         "statistic": statistic,
         "max_buckets": max_buckets,
         "series": series,
-        "omissions": [resolution_note] if resolution_note else [],
+        "omissions": [
+            *([resolution_note] if resolution_note else []),
+            *([RETIRED_VIEW_KEYS_OMISSION] if retired_view_keys else []),
+        ],
     }
 
 

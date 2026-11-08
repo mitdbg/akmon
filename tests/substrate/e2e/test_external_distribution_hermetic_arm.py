@@ -655,7 +655,7 @@ def okg_wheel(
     The arm installs OKG the way an operator does, from a built wheel, so
     nothing it runs reads `src/okg` out of this checkout. Two harness-side
     facts are worth stating plainly. `uv build` writes its intermediate
-    `build/` and `src/okg.egg-info` trees into the checkout while it runs, as
+    `build/` and `src/akmon.egg-info` trees into the checkout while it runs, as
     it always does; the isolated interpreter never sees either, both are
     cleared before the build so a file the working tree has since deleted
     cannot survive an earlier build into this wheel, and both are cleared
@@ -675,7 +675,11 @@ def okg_wheel(
     root = tmp_path_factory.mktemp("okg-wheelhouse")
     wheelhouse = root / "wheels"
     requirements = root / "requirements.txt"
-    intermediates = (_REPO_ROOT / "build", _REPO_ROOT / "src/okg.egg-info")
+    # src/akmon.egg-info: setuptools names it for the distribution (akmon);
+    # src/okg.egg-info is what builds before the rename left behind.
+    intermediates = (
+        _REPO_ROOT / "build", _REPO_ROOT / "src/akmon.egg-info", _REPO_ROOT / "src/okg.egg-info",
+    )
 
     def _clear_intermediates() -> None:
         for path in intermediates:
@@ -704,10 +708,10 @@ def okg_wheel(
         cwd=_REPO_ROOT,
         timeout=300,
     )
-    (wheel,) = wheelhouse.glob("okg-*.whl")
+    (wheel,) = wheelhouse.glob("akmon-*.whl")
     payload = wheel.read_bytes()
     distribution, version, _ = wheel.name.split("-", 2)
-    assert distribution == "okg", wheel.name
+    assert distribution == "akmon", wheel.name
     try:
         # The digest is this build's, not a fixed value: the setuptools wheel
         # embeds timestamps, so it is not byte-reproducible across runs. It is
@@ -815,7 +819,7 @@ def installed_runtime(
         "'ctypes': _ctypes.__spec__.origin, "
         "'ctypes_builtin': '_ctypes' in sys.builtin_module_names, "
         "'libpython': mapped, 'yaml': yaml.__file__, "
-        "'okg_version': importlib.metadata.version('okg'), "
+        "'okg_version': importlib.metadata.version('akmon'), "
         "'okg': str(Path(next(iter(okg.__path__))))}))"
     )
     result = subprocess.run(
@@ -1077,7 +1081,7 @@ def test_the_subprocess_had_no_route_to_the_authoring_tree(
     # variable -- `PATH` included -- names it either.
     okg_origin = installed["dependency_origins"]["okg"]
     assert okg_origin["editable"] is False
-    assert okg_origin["wheel"].startswith("okg-") and okg_origin["wheel"].endswith(
+    assert okg_origin["wheel"].startswith("akmon-") and okg_origin["wheel"].endswith(
         ".whl"
     )
     assert len(okg_origin["sha256"]) == 64
@@ -1957,7 +1961,7 @@ def _build_conformance_receipt(
         verdict=verdict,
         harness=ConformanceHarnessIdentityV2(
             okg_revision=_okg_revision(),
-            package_version=version("okg"),
+            package_version=version("akmon"),
             harness_protocol=CONFORMANCE_PROTOCOL_V2,
             product_contract_api=API_VERSION,
         ),

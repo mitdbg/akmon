@@ -346,17 +346,6 @@ CONSOLE_VIEW_BUDGETS: tuple[ViewBudget, ...] = (
         300.0,
         900.0,
     ),
-    # The native-view inventory and its bounded run history. Median 11.5 ms on
-    # okg-workspace: the registry read is small and the run history is capped
-    # by `run_limit` (<= 50) in the route's own signature. 1.5x is 18 ms, below
-    # the floor, so the floor is the budget and it still catches a read that
-    # started scanning run history per view.
-    ViewBudget(
-        "view-diagnostics",
-        CONSOLE_PREFIX + "view-diagnostics",
-        300.0,
-        300.0,
-    ),
     # The producer metric timelines behind the Sources charts. Median 456 ms
     # with no `producers` filter, which is the widest form the console asks
     # for; `max_buckets` is capped at 720 in the route signature, so the answer

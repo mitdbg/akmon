@@ -56,17 +56,14 @@ def test_provision_drives_deployment_to_published_generation(
     assert out["generation_id"] is not None
     assert out["preflight"]["ok"] is True
     assert out["preflight"]["summary"]["blocker_count"] == 0
-    # the orchestration ran every step in order; a fresh deployment ends by
-    # projecting the view definitions its catalog step deferred (#2249)
+    # the orchestration ran every step in order. okg-workspace registers no
+    # views (akmon-views-on-concord), so no views_registry step follows ingest.
     assert [s["step"] for s in out["steps"]] == [
-        "extensions", "migrate", "catalog", "ingest", "views_registry",
+        "extensions", "migrate", "catalog", "ingest",
     ]
     ingest = next(s for s in out["steps"] if s["step"] == "ingest")
     assert ingest["any_failed"] is False
-    views = next(s for s in out["steps"] if s["step"] == "views_registry")
-    assert views["publish_status"] == "published"
-    assert views["publish_generation_id"] == out["generation_id"]
-    assert views["publish_generation_id"] != ingest["generation_id"]
+    assert ingest["generation_id"] == out["generation_id"]
     assert ingest["timing_status"] == "available"
     assert ingest["timings_ms"]["total"] >= 0
     assert ingest["layer_timings"]
@@ -114,11 +111,8 @@ def test_provision_re_provision_is_idempotent(
     # drift, no duplicated nodes.
     second_ingest = next(s for s in second["steps"] if s["step"] == "ingest")
     assert second_ingest.get("nodes_added") in (0, None), second_ingest
-    # #2249: the fresh provision projected every view definition the catalog
-    # step deferred and published them, so the re-run has none left to add.
-    first_views = next(s for s in first["steps"] if s["step"] == "views_registry")
-    assert first_views["upserted"] == first_views["entries"] > 0, first_views
-    assert first_views["nodes_added"] == first_views["entries"], first_views
+    # okg-workspace registers no views (akmon-views-on-concord): neither run
+    # projects a view definition.
     # okg.graph_nodes is read through a checkout of the published generation;
     # a bare SELECT on the table template returns no rows.
     with psycopg.connect(okg_workspace_isolated_runtime, autocommit=True) as conn:
@@ -128,7 +122,6 @@ def test_provision_re_provision_is_idempotent(
             "SELECT node_id FROM okg.graph_nodes "
             "WHERE subtype = 'view_definition'",
         )
-    assert len(rows) == first_views["entries"], rows
-    # The re-run's catalog step found a published generation and applied the
-    # registry itself, so provision publishes nothing extra.
+    assert rows == [], rows
+    assert "views_registry" not in [s["step"] for s in first["steps"]]
     assert "views_registry" not in [s["step"] for s in second["steps"]]

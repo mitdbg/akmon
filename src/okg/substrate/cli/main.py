@@ -7282,14 +7282,16 @@ class _VersionAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         import importlib.metadata
 
+        from okg import DISTRIBUTION
+
         try:
-            version = importlib.metadata.version("okg")
+            version = importlib.metadata.version(DISTRIBUTION)
         except importlib.metadata.PackageNotFoundError:
             parser.exit(
                 1,
                 "okg: version unknown: no installed package metadata for "
-                "'okg'. Install okg (for example `uv sync` or `pip install "
-                "okg`) to report a version.\n",
+                f"{DISTRIBUTION!r}. Install {DISTRIBUTION} (for example `uv sync` "
+                f"or `pip install {DISTRIBUTION}`) to report a version.\n",
             )
         sys.stdout.write(f"okg {version}\n")
         parser.exit(0)

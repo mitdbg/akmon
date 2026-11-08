@@ -1124,7 +1124,9 @@ def _issue_title(
 
 
 def _okg_version() -> str:
-    for package in ("okg", "pz-okg"):
+    from okg import DISTRIBUTION
+
+    for package in (DISTRIBUTION, "pz-okg"):
         try:
             return importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:

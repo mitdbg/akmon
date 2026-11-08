@@ -15,13 +15,31 @@ OKG wheel, or a producer built a release directory and handed it to you.
 
 ## Install from a wheel
 
-Each OKG release attaches its wheel, `okg-<version>-py3-none-any.whl`, to its
-[GitHub release](https://github.com/mitdbg/akmon/releases). Download it from
-the release page, for example:
+The package's name is `akmon`; the command it installs and the Python package
+it imports are both `okg`. From 0.6.0 it is on PyPI as `akmon`:
 
 ```bash
-export AKMON_VERSION=0.5.0
-curl -fLO "https://github.com/mitdbg/akmon/releases/download/v${AKMON_VERSION}/okg-${AKMON_VERSION}-py3-none-any.whl"
+uv tool install akmon   # or: pip install akmon
+okg --version
+```
+
+If an older release is installed under its old name `okg` (0.5.0 or earlier),
+remove it first: both packages install the same `okg` command and the same
+`okg` Python package, and removing `okg` later would delete files `akmon`
+needs. Run `uv tool uninstall okg` (or `pip uninstall okg`), then install
+`akmon`. A package that depends on `okg` must change that dependency to
+`akmon`. No `okg` release is on PyPI.
+
+Each release also attaches its wheel, `akmon-<version>-py3-none-any.whl`, to
+its [GitHub release](https://github.com/mitdbg/akmon/releases). Releases up to
+0.5.0 named the package `okg`, so their wheel is
+`okg-<version>-py3-none-any.whl`. Download it from the release page, for
+example:
+
+```bash
+export AKMON_VERSION=0.6.0
+curl -fLO "https://github.com/mitdbg/akmon/releases/download/v${AKMON_VERSION}/akmon-${AKMON_VERSION}-py3-none-any.whl"
+# up to 0.5.0: .../v${AKMON_VERSION}/okg-${AKMON_VERSION}-py3-none-any.whl
 ```
 
 Or build one yourself from a source checkout instead (see
@@ -31,12 +49,12 @@ Or build one yourself from a source checkout instead (see
 uv build --wheel
 ```
 
-That writes `dist/okg-<version>-py3-none-any.whl`. Install the wheel into its
+That writes `dist/akmon-<version>-py3-none-any.whl`. Install the wheel into its
 own virtual environment. The package requires Python `>=3.12,<3.14`:
 
 ```bash
 python3.12 -m venv ~/okg-venv
-~/okg-venv/bin/pip install /path/to/okg-<version>-py3-none-any.whl
+~/okg-venv/bin/pip install /path/to/akmon-<version>-py3-none-any.whl
 ~/okg-venv/bin/okg --version
 ```
 

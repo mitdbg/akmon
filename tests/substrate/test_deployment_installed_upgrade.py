@@ -1885,3 +1885,18 @@ def test_absent_worker_ack_with_runtime_disabled_is_not_refused(
     report = _run(name, harness)
     assert report["ok"] is True, report
     assert report["worker_service"]["worker_reload"]["needed"] is False
+
+
+def test_the_go_back_wheel_keeps_the_name_its_release_shipped_under() -> None:
+    """Releases up to 0.5.0 shipped okg-<v>-py3-none-any.whl; from 0.6.0 the
+    distribution is akmon, so a go-back hint names the file that exists."""
+    assert diu.release_wheel_name("0.2.0") == "okg-0.2.0-py3-none-any.whl"
+    assert diu.release_wheel_name("0.5.0") == "okg-0.5.0-py3-none-any.whl"
+    assert diu.release_wheel_name("0.1.0.dev1") == "okg-0.1.0.dev1-py3-none-any.whl"
+    assert diu.release_wheel_name("0.6.0") == "akmon-0.6.0-py3-none-any.whl"
+    assert diu.release_wheel_name("1.0.0") == "akmon-1.0.0-py3-none-any.whl"
+    # The failure case: an unreadable version names the current distribution,
+    # never a guessed older one.
+    assert diu.release_wheel_name("abc") == "akmon-abc-py3-none-any.whl"
+    assert "akmon-0.6.0-py3-none-any.whl" in diu._go_back_hint("0.6.0")
+    assert "akmon-<version>-py3-none-any.whl" in diu._go_back_hint(None)

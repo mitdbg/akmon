@@ -55,7 +55,7 @@ try:
 except ImportError as _jinja_exc:  # pragma: no cover
     raise ImportError(
         "okg.bench.per_source.single_commit_breakdown needs jinja2 — install "
-        "the bench extra: pip install 'okg[bench]'"
+        "the bench extra: pip install 'akmon[bench]'"
     ) from _jinja_exc
 
 _BENCH = Path(os.environ.get("OKG_BENCH_ROOT", Path.cwd() / "bench")).resolve()

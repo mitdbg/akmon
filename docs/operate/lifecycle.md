@@ -64,11 +64,17 @@ database or profile merely to make the check pass.
 ### Upgrade an installed deployment
 
 Install the newer okg package first, the same way you installed okg, then run
-the same `okg up`. Each release's wheel is attached to its
+the same `okg up`. The package is named `akmon` (on PyPI from 0.6.0; up to
+0.5.0 it was named `okg`), and each release's wheel is attached to its
 [GitHub release](https://github.com/mitdbg/akmon/releases):
 
+Coming from 0.5.0 or earlier, remove the old package first, because it is
+named `okg` and installs the same files: `uv tool uninstall okg` (or
+`pip uninstall okg`). Going back works the same way in reverse: remove
+`akmon` before you reinstall an `okg` wheel.
+
 ```bash
-uv tool install --force okg-<version>-py3-none-any.whl   # or: pip install --upgrade <the same wheel>
+uv tool install --force akmon-<version>-py3-none-any.whl   # or: pip install --upgrade <the same wheel>
 okg up <deployment> --plan --json   # checks compatibility; changes nothing
 okg up <deployment> --json
 ```
@@ -227,7 +233,8 @@ blocker.
 
 **Going back.** Before the migration step, reinstall the previous version's
 wheel the way you installed it (`uv tool install --force
-okg-<version>-py3-none-any.whl`) and start the worker again if it was
+akmon-<version>-py3-none-any.whl`, or `okg-<version>-py3-none-any.whl` for
+0.5.0 and earlier) and start the worker again if it was
 stopped (`okg dogfood up --deployment <deployment> --apply`). After the
 migration, the database has to go back too. Do that with the okg that is
 installed now, the one that took the backup, before you reinstall the old

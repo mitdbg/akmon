@@ -55,7 +55,7 @@ def _xml_parse(path: Path) -> Any:
         # uv-tool-shim run is distinguishable from a missing install.
         message, fix_hint, provenance = annotate_optional_dependency_error(
             "TestReportSource requires defusedxml for XML report import",
-            "install okg[quality] or configure only JSON reports",
+            "install akmon[quality] or configure only JSON reports",
             extras=("quality",),
         )
         raise SubstrateError(
@@ -72,7 +72,7 @@ def _xml_from_bytes(raw_bytes: bytes) -> Any:
     except ImportError as exc:
         message, fix_hint, provenance = annotate_optional_dependency_error(
             "TestReportSource requires defusedxml for XML report import",
-            "install okg[quality] or configure only JSON reports",
+            "install akmon[quality] or configure only JSON reports",
             extras=("quality",),
         )
         raise SubstrateError(

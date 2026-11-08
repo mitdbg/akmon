@@ -151,6 +151,6 @@ def _matplotlib():
     except ImportError as exc:
         raise AbBenchError(
             "matplotlib is required for charts: install the bench extra "
-            "(`uv sync --extra bench` / `pip install okg[bench]`)"
+            "(`uv sync --extra bench` / `pip install akmon[bench]`)"
         ) from exc
     return plt

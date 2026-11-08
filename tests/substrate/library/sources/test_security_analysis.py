@@ -760,7 +760,7 @@ def test_xml_sbom_import_fails_loud_when_defusedxml_missing(
         list(source.run("run-xml", mode="scope_complete").facts)
 
     assert exc_info.value.fix_hint
-    assert "okg[quality]" in exc_info.value.fix_hint
+    assert "akmon[quality]" in exc_info.value.fix_hint
 
 
 def test_xml_sbom_artifact_imports_when_defusedxml_present(tmp_path: Path) -> None:

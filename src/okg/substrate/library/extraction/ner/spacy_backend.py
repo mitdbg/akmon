@@ -43,7 +43,7 @@ class SpacyNER:
             message, fix_hint, provenance = (
                 annotate_optional_dependency_error(
                     "spacy package not installed",
-                    "pip install 'okg[nlp]'",
+                    "pip install 'akmon[nlp]'",
                     extras=("nlp",),
                 )
             )

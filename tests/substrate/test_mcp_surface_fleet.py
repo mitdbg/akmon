@@ -789,7 +789,7 @@ def test_the_built_server_reports_okgs_version_in_server_info(
         if server._okg_write_pool:
             server._okg_write_pool.close()
     assert parse_server_info_version(options.server_version) == {
-        "package_version": dist_version("okg"), "git_revision": "sha-built",
+        "package_version": dist_version("akmon"), "git_revision": "sha-built",
     }
 
 

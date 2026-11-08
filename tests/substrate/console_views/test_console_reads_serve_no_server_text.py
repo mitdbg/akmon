@@ -4,12 +4,13 @@ Issue #2130, PACT console-reads-mask-paths-and-exception-text. A graph is
 published through the publisher with the values the live sweep of 2026-09-22
 found leaving the server: a record attribute holding an absolute path inside a
 NESTED object, an agent session's working directory, a blocked attempt whose
-recorded blocker is exception text, and a failed view run whose error carries a
-traceback. The deployment directory is itself an absolute path under the test's
-temporary root. Then every console GET route is called -- the recipes are the
-database-free file's, which fails when a route has none -- and every body is
-swept for a path, a connection string, a host, an address, a password or
-exception text.
+recorded blocker is exception text, and a failed consistency-check run whose
+error carries a traceback (derived_artifact_runs serves every artifact kind,
+not only views). The deployment directory is itself an
+absolute path under the test's temporary root. Then every console GET route
+is called -- the recipes are the database-free file's, which fails when a
+route has none -- and every body is swept for a path, a connection string, a
+host, an address, a password or exception text.
 
 Record CONTENT is outside the rule (#2179): the document's body text below is
 plain prose, so a hit can only come from an identity or provenance field the
@@ -47,7 +48,7 @@ pytestmark = pytest.mark.postgres
 
 DEPLOYMENT = "default"
 SOURCE = "fixture"
-VIEW = "leak_probe"
+CHECK = "leak_probe_check"
 DOC = "document:leak-probe"
 SESSION = "agent_session:leak-probe"
 
@@ -88,8 +89,8 @@ def _publish(dsn: str, facts: list[Any]) -> dict[str, Any]:
     ).cycle()
 
 
-def _insert_failed_view_run(dsn: str, *, target_generation_id: int) -> None:
-    """A failed view run, written the way the view runner writes one."""
+def _insert_failed_check_run(dsn: str, *, target_generation_id: int) -> None:
+    """A failed consistency-check run, written the way a derived run is written."""
     with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -98,11 +99,11 @@ def _insert_failed_view_run(dsn: str, *, target_generation_id: int) -> None:
               compute_hash, output_schema_hash, renderer_hash, dirty_rule_hash,
               renderer_ref
             ) VALUES (
-              %(view)s, 'view', %(deployment)s, %(view)s,
+              %(check)s, 'consistency_check', %(deployment)s, %(check)s,
               'h', 'h', 'h', 'h', 'tests.renderer'
             ) ON CONFLICT (definition_id) DO NOTHING
             """,
-            {"view": VIEW, "deployment": DEPLOYMENT},
+            {"check": CHECK, "deployment": DEPLOYMENT},
         )
         cur.execute(
             """
@@ -111,13 +112,13 @@ def _insert_failed_view_run(dsn: str, *, target_generation_id: int) -> None:
               compute_hash, output_schema_hash, renderer_hash, dirty_rule_hash,
               error, completed_at
             ) VALUES (
-              %(run_id)s, %(view)s, %(target)s, 'failed', 'full',
+              %(run_id)s, %(check)s, %(target)s, 'failed', 'full',
               'h', 'h', 'h', 'h', %(error)s, now()
             )
             """,
             {
                 "run_id": str(uuid.uuid4()),
-                "view": VIEW,
+                "check": CHECK,
                 "target": target_generation_id,
                 "error": psycopg.types.json.Jsonb({
                     "error_type": "ValueError",
@@ -184,7 +185,7 @@ def seeded(clean_runtime: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     published_gen = next(g for g in generations if (g.metadata or {}).get("status") == "published")
     blocked_gen = next(g for g in generations if (g.metadata or {}).get("status") == "blocked")
     target = int((published_gen.metadata or {})["target_generation_id"])
-    _insert_failed_view_run(clean_runtime, target_generation_id=target)
+    _insert_failed_check_run(clean_runtime, target_generation_id=target)
 
     # The deployment directory is an absolute path, as on every server.
     deployment_dir = tmp_path / LEAK_HOME.lstrip("/") / "deployments" / DEPLOYMENT
@@ -201,22 +202,12 @@ def seeded(clean_runtime: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         "  AgentSession:\n    attributes:\n      title: {}\n      cwd: {}\n",
         encoding="utf-8",
     )
-    (deployment_dir / "views_registry.yaml").write_text(
-        f"deployment: {DEPLOYMENT}\nviews:\n"
-        f"  - view_def_id: {VIEW}\n"
-        "    view_name: Leak probe\n"
-        "    view_def_factory: views.leak_probe:view_def\n"
-        "    build_corpus: views.leak_probe:build_corpus\n"
-        "    schedule: \"\"\n    params: {}\n    llm_client: stub\n",
-        encoding="utf-8",
-    )
     return {
         "dsn": clean_runtime,
         "deployment_dir": deployment_dir,
         "state": {
             "attempt": blocked_gen.checkpoint_id,
             "source": SOURCE,
-            "view": VIEW,
             "record": DOC,
             "version": version or published_gen.checkpoint_id,
         },
@@ -260,9 +251,6 @@ def test_no_console_read_serves_a_server_path_or_exception_text(
     worktrees = bodies["/viz/api/console/worktrees"]["payload"]["worktrees"]
     assert [row["label"] for row in worktrees] == ["okg"]
     assert "cwd" not in worktrees[0]
-    views = bodies["/viz/api/console/view-diagnostics"]["payload"]
-    assert views["read_authority"]["registry"] == "views_registry.yaml"
-    assert views["views"][0]["latest_run"]["error"]["error_text_withheld"] is True
     rows = bodies["/viz/api/console/generations"]["payload"]["generations"]
     blocked = [row for row in rows if row["status"] == "blocked"]
     assert blocked and blocked[0]["blocked_reason"] is None

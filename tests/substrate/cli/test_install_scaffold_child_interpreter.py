@@ -150,7 +150,7 @@ def test_a_failing_scaffold_child_names_the_executable_that_ran(
     assert "--postgres-dsn <redacted-dsn>" in message, message
     # The identity half of the report is load-bearing too.
     assert f"okg package: {okg.__file__}" in message, message
-    assert f"version: {importlib.metadata.version('okg')}" in message, message
+    assert f"version: {importlib.metadata.version('akmon')}" in message, message
 
 
 def test_the_child_interpreter_report_names_the_package_and_its_version() -> None:
@@ -158,7 +158,7 @@ def test_the_child_interpreter_report_names_the_package_and_its_version() -> Non
     report = pi_cli._child_interpreter_report()
 
     assert f"okg package: {okg.__file__}" in report, report
-    assert f"version: {importlib.metadata.version('okg')}" in report, report
+    assert f"version: {importlib.metadata.version('akmon')}" in report, report
     # The `ran:` clause is derived from the argv actually used, not typed
     # out a second time.
     assert shlex.join(running_okg_argv()) in report, report
@@ -173,7 +173,7 @@ def test_an_unresolvable_version_is_reported_as_unavailable(monkeypatch) -> None
     monkeypatch.setattr(importlib.metadata, "version", _missing)
 
     report = pi_cli._child_interpreter_report()
-    assert "version: unavailable (okg distribution not installed)" in report, report
+    assert "version: unavailable (akmon distribution not installed)" in report, report
 
 
 def test_a_metadata_backend_failure_is_reported_with_its_reason(monkeypatch) -> None:

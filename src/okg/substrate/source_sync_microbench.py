@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from collections.abc import Iterable, Mapping, Sequence
@@ -39,13 +38,6 @@ MICROBENCH_FULL_PIPELINE_PROGRESS_SCHEMA = (
     "okg.source_sync.microbench.full_pipeline.last_run.v1"
 )
 MICROBENCH_FULL_PIPELINE_PROGRESS_KEY = "sync.microbench.full_pipeline.last_run"
-MICROBENCH_LEDGER_VIEW_ID = "okg_workspace.source_optimization_ledger"
-MICROBENCH_LEDGER_VIEW_DEFINITION_ID = f"view:{MICROBENCH_LEDGER_VIEW_ID}"
-MICROBENCH_LEDGER_RELATION_DEFINITION_ID = (
-    f"view-relation:{MICROBENCH_LEDGER_VIEW_ID}:relation"
-)
-MICROBENCH_LEDGER_DIRTY_REASON = "source_progress_updated"
-MICROBENCH_LEDGER_DIRTY_DEPENDENCY_KIND = "source_progress"
 SOURCE_ONLY_SCENARIO = "source-only"
 FULL_PIPELINE_SCENARIO = "full-pipeline"
 PUBLISH_LOCK_CONTENTION_THRESHOLD_MS = 250.0
@@ -3291,100 +3283,8 @@ def _persist_microbench_full_pipeline_progress(
                 """,
                 progress_rows,
             )
-            _enqueue_microbench_ledger_progress_dirty_scopes(
-                cur,
-                deployment=deployment,
-                progress_rows=progress_rows,
-            )
     except Exception:
         return
-
-
-def _enqueue_microbench_ledger_progress_dirty_scopes(
-    cur: Any,
-    *,
-    deployment: str,
-    progress_rows: Sequence[Mapping[str, str]],
-) -> None:
-    """Invalidate the source optimization ledger when benchmark proof changes."""
-
-    if not progress_rows:
-        return
-    cur.execute(
-        """
-        SELECT COALESCE(max(generation_id), 0)
-          FROM okg.graph_generations
-         WHERE deployment_name = %(deployment)s
-           AND status = 'published'
-        """,
-        {"deployment": deployment},
-    )
-    row = cur.fetchone()
-    target_generation_id = int((row or [0])[0] or 0)
-    view_dependency_hash = hashlib.sha256(
-        "\n".join(
-            sorted(str(item.get("value") or "") for item in progress_rows)
-        ).encode("utf-8")
-    ).hexdigest()
-    dirty_rows: list[dict[str, Any]] = [
-        {
-            "definition_id": MICROBENCH_LEDGER_VIEW_DEFINITION_ID,
-            "target_generation_id": target_generation_id,
-            "scope_key": f"publisher:view:{MICROBENCH_LEDGER_VIEW_ID}",
-            "dirty_reason": MICROBENCH_LEDGER_DIRTY_REASON,
-            "dependency_kind": MICROBENCH_LEDGER_DIRTY_DEPENDENCY_KIND,
-            "dependency_ref": (
-                f"source_progress:{deployment}:{MICROBENCH_FULL_PIPELINE_PROGRESS_KEY}"
-            ),
-            "dependency_hash": view_dependency_hash,
-        }
-    ]
-    for item in progress_rows:
-        source_name = str(item.get("source_name") or "")
-        if not source_name:
-            continue
-        payload = str(item.get("value") or "")
-        dirty_rows.append(
-            {
-                "definition_id": MICROBENCH_LEDGER_RELATION_DEFINITION_ID,
-                "target_generation_id": target_generation_id,
-                "scope_key": source_name,
-                "dirty_reason": MICROBENCH_LEDGER_DIRTY_REASON,
-                "dependency_kind": MICROBENCH_LEDGER_DIRTY_DEPENDENCY_KIND,
-                "dependency_ref": (
-                    f"source_progress:{item.get('source_progress_name')}:"
-                    f"{MICROBENCH_FULL_PIPELINE_PROGRESS_KEY}"
-                ),
-                "dependency_hash": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
-            }
-        )
-    cur.executemany(
-        """
-        INSERT INTO okg.derived_dirty_scopes (
-          definition_id, target_generation_id, scope_key,
-          dirty_reason, dependency_kind, dependency_ref, dependency_hash
-        )
-        SELECT
-          %(definition_id)s, %(target_generation_id)s, %(scope_key)s,
-          %(dirty_reason)s, %(dependency_kind)s, %(dependency_ref)s,
-          %(dependency_hash)s
-        WHERE EXISTS (
-          SELECT 1
-            FROM okg.derived_artifact_definitions
-           WHERE definition_id = %(definition_id)s
-        )
-        ON CONFLICT (
-          definition_id, target_generation_id, scope_key,
-          dependency_kind, dependency_ref
-        ) DO UPDATE SET
-          dirty_reason = EXCLUDED.dirty_reason,
-          dependency_hash = EXCLUDED.dependency_hash,
-          queued_at = now(),
-          consumed_run_id = NULL,
-          consumed_at = NULL
-        """,
-        dirty_rows,
-    )
 
 
 def _source_live(

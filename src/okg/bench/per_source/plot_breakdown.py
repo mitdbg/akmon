@@ -29,7 +29,7 @@ try:
 except ImportError as _plot_exc:  # pragma: no cover - wheel test
     raise ImportError(
         "okg.bench.per_source.plot_breakdown needs matplotlib — install the bench extra: "
-        "pip install 'okg[bench]'"
+        "pip install 'akmon[bench]'"
     ) from _plot_exc
 
 _BENCH = Path(os.environ.get("OKG_BENCH_ROOT", Path.cwd() / "bench")).resolve()

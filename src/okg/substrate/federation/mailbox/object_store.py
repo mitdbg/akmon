@@ -192,7 +192,7 @@ class S3ObjectStore:
                 import boto3
             except ImportError as exc:  # pragma: no cover - optional extra.
                 raise RuntimeError(
-                    "boto3 is required for S3ObjectStore; install okg[mailbox]"
+                    "boto3 is required for S3ObjectStore; install akmon[mailbox]"
                 ) from exc
             client = boto3.client("s3")
         self.client = client
@@ -281,7 +281,7 @@ class SwiftObjectStore:
             except ImportError as exc:  # pragma: no cover - optional extra.
                 raise RuntimeError(
                     "python-swiftclient is required for SwiftObjectStore; "
-                    "install okg[mailbox]"
+                    "install akmon[mailbox]"
                 ) from exc
             connection = Connection(**auth_kwargs)
         self.connection = connection

@@ -100,7 +100,7 @@ changes. The implementation is
 ## Run okg from an installed wheel
 
 A deployment in its own Git repository can run an okg that was installed from
-a wheel (`pip install okg-<version>.whl`), with no checkout of okg and no
+a wheel (`pip install akmon-<version>-py3-none-any.whl`), with no checkout of okg and no
 `release.pin.code_repository`. The framework detects this itself: when the
 running okg is a file its installed wheel lists, it names itself by that wheel.
 

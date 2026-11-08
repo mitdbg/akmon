@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from types import FrameType, ModuleType
+from types import FrameType
 from typing import Any
 
 import pytest
@@ -564,61 +564,6 @@ def test_deployment_readiness_composition_executes_owner(
     assert result["readiness_required_count"] == 1
     assert result["status"] == "blocked"
     assert result["violations"][0]["source_name"] == "agent-sessions"
-
-
-def test_okg_workspace_view_composition_executes_owner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    artifact = _characterization()
-    view_module = _load_workspace_ledger_view(monkeypatch)
-    written_rows: list[list[dict[str, Any]]] = []
-
-    monkeypatch.setattr(
-        view_module,
-        "_scoped_relation_rows",
-        lambda _conn, *, generation_id: None,
-    )
-    monkeypatch.setattr(
-        view_module,
-        "_inventory_for_view",
-        lambda _conn: deepcopy(artifact["inventory"]),
-    )
-    monkeypatch.setattr(
-        view_module,
-        "_write_ledger_temp_table",
-        lambda _conn, rows: written_rows.append(deepcopy(rows)),
-    )
-
-    with _record_owner_builder_calls() as owner_builder_calls:
-        ledger = view_module._prepare_ledger_table(object(), generation_id=42)
-
-    assert owner_builder_calls == [
-        (
-            "okg.substrate.source_sync_optimization_ledger",
-            str(Path(ledger_owner.__file__).resolve()),
-        )
-    ]
-    assert ledger["schema"] == ledger_owner.MICROBENCH_OPTIMIZATION_LEDGER_SCHEMA
-    assert ledger["row_count"] == artifact["expected"]["row_count"]
-    assert [row["name"] for row in ledger["rows"]] == (
-        artifact["expected"]["ordered_names"]
-    )
-    assert len(written_rows) == 1
-    assert written_rows[0] == (
-        ledger_owner.source_optimization_ledger_relation_rows(ledger)
-    )
-
-
-def _load_workspace_ledger_view(
-    monkeypatch: pytest.MonkeyPatch,
-) -> ModuleType:
-    package_name = "_slice3_okg_workspace_views"
-    package = ModuleType(package_name)
-    package.__path__ = [  # type: ignore[attr-defined]
-        str(REPO_ROOT / "deployments" / "okg-workspace" / "views"),
-    ]
-    monkeypatch.setitem(sys.modules, package_name, package)
-    return importlib.import_module(f"{package_name}.source_optimization_ledger")
 
 
 def _write_cli_deployment(tmp_path: Path) -> Path:

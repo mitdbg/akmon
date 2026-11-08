@@ -7,7 +7,7 @@ fresh DSN with everything the audited views in ``states.mjs`` need:
 
   * a representative published generation -- nodes across several subtypes +
     edges shaped like okg-workspace's narrowing triples, published through the
-    real Publisher with the ontology-graph rollup registered -- so Home / Health
+    real Publisher, whose publish hook maintains the ontology rollup -- so Home / Health
     / the ontology + the instances graph render. (NB: this fixture seeds no
     ``okg.narrowings``, so the publish narrowing gate is SKIPPED, not enforced --
     the edges are accepted unvalidated; the fixture is for UI rendering, not
@@ -35,7 +35,6 @@ Usage (the audit start-servers wires this when OKG_AUDIT_FIXTURE_DSN is set):
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import pathlib
@@ -63,7 +62,6 @@ from okg.substrate.telemetry import (
     record_metric,
     record_span,
 )
-from okg.substrate.views.base import ViewMaterializer
 
 _SEED_SOURCE = "audit.fixture_seed"
 _RECEIPT_SCHEMA = "okg.operator_ui.graph_canvas_algorithm_parity.receipt.v1"
@@ -295,7 +293,10 @@ def _build_fixture_publisher(dsn: str, deployment: str) -> Any:
             # deliberately has no catalog narrowings or publish gates. The
             # canonical factory otherwise installs the deployment default.
             "consistency_gates": [],
-            "materializers": [_ontology_rollup_materializer()],
+            # No view materializers: the publish hook maintains the ontology
+            # rollup the ontology read consumes (the okg-workspace rollup view
+            # was retired in akmon-views-on-concord).
+            "materializers": [],
         },
     )
     if publisher.catalog_identity.writer_fingerprint != identity.writer_fingerprint:
@@ -331,48 +332,6 @@ def _seed_runtime_queue_authority(conn: psycopg.Connection) -> None:
             )
             """
         )
-
-
-#: The rollup view the seed materializes. It is the okg-workspace deployment's
-#: own view module, so a checkout without that deployment (the public copy)
-#: cannot seed the audit fixture and refuses by name.
-ROLLUP_VIEW_RELPATH = pathlib.PurePosixPath(
-    "deployments/okg-workspace/views/ontology_graph_rollup.py"
-)
-
-
-def rollup_view_path(repo_root: pathlib.Path | None = None) -> pathlib.Path:
-    """The rollup view module, or a refusal that names it when it is absent."""
-    if repo_root is None:
-        repo_root = pathlib.Path(__file__).resolve().parents[5]
-    mod_path = repo_root / ROLLUP_VIEW_RELPATH
-    if not mod_path.is_file():
-        raise RuntimeError(
-            "the operator-ui audit seed materializes the okg-workspace "
-            f"deployment's ontology rollup view ({ROLLUP_VIEW_RELPATH}), which "
-            f"this checkout does not have: {mod_path}"
-        )
-    return mod_path
-
-
-def _ontology_rollup_materializer(
-    repo_root: pathlib.Path | None = None,
-) -> ViewMaterializer:
-    """The okg-workspace ontology-graph rollup, loaded by path -- the repointed
-    ontology read consumes it and fails loud when missing."""
-    mod_path = rollup_view_path(repo_root)
-    spec = importlib.util.spec_from_file_location(
-        "audit_ontology_graph_rollup", mod_path
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return ViewMaterializer(
-        view_def_factory=module.ontology_graph_rollup_view_def,
-        build_corpus=module.build_corpus,
-        name=module.VIEW_ID,
-        reads_edge_types=module._READS_EDGE_TYPES,
-    )
 
 
 def _facts() -> list[NodeFact | EdgeFact]:
@@ -848,9 +807,6 @@ def seed(
         dsn=dsn,
         reset_authority=reset_authority,
     )
-    # Refuse before the reset when the rollup view this seed publishes with
-    # is not in the checkout, rather than failing after the database is wiped.
-    rollup_view_path()
     _reset_db(dsn)
     _migrate(dsn)
     with _connect(dsn, autocommit=True) as conn:
@@ -872,8 +828,8 @@ def seed(
         "edges": len([fact for fact in facts if isinstance(fact, EdgeFact)]),
         "generation_id": str(publish.get("generation_id", "")),
         "status": str(publish.get("status", "")),
-        "node_count": int(publish.get("node_count", n_nodes)),
-        "edge_count": int(publish.get("edge_count", 0)),
+        "node_count": int(publish["node_count"]),
+        "edge_count": int(publish["edge_count"]),
     }
 
 

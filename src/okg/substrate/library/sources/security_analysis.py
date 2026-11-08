@@ -375,7 +375,7 @@ def _xml_artifact_facts(
     except ImportError as exc:
         raise SubstrateError(
             "SecurityAnalysisSource requires defusedxml for SBOM XML import",
-            fix_hint="install okg[quality] or configure only JSON artifacts",
+            fix_hint="install akmon[quality] or configure only JSON artifacts",
         ) from exc
     try:
         root = (

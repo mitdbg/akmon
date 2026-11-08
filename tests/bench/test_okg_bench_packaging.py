@@ -5,7 +5,7 @@ the wheel, install it into a clean venv WITHOUT the [bench] extra, and
 prove (a) `import okg.bench` / `import okg.bench.injection` succeed bare,
 (b) an extra-needing surface (okg.bench.plot - matplotlib is the
 genuinely extra-gated dep; jinja2 rides in via litellm) raises the named
-okg[bench] install hint, (c) the agent-memory task specs ship as
+akmon[bench] install hint, (c) the agent-memory task specs ship as
 package data. Marked slow: builds a wheel and resolves core deps.
 """
 
@@ -31,7 +31,7 @@ def test_wheel_ships_okg_bench(tmp_path: Path) -> None:
         ["uv", "build", "--wheel", "--out-dir", str(dist)], cwd=_REPO_ROOT
     )
     assert build.returncode == 0, build.stderr[-2000:]
-    wheels = list(dist.glob("okg-*.whl"))
+    wheels = list(dist.glob("akmon-*.whl"))
     assert len(wheels) == 1, wheels
 
     venv_dir = tmp_path / "venv"
@@ -53,7 +53,7 @@ def test_wheel_ships_okg_bench(tmp_path: Path) -> None:
     # imports bare; matplotlib is the genuinely extra-gated dependency.
     hinted = _run([str(python), "-c", "import okg.bench.plot"])
     assert hinted.returncode != 0
-    assert "okg[bench]" in hinted.stderr, hinted.stderr[-2000:]
+    assert "akmon[bench]" in hinted.stderr, hinted.stderr[-2000:]
 
     package_probe = "".join(
         [

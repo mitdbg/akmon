@@ -436,7 +436,7 @@ def _bundle(tmp_path: Path, monkeypatch, contracts: dict[str, dict]) -> None:
     monkeypatch.setattr(
         importlib.metadata,
         "version",
-        lambda name: "0.9.0" if name == "okg" else real_version(name),
+        lambda name: "0.9.0" if name == "akmon" else real_version(name),
     )
 
 

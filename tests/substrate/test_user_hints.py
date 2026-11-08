@@ -130,9 +130,6 @@ _LITERAL_CHECKOUT_COMMAND_ALLOWED = {
     ("substrate/source_sync_optimization_ledger.py",
      "env -u OKG_DSN uv run okg sync microbench ledger --deployment "
      "okg-workspace --json"),
-    ("substrate/source_sync_optimization_ledger.py",
-     "env -u OKG_DSN uv run okg view inspect --deployment okg-workspace "
-     "--view okg_workspace.source_optimization_ledger --json"),
 }
 
 #: PACT names its own command from the repository's `pact/project.yaml`

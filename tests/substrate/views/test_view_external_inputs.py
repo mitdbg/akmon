@@ -151,20 +151,6 @@ def test_every_registry_in_the_repository_still_loads() -> None:
         assert isinstance(entries, list), path
 
 
-def test_okg_workspace_views_are_knowingly_left_undeclared() -> None:
-    """The 7 okg-workspace views that read outside the graph stay undeclared in
-    this change (a follow-up issue: cost measurement on a copy, then
-    declarations or a slower refresh). The audit of what each reads is in the
-    PACT evidence note build-cost.md."""
-    workspace = _REPO_ROOT / "deployments" / "okg-workspace"
-    if not (workspace / "views_registry.yaml").is_file():
-        pytest.skip("okg-workspace is not part of this copy of the repository")
-    entries = load_views_registry(workspace)
-
-    assert len(entries) == 8
-    assert all(entry.external_inputs == () for entry in entries)
-
-
 def _write_deployment(root: Path, registry_text: str | None) -> Path:
     from tests.substrate.cli.test_deployment_lint import _write_valid_deployment
 

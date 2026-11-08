@@ -146,7 +146,7 @@ for the `<language>` code extractor [running interpreter:
   checkout venv, so `uv run --extra ...` never reached it.
 - **Fix:** from a checkout, `uv run --extra code --extra quality okg ...`
   and confirm `uv run which okg` resolves inside `.venv`; for a global tool,
-  `uv tool install "okg[code,quality]"`. `okg deployment env doctor
+  `uv tool install "akmon[code,quality]"`. `okg deployment env doctor
   <deployment>` reports the running interpreter.
 
 ## 5b. `TreeSitterNotInstalled`: the grammar cache cannot be used

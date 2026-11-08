@@ -116,9 +116,10 @@ rm -rf "$DEMO/authoring"
 cd "$DEMO"
 unset PYTHONPATH
 uv venv --python 3.12 .venv
-# okg-*: the one okg wheel built above, whatever version the checkout declares.
+# akmon-*: the one framework wheel built above (distribution akmon, import
+# package okg), whatever version the checkout declares.
 uv pip install --python .venv/bin/python \
-  wheels/okg-*-py3-none-any.whl \
+  wheels/akmon-*-py3-none-any.whl \
   wheels/okg_example_records-0.1.0-py3-none-any.whl pytest
 .venv/bin/python -I -c 'import okg, okg_example_records; print(okg.__file__); print(okg_example_records.__file__)'
 ```
@@ -224,9 +225,9 @@ for wheel in sorted((house / "wheels").glob("*.whl")):
 (house / "manifest.json").write_text(json.dumps(
     {"requirements_digest": pin(house / "runtime-wheels.txt"), "entries": entries}))
 
-# The one okg wheel built from the checkout, at whatever version it declares;
-# unpacking refuses if the glob finds none or more than one.
-(framework,) = (demo / "wheels").glob("okg-*-py3-none-any.whl")
+# The one framework wheel (akmon) built from the checkout, at whatever version
+# it declares; unpacking refuses if the glob finds none or more than one.
+(framework,) = (demo / "wheels").glob("akmon-*-py3-none-any.whl")
 consumer = demo / "wheels/okg_example_records-0.1.0-py3-none-any.whl"
 installer = demo / "installer/pip-26.2.1-py3-none-any.whl"
 build_release_entry(

@@ -44,7 +44,7 @@ def test_extracts_the_commands_the_pages_give() -> None:
     assert cmds.build_wheel == "uv build --wheel"
     assert cmds.make_venv == "python3.12 -m venv ~/okg-venv"
     assert cmds.install_wheel == (
-        "~/okg-venv/bin/pip install /path/to/okg-<version>-py3-none-any.whl"
+        "~/okg-venv/bin/pip install /path/to/akmon-<version>-py3-none-any.whl"
     )
     assert cmds.check_version == "~/okg-venv/bin/okg --version"
     assert " ".join(cmds.workspace_install.replace("\\\n", " ").split()) == (
@@ -139,12 +139,12 @@ def test_offline_install_never_resolves_against_an_index() -> None:
     argv = offline_wheel_install_argv(
         uv="uv",
         venv_python=Path("/h/okg-venv/bin/python"),
-        wheel=Path("/d/okg-0.1.0-py3-none-any.whl"),
+        wheel=Path("/d/akmon-0.1.0-py3-none-any.whl"),
     )
     assert argv[:3] == ["uv", "pip", "install"]
     assert "--offline" in argv and "--no-deps" in argv
     assert argv[argv.index("--python") + 1] == "/h/okg-venv/bin/python"
-    assert argv[-1] == "/d/okg-0.1.0-py3-none-any.whl"
+    assert argv[-1] == "/d/akmon-0.1.0-py3-none-any.whl"
     # ... and a check then holds it to every requirement it declares.
     check = dependency_check_argv(
         uv="uv", venv_python=Path("/h/okg-venv/bin/python"),

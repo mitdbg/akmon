@@ -1,7 +1,7 @@
 """Substrate-side composers for the Console's typed view payloads.
 
 Each view's read-side composer lives in its own module
-(`today_brief.py`, `triage_brief.py`, ...). The composer:
+(`today_workspace.py`, `decisions.py`, ...). The composer:
 
   1. Reads from the substrate via SQL views (`okg.v_*`) or via
      AKMON operators (inspect / aggregate / etc).

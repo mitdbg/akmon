@@ -269,7 +269,7 @@ codes:
     severity: error
     raised_by:
       - GLiNERBackend.extract
-    fix_hint_template: "pip install 'okg[nlp]' / fetch model {0}"
+    fix_hint_template: "pip install 'akmon[nlp]' / fetch model {0}"
     data_shape: [model]
 
   - code: extractor_chain_missing

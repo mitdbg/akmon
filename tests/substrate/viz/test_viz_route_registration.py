@@ -15,11 +15,6 @@ EXPECTED_VIZ_ROUTES = [
         "console_enricher_diagnostics",
     ),
     (
-        "/viz/api/console/view-diagnostics",
-        ("GET",),
-        "console_view_diagnostics",
-    ),
-    (
         "/viz/api/console/producer-metrics",
         ("GET",),
         "console_producer_metrics",

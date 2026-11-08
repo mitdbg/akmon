@@ -1086,16 +1086,33 @@ def _step_compat(
     return row
 
 
+def release_wheel_name(version: str) -> str:
+    """The file name of the release wheel of ``version``.
+
+    Releases up to 0.5.0 shipped the distribution ``okg``
+    (``okg-<version>-py3-none-any.whl``); from 0.6.0 the distribution is
+    ``akmon`` (``okg.DISTRIBUTION``). The import package and the ``okg``
+    command keep their name either way.
+    """
+    from okg import DISTRIBUTION
+
+    match = re.match(r"(\d+)\.(\d+)", version)
+    if match is not None and (int(match[1]), int(match[2])) < (0, 6):
+        return f"okg-{version}-py3-none-any.whl"
+    return f"{DISTRIBUTION}-{version}-py3-none-any.whl"
+
+
 def _go_back_hint(from_version: str | None) -> str:
     if not from_version or from_version.startswith("("):
         return (
             "reinstall the okg version you upgraded from, the way you "
             "installed it (`uv tool install --force "
-            "okg-<version>-py3-none-any.whl` or `pip install "
-            "okg-<version>-py3-none-any.whl`; wheels are attached to each "
-            f"release at {RELEASES_URL})"
+            "akmon-<version>-py3-none-any.whl` or `pip install "
+            "akmon-<version>-py3-none-any.whl`; releases up to 0.5.0 name "
+            "the wheel okg-<version>-py3-none-any.whl; wheels are attached "
+            f"to each release at {RELEASES_URL})"
         )
-    wheel = f"okg-{from_version}-py3-none-any.whl"
+    wheel = release_wheel_name(from_version)
     return (
         f"reinstall okg {from_version} the way you installed it (`uv tool "
         f"install --force {wheel}` or `pip install {wheel}`; the wheel is "

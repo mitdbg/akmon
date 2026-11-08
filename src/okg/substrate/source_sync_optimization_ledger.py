@@ -1013,16 +1013,10 @@ def _ledger_next_command(
 ) -> str:
     if blocker:
         return f'rg "{source_name}:" deployments/okg-workspace/source_registry.yaml -n'
-    if optimization_status == "confirm_policy":
+    if optimization_status in {"confirm_policy", "passing_full_pipeline_benchmark"}:
         return (
             "env -u OKG_DSN uv run okg sync microbench ledger "
             "--deployment okg-workspace --json"
-        )
-    if optimization_status == "passing_full_pipeline_benchmark":
-        return (
-            "env -u OKG_DSN uv run okg view inspect --deployment "
-            "okg-workspace --view okg_workspace.source_optimization_ledger "
-            "--json"
         )
     return (
         "env -u OKG_DSN uv run okg sync microbench inventory "

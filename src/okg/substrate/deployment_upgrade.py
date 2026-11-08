@@ -15325,7 +15325,13 @@ def _nomos_policy_source_ids(
     source_ids = set(_nomos_source_names(source_registry))
     source_ids.add("_catalog:restamp")
     if deployment_dir is not None:
-        if (deployment_dir / "views_registry.yaml").exists():
+        # A deployment that retired its views keeps their records in published
+        # graphs until they are retired too, and an enforcing read boundary must
+        # keep reading them; retired_view_lineage.yaml says so until then.
+        if (
+            (deployment_dir / "views_registry.yaml").exists()
+            or (deployment_dir / "retired_view_lineage.yaml").exists()
+        ):
             source_ids.add("catalog:views_registry")
             source_ids.add("_system:native_views")
         if (deployment_dir / "monitored_hosts.yaml").exists():

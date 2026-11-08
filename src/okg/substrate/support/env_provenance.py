@@ -91,7 +91,7 @@ def annotate_optional_dependency_error(
     * When the interpreter is a uv tool environment, ``fix_hint`` is
       rewritten to say the command resolved to the globally installed tool
       (not the checkout venv) and to give BOTH fix forms — reinstall the
-      tool with the extras (``uv tool install "okg[...]"``) and run from a
+      tool with the extras (``uv tool install "akmon[...]"``) and run from a
       checkout (``uv run --extra ... okg ...``). The original hint is kept
       at the end. Otherwise the caller's hint passes through unchanged.
     * ``data`` carries ``interpreter`` / ``environment_kind`` for the JSON
@@ -117,13 +117,13 @@ def annotate_optional_dependency_error(
         flags = " ".join(f"--extra {name}" for name in extras)
         fixes = (
             f' Fix either way: reinstall the global tool with the extras '
-            f'(`uv tool install "okg[{bracket}]"`), or run from a checkout '
+            f'(`uv tool install "akmon[{bracket}]"`), or run from a checkout '
             f"(`uv run {flags} okg ...`)."
         )
     elif package:
         fixes = (
             f" Fix either way: add the package to the global tool "
-            f"(`uv tool install okg --with {package}`), or run from a "
+            f"(`uv tool install akmon --with {package}`), or run from a "
             f"checkout (`uv run okg ...`) with {package} installed in the "
             f"checkout venv."
         )
@@ -227,8 +227,10 @@ def find_checkout_root(cwd: str | Path | None = None) -> Path | None:
 
 def okg_version() -> str | None:
     """The installed okg package version, or None when unresolvable."""
+    from okg import DISTRIBUTION
+
     try:
-        return importlib.metadata.version("okg")
+        return importlib.metadata.version(DISTRIBUTION)
     except importlib.metadata.PackageNotFoundError:
         return None
 

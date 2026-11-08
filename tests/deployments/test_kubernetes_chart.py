@@ -173,7 +173,7 @@ def test_runtime_image_installs_okg_from_a_wheel_built_at_vcs_ref() -> None:
     assert len(syncs) == 1 and "--no-install-project" in syncs[0]
     assert "COPY --from=wheel /dist/ /tmp/okg-wheel/" in runtime_stage
     install = next(line for line in runtime_stage if "uv pip install" in line)
-    assert "--no-deps /tmp/okg-wheel/okg-*.whl" in install
+    assert "--no-deps /tmp/okg-wheel/akmon-*.whl" in install
     # uv writes the --python it was given into the okg console script's
     # shebang; the worker identity gate declares .venv/bin/python3.
     from okg.substrate import deployment_apply

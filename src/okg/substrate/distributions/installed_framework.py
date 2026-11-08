@@ -46,9 +46,10 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, Mapping
 
+from okg import DISTRIBUTION
 from okg.substrate.errors import SubstrateError
 
-DISTRIBUTION_NAME = "okg"
+DISTRIBUTION_NAME = DISTRIBUTION
 BUILD_INFO_RELATIVE = "okg/_build_info.json"
 
 
@@ -217,7 +218,7 @@ def installed_framework_distribution(
             },
             fix_hint=(
                 "reinstall okg from its wheel (`pip install --force-reinstall "
-                "okg-<version>.whl`) so the installed files match the wheel's "
+                "akmon-<version>-py3-none-any.whl`) so the installed files match the wheel's "
                 "RECORD, then re-run the failed command"
             ),
         )

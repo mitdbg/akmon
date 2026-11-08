@@ -10,9 +10,6 @@ import pytest
 
 from tests.substrate._deployment_views import isolated_deployment_views
 
-REPO = Path(__file__).resolve().parents[2]
-WORKSPACE_DIR = REPO / "deployments" / "okg-workspace"
-
 
 def _scaffold_foreign_views(root: Path) -> Path:
     """Mimic a scaffolded test deployment: ``<root>/deployment/views``."""
@@ -20,6 +17,15 @@ def _scaffold_foreign_views(root: Path) -> Path:
     (deployment / "views").mkdir(parents=True)
     (deployment / "views" / "__init__.py").write_text("", encoding="utf-8")
     (deployment / "views" / "dummy.py").write_text("X = 1\n", encoding="utf-8")
+    return deployment
+
+
+def _scaffold_deployment_with_views(root: Path) -> Path:
+    """A deployment dir whose own `views` package holds a `probe` module."""
+    deployment = root / "own-deployment"
+    (deployment / "views").mkdir(parents=True)
+    (deployment / "views" / "__init__.py").write_text("", encoding="utf-8")
+    (deployment / "views" / "probe.py").write_text("Y = 2\n", encoding="utf-8")
     return deployment
 
 
@@ -39,27 +45,29 @@ def foreign_views_cached(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def test_foreign_cached_views_shadows_a_bare_import(foreign_views_cached: Path) -> None:
     # The failure mode the helper exists for: the cached package wins.
-    with pytest.raises(ModuleNotFoundError, match="views.source_performance_health"):
-        importlib.import_module("views.source_performance_health")
+    with pytest.raises(ModuleNotFoundError, match="views.probe"):
+        importlib.import_module("views.probe")
 
 
 def test_helper_imports_deployment_views_and_restores_state(
     foreign_views_cached: Path,
+    tmp_path: Path,
 ) -> None:
+    own = _scaffold_deployment_with_views(tmp_path)
     path_before = list(sys.path)
     foreign_pkg = sys.modules["views"]
     foreign_dummy = sys.modules["views.dummy"]
 
-    with isolated_deployment_views(WORKSPACE_DIR) as package:
-        assert Path(package.__file__).parent == WORKSPACE_DIR.resolve() / "views"
-        mod = importlib.import_module("views.source_performance_health")
-        assert Path(mod.__file__).parent == WORKSPACE_DIR.resolve() / "views"
-        assert sys.path[0] == str(WORKSPACE_DIR.resolve())
+    with isolated_deployment_views(own) as package:
+        assert Path(package.__file__).parent == own.resolve() / "views"
+        mod = importlib.import_module("views.probe")
+        assert Path(mod.__file__).parent == own.resolve() / "views"
+        assert sys.path[0] == str(own.resolve())
 
     assert sys.path == path_before
     assert sys.modules["views"] is foreign_pkg
     assert sys.modules["views.dummy"] is foreign_dummy
-    assert "views.source_performance_health" not in sys.modules
+    assert "views.probe" not in sys.modules
 
 
 def test_helper_fails_loudly_when_views_resolves_elsewhere(

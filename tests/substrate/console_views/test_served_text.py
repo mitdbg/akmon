@@ -2,7 +2,7 @@
 
 Issue #2130, PACT console-reads-mask-paths-and-exception-text. The database-
 free half: the rule itself, the worktree label, the
-blocked-reason code, the view-diagnostics registry and run error, and the
+blocked-reason code, and the
 failure body of EVERY console GET route with every connection raising text
 that names a path, a host, an address and a password. The half that needs a
 real publication is `test_console_reads_serve_no_server_text.py`, which reuses
@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import re
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator
@@ -23,7 +22,6 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from okg.substrate.console_views import generations as generations_module  # noqa: E402
-from okg.substrate.console_views import view_diagnostics  # noqa: E402
 from okg.substrate.console_views import worktrees  # noqa: E402
 from okg.substrate.console_views.served_text import (  # noqa: E402
     CONNECTION_WITHHELD,
@@ -100,9 +98,8 @@ RECIPES: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "/viz/api/console/source-detail": lambda s: {"name": s["source"]},
     "/viz/api/console/source-diagnostics": lambda s: {"name": s["source"]},
     "/viz/api/console/enricher-diagnostics": lambda s: {},
-    "/viz/api/console/view-diagnostics": lambda s: {"name": s["view"]},
     "/viz/api/console/producers": lambda s: {"name": s["source"]},
-    "/viz/api/console/producer-metrics": lambda s: {"producers": f"view:{s['view']}"},
+    "/viz/api/console/producer-metrics": lambda s: {"producers": s["source"]},
     "/viz/api/console/view": lambda s: {"id": "okg_workspace.decisions"},
     "/viz/api/console/versions": lambda s: {},
     "/viz/api/console/ontology-rollup": lambda s: {"version": s["version"]},
@@ -200,7 +197,7 @@ def test_the_rule_states_its_own_blind_spot() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# the worktree label, the blocked reason, the view registry                    #
+# the worktree label and the blocked reason                                    #
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize(
     ("cwd", "label"),
@@ -234,55 +231,6 @@ def test_a_worktree_label_never_carries_the_account(cwd: str, label: str) -> Non
 def test_blocked_reason_is_a_code_or_null_with_why(recorded: Any, served: Any, why: Any) -> None:
     assert generations_module._blocked_reason_code(recorded) == (served, why)
     assert generations_module._blocked_summary(recorded) == served
-
-
-class _Cursor:
-    def __init__(self, rows: list[tuple]) -> None:
-        self._rows = rows
-        self.description = [SimpleNamespace(name=name) for name in (
-            "definition_id", "logical_key", "run_id", "target_generation_id",
-            "status", "trigger_kind", "metrics", "error", "started_at",
-            "completed_at", "row_count",
-        )]
-
-    def __enter__(self) -> "_Cursor":
-        return self
-
-    def __exit__(self, *args: Any) -> None:
-        return None
-
-    def execute(self, *_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    def fetchall(self) -> list[tuple]:
-        return self._rows
-
-
-def test_view_diagnostics_names_the_registry_file_and_masks_the_run_error(
-    monkeypatch, tmp_path: Path,
-) -> None:
-    entries = [SimpleNamespace(view_def_id="leak_probe", view_name="Leak probe")]
-    monkeypatch.setattr(view_diagnostics, "load_views_registry", lambda _path: entries)
-    now = datetime(2026, 9, 22, tzinfo=timezone.utc)
-    rows = [(
-        "leak_probe", "leak_probe", "run-1", 9, "failed", "full", {},
-        {"error_type": "ValueError", "message": LEAK_EXCEPTION, "traceback": LEAK_TRACEBACK},
-        now, now, None,
-    )]
-    payload = view_diagnostics.compose_view_diagnostics(
-        SimpleNamespace(cursor=lambda: _Cursor(rows)),
-        deployment_name="w",
-        deployment_dir=tmp_path / LEAK_HOME.lstrip("/"),
-        session=SimpleNamespace(generation_id="gen:9"),
-        selected_view="leak_probe",
-    )
-    assert hits(payload) == []
-    assert payload["read_authority"]["registry"] == "views_registry.yaml"
-    assert payload["read_authority"]["registry_path_unavailable_reason"] == "server_path_not_served"
-    error = payload["views"][0]["latest_run"]["error"]
-    assert error["error_type"] == "ValueError"
-    assert error["error_text_withheld"] is True
-    assert error["withheld_keys"] == ["message", "traceback"]
 
 
 # --------------------------------------------------------------------------- #
@@ -321,7 +269,6 @@ class _LeakyCtx:
 FAILURE_STATE = {
     "attempt": "okg:leak-probe:branch:default:gen:20260922T000000000000Z:abc",
     "source": "leakprobe",
-    "view": "leak_probe",
     "record": "document:leak-probe",
     "version": "okg:leak-probe:branch:default:gen:20260922T000000000000Z:abc",
 }

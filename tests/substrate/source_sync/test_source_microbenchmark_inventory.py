@@ -18,11 +18,6 @@ from okg.substrate.derived_artifacts import (
 from okg.substrate.cli.main import main
 from okg.substrate.source_sync_microbench import (
     MICROBENCH_FULL_PIPELINE_PROGRESS_KEY,
-    MICROBENCH_LEDGER_DIRTY_DEPENDENCY_KIND,
-    MICROBENCH_LEDGER_DIRTY_REASON,
-    MICROBENCH_LEDGER_RELATION_DEFINITION_ID,
-    MICROBENCH_LEDGER_VIEW_DEFINITION_ID,
-    MICROBENCH_LEDGER_VIEW_ID,
     _microbench_event_plan,
     _persist_microbench_full_pipeline_progress,
     build_source_sync_microbenchmark_report,
@@ -1025,12 +1020,16 @@ def test_source_optimization_ledger_carries_no_change_dominant_proof() -> None:
 
 
 @pytest.mark.postgres
-def test_full_pipeline_progress_dirties_ledger_view(
+def test_full_pipeline_progress_is_recorded_and_dirties_nothing(
     clean_runtime: str,
 ) -> None:
+    """The proof lands in source_progress, where okg sync microbench ledger
+    reads it. The okg-workspace ledger view it used to invalidate was retired
+    (akmon-views-on-concord), so no derived scope is queued, even where the
+    database still holds that view's definitions."""
     gen = 201_337
     with psycopg.connect(clean_runtime, autocommit=True) as conn:
-        _register_ledger_artifact_definitions(conn)
+        _register_retired_ledger_definitions(conn)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1101,47 +1100,8 @@ def test_full_pipeline_progress_dirties_ledger_view(
         assert progress_payload["top_widening_reason"] == (
             "declared_view_dependency_scope"
         )
-        cur.execute(
-            """
-            SELECT definition_id, target_generation_id, scope_key,
-                   dirty_reason, dependency_kind, dependency_ref,
-                   consumed_run_id
-              FROM okg.derived_dirty_scopes
-             WHERE definition_id IN (
-               %(view_definition_id)s, %(relation_definition_id)s
-             )
-             ORDER BY definition_id, scope_key
-            """,
-            {
-                "view_definition_id": MICROBENCH_LEDGER_VIEW_DEFINITION_ID,
-                "relation_definition_id": (MICROBENCH_LEDGER_RELATION_DEFINITION_ID),
-            },
-        )
-        rows = cur.fetchall()
-
-    assert set(rows) == {
-        (
-            MICROBENCH_LEDGER_VIEW_DEFINITION_ID,
-            gen,
-            f"publisher:view:{MICROBENCH_LEDGER_VIEW_ID}",
-            MICROBENCH_LEDGER_DIRTY_REASON,
-            MICROBENCH_LEDGER_DIRTY_DEPENDENCY_KIND,
-            (f"source_progress:okg-workspace:{MICROBENCH_FULL_PIPELINE_PROGRESS_KEY}"),
-            None,
-        ),
-        (
-            MICROBENCH_LEDGER_RELATION_DEFINITION_ID,
-            gen,
-            "agent-sessions",
-            MICROBENCH_LEDGER_DIRTY_REASON,
-            MICROBENCH_LEDGER_DIRTY_DEPENDENCY_KIND,
-            (
-                "source_progress:okg-workspace.agent-sessions:"
-                f"{MICROBENCH_FULL_PIPELINE_PROGRESS_KEY}"
-            ),
-            None,
-        ),
-    }
+        cur.execute("SELECT count(*) FROM okg.derived_dirty_scopes")
+        assert cur.fetchone()[0] == 0
 
 
 def test_sync_microbench_ledger_cli_emits_optimization_rows(
@@ -2468,7 +2428,18 @@ def test_microbench_agent_sessions_missing_warm_cursor_has_no_event(
     assert plan["events"] == []
 
 
-def _register_ledger_artifact_definitions(conn) -> None:
+#: The okg-workspace ledger view retired in akmon-views-on-concord, and its
+#: relation, by the ids a live database still records them under.
+_RETIRED_LEDGER_VIEW_ID = "okg_workspace.source_optimization_ledger"
+_RETIRED_LEDGER_VIEW_DEFINITION_ID = f"view:{_RETIRED_LEDGER_VIEW_ID}"
+_RETIRED_LEDGER_RELATION_DEFINITION_ID = (
+    f"view-relation:{_RETIRED_LEDGER_VIEW_ID}:relation"
+)
+
+
+def _register_retired_ledger_definitions(conn) -> None:
+    """The retired ledger view's definitions, as a live okg-workspace database
+    still holds them until its view rows are removed (a separate board item)."""
     view_contract = {"slots": {"markdown": "text/markdown"}}
     view_dirty_rule = {
         "mode": "publisher_conservative_full_refresh",
@@ -2487,10 +2458,10 @@ def _register_ledger_artifact_definitions(conn) -> None:
     register_view_artifact_definition(
         conn,
         ViewArtifactDefinition(
-            definition_id=MICROBENCH_LEDGER_VIEW_DEFINITION_ID,
+            definition_id=_RETIRED_LEDGER_VIEW_DEFINITION_ID,
             deployment_name="okg-workspace",
-            view_id=MICROBENCH_LEDGER_VIEW_ID,
-            compute_hash=stable_hash({"view": MICROBENCH_LEDGER_VIEW_ID}),
+            view_id=_RETIRED_LEDGER_VIEW_ID,
+            compute_hash=stable_hash({"view": _RETIRED_LEDGER_VIEW_ID}),
             output_schema_hash=stable_hash(view_contract),
             renderer_hash=stable_hash({"renderer": "markdown"}),
             dirty_rule_hash=stable_hash(view_dirty_rule),
@@ -2501,10 +2472,10 @@ def _register_ledger_artifact_definitions(conn) -> None:
     register_jsonb_relation(
         conn,
         RelationArtifactDefinition(
-            definition_id=MICROBENCH_LEDGER_RELATION_DEFINITION_ID,
+            definition_id=_RETIRED_LEDGER_RELATION_DEFINITION_ID,
             deployment_name="okg-workspace",
             logical_relation_id=("okg_workspace.source_optimization_ledger.rows"),
-            compute_hash=stable_hash({"view": MICROBENCH_LEDGER_VIEW_ID}),
+            compute_hash=stable_hash({"view": _RETIRED_LEDGER_VIEW_ID}),
             output_schema_hash=stable_hash(relation_contract),
             renderer_hash=stable_hash({"renderer": "sql-jsonb"}),
             dirty_rule_hash=stable_hash(relation_dirty_rule),

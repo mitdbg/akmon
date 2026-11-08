@@ -61,7 +61,7 @@ ACADEMIC_DOC_DSN = "postgresql://user:pass@host:5432/okg"
 
 #: The page's wheel venv location and wheel path, as written.
 DOC_VENV = "~/okg-venv"
-DOC_WHEEL = "/path/to/okg-<version>-py3-none-any.whl"
+DOC_WHEEL = "/path/to/akmon-<version>-py3-none-any.whl"
 
 _BASH_BLOCK_RE = re.compile(r"```bash\n(.*?)```", re.DOTALL)
 _PLACEHOLDER_RE = re.compile(r"<[A-Za-z][A-Za-z0-9_ -]*>")

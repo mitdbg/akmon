@@ -51,7 +51,7 @@ class GLiNERBackend:
             message, fix_hint, provenance = (
                 annotate_optional_dependency_error(
                     "gliner package not installed",
-                    "pip install 'okg[nlp]'",
+                    "pip install 'akmon[nlp]'",
                     extras=("nlp",),
                 )
             )

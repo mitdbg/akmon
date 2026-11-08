@@ -23,6 +23,7 @@ from okg.substrate.catalog.ownership import (
     catalog_identity_for,
     ensure_catalog_write_allowed,
 )
+from okg.substrate.console_views.ontology_rollup_read import read_ontology_rollup
 from okg.substrate.errors import SubstrateError
 from okg.substrate.graph_store import ChronosGraphStore
 
@@ -253,13 +254,23 @@ def test_audit_seed_publishes_with_canonical_fixture_authority(
     }
     assert result["status"] == "published"
     assert result["generation_id"].startswith("okg:audit-fixture:branch:default:gen:")
-    assert result["nodes_live"] == 243
+    # 242 fixture nodes; the retired rollup view's own record used to make 243.
+    assert result["nodes_live"] == 242
     assert result["edges_live"] == 294
     assert result["doctor"] == "clean"
     assert result["queue_depth"] == 0
     assert result["dlq_count"] == 0
     assert json.loads(receipt_path.read_text(encoding="utf-8")) == result
     assert _generation_ids(isolated_audit_seed_dsn) == [result["generation_id"]]
+    # With no view materializer, the publish hook alone must leave the ontology
+    # read answering: the read fails loud when the rollup is missing.
+    with psycopg.connect(isolated_audit_seed_dsn) as conn:
+        rollup = read_ontology_rollup(
+            conn,
+            deployment_name="audit-fixture",
+            generation_id=result["generation_id"],
+        )
+    assert sum(row.edge_count for row in rollup.rows) == result["edges_live"]
     with psycopg.connect(isolated_audit_seed_dsn) as conn, conn.cursor() as cur:
         cur.execute(
             """

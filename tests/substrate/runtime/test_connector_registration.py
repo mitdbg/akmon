@@ -539,7 +539,7 @@ def test_runnable_example_names_no_okg_release():
     project = tomllib.loads((example / "pyproject.toml").read_text())["project"]
     okg_requirements = [
         item for item in project["dependencies"]
-        if re.match(r"okg\b(?![-_])", item)
+        if re.match(r"akmon\b(?![-_])", item)
     ]
     package = (example / "src/okg_example_records/package.py").read_text()
     window = dict(re.findall(
@@ -548,10 +548,10 @@ def test_runnable_example_names_no_okg_release():
         re.M,
     ))
     assert okg_requirements == [
-        f"okg>={window['OKG_MIN_VERSION']},<{window['OKG_MAX_VERSION_EXCLUSIVE']}"
+        f"akmon>={window['OKG_MIN_VERSION']},<{window['OKG_MAX_VERSION_EXCLUSIVE']}"
     ]
 
-    pinned = re.compile(r"okg==|okg-\d[^\s\"']*\.whl|\d+\.\d+\.\d+ today")
+    pinned = re.compile(r"(?:okg|akmon)==|(?:okg|akmon)-\d[^\s\"']*\.whl|\d+\.\d+\.\d+ today")
     offenders = [
         f"{path.relative_to(example)}:{number}"
         for path in sorted(example.rglob("*"))

@@ -702,7 +702,7 @@ def _jsonb(value: Any) -> Any:
         from psycopg.types.json import Jsonb
     except ImportError as exc:  # pragma: no cover - exercised in import test.
         raise RuntimeError(
-            "psycopg is required for PostgresMailboxStore; install okg[mailbox]"
+            "psycopg is required for PostgresMailboxStore; install akmon[mailbox]"
         ) from exc
     return Jsonb(value)
 

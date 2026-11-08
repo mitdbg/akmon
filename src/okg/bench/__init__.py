@@ -21,6 +21,6 @@ Modules (import them directly; nothing heavy loads on a bare
   generated deployments.
 
 Heavy optional dependencies ride the ``[bench]`` extra (``pip install
-'okg[bench]'``); modules that need them raise a loud install hint, never a
+'akmon[bench]'``); modules that need them raise a loud install hint, never a
 silent degrade.
 """

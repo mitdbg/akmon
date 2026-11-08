@@ -507,10 +507,6 @@ _KNOWN_BYPASSES: dict[tuple[str, str], tuple[int, str]] = {
     ("substrate/library/sources/profile_measurements.py", _OKG_DEFAULT): (
         1, "target_kind or okg defaults a measurement label; not a program",
     ),
-    ("substrate/support/bug_report.py", _BARE_OKG): (
-        1, "(okg, pz-okg) are distribution names whose versions the report "
-        "reads; nothing is launched",
-    ),
     ("bench/ab/arms/claude_code.py", _RUNNER_OKG): (
         1, "benchmark arm serves MCP from an explicit okg checkout "
         "(uv run --project <okg_repo_root>)",

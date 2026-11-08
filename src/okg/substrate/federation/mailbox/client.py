@@ -37,7 +37,7 @@ class MailboxPollingClient:
                 import httpx
             except ImportError as exc:  # pragma: no cover - optional extra.
                 raise RuntimeError(
-                    "httpx is required for MailboxPollingClient; install okg[mailbox]"
+                    "httpx is required for MailboxPollingClient; install akmon[mailbox]"
                 ) from exc
             client = httpx.Client(timeout=timeout)
         self.client = client

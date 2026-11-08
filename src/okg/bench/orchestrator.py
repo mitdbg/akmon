@@ -57,7 +57,7 @@ try:
 except ImportError as _jinja_exc:  # pragma: no cover - exercised in wheel test
     raise ImportError(
         "okg.bench.orchestrator needs jinja2 — install the bench extra: "
-        "pip install 'okg[bench]'"
+        "pip install 'akmon[bench]'"
     ) from _jinja_exc
 from psycopg import sql
 from psycopg.rows import dict_row

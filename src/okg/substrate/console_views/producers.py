@@ -1,13 +1,13 @@
 """One read for every producer of a deployment, in one row shape.
 
 The console's Sources view is one table of everything that puts records into
-the graph: the configured sources, the enrichers that derive from them, and
-the views that build rows. Until now that table was three reads folded in the
-browser, and the fold had to guess which runtime key belonged to which
+the graph: the configured sources and the enrichers that derive from them.
+(View producers were retired in akmon-views-on-concord.) Until now that table
+was several reads folded in the browser, and the fold had to guess which runtime key belonged to which
 configured name. The identity is the registry's (`producer_identity`), and the
 shape is this module's.
 
-This composer adds no query of its own. It projects the three diagnostics
+This composer adds no query of its own. It projects the two diagnostics
 composers, which between them issue one grouped statement per underlying
 table: the maintained count rollup, `okg.source_progress`, and
 `okg.v_source_run_diagnostics` read with `registry_source_name = ANY(...)`.
@@ -55,7 +55,6 @@ SCHEMA = "okg.console.producers.v1"
 
 KIND_SOURCE = "source"
 KIND_ENRICHER = "enricher"
-KIND_VIEW = "view"
 
 
 class ProducersParameterError(ValueError):
@@ -337,66 +336,6 @@ def _enricher_row(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _view_row(row: Mapping[str, Any]) -> dict[str, Any]:
-    """A `console/view-diagnostics` view, in the one row shape.
-
-    A view builds rows; it emits no relationships, so its `edges_in_gen` is
-    null with a reason rather than a zero that reads as "none this time".
-    """
-    contribution = _mapping(row.get("contribution"))
-    latest = _mapping(row.get("latest_run"))
-    return {
-        "name": row.get("name"),
-        "ownership_id": row.get("producer_key") or row.get("name"),
-        "kind": KIND_VIEW,
-        "row_key": (
-            f"{KIND_VIEW}:{row.get('producer_key') or row.get('name')}"
-        ),
-        "configured": True,
-        "health": {
-            "status": row.get("status"),
-            "incident_count": None,
-        },
-        "workflow": {
-            "state": row.get("status"),
-            "status": row.get("status"),
-            "active": None,
-            # What the view read recorded about this view, verbatim.
-            #
-            # This was hard-nulled with the reason
-            # `view_diagnostics_records_no_issue`, which is not true: `_issue`
-            # in `console_views/view_diagnostics.py` composes one, and every
-            # one of okg-workspace's eight views carries "No materialization
-            # run is recorded." Nothing downstream could see it, so a console
-            # reading this route printed "The run recorded no error text" over
-            # a read that had recorded exactly why. The reason now fires only
-            # where the read really carried none.
-            "latest_issue": row.get("latest_issue"),
-            "latest_issue_unavailable_reason": (
-                None if row.get("latest_issue")
-                else "view_diagnostics_recorded_no_issue_for_this_view"
-            ),
-            "reason": None,
-            "reason_unavailable_reason": "a_view_has_no_convergence_row",
-            "blocking_stage": None,
-        },
-        "contribution": {
-            "records_in_gen": contribution.get("records_in_gen", 0),
-            "edges_in_gen": None,
-            "edges_unavailable_reason": "a_view_emits_no_relationships",
-            "horizon": "pinned_generation",
-        },
-        "freshness": {
-            "status": "last_run_age_only",
-            "age": row.get("last_run_age"),
-        },
-        "latest_run": _adapt_run(latest) if latest else None,
-        "latest_run_unavailable_reason": None if latest else "no_view_run_rows",
-        "run_count": None,
-        "run_count_unavailable_reason": "view_run_summary_absent",
-    }
-
-
 #: Keys a read_authority sub-tree must never carry into the payload, whatever
 #: depth they sit at. `error` is `str(exc)`: on a database or a connection
 #: failure that is a table name, a fragment of SQL, the host the driver dialled
@@ -415,7 +354,7 @@ def _withhold(node: Any) -> Any:
     today's version happens to have: a sub-read added later cannot smuggle a
     message through by nesting it one level deeper than this read knew about.
 
-    What survives is what the enricher and view branches below already serve:
+    What survives is what the enricher branch below already serves:
     the status, the reason code and the exception's class.
     """
     if isinstance(node, Mapping):
@@ -656,9 +595,6 @@ def compose_producers(
     from okg.substrate.console_views.source_diagnostics import (
         compose_source_diagnostics,
     )
-    from okg.substrate.console_views.view_diagnostics import (
-        compose_view_diagnostics,
-    )
 
     from okg.substrate.console_views.console_count_rollup_read import (
         COUNT_KIND_EDGE_SOURCE,
@@ -733,13 +669,13 @@ def compose_producers(
             if str(key) not in WITHHELD_AUTHORITY_KEYS
         }
         # Deliberately no `kind`. That key means "no producer of this kind is
-        # listed", which is the enricher and view case below and is not this
+        # listed", which is the enricher case below and is not this
         # one: every source is still in the table.
         carried.pop("kind", None)
         carried.setdefault("affects", "source_fields")
         omitted.append(carried)
 
-    # An enricher or view read that fails names itself; it does not silently
+    # An enricher read that fails names itself; it does not silently
     # shorten the one table the operator reads as complete.
     try:
         enricher_payload = compose_enricher_diagnostics(
@@ -768,30 +704,6 @@ def compose_producers(
             "error_type": type(exc).__name__,
         }
         omitted.append({"authority": "enricher_diagnostics", "kind": KIND_ENRICHER})
-
-    try:
-        view_payload = compose_view_diagnostics(
-            conn,
-            deployment_name=deployment_name,
-            deployment_dir=deployment_dir,
-            session=session,
-        )
-        for row in view_payload.get("views") or []:
-            rows.append(_view_row(row))
-        read_authority["views"] = {"status": "available"}
-    except Exception as exc:  # noqa: BLE001 - name the authority that failed.
-        read_authority["views"] = {
-            "status": "unavailable",
-            "reason": "view_diagnostics_composer_failed",
-            # The class, never the message. `str(exc)` on a database error
-            # carries a table name, a column, a fragment of SQL and on some
-            # drivers the DSN, into a payload a browser renders. The reason
-            # code says which authority failed and the class says how; the
-            # message belongs in the server log, which is where the route's
-            # 503 body already tells an operator to look.
-            "error_type": type(exc).__name__,
-        }
-        omitted.append({"authority": "view_diagnostics", "kind": KIND_VIEW})
 
     payload: dict[str, Any] = {
         "schema": SCHEMA,

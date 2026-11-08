@@ -205,7 +205,7 @@ else:
     raise AssertionError("invalid registry was admitted")
 resources = schemas_dir()
 assert resources == Path(okg.__file__).parent / "_schemas"
-record = {str(path) for path in distribution("okg").files}
+record = {str(path) for path in distribution("akmon").files}
 assert all("okg/_schemas/" + path.name in record for path in resources.iterdir())
 print(json.dumps({path.name: path.read_text() for path in resources.iterdir()}))
 """,

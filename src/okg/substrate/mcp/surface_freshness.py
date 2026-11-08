@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from okg import DISTRIBUTION
 from okg.substrate.mcp.provenance import UNTRUSTED_DATA_CONTRACT
 
 
@@ -51,7 +52,7 @@ def mcp_surface_report(
         ),
         "computed_from": [
             "effective_instructions",
-            "importlib.metadata.version('okg')",
+            f"importlib.metadata.version({DISTRIBUTION!r})",
             *([revision_source] if revision_source else []),
         ],
         "git_revision_source": revision_source,
@@ -141,7 +142,7 @@ def _sha256_text(text: str) -> str:
 
 def _package_version() -> str | None:
     try:
-        return importlib.metadata.version("okg")
+        return importlib.metadata.version(DISTRIBUTION)
     except importlib.metadata.PackageNotFoundError:
         return None
 

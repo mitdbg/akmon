@@ -42,7 +42,7 @@ _SYSTEM_EXE = "/usr/bin/python3"
 
 def _expected_okg_version() -> str | None:
     try:
-        return importlib.metadata.version("okg")
+        return importlib.metadata.version("akmon")
     except importlib.metadata.PackageNotFoundError:
         return None
 
@@ -145,7 +145,7 @@ def test_annotate_package_form_under_uv_tool_shim(
     )
     assert _UV_TOOL_EXE in message
     assert UV_TOOL_ENVIRONMENT in message
-    assert "uv tool install okg --with pymupdf" in fix_hint
+    assert "uv tool install akmon --with pymupdf" in fix_hint
     assert "Original hint: Install pymupdf." in fix_hint
     assert data == {
         "interpreter": _UV_TOOL_EXE,
@@ -164,12 +164,12 @@ def test_annotate_passes_hint_through_off_the_shim(
     )
     message, fix_hint, data = annotate_optional_dependency_error(
         "gliner package not installed",
-        "pip install 'okg[nlp]'",
+        "pip install 'akmon[nlp]'",
         extras=("nlp",),
     )
     assert _SYSTEM_EXE in message
     assert SYSTEM_INTERPRETER in message
-    assert fix_hint == "pip install 'okg[nlp]'"
+    assert fix_hint == "pip install 'akmon[nlp]'"
     assert data["environment_kind"] == SYSTEM_INTERPRETER
 
 
@@ -215,7 +215,7 @@ def test_treesitter_error_under_uv_tool_shim_names_both_fix_forms(
     assert "globally installed uv tool" in err.fix_hint
     assert "not the checkout venv" in err.fix_hint
     # ...and gives BOTH fix forms.
-    assert 'uv tool install "okg[code,quality]"' in err.fix_hint
+    assert 'uv tool install "akmon[code,quality]"' in err.fix_hint
     assert "uv run --extra code --extra quality okg" in err.fix_hint
     # Structured payload for the JSON error envelope.
     assert err.data["interpreter"] == _UV_TOOL_EXE

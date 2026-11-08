@@ -116,8 +116,8 @@ def deployment(monkeypatch, tmp_path):
             "compose_console_readiness",
             _runtime,
         )
-        # The enricher and view composers are deliberately NOT stubbed: they
-        # run against the recording connection, so their statements are
+        # The enricher composer is deliberately NOT stubbed: it
+        # runs against the recording connection, so their statements are
         # counted too and the bound covers the whole read.
         return tmp_path
 
@@ -778,46 +778,6 @@ def test_an_enricher_carries_its_issue_in_every_state_that_records_one(
 
     assert row["workflow"]["latest_issue"] == recorded
     assert row["workflow"]["latest_issue_unavailable_reason"] is None
-
-
-@pytest.mark.parametrize(
-    ("status", "recorded"),
-    [
-        ("failing", "Latest materialization failed."),
-        ("unknown", "No materialization run is recorded."),
-        ("healthy", None),
-    ],
-)
-def test_a_view_carries_the_issue_its_own_read_recorded(status, recorded) -> None:
-    """`latest_issue` was hard-nulled for a view, under a reason that is false.
-
-    The row carried `latest_issue: None` with
-    `latest_issue_unavailable_reason: "view_diagnostics_records_no_issue"`,
-    and that composer records one: `_issue` in
-    `console_views/view_diagnostics.py` returns "Latest materialization
-    failed." for `failing` and "No materialization run is recorded." for
-    anything that is not `healthy`. Every one of okg-workspace's eight views
-    carries the second, so a console reading this route printed "The run
-    recorded no error text" over a read that had said exactly why.
-
-    `healthy` is the one state that really records none, and it keeps a reason
-    -- a different one, because the old code's reason claimed the READ records
-    no issue rather than that this view has none.
-    """
-    from okg.substrate.console_views.producers import _view_row
-
-    row = _view_row({
-        "name": "v", "producer_key": "view:v",
-        "status": status, "latest_issue": recorded,
-    })
-
-    assert row["workflow"]["latest_issue"] == recorded
-    if recorded is None:
-        assert row["workflow"]["latest_issue_unavailable_reason"] == (
-            "view_diagnostics_recorded_no_issue_for_this_view"
-        )
-    else:
-        assert row["workflow"]["latest_issue_unavailable_reason"] is None
 
 
 def _enricher_rollup(monkeypatch, *, source_count: int, node_count: int, edge_count: int):

@@ -236,6 +236,42 @@ def test_nomos_policy_source_ids_include_native_view_producer_for_views_registry
     assert "_system:native_views" in source_ids
 
 
+def test_nomos_policy_source_ids_keep_view_lineage_after_views_are_retired(
+    tmp_path: Path,
+) -> None:
+    """Retired view records must stay readable under an enforcing boundary."""
+    assert "_system:native_views" not in _nomos_policy_source_ids(
+        {"sources": {}},
+        deployment="okg-workspace",
+        deployment_dir=tmp_path,
+    )
+
+    (tmp_path / "retired_view_lineage.yaml").write_text("sources: []\n", encoding="utf-8")
+
+    source_ids = _nomos_policy_source_ids(
+        {"sources": {}},
+        deployment="okg-workspace",
+        deployment_dir=tmp_path,
+    )
+
+    assert "catalog:views_registry" in source_ids
+    assert "_system:native_views" in source_ids
+
+
+def test_okg_workspace_declares_its_retired_view_lineage() -> None:
+    """okg-workspace enforces Nomos and still holds retired view records."""
+    root = Path(__file__).resolve().parents[3] / "deployments" / "okg-workspace"
+
+    source_ids = _nomos_policy_source_ids(
+        {"sources": {}},
+        deployment="okg-workspace",
+        deployment_dir=root,
+    )
+
+    assert "catalog:views_registry" in source_ids
+    assert "_system:native_views" in source_ids
+
+
 def test_nomos_policy_source_ids_include_configured_derived_producers(
     tmp_path: Path,
 ) -> None:

@@ -256,7 +256,7 @@ def wheel_identity(okg_executable: Path, wheels: list[Path]) -> dict[str, Any]:
         "        return m.version(n)\n"
         "    except m.PackageNotFoundError:\n"
         "        return '-'\n"
-        "print(v('okg'));print(v('archi'))"
+        "print(v('akmon'));print(v('archi'))"
     )
     version = _run([str(python), "-c", program]).stdout.split()
     if len(version) != 2 or version[0] == "-":

@@ -182,8 +182,7 @@ def _is_sentinel_row(src: str, edge: str, dst: str, producer: str) -> bool:
 
 # SQL fragment (chronos `:name` params) computing a single edge's producer from
 # its ``source`` / ``source_record_id``. Shared by the running-sum + full-recount
-# paths so the two can never diverge. NOTE: kept byte-identical (modulo table
-# alias) to deployments/okg-workspace/views/ontology_graph_rollup._PRODUCER_EXPR.
+# paths so the two can never diverge.
 _PRODUCER_EXPR = f"""
   CASE
     WHEN e.source = '{PUBLISHER_DERIVED_SOURCE}'

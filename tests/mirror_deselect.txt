@@ -55,11 +55,6 @@ tests/substrate/mcp/test_effective_surface.py::test_the_workspace_block_keeps_qu
 tests/substrate/mcp/test_effective_surface.py::test_the_workspace_deployment_files_agree_with_its_block  # pins private deployments' real manifests/instructions
 tests/substrate/nomos/test_nomos_baseline_reconcile.py::test_workspace_baseline_covers_declared_derived_source_families  # okg-workspace baseline
 tests/substrate/nomos/test_nomos_runtime_enforcement.py::test_protected_repository_deployments_enable_runtime_enforcement  # okg-workspace/okg-ci posture
-tests/substrate/source_sync/test_sync_commit_replay_benchmarks.py::test_module_exports_required_symbols  # subject is deployments/okg-workspace/views/sync_commit_replay_benchmarks.py
-tests/substrate/source_sync/test_sync_commit_replay_benchmarks.py::test_registry_declares_sync_commit_replay_benchmark_view  # subject is deployments/okg-workspace/views/sync_commit_replay_benchmarks.py
-tests/substrate/source_sync/test_sync_commit_replay_benchmarks.py::test_replay_rows_summarize_csv_diagnostics_and_source_health_context  # subject is deployments/okg-workspace/views/sync_commit_replay_benchmarks.py
-tests/substrate/source_sync/test_sync_commit_replay_benchmarks.py::test_view_def_declares_relation_with_required_columns  # subject is deployments/okg-workspace/views/sync_commit_replay_benchmarks.py
-tests/substrate/source_sync/test_sync_commit_replay_benchmarks.py::test_workspace_registry_exposes_replay_benchmark_factory  # subject is deployments/okg-workspace/views/sync_commit_replay_benchmarks.py
 tests/substrate/test_chat_identity_tokens.py::test_okg_workspace_accent_resolves_to_current_value  # pins okg-workspace accent
 tests/substrate/test_chat_sync_projection.py::Test_query_exclusion::test_okg_workspace_inputs_load_and_exclude_query  # pins okg-workspace's real manifest
 tests/substrate/test_chat_sync_projection.py::Test_query_exclusion::test_okg_workspace_resolves_masked  # pins okg-workspace's real manifest
@@ -69,7 +64,6 @@ tests/substrate/test_deployment_upgrade.py::test_okg_workspace_backup_selects_qu
 tests/substrate/test_dogfood_authority.py::test_checked_in_compose_descriptor_carries_no_absolute_path  # tracked okg-workspace compose descriptor
 tests/substrate/test_dogfood_authority.py::test_checked_in_compose_descriptor_matches_the_renderer  # tracked okg-workspace compose descriptor
 tests/substrate/test_dogfood_authority.py::test_checked_in_compose_descriptor_requires_password_environment  # tracked okg-workspace compose descriptor
-tests/substrate/test_source_sync_optimization_ledger.py::test_okg_workspace_view_composition_executes_owner  # imports okg-workspace/views/source_optimization_ledger.py
 tests/substrate/test_source_sync_registry_coverage.py::test_git_file_watch_events_do_not_duplicate_downstream_watchers  # asserts okg-workspace registry sync config
 tests/substrate/test_source_sync_registry_coverage.py::test_okg_workspace_built_in_sources_declare_sync_capabilities  # asserts okg-workspace registry sync config
 tests/substrate/test_source_sync_registry_coverage.py::test_transcript_watch_events_are_scoped_and_compacted  # asserts okg-workspace registry sync config
@@ -146,7 +140,6 @@ tests/substrate/mcp/test_capability_probe.py::test_an_agent_surface_instructions
 tests/docs/test_docs_task_navigation.py::test_ci_and_quality_runbooks_are_off_the_site  # docs/runbooks/ci/ and quality/ do not ship, so documentation.yaml has nothing to list
 
 # --- Found by the v0.2.0 release-commit proof (98e7e266e2), 2026-10-19 -------
-tests/substrate/test_deployment_views_helper.py::test_helper_imports_deployment_views_and_restores_state  # imports deployments/okg-workspace/views, which does not ship
 tests/substrate/test_environment_ui_auth_review_fixes.py::test_install_time_and_running_ui_agree_on_sensitivity_for_shipped_environments  # reads ops/environments/, which does not ship
 tests/substrate/test_environment_ui_auth_review_fixes.py::test_shipped_ui_environments_name_the_token_variable_and_no_value  # reads ops/environments/, which does not ship
 

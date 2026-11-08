@@ -1579,8 +1579,10 @@ def _validate_manifest(manifest: DistributionPackageManifest) -> None:
 def installed_okg_version() -> str:
     """Return the running OKG distribution version, or refuse."""
 
+    from okg import DISTRIBUTION
+
     try:
-        return importlib.metadata.version("okg")
+        return importlib.metadata.version(DISTRIBUTION)
     except importlib.metadata.PackageNotFoundError as exc:
         raise DistributionPackageError(
             "okg_version_unknown",

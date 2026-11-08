@@ -696,7 +696,7 @@ def current_release_artifact(manifest: DeploymentManifest) -> ReleaseArtifact:
             },
             fix_hint=(
                 "install okg from a built wheel (`pip install "
-                "okg-<version>.whl`) into the environment that runs this "
+                "akmon-<version>-py3-none-any.whl`) into the environment that runs this "
                 "command, or remove `release.kind: distribution`"
             ),
         )

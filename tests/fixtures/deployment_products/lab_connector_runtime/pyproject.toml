@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "okg-test-lab-runtime"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["okg>=0.1.0,<1"]
+dependencies = ["akmon>=0.1.0,<1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

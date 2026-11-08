@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     printf 'setuptools==83.0.0\n' > /tmp/build-constraints.txt \
     && OKG_BUILD_SOURCE_REVISION="${VCS_REF}" uv build --wheel \
         --build-constraints /tmp/build-constraints.txt --out-dir /dist \
-    && test "$(ls /dist/okg-*.whl | wc -l)" = 1
+    && test "$(ls /dist/akmon-*.whl | wc -l)" = 1
 
 FROM ghcr.io/astral-sh/uv@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 AS runtime
 
@@ -106,7 +106,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY . .
 COPY --from=wheel /dist/ /tmp/okg-wheel/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --python /opt/okg/.venv/bin/python3 --no-deps /tmp/okg-wheel/okg-*.whl \
+    uv pip install --python /opt/okg/.venv/bin/python3 --no-deps /tmp/okg-wheel/akmon-*.whl \
     && rm -rf /tmp/okg-wheel \
     && test "$(head -n 1 /opt/okg/.venv/bin/okg)" = "#!/opt/okg/.venv/bin/python3" \
     && cd / \

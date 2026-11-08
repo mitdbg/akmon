@@ -35,13 +35,18 @@ census:
 
 totals:
   basis: recorded
-  records: 122366
+  # The census counted 122,366 records in 62 types from 20 sources; that
+  # included 8 `view` records the publisher wrote for the okg-workspace views.
+  # Those views were retired (akmon-views-on-concord), so a publish no longer
+  # writes them and the totals below are the census minus those 8 records,
+  # their one type and their one source.
+  records: 122358
   relationships: 741364
-  record_types: 62
+  record_types: 61
   relationship_types: 14
-  # Sources that own at least one live record (20) and that own at least one
+  # Sources that own at least one live record (19) and that own at least one
   # live relationship (21 including five enricher producers).
-  record_sources: 20
+  record_sources: 19
 
 # Live relationships per producer (census edge_source). The derived triple
 # split under `edges` plus `enricher_edges` must sum to exactly these.
@@ -87,10 +92,11 @@ relationship_types:
   verified_by: 2
   caption_of: 2
 
-# Live records per (owning source, record type). basis: recorded, all 74
-# source x subtype pairs from the census rollup. Every pair except the
-# `_system:native_views` one is written by the generator under that source's
-# real owner id and must match a node the source declares in
+# Live records per (owning source, record type). basis: recorded, the 73
+# source x subtype pairs from the census rollup that a publish still produces
+# (the 74th, `_system:native_views` `view`, went with the retired views).
+# Every pair is written by the generator under that source's real owner id
+# and must match a node the source declares in
 # deployments/okg-workspace/source_registry.yaml (the generator refuses a pair
 # the registry does not declare).
 nodes:
@@ -189,11 +195,11 @@ nodes:
     dependency_vulnerability: 1
 
 # Records the generator does NOT write: the publish itself produces them. The
-# build checks each count after the publish instead of writing it.
+# build checks each count after the publish instead of writing it. None since
+# the okg-workspace views were retired (akmon-views-on-concord): the census's
+# 8 `_system:native_views` `view` records are no longer published.
 publisher_nodes:
   basis: recorded
-  _system:native_views:
-    view: 8
 
 # Live relationships per source, split across that source's declared triples
 # as [src_subtype, edge_type, dst_subtype, count].

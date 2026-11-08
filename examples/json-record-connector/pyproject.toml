@@ -7,11 +7,12 @@ name = "okg-example-records"
 version = "0.1.0"
 description = "Complete public OKG SDK JSON reader example"
 requires-python = ">=3.12,<3.14"
-# The okg range is the same release window the distribution package declares
-# (OKG_MIN_VERSION and OKG_MAX_VERSION_EXCLUSIVE in package.py), not one
-# release: the recipe installs the okg wheel built from your checkout,
-# whatever version that checkout declares.
-dependencies = ["okg>=0.1.0,<9.0.0", "jsonschema>=4.26.0", "pyyaml>=6.0.3"]
+# The framework's distribution is akmon (it imports as okg). The range is the
+# same release window the distribution package declares (OKG_MIN_VERSION and
+# OKG_MAX_VERSION_EXCLUSIVE in package.py), not one release: the recipe
+# installs the akmon wheel built from your checkout, whatever version that
+# checkout declares.
+dependencies = ["akmon>=0.1.0,<9.0.0", "jsonschema>=4.26.0", "pyyaml>=6.0.3"]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]

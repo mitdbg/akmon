@@ -321,7 +321,7 @@ def _pretend_okg_version(monkeypatch: pytest.MonkeyPatch, version: str) -> None:
     real_version = importlib.metadata.version
 
     def _version(name: str) -> str:
-        return version if name == "okg" else real_version(name)
+        return version if name == "akmon" else real_version(name)
 
     monkeypatch.setattr(importlib.metadata, "version", _version)
 
